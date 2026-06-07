@@ -82,6 +82,27 @@ Hinweis: Für die Test-Modi `telegram`/`signals`/`evaluate` muss zuerst mindeste
 
 ---
 
+## 📊 Web-Dashboard
+
+Zusätzlich zum Telegram-Bot gibt es ein Web-Dashboard mit Equity-Kurve, Trefferquote, P&L pro Ticker und aktiven Trades — pro Nutzer über einen privaten Token-Link.
+
+**Das Dashboard startet automatisch mit dem Bot** (`python bot.py`) — du brauchst lokal keinen zweiten Prozess. Im Telegram-Bot `/dashboard` senden → du bekommst deinen persönlichen Link.
+
+Der Link nutzt automatisch die **LAN-IP** dieses Rechners (z. B. `http://192.168.x.x:8000/dashboard/<token>`), funktioniert also auch **vom Handy im selben WLAN**. (`localhost` würde auf dem Handy auf das Handy selbst zeigen — deshalb die LAN-IP.)
+
+Konfiguration über die `.env`:
+
+- `DASHBOARD_BASE_URL` — leer lassen für Auto-LAN-IP; auf dem VPS deine Domain/öffentliche IP eintragen.
+- `RUN_DASHBOARD_IN_BOT=false` — wenn das Dashboard als eigener Dienst laufen soll.
+
+Auf einem Server entweder gebündelt mit dem Bot lassen, oder getrennt per `deploy/dashboard.service` (dann `RUN_DASHBOARD_IN_BOT=false`) dauerhaft betreiben:
+
+```bash
+python dashboard.py   # nur nötig, wenn separat vom Bot betrieben
+```
+
+---
+
 ## Beispiel-Nachricht
 
 ```
@@ -101,7 +122,7 @@ Hinweis: Für die Test-Modi `telegram`/`signals`/`evaluate` muss zuerst mindeste
 [ ✅ JA — Demo-Trade starten ] [ ❌ NEIN ]
 ```
 
-## Beispiel-Auswertung (15:30 Uhr)
+## Beispiel-Auswertung (nach US-Börsenschluss)
 
 ```
 📋 Tagesauswertung Demo-Trades

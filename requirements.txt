@@ -1,5 +1,10 @@
 python-telegram-bot[job-queue]
 yfinance
 numpy
+pandas
 python-dotenv
 cryptography
+fastapi
+uvicorn[standard]
+requests
+lxml

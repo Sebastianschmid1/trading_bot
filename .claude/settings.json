@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"import fastapi, uvicorn; print\\('fastapi', fastapi.__version__, '| uvicorn', uvicorn.__version__\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m uvicorn dashboard:app --host 127.0.0.1 --port 8011 --log-level warning)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python dashboard.py)",
+      "Bash(python bot.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_bot.py example)",
+      "Bash(powershell -Command 'if \\(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue\\) { '\\\\''belegt'\\\\''; Get-CimInstance Win32_Process -Filter \"Name='\\\\''python.exe'\\\\''\" | Where-Object { $_.CommandLine -like '\\\\''*bot.py*'\\\\'' -or $_.CommandLine -like '\\\\''*dashboard*'\\\\'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force } } else { '\\\\''frei'\\\\'' }')",
+      "Bash(powershell -Command \"Get-Content logs/bot.log -Tail 40 | Select-String -Pattern 'Signal gesendet|Top .* Signale|Analysiere|Signal|gesendet|verkauft|aktiviert' \")",
+      "Bash(powershell -Command \"Get-Content logs/bot.log -Tail 30\")",
+      "Bash(powershell -Command 'Select-String -Path logs/bot.log -Pattern '\\\\''NVDA|TSLA|875|245\\\\.6|Signal gesendet|Top \\\\d Signale'\\\\'' | Select-Object -Last 25 | ForEach-Object { $_.Line }')",
+      "Bash(powershell -Command 'Get-CimInstance Win32_Process -Filter \"Name='\\\\''python.exe'\\\\''\" | Where-Object { $_.CommandLine -like '\\\\''*bot.py*'\\\\'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; '\\\\''alte Instanz beendet'\\\\''')",
+      "Bash(PYTHONIOENCODING=utf-8 python test_signals.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_settings.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_universes.py)",
+      "Bash(grep -vE \"Failed|delisted|YFTzMissing|possibly|^\\\\$\")"
+    ]
+  }
+}

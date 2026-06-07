@@ -1,0 +1,23 @@
+# systemd-Unit für das Web-Dashboard (läuft neben stockbot.service).
+# Installation: sudo cp deploy/dashboard.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#               sudo systemctl enable --now dashboard
+#
+# Passe USER und die Pfade an, falls dein Linux-User nicht "pi" heißt
+# oder das Repo nicht in /home/pi/stockbot liegt.
+
+[Unit]
+Description=Stock Signal Bot — Web Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/stockbot
+EnvironmentFile=/home/pi/stockbot/.env
+ExecStart=/home/pi/stockbot/venv/bin/python /home/pi/stockbot/dashboard.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

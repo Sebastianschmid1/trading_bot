@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📊 Trading Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1420; --card: #1a2030; --border: #2a3245;
+      --text: #e6e9ef; --muted: #8a93a6; --green: #2ecc71; --red: #e74c3c; --accent: #4f8cff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, sans-serif; padding: 1.5rem; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.4rem; } h1 small { color: var(--muted); font-weight: 400; font-size: .9rem; }
+    .meta { color: var(--muted); font-size: .85rem; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.2rem; }
+    .card .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+    .card .value { font-size: 1.7rem; font-weight: 700; margin-top: .35rem; }
+    .green { color: var(--green); } .red { color: var(--red); }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; }
+    .panel h2 { font-size: 1rem; margin-bottom: 1rem; color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: .55rem .5rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .badge { font-size: .75rem; padding: .15rem .5rem; border-radius: 6px; background: #243; color: var(--green); }
+    .empty { color: var(--muted); text-align: center; padding: 1.5rem; }
+    #error { display: none; background: #3a1f24; border: 1px solid #5a2a30; color: #ffb3bd; padding: 1rem; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="error"></div>
+    <header>
+      <h1>📊 Trading Dashboard <small id="user"></small></h1>
+      <div class="meta" id="generated"></div>
+    </header>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="panel">
+      <h2>📈 Equity-Kurve (kumuliertes P&L)</h2>
+      <canvas id="equityChart" height="90"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>🎯 P&L pro Ticker</h2>
+      <canvas id="tickerChart" height="90"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>🔵 Aktive Demo-Trades</h2>
+      <div id="active"></div>
+    </div>
+  </div>
+
+  <script>
+    const token = window.location.pathname.split("/").filter(Boolean).pop();
+    const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
+    const cls = (n) => n >= 0 ? "green" : "red";
+
+    function replaceCanvas(id, msg) {
+      const c = document.getElementById(id);
+      const div = document.createElement("div");
+      div.className = "empty";
+      div.textContent = msg;
+      c.replaceWith(div);
+    }
+
+    async function load() {
+      try {
+        const res = await fetch(`/api/${token}/data`);
+        if (!res.ok) throw new Error("Daten konnten nicht geladen werden (Token ungültig?).");
+        render(await res.json());
+      } catch (e) {
+        const el = document.getElementById("error");
+        el.style.display = "block";
+        el.textContent = "⚠️ " + e.message;
+      }
+    }
+
+    function render(d) {
+      const s = d.summary;
+      document.getElementById("user").textContent = "· @" + d.username;
+      document.getElementById("generated").textContent = "Stand: " + d.generated_at;
+
+      document.getElementById("cards").innerHTML = `
+        <div class="card"><div class="label">Gesamt P&L</div><div class="value ${cls(s.total_pnl)}">${fmt(s.total_pnl)}</div></div>
+        <div class="card"><div class="label">Trefferquote</div><div class="value">${s.win_rate}%</div></div>
+        <div class="card"><div class="label">Gewinner / Verlierer</div><div class="value"><span class="green">${s.wins}</span> / <span class="red">${s.losses}</span></div></div>
+        <div class="card"><div class="label">Abgeschlossen</div><div class="value">${s.total_closed}</div></div>
+        <div class="card"><div class="label">Aktiv</div><div class="value">${s.active_count}</div></div>
+        <div class="card"><div class="label">Trade-Größe</div><div class="value">${d.trade_size_eur.toFixed(0)}€</div></div>
+      `;
+
+      const noData = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
+
+      // Equity-Kurve
+      const eq = d.equity;
+      if (!eq.length) {
+        replaceCanvas("equityChart", noData);
+      } else {
+        new Chart(document.getElementById("equityChart"), {
+          type: "line",
+          data: {
+            labels: eq.map(p => p.date),
+            datasets: [{
+              data: eq.map(p => p.cumulative),
+              borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.12)",
+              fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3,
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
+            }
+          }
+        });
+      }
+
+      // P&L pro Ticker
+      const ts = d.ticker_stats;
+      if (!ts.length) {
+        replaceCanvas("tickerChart", noData);
+      } else {
+        new Chart(document.getElementById("tickerChart"), {
+          type: "bar",
+          data: {
+            labels: ts.map(t => t.ticker),
+            datasets: [{
+              data: ts.map(t => t.pnl),
+              backgroundColor: ts.map(t => t.pnl >= 0 ? "#2ecc71" : "#e74c3c"),
+              borderRadius: 4,
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: "#8a93a6" }, grid: { display: false } },
+              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
+            }
+          }
+        });
+      }
+
+      // Aktive Trades
+      const act = d.active_trades;
+      if (!act.length) {
+        document.getElementById("active").innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
+      } else {
+        document.getElementById("active").innerHTML = `
+          <table>
+            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einstieg</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
+            <tbody>${act.map(t => `
+              <tr>
+                <td><b>${t.ticker}</b></td>
+                <td><span class="badge">${t.direction.toUpperCase()}</span></td>
+                <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
+                <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
+                <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

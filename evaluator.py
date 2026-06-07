@@ -19,6 +19,17 @@ def get_current_price(ticker: str, fallback: float) -> float:
         return fallback
 
 
+def get_day_high_low(ticker: str, fallback: float) -> tuple[float, float]:
+    """Holt Tages-Hoch und -Tief der laufenden/letzten Session (für SL/TP-Prüfung)."""
+    try:
+        hist = yf.Ticker(ticker).history(period="1d")
+        if hist is not None and len(hist) > 0:
+            return float(hist["High"].iloc[-1]), float(hist["Low"].iloc[-1])
+    except Exception as e:
+        log.warning(f"Tagesspanne für {ticker} nicht abrufbar: {e}")
+    return fallback, fallback
+
+
 def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[dict]:
     """
     Berechnet P&L für alle aktiven Trades anhand der individuellen Trade-Größe des Nutzers.
@@ -31,7 +42,25 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
         entry     = trade["entry"]
         direction = trade["direction"]
 
-        exit_price = get_current_price(ticker, entry)
+        signal = trade.get("signal", {})
+        stop_loss   = signal.get("stop_loss")
+        take_profit = signal.get("take_profit")
+
+        close_price = get_current_price(ticker, entry)
+        exit_price  = close_price
+        exit_reason = "Schlusskurs"
+
+        # SL/TP-Prüfung anhand der Tagesspanne (nur long im Demo-Modus).
+        # Konservativ: bei beidseitigem Treffer am selben Tag zählt der Stop zuerst,
+        # da aus Tagesdaten die Reihenfolge nicht ableitbar ist.
+        if direction == "long" and stop_loss and take_profit:
+            day_high, day_low = get_day_high_low(ticker, close_price)
+            if day_low <= stop_loss:
+                exit_price  = stop_loss
+                exit_reason = "Stop-Loss 🛑"
+            elif day_high >= take_profit:
+                exit_price  = take_profit
+                exit_reason = "Take-Profit 🎯"
 
         # P&L berechnen
         if direction == "long":
@@ -48,10 +77,11 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
             "pnl_pct": pnl_pct,
             "pnl_eur": pnl_eur,
             "direction": direction,
+            "exit_reason": exit_reason,
         })
 
         log.info(
-            f"{ticker}: {entry:.2f} → {exit_price:.2f} | "
+            f"{ticker}: {entry:.2f} → {exit_price:.2f} ({exit_reason}) | "
             f"{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% | "
             f"{'+' if pnl_eur >= 0 else ''}{pnl_eur:.2f}€"
         )

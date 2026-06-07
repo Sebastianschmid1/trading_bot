@@ -7,6 +7,7 @@ Broker-Zugangsdaten) und Demo-Trades, jeweils pro user_id (== Telegram chat_id).
 import sqlite3
 import json
 import logging
+import secrets
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -31,6 +32,9 @@ CREATE TABLE IF NOT EXISTS users (
     broker_api_secret BLOB,
     onboarding_state  TEXT    NOT NULL DEFAULT 'in_progress',
     is_active         INTEGER NOT NULL DEFAULT 1,
+    dashboard_token   TEXT,
+    market_region     TEXT    NOT NULL DEFAULT 'sp500',
+    top_n_signals     INTEGER NOT NULL DEFAULT 5,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -62,6 +66,21 @@ def init_db():
     DB_FILE.parent.mkdir(exist_ok=True)
     with _connect() as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection):
+    """Additive Schema-Migrationen für bestehende Datenbanken (idempotent)."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "dashboard_token" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN dashboard_token TEXT")
+        log.info("Migration: Spalte users.dashboard_token ergänzt.")
+    if "market_region" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN market_region TEXT NOT NULL DEFAULT 'sp500'")
+        log.info("Migration: Spalte users.market_region ergänzt.")
+    if "top_n_signals" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN top_n_signals INTEGER NOT NULL DEFAULT 5")
+        log.info("Migration: Spalte users.top_n_signals ergänzt.")
 
 
 @contextmanager
@@ -102,6 +121,8 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "broker_platform":  row["broker_platform"],
         "onboarding_state": row["onboarding_state"],
         "is_active":        bool(row["is_active"]),
+        "market_region":    row["market_region"],
+        "top_n_signals":    row["top_n_signals"],
     }
 
 
@@ -174,6 +195,47 @@ def set_user_active(user_id: int, active: bool):
         )
 
 
+def set_market_region(user_id: int, region: str):
+    """Setzt den Markt-Bereich des Nutzers (z. B. 'sp500', 'msci_world', 'emerging')."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET market_region = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (region, user_id),
+        )
+
+
+def set_top_n(user_id: int, n: int):
+    """Setzt die gewünschte Anzahl täglicher Signale (auf 1..20 begrenzt)."""
+    n = max(1, min(20, int(n)))
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET top_n_signals = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (n, user_id),
+        )
+
+
+# ── Dashboard-Zugang (Token-basierter Link) ─────────────────────────────────
+
+def get_or_create_dashboard_token(user_id: int) -> str:
+    """Gibt den persönlichen Dashboard-Token zurück, erzeugt ihn bei Bedarf."""
+    with _connect() as conn:
+        row = conn.execute("SELECT dashboard_token FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        if row and row["dashboard_token"]:
+            return row["dashboard_token"]
+        token = secrets.token_urlsafe(24)
+        conn.execute("UPDATE users SET dashboard_token = ? WHERE user_id = ?", (token, user_id))
+    return token
+
+
+def get_user_by_token(token: str) -> dict | None:
+    """Löst einen Dashboard-Token zum Nutzerprofil auf (oder None bei ungültigem Token)."""
+    if not token:
+        return None
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM users WHERE dashboard_token = ?", (token,)).fetchone()
+    return _user_to_dict(row) if row else None
+
+
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────
 
 def _trade_to_dict(row: sqlite3.Row) -> dict:
@@ -187,24 +249,39 @@ def _trade_to_dict(row: sqlite3.Row) -> dict:
         "exit":       row["exit"],
         "pnl_eur":    row["pnl_eur"],
         "pnl_pct":    row["pnl_pct"],
+        "trade_date": row["trade_date"],
     }
 
 
-def add_pending(user_id: int, signal: dict, message_id: int):
-    """Fügt einen vorgemerkten Trade hinzu (noch nicht bestätigt)."""
+def has_trade_today(user_id: int, ticker: str) -> bool:
+    """True, wenn für diese Aktie heute bereits ein Signal/Trade existiert (egal welcher Status).
+    Basis für den Duplikat-Schutz: pro Aktie/Tag nur ein Signal."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ? LIMIT 1",
+            (user_id, _today(), ticker),
+        ).fetchone()
+    return row is not None
+
+
+def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
+    """Fügt einen vorgemerkten Trade hinzu. Gibt True zurück, wenn neu angelegt;
+    False, wenn für diese Aktie heute bereits ein Datensatz existiert (Duplikat-Schutz —
+    ein bereits aktiver/abgeschlossener Trade wird NICHT auf 'pending' zurückgesetzt)."""
     ticker = signal["ticker"]
     with _connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, message_id, status)
                VALUES (?, ?, ?, ?, ?, ?, 'pending')
-               ON CONFLICT (user_id, trade_date, ticker) DO UPDATE SET
-                   direction = excluded.direction,
-                   signal_json = excluded.signal_json,
-                   message_id = excluded.message_id,
-                   status = 'pending'""",
+               ON CONFLICT (user_id, trade_date, ticker) DO NOTHING""",
             (user_id, _today(), ticker, signal["direction"], json.dumps(signal, default=str), message_id),
         )
-    log.info(f"Trade vorgemerkt: user_id={user_id} {ticker}")
+        created = cur.rowcount > 0
+    if created:
+        log.info(f"Trade vorgemerkt: user_id={user_id} {ticker}")
+    else:
+        log.info(f"Trade übersprungen (heute schon vorhanden): user_id={user_id} {ticker}")
+    return created
 
 
 def activate_trade(user_id: int, ticker: str) -> dict | None:
@@ -292,5 +369,17 @@ def get_history(user_id: int, days: int = 30) -> list[dict]:
                WHERE user_id = ? AND status = 'closed' AND trade_date >= date('now', ?)
                ORDER BY trade_date DESC""",
             (user_id, f"-{days} days"),
+        ).fetchall()
+    return [_trade_to_dict(r) for r in rows]
+
+
+def get_closed_trades(user_id: int) -> list[dict]:
+    """Alle abgeschlossenen Trades des Nutzers, älteste zuerst (für Equity-Kurve & Statistik)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM trades
+               WHERE user_id = ? AND status = 'closed'
+               ORDER BY trade_date ASC, id ASC""",
+            (user_id,),
         ).fetchall()
     return [_trade_to_dict(r) for r in rows]
