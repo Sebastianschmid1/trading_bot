@@ -4,13 +4,25 @@ Konfiguration — hier alle Einstellungen anpassen
 
 import os
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
+
+load_dotenv()  # liest Werte aus einer .env-Datei im Projekt-Root, falls vorhanden
 
 # ── Telegram ────────────────────────────────────────────────────────────────
 # Hol dir deinen Token von @BotFather auf Telegram
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "DEIN_BOT_TOKEN_HIER")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN_ENV")
+print(f"🔐 Telegram Token: {'✓' if TELEGRAM_TOKEN else '✗'}")
 
-# Deine Telegram Chat-ID (bekommst du von @userinfobot)
-CHAT_ID = os.getenv("CHAT_ID", "DEINE_CHAT_ID_HIER")
+# ── Verschlüsselung (für gespeicherte Broker-API-Zugangsdaten) ──────────────
+# Einmalig generieren mit:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    raise RuntimeError(
+        "ENCRYPTION_KEY fehlt in .env — generiere einen mit:\n"
+        '  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+    )
+print(f"🔐 Encryption Key: {'✓' if ENCRYPTION_KEY else '✗'}")
 
 # ── Zeitplanung ─────────────────────────────────────────────────────────────
 BERLIN_TZ = ZoneInfo("Europe/Berlin")

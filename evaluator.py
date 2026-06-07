@@ -5,7 +5,6 @@ Holt Tagesschlusskurs und berechnet P&L
 
 import logging
 import yfinance as yf
-from config import TRADE_SIZE_EUR
 
 log = logging.getLogger(__name__)
 
@@ -20,9 +19,9 @@ def get_current_price(ticker: str, fallback: float) -> float:
         return fallback
 
 
-def evaluate_trades(active_trades: list[dict]) -> list[dict]:
+def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[dict]:
     """
-    Berechnet P&L für alle aktiven Trades.
+    Berechnet P&L für alle aktiven Trades anhand der individuellen Trade-Größe des Nutzers.
     Gibt Liste mit Ergebnissen zurück.
     """
     results = []
@@ -40,7 +39,7 @@ def evaluate_trades(active_trades: list[dict]) -> list[dict]:
         else:  # short
             pnl_pct = (entry - exit_price) / entry * 100
 
-        pnl_eur = TRADE_SIZE_EUR * (pnl_pct / 100)
+        pnl_eur = trade_size_eur * (pnl_pct / 100)
 
         results.append({
             "ticker":  ticker,

@@ -25,46 +25,60 @@ Tägliche Aktienempfehlungen per Telegram mit Demo-Trade-Tracking.
 2. Sende `/newbot` → Namen vergeben
 3. Token kopieren
 
-### 2. Deine Chat-ID herausfinden
-1. Starte deinen Bot (einmal `/start` senden)
-2. Öffne: `https://api.telegram.org/bot<DEIN_TOKEN>/getUpdates`
-3. `chat.id` aus der Antwort kopieren
-
-### 3. Installation
+### 2. Installation
 ```bash
 cd stockbot
 pip install -r requirements.txt
 ```
 
-### 4. Konfiguration
-```bash
-# Linux/Mac:
-export TELEGRAM_TOKEN="dein_token_hier"
-export CHAT_ID="deine_chat_id_hier"
+### 3. Konfiguration (`.env`)
 
-# Windows:
-set TELEGRAM_TOKEN=dein_token_hier
-set CHAT_ID=deine_chat_id_hier
+Kopiere `.env.example` zu `.env` und trage Token sowie einen Verschlüsselungs­schlüssel ein:
+
+```env
+TELEGRAM_TOKEN_ENV=dein_token_hier
+ENCRYPTION_KEY=generierten_schluessel_hier_einfuegen
 ```
 
-Oder direkt in `config.py` eintragen.
+Den `ENCRYPTION_KEY` einmalig generieren (er verschlüsselt die hinterlegten Broker-Zugangsdaten in der DB):
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
-### 5. Testen
+### 4. Bot starten
+
+```bash
+python bot.py
+```
+
+### 5. Registrieren (pro Nutzer)
+
+Der Bot ist **multi-user**: Jede Person registriert sich selbst per geführtem Setup-Dialog — eine zentrale Chat-ID gibt es nicht mehr.
+
+1. Eigenen Chat mit dem Bot öffnen und `/start` senden
+2. Dem Dialog folgen:
+   - Demo-Trade-Größe in € festlegen (z. B. `25`)
+   - Optional eine echte Trading-Plattform verbinden (z. B. `alpaca`) — API-Key/-Secret werden verschlüsselt gespeichert (`ENCRYPTION_KEY`) und die Nachrichten danach automatisch gelöscht
+   - Mit `ja`/`nein`, `/skip` oder `/cancel` durch den Dialog steuern
+3. Ab sofort erhält dieser Account täglich eigene Signale mit der eingestellten Trade-Größe
+
+### 6. Testen
+
 ```bash
 # Nur Analyse anzeigen (kein Telegram):
 python test_bot.py analyze
 
-# Signale sofort an Telegram senden:
+# Testnachricht an den ersten registrierten Nutzer senden:
+python test_bot.py telegram
+
+# Signale sofort an alle registrierten Nutzer senden:
 python test_bot.py signals
 
-# Aktive Trades sofort auswerten:
+# Aktive Trades des ersten registrierten Nutzers sofort auswerten:
 python test_bot.py evaluate
 ```
 
-### 6. Bot starten
-```bash
-python bot.py
-```
+Hinweis: Für die Test-Modi `telegram`/`signals`/`evaluate` muss zuerst mindestens ein Account per `/start` registriert sein.
 
 ---
 
