@@ -1,0 +1,22 @@
+# systemd-Unit für den Stock Signal Bot.
+# Installation: sudo cp deploy/stockbot.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#
+# Passe USER und die Pfade an, falls dein Linux-User nicht "pi" heißt
+# oder das Repo nicht in /home/pi/stockbot liegt.
+
+[Unit]
+Description=Stock Signal Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/stockbot
+EnvironmentFile=/home/pi/stockbot/.env
+ExecStart=/home/pi/stockbot/venv/bin/python /home/pi/stockbot/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
