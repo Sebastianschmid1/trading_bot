@@ -3,9 +3,10 @@
 Tägliche Aktienempfehlungen per Telegram mit Demo-Trade-Tracking.
 
 ## Features
-- **8:45 Uhr**: 5 S&P 500 Aktienempfehlungen mit technischer Analyse
+- **8:45 Uhr**: tägliche Aktienempfehlungen mit technischer Analyse (Bereich wählbar: S&P 500 / MSCI World / Emerging Markets)
 - **JA/NEIN Buttons**: Trade annehmen oder ablehnen
-- **15:30 Uhr**: Automatische Auswertung mit P&L-Berechnung
+- **22:15 Uhr**: Automatische Auswertung mit P&L-Berechnung (inkl. SL/TP)
+- **🐳 Smart-Money** (`/top5trade`): was große Trader (Insider + Institutionen) zuletzt gekauft haben; fließt auch ins Signal-Ranking ein
 - **Demo-Modus**: Kein echtes Geld, nur Tracking
 
 ## Analyse-Indikatoren
@@ -14,7 +15,10 @@ Tägliche Aktienempfehlungen per Telegram mit Demo-Trade-Tracking.
 | RSI | Über-/Unterkauft-Niveau (< 35 = bullish) |
 | MACD | Momentum und Trendwechsel |
 | MA50/MA200 | Kurz-/Langfristiger Trend |
+| Wochentrend | Übergeordneter Trend (Filter gegen Abwärtstrend) |
 | Volumen | Bestätigung durch Handelsinteresse |
+| Level | Support/Widerstand (wie oft getestet) |
+| 🐳 Smart-Money | Insider (Form 4) + Institutionen (13F): Netto-Käufe großer Trader |
 
 ---
 

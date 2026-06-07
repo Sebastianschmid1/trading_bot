@@ -158,3 +158,12 @@ BLOCK_WEEKLY_DOWNTREND = True
 ATR_PERIOD   = 14
 ATR_SL_MULT  = 1.5         # Stop-Loss  = Einstieg − 1.5 × ATR
 ATR_TP_MULT  = 2.5         # Take-Profit = Einstieg + 2.5 × ATR  (→ CRV ~1:1.7)
+
+# ── Smart-Money (was große Trader handeln: Insider + Institutionen) ──────────
+# Der Voll-Scan (1 yfinance-Abfrage pro Aktie) dauert Minuten und läuft daher
+# nachts als Hintergrund-Job; /top5trade und /signals lesen nur den Cache.
+SMARTMONEY_SCAN_HOUR       = 23     # nächtlicher Scan um...
+SMARTMONEY_SCAN_MIN        = 0      # ...23:00 Uhr (nach der 22:15-Auswertung)
+SMARTMONEY_CACHE_MAX_AGE_H = 36     # Cache gilt so lange als „frisch"
+SMARTMONEY_W_TECH  = 1.0           # Gewicht der technischen Stärke beim /signals-Re-Ranking
+SMARTMONEY_W_SMART = 0.5           # Gewicht des Smart-Money-Scores beim /signals-Re-Ranking

@@ -28,15 +28,17 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 import db
 import universes
+import smartmoney
 from onboarding import onboarding_conv_handler
-from analyzer import get_top_signals, analyze_universe
+from analyzer import analyze_universe
 from evaluator import evaluate_trades, get_current_price
 from config import (
     TELEGRAM_TOKEN,
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
     CLOSE_TIME_HOUR, CLOSE_TIME_MIN,
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
-    UNIVERSES, REGION_LABELS, DEFAULT_REGION, SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS
+    UNIVERSES, REGION_LABELS, DEFAULT_REGION, SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
+    SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN
 )
 
 logging.basicConfig(
@@ -83,6 +85,14 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
     else:
         risk_block = ""
 
+    # Smart-Money-Zeile (falls Score aus dem nächtlichen Scan vorliegt)
+    sm = signal.get("smart_money")
+    if sm:
+        sm_stars = "★" * sm["stars"] + "☆" * (5 - sm["stars"])
+        sm_line = f"  • 🐳 Smart-Money: {sm_stars} (Score {sm['score']})\n"
+    else:
+        sm_line = ""
+
     if market_open:
         footer = (
             f"⏰ Start nur innerhalb von {TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich\n"
@@ -112,6 +122,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         f"  • Wochentrend: {signal.get('weekly_comment', '—')}\n"
         f"  • Volumen: {signal['volume_comment']}\n"
         f"  • Level: {signal.get('sr_comment', '—')}\n"
+        f"{sm_line}"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"{risk_block}"
         f"💶 Demo-Trade: *{trade_size_eur:.0f}€ {signal['direction'].upper()}*\n"
@@ -188,7 +199,8 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
             await bot.send_message(chat_id=chat_id, text="⚠️ Analyse-Fehler — bitte später erneut versuchen.")
             continue
 
-        signals = ranked[:u.get("top_n_signals") or TOP_N_SIGNALS]
+        # Smart-Money-Score einblenden + danach neu reihen, dann auf Wunsch-Anzahl kürzen
+        signals = smartmoney.rank(ranked, u.get("top_n_signals") or TOP_N_SIGNALS)
         if not signals:
             await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
             continue
@@ -260,6 +272,25 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(0.5)
 
 
+# ── Smart-Money: nächtlicher Scan (was große Trader handeln) ─────────────────
+
+def _regions_in_use() -> set[str]:
+    """Markt-Bereiche aller aktiven Nutzer (für den Scan-Umfang)."""
+    return {u.get("market_region") or DEFAULT_REGION for u in db.list_active_users()} or {DEFAULT_REGION}
+
+
+async def scan_smart_money(context: ContextTypes.DEFAULT_TYPE):
+    """Job: Scannt nachts die genutzten Universen auf Insider-/Institutionen-Aktivität
+    und cacht die Smart-Money-Scores (langsam → läuft im Hintergrund, blockiert nichts)."""
+    tickers: set[str] = set()
+    for region in _regions_in_use():
+        tickers.update(universes.get_tickers(region))
+    log.info(f"Starte Smart-Money-Scan über {len(tickers)} Aktien…")
+    # in einen Thread auslagern: die yfinance-Aufrufe sind blockierend
+    await asyncio.to_thread(smartmoney.scan_universe, sorted(tickers), 0.2)
+    log.info("Smart-Money-Scan abgeschlossen.")
+
+
 # ── Manuelle Befehle (für registrierte Nutzer jederzeit verfügbar) ──────────
 
 def _registered_user(chat_id: int) -> dict | None:
@@ -305,7 +336,8 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🔍 Analysiere *{region_label}*… ⏳", parse_mode="Markdown")
     try:
-        signals = get_top_signals(tickers, top_n)
+        ranked = analyze_universe(tickers)
+        signals = smartmoney.rank(ranked, top_n)   # Smart-Money fließt ins Ranking ein
     except Exception as e:
         await update.message.reply_text(f"⚠️ Analyse-Fehler: {e}")
         return
@@ -484,17 +516,72 @@ INFO_TEXT = (
     "hinter einer Bewegung.\n\n"
     "🎯 *Level (Support/Widerstand)*\n"
     "Wichtige Kursmarken aus vergangenen Hoch-/Tiefpunkten, inkl. wie oft sie getestet "
-    "wurden. Nähe zur Unterstützung = günstigerer Einstieg.\n"
+    "wurden. Nähe zur Unterstützung = günstigerer Einstieg.\n\n"
+    "🐳 *Smart-Money*\n"
+    "Was große/informierte Trader tun: *Insider* (Vorstände/Direktoren, SEC Form 4, ~2 Tage "
+    "Verzug) und *Institutionen* (Fonds wie BlackRock/Vanguard, SEC 13F, quartalsweise). "
+    "Netto-Käufe & aufstockende Fonds → hoher Score (0–100). Fließt ins Signal-Ranking ein; "
+    "Details siehe /top5trade.\n"
     "━━━━━━━━━━━━━━━━━━\n"
     "⭐ *Signal-Stärke 1–5*: Anzahl der Indikatoren, die in dieselbe Richtung zeigen.\n"
     "🛑 *Stop-Loss / 🎯 Take-Profit*: automatisch aus der Schwankungsbreite (ATR) berechnet.\n"
-    "_Hinweis: Alles Demo-Modus — kein echtes Geld._"
+    "_Hinweis: Alles Demo-Modus — kein echtes Geld. Smart-Money-Daten haben Verzug, keine Garantie._"
 )
 
 
 async def cmd_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/info — erklärt, wie die Signale zustande kommen (RSI, MACD, Trend, Wochentrend, Volumen, Level)."""
+    """/info — erklärt, wie die Signale zustande kommen (RSI, MACD, Trend, Wochentrend, Volumen, Level, Smart-Money)."""
     await update.message.reply_text(INFO_TEXT, parse_mode="Markdown")
+
+
+async def cmd_top5trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/top5trade — zeigt, was große Trader (Insider + Institutionen) zuletzt am stärksten gekauft haben."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+
+    region = user.get("market_region") or DEFAULT_REGION
+    region_label = REGION_LABELS.get(region, region)
+    tickers = universes.get_tickers(region)
+    top = smartmoney.get_top(tickers, 5)
+
+    if not top:
+        # Cache leer → einmaligen Hintergrund-Scan anstoßen (kein Blockieren)
+        if context.job_queue is not None:
+            context.job_queue.run_once(scan_smart_money, when=1, name="smartmoney_manual")
+        await update.message.reply_text(
+            "🐳 Die Smart-Money-Daten werden gerade berechnet (kann ein paar Minuten dauern, "
+            "da SEC-Daten je Aktie geladen werden). Sende danach erneut /top5trade."
+        )
+        return
+
+    scanned = smartmoney.last_scanned()
+    stand = datetime.fromtimestamp(scanned, BERLIN_TZ).strftime("%d.%m.%Y %H:%M") if scanned else "?"
+    lines = [f"🐳 *Top 5 — was große Trader handeln* ({region_label})", f"_Stand: {stand}_", ""]
+
+    for s in top:
+        stars = "★" * s["stars"] + "☆" * (5 - s["stars"])
+        lines.append(f"📊 *{s['ticker']}* — {stars} (Score {s['score']})")
+
+        net = s.get("insider_net")
+        if net is not None:
+            buys, sells = s.get("insider_buys") or 0, s.get("insider_sells") or 0
+            sign = "+" if net >= 0 else ""
+            lines.append(f"   👤 Insider: Netto {sign}{net:,.0f} Aktien ({buys:.0f} Käufe / {sells:.0f} Verkäufe, 6M)")
+
+        if s.get("inst_total"):
+            avg = (s.get("inst_avg_change") or 0) * 100
+            lines.append(f"   🏛 Institutionen: Ø {avg:+.1f}% Bestand ({s.get('inst_added') or 0}/{s['inst_total']} Top-Halter aufgestockt)")
+
+        lb = s.get("largest_buy")
+        if lb and lb.get("value"):
+            lines.append(f"   🔎 Größter Insider-Kauf: ${lb['value']:,.0f} ({lb.get('date', '')[:10]})")
+        lines.append("")
+
+    lines.append("_Quelle: SEC-Pflichtmeldungen via Yahoo (Insider ~2 Tage, Institutionen quartalsweise) — keine Garantie._")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -524,6 +611,7 @@ HELP_TEXT = (
     "/settings — Markt-Bereich & Anzahl Signale ändern\n"
     "/dashboard — Link zu deinem Web-Dashboard\n"
     "/signals — Aktuelle Signale jetzt live abrufen\n"
+    "/top5trade — Was große Trader (Insider + Institutionen) zuletzt gekauft haben\n"
     "/evaluate — Deine aktiven Demo-Trades jetzt auswerten\n"
     "/info — Wie kommen die Signale zustande? (Metriken erklärt)\n"
     "/ping — Verbindung zum Bot testen\n"
@@ -705,6 +793,7 @@ def main():
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))           # Link zum Web-Dashboard
     app.add_handler(CommandHandler("ping", cmd_ping))                     # Verbindungstest
     app.add_handler(CommandHandler("signals", cmd_signals))               # echte Live-Analyse jetzt sofort
+    app.add_handler(CommandHandler("top5trade", cmd_top5trade))           # was große Trader handeln
     app.add_handler(CommandHandler("evaluate", cmd_evaluate))             # aktive Demo-Trades jetzt sofort auswerten
     # Button-Handler registrieren
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -730,9 +819,18 @@ def main():
         name="daily_close"
     )
 
+    job_queue.run_daily(
+        scan_smart_money,
+        time=datetime.now(BERLIN_TZ).replace(
+            hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0
+        ).timetz(),
+        name="smartmoney_scan"
+    )
+
     log.info("🤖 Bot gestartet. Warte auf Jobs...")
     log.info(f"  → Signale: {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr")
     log.info(f"  → Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr")
+    log.info(f"  → Smart-Money-Scan: {SMARTMONEY_SCAN_HOUR:02d}:{SMARTMONEY_SCAN_MIN:02d} Uhr")
 
     app.run_polling(drop_pending_updates=True)
 
