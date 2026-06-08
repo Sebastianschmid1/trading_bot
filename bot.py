@@ -41,6 +41,7 @@ from config import (
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN
 )
 
+os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
