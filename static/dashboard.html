@@ -170,12 +170,14 @@
       } else {
         document.getElementById("active").innerHTML = `
           <table>
-            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einstieg</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
+            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
             <tbody>${act.map(t => `
               <tr>
                 <td><b>${t.ticker}</b></td>
-                <td><span class="badge">${t.direction.toUpperCase()}</span></td>
+                <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
                 <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
+                <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
+                <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "%)" : "—"}</td>
                 <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
                 <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
               </tr>`).join("")}

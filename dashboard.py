@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 
 import db
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL
+from evaluator import get_current_price, realized_pnl
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -80,17 +81,36 @@ def build_dashboard_data(user: dict) -> dict:
         key=lambda x: x["pnl"], reverse=True,
     )
 
-    # Offene/aktive Trades
-    active_view = [{
-        "ticker":      t["ticker"],
-        "direction":   t["direction"],
-        "entry":       t["entry"],
-        "stop_loss":   t["signal"].get("stop_loss"),
-        "take_profit": t["signal"].get("take_profit"),
-    } for t in active]
+    # Intraday-Ticks (für aktuellen Kurs + Verlaufs-Charts) — aus dem 60s-Monitor
+    ticks = db.get_today_ticks(user_id)
+
+    def _current_price(t: dict) -> float:
+        """Aktueller Kurs: letzter 60s-Tick, sonst Live-Abruf (Fallback: Einstieg)."""
+        pts = ticks.get(t["ticker"], [])
+        if pts:
+            return pts[-1]["price"]
+        return get_current_price(t["ticker"], t["entry"])
+
+    # Offene/aktive Trades (inkl. aktuellem Kurs + unrealisiertem P&L)
+    active_view = []
+    for t in active:
+        cur = _current_price(t)
+        leverage = (t["signal"].get("leverage") or 1.0)
+        pnl_pct, pnl_eur = realized_pnl(t["entry"], cur, t["direction"],
+                                        user["trade_size_eur"], leverage)
+        active_view.append({
+            "ticker":      t["ticker"],
+            "direction":   t["direction"],
+            "entry":       t["entry"],
+            "current":     cur,
+            "leverage":    leverage,
+            "pnl_pct":     round(pnl_pct, 2),
+            "pnl_eur":     round(pnl_eur, 2),
+            "stop_loss":   t["signal"].get("stop_loss"),
+            "take_profit": t["signal"].get("take_profit"),
+        })
 
     # Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker — aus den 60s-Ticks
-    ticks = db.get_today_ticks(user_id)
     intraday = []
     for t in active:
         pts = ticks.get(t["ticker"], [])
