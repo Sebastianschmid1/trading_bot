@@ -30,7 +30,7 @@ import db
 import universes
 import smartmoney
 from onboarding import onboarding_conv_handler
-from analyzer import analyze_universe
+from analyzer import analyze_universe, scan_strengths
 from evaluator import evaluate_trades, get_current_price
 from config import (
     TELEGRAM_TOKEN,
@@ -38,7 +38,8 @@ from config import (
     CLOSE_TIME_HOUR, CLOSE_TIME_MIN,
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
     UNIVERSES, REGION_LABELS, DEFAULT_REGION, SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
-    SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN
+    SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
+    SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC
 )
 
 os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -74,7 +75,8 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         return False
 
     direction_emoji = "🟢 LONG" if signal["direction"] == "long" else "🔴 SHORT"
-    strength_bar = "█" * signal["strength"] + "░" * (5 - signal["strength"])
+    filled = int(round(signal["strength"] / 10))   # 0–100 → 10er-Balken
+    strength_bar = "█" * filled + "░" * (10 - filled)
 
     # ATR-basierte Risiko-Level (falls vorhanden)
     if signal.get("stop_loss") and signal.get("take_profit"):
@@ -115,7 +117,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         f"📊 *{ticker}* — {direction_emoji}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Kurs: *${signal['price']:.2f}*\n"
-        f"📈 Signal-Stärke: {strength_bar} ({signal['strength']}/5)\n"
+        f"📈 Signal-Stärke: {strength_bar} ({signal['strength']:.0f}/100)\n"
         f"🔍 Begründung:\n"
         f"  • RSI: {signal['rsi']:.1f} → {signal['rsi_comment']}\n"
         f"  • MACD: {signal['macd_comment']}\n"
@@ -271,6 +273,72 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
         await bot.send_message(chat_id=chat_id, text=summary, parse_mode="Markdown")
         log.info(f"[{chat_id}] Auswertung abgeschlossen. Gesamt P&L: {total_pnl:.2f}€")
         await asyncio.sleep(0.5)
+
+
+# ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────
+
+def evaluate_active_trade(trade: dict, price: float | None, strength: float | None) -> str | None:
+    """Entscheidet, ob ein aktiver Trade geschlossen werden soll.
+    Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
+    sig = trade.get("signal", {})
+    sl, tp = sig.get("stop_loss"), sig.get("take_profit")
+    if price is not None and trade.get("direction", "long") == "long":
+        if sl is not None and price <= sl:
+            return "Stop-Loss 🛑"
+        if tp is not None and price >= tp:
+            return "Take-Profit 🎯"
+    if strength is not None and strength < SIGNAL_CLOSE_THRESHOLD:
+        return "Signal verschlechtert 📉"
+    return None
+
+
+async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
+    """Job (alle 60s): aktive Trades prüfen, Verlauf aufzeichnen, bei SL/TP oder
+    Signal-Verfall automatisch schließen. Läuft nur bei offenem Markt & aktiven Trades."""
+    if not _us_market_open():
+        return
+
+    # aktive Trades aller Nutzer sammeln + eindeutige Ticker
+    active_by_user: dict[int, tuple[dict, list]] = {}
+    tickers: set[str] = set()
+    for u in db.list_active_users():
+        act = db.get_active_trades(u["user_id"])
+        if act:
+            active_by_user[u["user_id"]] = (u, act)
+            tickers.update(t["ticker"] for t in act)
+    if not tickers:
+        return
+
+    # Live-Kurs + Stärke je Ticker (blockierende yfinance-Aufrufe → Thread)
+    data = await asyncio.to_thread(scan_strengths, sorted(tickers))
+
+    for uid, (user, act) in active_by_user.items():
+        for trade in act:
+            info = data.get(trade["ticker"])
+            if not info:
+                continue
+            price, strength = info["price"], info["strength"]
+            db.add_tick(uid, trade["ticker"], price, strength)   # Verlauf für die Charts
+
+            reason = evaluate_active_trade(trade, price, strength)
+            if not reason or price is None:
+                continue
+
+            entry = trade.get("entry") or price
+            pnl_pct = (price - entry) / entry * 100 if entry else 0.0
+            pnl_eur = user["trade_size_eur"] * (pnl_pct / 100)
+            db.close_all(uid, [{"ticker": trade["ticker"], "exit": price,
+                                "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
+
+            sign = "+" if pnl_eur >= 0 else ""
+            emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
+            await context.bot.send_message(
+                chat_id=uid,
+                text=(f"{emoji} *{trade['ticker']} automatisch geschlossen* — {reason}\n"
+                      f"Verkauf zu ${price:.2f} · Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
+                parse_mode="Markdown",
+            )
+            log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}€")
 
 
 # ── Smart-Money: nächtlicher Scan (was große Trader handeln) ─────────────────
@@ -524,7 +592,9 @@ INFO_TEXT = (
     "Netto-Käufe & aufstockende Fonds → hoher Score (0–100). Fließt ins Signal-Ranking ein; "
     "Details siehe /top5trade.\n"
     "━━━━━━━━━━━━━━━━━━\n"
-    "⭐ *Signal-Stärke 1–5*: Anzahl der Indikatoren, die in dieselbe Richtung zeigen.\n"
+    "⭐ *Signal-Stärke 0–100*: gewichtetes Mittel mehrerer Zeiträume (5m/15m/1h/1d) — "
+    "aktuellere Zeiträume zählen mehr. Aktive Trades werden alle 60s neu bewertet und bei "
+    "Stark-Verfall, Stop-Loss oder Take-Profit automatisch geschlossen.\n"
     "🛑 *Stop-Loss / 🎯 Take-Profit*: automatisch aus der Schwankungsbreite (ATR) berechnet.\n"
     "_Hinweis: Alles Demo-Modus — kein echtes Geld. Smart-Money-Daten haben Verzug, keine Garantie._"
 )
@@ -828,10 +898,14 @@ def main():
         name="smartmoney_scan"
     )
 
+    # Aktive Trades laufend überwachen (Auto-Close bei SL/TP oder Signal-Verfall)
+    job_queue.run_repeating(monitor_trades, interval=MONITOR_INTERVAL_SEC, first=30, name="monitor_trades")
+
     log.info("🤖 Bot gestartet. Warte auf Jobs...")
     log.info(f"  → Signale: {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr")
     log.info(f"  → Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr")
     log.info(f"  → Smart-Money-Scan: {SMARTMONEY_SCAN_HOUR:02d}:{SMARTMONEY_SCAN_MIN:02d} Uhr")
+    log.info(f"  → Trade-Monitor: alle {MONITOR_INTERVAL_SEC}s")
 
     app.run_polling(drop_pending_updates=True)
 

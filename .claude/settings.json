@@ -20,7 +20,8 @@
       "Bash(rm -f deploy/setup_pi.sh)",
       "Bash(bash -n deploy/setup_server.sh)",
       "Bash(bash -n deploy.sh)",
-      "Bash(python -m py_compile bot.py)"
+      "Bash(python -m py_compile bot.py)",
+      "Bash(python -m py_compile dashboard.py)"
     ]
   }
 }

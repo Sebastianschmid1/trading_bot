@@ -51,8 +51,8 @@ RUN_DASHBOARD_IN_BOT = os.getenv("RUN_DASHBOARD_IN_BOT", "true").strip().lower()
 # ── Zeitplanung ─────────────────────────────────────────────────────────────
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
-SIGNAL_TIME_HOUR = 8       # Signale senden um...  (vor US-Eröffnung)
-SIGNAL_TIME_MIN  = 45      # ...08:45 Uhr
+SIGNAL_TIME_HOUR = 15      # Signale senden um...  (nach US-Eröffnung → Live-Kurse)
+SIGNAL_TIME_MIN  = 35      # ...15:35 Uhr (5 Min nach US-Open)
 
 # Trades schließen NACH der US-Session (22:00 Berlin = 16:00 ET Börsenschluss),
 # damit eine echte Handelssession dazwischenliegt und SL/TP auslösen können.
@@ -146,11 +146,30 @@ RSI_OVERSOLD     = 35      # Unter diesem Wert = bullish Signal
 RSI_OVERBOUGHT   = 65      # Über diesem Wert = bearish Signal
 MA_SHORT         = 50
 MA_LONG          = 200
-MIN_SIGNAL_STRENGTH = 3    # Minimum 3/5 Sterne für ein Signal
 
 # Höheres Zeitfenster: Long-Signale in einem klaren Wochen-Abwärtstrend unterdrücken
 # (reduziert Fehlsignale, die gegen den übergeordneten Trend laufen).
 BLOCK_WEEKLY_DOWNTREND = True
+
+# ── Multi-Timeframe-Signalstärke (0–100) ────────────────────────────────────
+# Die Signalstärke wird aus mehreren Zeiträumen gewichtet zusammengesetzt.
+# Prinzip: Recency-Weighting (aktuellere/kürzere Zeiträume zählen mehr — für
+# Intraday-Trades am aussagekräftigsten) + Multi-Timeframe-Confluence
+# (längere TF = Trend/Kontext, kürzere = Auslöser). Da Trades max. 1 Tag laufen,
+# sind die Zeiträume bewusst intraday gewählt.
+# Frei anpassbar (auch durch eine KI): einfach Intervalle/Gewichte ändern;
+# Gewichte werden intern normiert (müssen nicht exakt 1.0 ergeben).
+SIGNAL_TIMEFRAMES = [
+    {"interval": "5m",  "period": "5d",  "weight": 0.40},
+    {"interval": "15m", "period": "5d",  "weight": 0.30},
+    {"interval": "1h",  "period": "1mo", "weight": 0.20},
+    {"interval": "1d",  "period": "1y",  "weight": 0.10},
+]
+MIN_SIGNAL_STRENGTH    = 55.0   # 0–100: Mindeststärke für ein gültiges Signal
+SIGNAL_CLOSE_THRESHOLD = 35.0   # 0–100: darunter wird ein aktiver Trade automatisch geschlossen
+
+# 60-Sekunden-Überwachung aktiver Trades
+MONITOR_INTERVAL_SEC = 60
 
 # ── ATR-basierte Stop-Loss / Take-Profit ────────────────────────────────────
 # ATR (Average True Range) misst die typische Tagesschwankung. Stop-Loss und

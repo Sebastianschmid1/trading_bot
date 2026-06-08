@@ -89,6 +89,23 @@ def build_dashboard_data(user: dict) -> dict:
         "take_profit": t["signal"].get("take_profit"),
     } for t in active]
 
+    # Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker — aus den 60s-Ticks
+    ticks = db.get_today_ticks(user_id)
+    intraday = []
+    for t in active:
+        pts = ticks.get(t["ticker"], [])
+        intraday.append({
+            "ticker": t["ticker"],
+            "entry": t["entry"],
+            "stop_loss": t["signal"].get("stop_loss"),
+            "take_profit": t["signal"].get("take_profit"),
+            "points": [
+                {"t": p["ts"][11:16] if p.get("ts") else "",   # HH:MM
+                 "price": p["price"], "strength": p["strength"]}
+                for p in pts
+            ],
+        })
+
     return {
         "username":        user.get("username") or f"user_{user_id}",
         "trade_size_eur":  user["trade_size_eur"],
@@ -105,6 +122,7 @@ def build_dashboard_data(user: dict) -> dict:
         "equity":        equity,
         "ticker_stats":  ticker_stats,
         "active_trades": active_view,
+        "intraday":      intraday,
         "generated_at":  datetime.now().strftime("%d.%m.%Y %H:%M"),
     }
 

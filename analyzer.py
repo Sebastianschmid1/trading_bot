@@ -13,7 +13,7 @@ from config import (
     RSI_PERIOD, RSI_OVERSOLD, RSI_OVERBOUGHT,
     MA_SHORT, MA_LONG,
     ATR_PERIOD, ATR_SL_MULT, ATR_TP_MULT,
-    BLOCK_WEEKLY_DOWNTREND
+    BLOCK_WEEKLY_DOWNTREND, SIGNAL_TIMEFRAMES
 )
 
 log = logging.getLogger(__name__)
@@ -156,42 +156,100 @@ def calc_support_resistance(highs, lows, price, window=5, tol=0.02, lookback=180
     return support, resistance
 
 
-def calc_signal_strength(rsi, macd_line, macd_signal, macd_hist,
-                          price, ma50, ma200, vol_ratio, direction) -> int:
-    """
-    Berechnet Signal-Stärke 1-5 basierend auf Indikator-Übereinstimmung.
-    Alle Punkte müssen in die gleiche Richtung zeigen.
-    """
-    score = 0
+# ── Multi-Timeframe-Signalstärke (0–100) ────────────────────────────────────
 
-    if direction == "long":
-        if rsi < RSI_OVERSOLD:          score += 1
-        if macd_line > macd_signal:     score += 1
-        if macd_hist > 0:               score += 1
-        if ma50 and price > ma50:       score += 1
-        if vol_ratio > 1.2:             score += 1
-    else:  # short (für spätere Verwendung)
-        if rsi > RSI_OVERBOUGHT:        score += 1
-        if macd_line < macd_signal:     score += 1
-        if macd_hist < 0:               score += 1
-        if ma50 and price < ma50:       score += 1
-        if vol_ratio > 1.2:             score += 1
+def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, x))
 
-    return score
+
+def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | None:
+    """
+    Bullishness eines EINZELNEN Zeitraums als 0–100 (für Long).
+    Kombiniert RSI, MACD, Trend (Kurs vs. MA20/MA50 dieses TF) und Volumen.
+    Gibt None zurück, wenn der Zeitraum zu wenige Bars hat.
+    """
+    n = len(closes)
+    if n < 60:                      # genug Bars für MA50 + MACD(26/9)
+        return None
+
+    rsi = calc_rsi(closes, RSI_PERIOD)
+    macd_line, macd_signal, macd_hist = calc_macd(closes)
+    price = float(closes[-1])
+    ma20 = float(np.mean(closes[-20:]))
+    ma50 = float(np.mean(closes[-50:]))
+    avg_vol = float(np.mean(volumes[-20:])) if len(volumes) >= 20 else float(np.mean(volumes))
+    vol_ratio = (float(volumes[-1]) / avg_vol) if avg_vol > 0 else 1.0
+
+    # Einzel-Komponenten je 0..1 (bullish = hoch)
+    rsi_score = _clamp((65 - rsi) / 35)                       # überverkauft → stark
+    if macd_line > macd_signal and macd_hist > 0:
+        macd_score = 1.0
+    elif macd_line > macd_signal or macd_hist > 0:
+        macd_score = 0.5
+    else:
+        macd_score = 0.0
+    if price > ma20 > ma50:
+        trend_score = 1.0
+    elif price > ma20:
+        trend_score = 0.66
+    elif price > ma50:
+        trend_score = 0.33
+    else:
+        trend_score = 0.0
+    vol_score = _clamp((vol_ratio - 0.8) / 0.7)              # ab 1.5× voll bestätigt
+
+    sub = 0.25 * rsi_score + 0.30 * macd_score + 0.30 * trend_score + 0.15 * vol_score
+    return round(sub * 100, 1)
+
+
+def _tf_scores(tf_data: dict) -> dict:
+    """Berechnet je konfiguriertem Timeframe den 0–100-Subscore (oder None)."""
+    out = {}
+    for tf in SIGNAL_TIMEFRAMES:
+        df = tf_data.get(tf["interval"])
+        if df is None or len(df) == 0:
+            out[tf["interval"]] = None
+            continue
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.droplevel(1, axis=1)
+        df = df.dropna(subset=["Close"])
+        closes  = df["Close"].values.flatten().astype(float)
+        volumes = df["Volume"].values.flatten().astype(float)
+        out[tf["interval"]] = compute_timeframe_score(closes, volumes)
+    return out
+
+
+def compute_strength(tf_scores: dict) -> float:
+    """Gewichtetes Mittel der Timeframe-Subscores → Gesamt-Stärke 0–100 (Float).
+    Gewichte aus SIGNAL_TIMEFRAMES; über die tatsächlich verfügbaren TF normiert."""
+    acc = total_w = 0.0
+    for tf in SIGNAL_TIMEFRAMES:
+        s = tf_scores.get(tf["interval"])
+        if s is None:
+            continue
+        acc += s * tf["weight"]
+        total_w += tf["weight"]
+    return round(acc / total_w, 1) if total_w > 0 else 0.0
+
+
+def strength_from_tf_data(tf_data: dict) -> float:
+    """Bequemer Helfer: TF-Rohdaten → Gesamtstärke (für das 60s-Monitoring)."""
+    return compute_strength(_tf_scores(tf_data))
 
 
 # ── Einzelne Aktie analysieren ──────────────────────────────────────────────
 
-def analyze_ticker(ticker: str, df=None) -> dict | None:
+def analyze_ticker(ticker: str, tf_data: dict | None = None) -> dict | None:
     """
-    Berechnet technische Signale für eine Aktie.
-    `df` kann vorab geladen übergeben werden (Batch-Download); sonst wird einzeln geladen.
-    Gibt None zurück wenn kein klares Signal.
+    Berechnet ein Signal für eine Aktie aus mehreren Zeiträumen.
+    `tf_data` ist ein Dict {interval -> DataFrame} (Batch-Download je Timeframe).
+    Kontext (Eintritts-Gate, SL/TP, S/R, Wochentrend, Kommentare) kommt aus dem 1d-TF,
+    die Stärke (0–100) aus der gewichteten Multi-Timeframe-Analyse.
+    Gibt None zurück, wenn kein klares Signal.
     """
     try:
-        if df is None:
-            df = yf.download(ticker, period="1y", interval="1d",
-                             progress=False, auto_adjust=True)
+        tf_data = tf_data or {}
+        df = tf_data.get("1d")
         if df is None or len(df) == 0:
             return None
         if isinstance(df.columns, pd.MultiIndex):
@@ -207,7 +265,7 @@ def analyze_ticker(ticker: str, df=None) -> dict | None:
         price   = float(closes[-1])
         as_of   = str(df.index[-1].date())   # Datum des letzten Handelstags in den Daten
 
-        # Indikatoren
+        # Indikatoren (Tages-TF) — für Gate, SL/TP und Kommentare
         rsi = calc_rsi(closes, RSI_PERIOD)
         macd_line, macd_signal, macd_hist = calc_macd(closes)
         atr = calc_atr(highs, lows, closes, ATR_PERIOD)
@@ -233,10 +291,9 @@ def analyze_ticker(ticker: str, df=None) -> dict | None:
         if BLOCK_WEEKLY_DOWNTREND and weekly_trend == "down":
             return None
 
-        strength = calc_signal_strength(
-            rsi, macd_line, macd_signal, macd_hist,
-            price, ma50, ma200, vol_ratio, direction
-        )
+        # Multi-Timeframe-Stärke (0–100)
+        tf_scores = _tf_scores(tf_data)
+        strength = compute_strength(tf_scores)
 
         if strength < MIN_SIGNAL_STRENGTH:
             return None
@@ -307,6 +364,7 @@ def analyze_ticker(ticker: str, df=None) -> dict | None:
             "as_of":          as_of,
             "direction":      direction,
             "strength":       strength,
+            "tf_scores":      tf_scores,
             "rsi":            rsi,
             "rsi_comment":    rsi_comment,
             "macd_comment":   macd_comment,
@@ -336,38 +394,71 @@ def analyze_ticker(ticker: str, df=None) -> dict | None:
         return None
 
 
+# ── Batch-Download über mehrere Timeframes ──────────────────────────────────
+
+def _extract(data, ticker: str):
+    """Holt das OHLCV-Sub-DataFrame eines Tickers aus einem (ggf. gruppierten) Batch-Download."""
+    if data is None:
+        return None
+    try:
+        return data[ticker]
+    except (KeyError, TypeError):
+        # Einzel-Ticker-Download ist nicht nach Ticker gruppiert
+        cols = getattr(data, "columns", None)
+        if cols is None:
+            return None
+        level0 = cols.get_level_values(0) if isinstance(cols, pd.MultiIndex) else cols
+        return data if "Close" in level0 else None
+
+
+def _download_all_timeframes(tickers: list[str]) -> dict:
+    """Lädt je konfiguriertem Timeframe einen Batch-Download. Gibt {interval -> data} zurück."""
+    downloads = {}
+    for tf in SIGNAL_TIMEFRAMES:
+        try:
+            downloads[tf["interval"]] = yf.download(
+                tickers, period=tf["period"], interval=tf["interval"],
+                progress=False, auto_adjust=True, group_by="ticker",
+            )
+        except Exception as e:
+            log.warning(f"Download {tf['interval']} fehlgeschlagen: {e}")
+            downloads[tf["interval"]] = None
+    return downloads
+
+
+def _tf_data_for(downloads: dict, ticker: str) -> dict:
+    """Baut aus den TF-Downloads das {interval -> df}-Dict eines einzelnen Tickers."""
+    tf_data = {}
+    for interval, data in downloads.items():
+        sub = _extract(data, ticker)
+        if sub is not None:
+            tf_data[interval] = sub
+    return tf_data
+
+
 # ── Top-Signale auswählen ───────────────────────────────────────────────────
 
 def analyze_universe(tickers: list[str]) -> list[dict]:
     """
-    Analysiert eine Ticker-Liste und gibt ALLE gefundenen Signale absteigend nach
-    Stärke sortiert zurück (ohne Begrenzung — der Aufrufer schneidet auf top_n).
-
-    Die Kursdaten werden in EINEM Batch-Download geholt (yfinance fügt sie intern
-    threadsicher zusammen) — separate parallele yf.download-Aufrufe würden sich
-    gegenseitig die Daten überschreiben.
+    Analysiert eine Ticker-Liste über ALLE konfigurierten Timeframes und gibt alle
+    gefundenen Signale absteigend nach Stärke zurück (Aufrufer schneidet auf top_n).
+    Pro Timeframe ein Batch-Download (yfinance fügt intern threadsicher zusammen).
     """
     if not tickers:
         return []
 
-    log.info(f"Analysiere {len(tickers)} Aktien...")
-    data = yf.download(
-        tickers, period="1y", interval="1d",
-        progress=False, auto_adjust=True, group_by="ticker",
-    )
+    log.info(f"Analysiere {len(tickers)} Aktien über {len(SIGNAL_TIMEFRAMES)} Timeframes...")
+    downloads = _download_all_timeframes(tickers)
 
     results = []
     for ticker in tickers:
-        try:
-            df_t = data[ticker]
-        except (KeyError, TypeError):
-            log.warning(f"Keine Daten für {ticker} im Batch-Download.")
+        tf_data = _tf_data_for(downloads, ticker)
+        if not tf_data:
             continue
-        result = analyze_ticker(ticker, df_t)
+        result = analyze_ticker(ticker, tf_data)
         if result:
             results.append(result)
 
-    # Sortieren: erst nach Stärke, dann nach RSI-Abstand von 50
     results.sort(key=lambda x: (x["strength"], abs(x["rsi"] - 50)), reverse=True)
     log.info(f"{len(results)} Signale gefunden: {[s['ticker'] for s in results]}")
     return results
@@ -377,3 +468,33 @@ def get_top_signals(tickers: list[str] | None = None, top_n: int = TOP_N_SIGNALS
     """Analysiert das Universum (Default: WATCHLIST) und gibt die top_n stärksten Signale zurück."""
     ranked = analyze_universe(tickers if tickers is not None else WATCHLIST)
     return ranked[:top_n]
+
+
+def scan_strengths(tickers: list[str]) -> dict:
+    """
+    Für das 60s-Monitoring: aktueller Kurs + Live-Stärke (0–100) je Ticker.
+    Gibt { ticker: {"price": float|None, "strength": float} } zurück.
+    """
+    if not tickers:
+        return {}
+    downloads = _download_all_timeframes(tickers)
+    out = {}
+    for ticker in tickers:
+        tf_data = _tf_data_for(downloads, ticker)
+        if not tf_data:
+            continue
+        strength = compute_strength(_tf_scores(tf_data))
+        # aktueller Kurs = letzter Close des kürzesten verfügbaren Timeframes
+        price = None
+        for tf in SIGNAL_TIMEFRAMES:
+            df = tf_data.get(tf["interval"])
+            if df is None:
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df = df.droplevel(1, axis=1)
+            df = df.dropna(subset=["Close"])
+            if len(df):
+                price = float(df["Close"].values.flatten()[-1])
+                break
+        out[ticker] = {"price": price, "strength": strength}
+    return out

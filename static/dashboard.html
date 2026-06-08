@@ -56,6 +56,16 @@
       <h2>🔵 Aktive Demo-Trades</h2>
       <div id="active"></div>
     </div>
+
+    <div class="panel">
+      <h2>📶 Signal-Stärke heute (aktive Trades)</h2>
+      <canvas id="strengthChart" height="90"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>🕯 Kursverlauf heute (aktive Trades)</h2>
+      <div id="priceCharts"></div>
+    </div>
   </div>
 
   <script>
@@ -167,6 +177,72 @@
               </tr>`).join("")}
             </tbody>
           </table>`;
+      }
+
+      // Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker
+      const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
+      const palette = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c"];
+
+      // #5 Signal-Stärke heute — eine Linie je Ticker, y 0-100
+      if (!intraday.length) {
+        replaceCanvas("strengthChart", "Noch keine aktiven Trades / Verlaufsdaten heute.");
+      } else {
+        const labels = intraday[0].points.map(p => p.t);
+        new Chart(document.getElementById("strengthChart"), {
+          type: "line",
+          data: {
+            labels,
+            datasets: intraday.map((s, i) => ({
+              label: s.ticker,
+              data: s.points.map(p => p.strength),
+              borderColor: palette[i % palette.length],
+              backgroundColor: "transparent", tension: .25, pointRadius: 0,
+            })),
+          },
+          options: {
+            plugins: { legend: { labels: { color: "#e6e9ef" } } },
+            scales: {
+              x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+              y: { min: 0, max: 100, ticks: { color: "#8a93a6" }, grid: { color: "#222a3a" } }
+            }
+          }
+        });
+      }
+
+      // #6 Kursverlauf heute — pro Ticker ein eigener Chart mit SL/TP-Linien
+      const pc = document.getElementById("priceCharts");
+      if (!intraday.length) {
+        pc.innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
+      } else {
+        pc.innerHTML = intraday.map(s =>
+          `<div style="margin-bottom:1rem"><div class="label">${s.ticker}</div>
+           <canvas id="price_${s.ticker}" height="70"></canvas></div>`).join("");
+        intraday.forEach((s, i) => {
+          const labels = s.points.map(p => p.t);
+          const refLine = (val, color) => val == null ? null : ({
+            label: "", data: labels.map(() => val), borderColor: color,
+            borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false,
+          });
+          const datasets = [{
+            label: s.ticker + " Kurs", data: s.points.map(p => p.price),
+            borderColor: palette[i % palette.length], backgroundColor: "transparent",
+            tension: .25, pointRadius: 0,
+          }];
+          const tp = refLine(s.take_profit, "#2ecc71"), sl = refLine(s.stop_loss, "#e74c3c"),
+                en = refLine(s.entry, "#8a93a6");
+          [tp, sl, en].forEach(r => r && datasets.push(r));
+          new Chart(document.getElementById("price_" + s.ticker), {
+            type: "line",
+            data: { labels, datasets },
+            options: {
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+                y: { ticks: { color: "#8a93a6", callback: v => "$" + v }, grid: { color: "#222a3a" } }
+              }
+            }
+          });
+        });
       }
     }
 

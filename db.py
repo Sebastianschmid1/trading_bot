@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS trades (
 
 CREATE INDEX IF NOT EXISTS idx_trades_user_date_status
     ON trades (user_id, trade_date, status);
+
+CREATE TABLE IF NOT EXISTS trade_ticks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    trade_date  TEXT    NOT NULL,
+    ticker      TEXT    NOT NULL,
+    ts          TEXT    NOT NULL DEFAULT (datetime('now')),
+    price       REAL,
+    strength    REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticks_user_date_ticker
+    ON trade_ticks (user_id, trade_date, ticker, ts);
 """
 
 
@@ -383,3 +396,31 @@ def get_closed_trades(user_id: int) -> list[dict]:
             (user_id,),
         ).fetchall()
     return [_trade_to_dict(r) for r in rows]
+
+
+# ── Intraday-Ticks (Kurs- & Stärke-Verlauf je aktivem Trade) ────────────────
+
+def add_tick(user_id: int, ticker: str, price: float | None, strength: float | None):
+    """Schreibt einen Verlaufspunkt (Kurs + Signal-Stärke) für einen aktiven Trade."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO trade_ticks (user_id, trade_date, ticker, price, strength) VALUES (?, ?, ?, ?, ?)",
+            (user_id, _today(), ticker, price, strength),
+        )
+
+
+def get_today_ticks(user_id: int) -> dict:
+    """Gibt die heutigen Verlaufspunkte je Ticker zurück: { ticker: [{ts, price, strength}, ...] }."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT ticker, ts, price, strength FROM trade_ticks
+               WHERE user_id = ? AND trade_date = ?
+               ORDER BY ts ASC""",
+            (user_id, _today()),
+        ).fetchall()
+    series: dict[str, list] = {}
+    for r in rows:
+        series.setdefault(r["ticker"], []).append(
+            {"ts": r["ts"], "price": r["price"], "strength": r["strength"]}
+        )
+    return series

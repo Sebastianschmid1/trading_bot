@@ -250,8 +250,9 @@ def rank(signals: list[dict], top_n: int,
     for sig in signals:
         sm = get_score(sig["ticker"])
         sig["smart_money"] = sm
-        sm_stars = (sm["score"] / 100 * 5) if sm else 0.0
-        combined = sig.get("strength", 0) * w_tech + sm_stars * w_smart
+        # Beide Größen auf 0–100-Skala: technische Stärke + Smart-Money-Score
+        sm_score = sm["score"] if sm else 0.0
+        combined = sig.get("strength", 0) * w_tech + sm_score * w_smart
         enriched.append((combined, -abs(sig.get("rsi", 50) - 50), sig))
 
     enriched.sort(key=lambda x: (x[0], x[1]), reverse=True)
