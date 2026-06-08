@@ -302,8 +302,18 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None) -> dict | None:
         ma50  = float(np.mean(closes[-MA_SHORT:])) if len(closes) >= MA_SHORT else None
         ma200 = float(np.mean(closes[-MA_LONG:]))  if len(closes) >= MA_LONG  else None
 
-        avg_vol   = float(np.mean(volumes[-20:]))
-        last_vol  = float(volumes[-1])
+        # Volumen-Verhältnis NUR aus abgeschlossenen Handelstagen. Während der US-Sitzung
+        # ist die heutige Tageskerze unvollständig (nur das bisher gehandelte Volumen). Ein
+        # Vergleich dieses Teil-Volumens mit dem Schnitt voller Tage fiele künstlich niedrig
+        # aus (z. B. 0.3x), obwohl der Tag normal verläuft. Daher die heutige Kerze ausklammern.
+        last_date = df.index[-1].date()
+        vols_done = volumes[:-1] if last_date >= pd.Timestamp.now().date() else volumes
+        if len(vols_done) >= 21:
+            last_vol, avg_vol = float(vols_done[-1]), float(np.mean(vols_done[-21:-1]))
+        elif len(vols_done) >= 1:
+            last_vol, avg_vol = float(vols_done[-1]), float(np.mean(vols_done[-20:]))
+        else:
+            last_vol, avg_vol = float(volumes[-1]), float(np.mean(volumes[-20:]))
         vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
 
         # Long-Setup bestimmen (Demo-Modus ist long-only):
