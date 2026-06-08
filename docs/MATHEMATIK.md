@@ -46,7 +46,7 @@ pro Ticker entsteht ein OHLCV-DataFrame je $tf \in \mathcal{T}$. Das System ist 
 Aus den Kursdifferenzen $\Delta_t = P_t - P_{t-1}$ werden Gewinne und Verluste getrennt:
 
 $$
-G_t = \max(\Delta_t, 0), \qquad L_t = \max(-\Delta_t, 0). \tag{1}
+G_t = \max(\Delta_t,\, 0), \qquad L_t = \max(-\Delta_t,\, 0). \qquad (1)
 $$
 
 Die mittleren Gewinne/Verluste werden nach **Wilder** geglättet (Periode $n=14$, Seed = einfacher
@@ -54,7 +54,7 @@ Mittelwert der ersten $n$ Werte):
 
 $$
 \overline{G}_t = \frac{(n-1)\,\overline{G}_{t-1} + G_t}{n}, \qquad
-\text{RSI} = 100 - \frac{100}{1 + \overline{G}/\overline{L}}. \tag{2}
+\text{RSI} = 100 - \frac{100}{1 + \overline{G}/\overline{L}}. \qquad (2)
 $$
 
 Konvention: ist $\overline{L}=0$, gilt $\text{RSI}=100$; bei zu wenigen Bars wird neutral $50$
@@ -66,21 +66,21 @@ Mit dem exponentiellen gleitenden Durchschnitt (EMA) der Spanne $s$, Glättungsf
 $\alpha = \tfrac{2}{s+1}$,
 
 $$
-\text{EMA}_t(s) = \alpha\,P_t + (1-\alpha)\,\text{EMA}_{t-1}(s), \qquad \text{EMA}_0 = P_0, \tag{3}
+\text{EMA}_t(s) = \alpha\,P_t + (1-\alpha)\,\text{EMA}_{t-1}(s), \qquad \text{EMA}_0 = P_0, \qquad (3)
 $$
 
 ergeben sich MACD-Linie, Signallinie und Histogramm:
 
 $$
-\text{MACD}_t = \text{EMA}_t(12) - \text{EMA}_t(26), \tag{4}
+\text{MACD}_t = \text{EMA}_t(12) - \text{EMA}_t(26), \qquad (4)
 $$
 
 $$
-\text{Signal}_t = \text{EMA}_t^{\text{(auf MACD)}}(9), \tag{5}
+\text{Signal}_t = \text{EMA}_t^{(\text{auf MACD})}(9), \qquad (5)
 $$
 
 $$
-\text{Hist}_t = \text{MACD}_t - \text{Signal}_t. \tag{6}
+\text{Hist}_t = \text{MACD}_t - \text{Signal}_t. \qquad (6)
 $$
 
 Ein **bullishes** Setup liegt vor, wenn $\text{MACD}_t > \text{Signal}_t$ **und** $\text{Hist}_t > 0$.
@@ -90,13 +90,13 @@ Ein **bullishes** Setup liegt vor, wenn $\text{MACD}_t > \text{Signal}_t$ **und*
 Die *True Range* erfasst die größte der drei Spannen aus Tagesschwankung und Vortages-Lücken:
 
 $$
-\text{TR}_t = \max\!\bigl(\,H_t - L_t,\; |H_t - P_{t-1}|,\; |L_t - P_{t-1}|\,\bigr). \tag{7}
+\text{TR}_t = \max\bigl(\,H_t - L_t,\;\; |H_t - P_{t-1}|,\;\; |L_t - P_{t-1}|\,\bigr). \qquad (7)
 $$
 
 Der ATR ist die Wilder-Glättung der True Range (Periode $n=14$, Seed = Mittelwert der ersten $n$):
 
 $$
-\text{ATR}_t = \frac{(n-1)\,\text{ATR}_{t-1} + \text{TR}_t}{n}. \tag{8}
+\text{ATR}_t = \frac{(n-1)\,\text{ATR}_{t-1} + \text{TR}_t}{n}. \qquad (8)
 $$
 
 Der ATR misst die typische Schwankungsbreite in Kurspunkten und ist die Grundlage der
@@ -104,12 +104,12 @@ volatilitätsadaptiven SL/TP-Abstände (Abschnitt 6).
 
 ### 3.4 Wochentrend *(→ `analyzer.calc_weekly_trend`)*
 
-Die täglichen Schlusskurse werden auf Wochenbasis resampelt: $W_k = $ letzter Schluss der Woche $k$.
+Die täglichen Schlusskurse werden auf Wochenbasis resampelt: $W_k$ = letzter Schluss der Woche $k$.
 Mit dem 10-Wochen-Mittel jetzt bzw. vor 4 Wochen,
 
 $$
 \overline{W}_{\text{jetzt}} = \frac{1}{10}\sum_{k=K-9}^{K} W_k, \qquad
-\overline{W}_{\text{prev}} = \frac{1}{10}\sum_{k=K-13}^{K-4} W_k, \tag{9}
+\overline{W}_{\text{prev}} = \frac{1}{10}\sum_{k=K-13}^{K-4} W_k, \qquad (9)
 $$
 
 gilt der Trend als **up**, falls $W_K > \overline{W}_{\text{jetzt}} \ge \overline{W}_{\text{prev}}$;
@@ -122,16 +122,16 @@ Ein Bar $i$ ist ein **Swing-Hoch**, wenn er das Maximum im Fenster $[\,i-w,\ i+w
 (analog Swing-Tief mit Minimum), mit $w=5$:
 
 $$
-i \in \text{Pivots}_{\text{high}} \iff H_i = \max_{\,i-w \le j \le i+w} H_j. \tag{10}
+i \in \text{Pivots}_{\text{high}} \iff H_i = \max_{\,i-w \,\le\, j \,\le\, i+w} H_j. \qquad (10)
 $$
 
 Nahe beieinanderliegende Pivot-Preise werden zu einem Level zusammengefasst, sofern ihr relativer
-Abstand die Toleranz $\tau = 0{,}02$ (2 %) nicht überschreitet; jedem Cluster wird sein
+Abstand die Toleranz $\tau = 0{,}02$ (2 %) nicht überschreitet; jedem Cluster $C$ wird sein
 Durchschnittspreis und die Anzahl Berührungen (*touches*) zugewiesen:
 
 $$
-\text{Level} = \Bigl(\bar c = \tfrac{1}{|C|}\!\sum_{p\in C} p,\;\; \text{touches} = |C|\Bigr),
-\qquad \frac{p_{j+1}-p_j}{p_j} \le \tau. \tag{11}
+\bar c = \frac{1}{|C|}\sum_{p\in C} p, \qquad \text{touches} = |C|, \qquad
+\text{Bedingung: } \frac{p_{j+1}-p_j}{p_j} \le \tau. \qquad (11)
 $$
 
 Als **Unterstützung** dient das höchste Tief-Cluster unter dem Kurs, als **Widerstand** das
@@ -147,12 +147,12 @@ Aggregation über die Zeiträume.
 ### 4.1 Komponenten-Scores je Zeitraum *(→ `analyzer.compute_timeframe_score`)*
 
 Pro Zeitraum (mindestens 60 Bars erforderlich) werden vier auf $[0,1]$ normierte Teil-Scores gebildet
-(je höher, desto bullisher). Mit $\text{clip}(x)=\min(\max(x,0),1)$:
+(je höher, desto bullisher). Mit $\operatorname{clip}(x)=\min(\max(x,0),1)$:
 
 **RSI-Score** (überverkauft ⇒ stark):
 
 $$
-s_{\text{rsi}} = \text{clip}\!\left(\frac{65 - \text{RSI}}{35}\right). \tag{12}
+s_{\text{rsi}} = \operatorname{clip}\left(\frac{65 - \text{RSI}}{35}\right). \qquad (12)
 $$
 
 **MACD-Score** (gestuft nach Bestätigungsgrad):
@@ -160,10 +160,10 @@ $$
 $$
 s_{\text{macd}} =
 \begin{cases}
-1{,}0 & \text{MACD} > \text{Signal}\ \wedge\ \text{Hist} > 0,\\
-0{,}5 & \text{MACD} > \text{Signal}\ \vee\ \text{Hist} > 0,\\
+1{,}0 & \text{MACD} > \text{Signal}\ \text{und}\ \text{Hist} > 0,\\
+0{,}5 & \text{MACD} > \text{Signal}\ \text{oder}\ \text{Hist} > 0,\\
 0{,}0 & \text{sonst.}
-\end{cases} \tag{13}
+\end{cases} \qquad (13)
 $$
 
 **Trend-Score** (Lage zu den gleitenden Mitteln $\text{MA}_{20}, \text{MA}_{50}$ des Zeitraums):
@@ -175,22 +175,22 @@ s_{\text{trend}} =
 0{,}66 & P > \text{MA}_{20},\\
 0{,}33 & P > \text{MA}_{50},\\
 0{,}0 & \text{sonst.}
-\end{cases} \tag{14}
+\end{cases} \qquad (14)
 $$
 
 **Volumen-Score** über das relative Volumen $\text{RVOL} = V_t / \overline{V}_{20}$
-($\overline{V}_{20}$ = 20-Bar-Durchschnittsvolumen), voll bestätigt ab $\approx 1{,}5\times$:
+($\overline{V}_{20}$ = 20-Bar-Durchschnittsvolumen), voll bestätigt ab etwa $1{,}5\times$:
 
 $$
-s_{\text{vol}} = \text{clip}\!\left(\frac{\text{RVOL} - 0{,}8}{0{,}7}\right). \tag{15}
+s_{\text{vol}} = \operatorname{clip}\left(\frac{\text{RVOL} - 0{,}8}{0{,}7}\right). \qquad (15)
 $$
 
-Der **Timeframe-Score** ist das mit den Komponenten-Gewichten $w_c$ (`config.STRENGTH_WEIGHTS`)
+Der **Timeframe-Score** ist das mit den Komponenten-Gewichten $w_c$ (`STRENGTH_WEIGHTS`)
 normierte Mittel, skaliert auf $[0,100]$:
 
 $$
 \sigma_{tf} = 100 \cdot \frac{\sum_{c} w_c\, s_c}{\sum_{c} w_c}, \qquad
-(w_{\text{rsi}}, w_{\text{macd}}, w_{\text{trend}}, w_{\text{vol}}) = (0{,}20,\ 0{,}25,\ 0{,}25,\ 0{,}30). \tag{16}
+(w_{\text{rsi}},\, w_{\text{macd}},\, w_{\text{trend}},\, w_{\text{vol}}) = (0{,}20,\ 0{,}25,\ 0{,}25,\ 0{,}30). \qquad (16)
 $$
 
 > **Begründung der Volumen-Gewichtung.** Im Intraday-Handel ist das relative Volumen (RVOL) kein
@@ -198,18 +198,18 @@ $$
 > Kursbewegung tatsächlich Liquidität und institutionelles Interesse stehen. Ein Kursimpuls ohne
 > Volumenanstieg ist häufig ein **Fehlausbruch** (geringe Marktbeteiligung, leicht zurückzudrehen).
 > Daher erhält die Volumenkomponente hier mit $0{,}30$ das höchste Einzelgewicht — bewusst höher als
-> in einem reinen Trendfolge-Ansatz auf Tagesbasis. Die Gewichte sind in `config.STRENGTH_WEIGHTS`
-> zentral und frei anpassbar; sie müssen nicht auf $1$ summieren, da in Gl. (16) normiert wird.
+> in einem reinen Trendfolge-Ansatz auf Tagesbasis. Die Gewichte sind in `STRENGTH_WEIGHTS`
+> zentral und frei anpassbar; sie müssen nicht auf $1$ summieren, da in Gleichung (16) normiert wird.
 
 ### 4.2 Aggregation über die Zeiträume *(→ `analyzer.compute_strength`)*
 
-Die Gesamt-Stärke ist das mit den Zeitraum-Gewichten $\omega_{tf}$ (`config.SIGNAL_TIMEFRAMES`)
+Die Gesamt-Stärke ist das mit den Zeitraum-Gewichten $\omega_{tf}$ (`SIGNAL_TIMEFRAMES`)
 gewichtete Mittel der verfügbaren $\sigma_{tf}$ (fehlende Zeiträume werden übersprungen und die
 Gewichte über die vorhandenen normiert):
 
 $$
 S = \frac{\sum_{tf \in \mathcal{T}} \omega_{tf}\,\sigma_{tf}}{\sum_{tf \in \mathcal{T}} \omega_{tf}},
-\qquad (\omega_{5m}, \omega_{15m}, \omega_{1h}, \omega_{1d}) = (0{,}40,\ 0{,}30,\ 0{,}20,\ 0{,}10). \tag{17}
+\qquad (\omega_{5m},\, \omega_{15m},\, \omega_{1h},\, \omega_{1d}) = (0{,}40,\ 0{,}30,\ 0{,}20,\ 0{,}10). \qquad (17)
 $$
 
 **Designprinzipien.** (i) *Recency-Weighting* — kürzere/aktuellere Zeiträume tragen mehr, da sie für
@@ -223,32 +223,33 @@ Defaults, keine aus einem einzelnen Paper übernommenen Konstanten.
 ## 5. Eintritts-Logik (Gate) *(→ `analyzer.analyze_ticker`)*
 
 Ein Long-Signal wird nur erzeugt, wenn **alle** folgenden Bedingungen erfüllt sind (Indikatoren auf
-dem $1\text{d}$-Zeitraum für das Gate, Stärke aus der Multi-TF-Aggregation):
+dem $1\text{d}$-Zeitraum für das Gate, Stärke aus der Multi-TF-Aggregation) — mit
+$S_{\min} = 55$ (`MIN_SIGNAL_STRENGTH`):
 
 $$
-\underbrace{\bigl(\text{MACD-bullish} \ \vee\ \text{RSI} < 35\bigr)}_{\text{Auslöser}}
-\ \wedge\ \underbrace{\text{RSI} < 65}_{\text{nicht überkauft}}
-\ \wedge\ \underbrace{\text{Wochentrend} \neq \text{down}}_{\text{Trendfilter}}
-\ \wedge\ \underbrace{S \ge S_{\min}}_{\text{Mindeststärke}}, \tag{18}
+\underbrace{\bigl(\text{MACD-bullish}\ \text{oder}\ \text{RSI} < 35\bigr)}_{\text{Auslöser}}
+\;\wedge\; \underbrace{\text{RSI} < 65}_{\text{nicht überkauft}}
+\;\wedge\; \underbrace{\text{Wochentrend} \neq \text{down}}_{\text{Trendfilter}}
+\;\wedge\; \underbrace{S \ge S_{\min}}_{\text{Mindeststärke}}. \qquad (18)
 $$
 
-mit $S_{\min} = \texttt{MIN\_SIGNAL\_STRENGTH} = 55$. Andernfalls wird kein Signal ausgegeben.
-Gefundene Signale werden absteigend nach $S$ sortiert (Tie-Break: $|\text{RSI}-50|$).
+Andernfalls wird kein Signal ausgegeben. Gefundene Signale werden absteigend nach $S$ sortiert
+(Tie-Break: $|\text{RSI}-50|$).
 
 ---
 
 ## 6. Risikomanagement: Stop-Loss & Take-Profit *(→ `analyzer.sl_tp_from_atr`)*
 
 SL/TP werden volatilitätsadaptiv als ATR-Vielfache vom Einstiegskurs $P$ gesetzt. Mit den
-modusabhängigen Faktoren $(m_{sl}, m_{tp})$ aus `config.SL_TP_MODES`:
+modusabhängigen Faktoren $(m_{sl}, m_{tp})$ aus `SL_TP_MODES`:
 
 $$
 \text{SL} = P - m_{sl}\cdot \text{ATR}, \qquad
-\text{TP} = P + m_{tp}\cdot \text{ATR}, \tag{19}
+\text{TP} = P + m_{tp}\cdot \text{ATR}, \qquad (19)
 $$
 
 $$
-\text{CRV} = \frac{m_{tp}}{m_{sl}} \quad (\text{Chance-Risiko-Verhältnis}). \tag{20}
+\text{CRV} = \frac{m_{tp}}{m_{sl}} \quad\text{(Chance-Risiko-Verhältnis).} \qquad (20)
 $$
 
 | Modus | $m_{sl}$ | $m_{tp}$ | CRV | Charakter |
@@ -258,7 +259,7 @@ $$
 | `normal` | 1,5 | 2,5 | ≈1,67 | ausgewogen (Default) |
 | `aggressiv` | 2,5 | 4,0 | 1,6 | weite Stops, große Ziele |
 
-Im Modus **`aus`** (sowie bei fehlendem/ungültigem ATR) gilt $\text{SL}=\text{TP}=\varnothing$; die
+Im Modus **`aus`** (sowie bei fehlendem/ungültigem ATR) gibt es keine SL/TP-Grenzen; die
 Position wird dann **nur** durch Liquidation (Abschnitt 7) oder Signal-Verfall (Abschnitt 9)
 geschlossen. Die prozentualen Abstände betragen $\text{sl\%} = (\text{SL}-P)/P\cdot 100 < 0$ und
 $\text{tp\%} = (\text{TP}-P)/P\cdot 100 > 0$.
@@ -272,10 +273,10 @@ aufzehrt, d. h. bei einem relativen Verlust von $1/L$:
 
 $$
 \text{Liq}_{\text{long}} = P_{\text{entry}}\left(1 - \frac{1}{L}\right), \qquad
-\text{Liq}_{\text{short}} = P_{\text{entry}}\left(1 + \frac{1}{L}\right). \tag{21}
+\text{Liq}_{\text{short}} = P_{\text{entry}}\left(1 + \frac{1}{L}\right). \qquad (21)
 $$
 
-Für $L \le 1$ existiert keine Liquidation ($\varnothing$). **Konsequenz:** Je höher der Hebel, desto
+Für $L \le 1$ existiert keine Liquidation. **Konsequenz:** Je höher der Hebel, desto
 näher liegt der Liquidationskurs am Einstieg — bei $L=10$ genügt bereits ein Rückgang von $10\,\%$,
 bei $L=2$ erst $50\,\%$. Höherer Hebel vergrößert also Gewinn **und** Verlust und führt zu deutlich
 **früherer** Liquidation.
@@ -291,15 +292,15 @@ $$
 \begin{cases}
 \dfrac{P_{\text{exit}} - P_{\text{entry}}}{P_{\text{entry}}}\cdot 100 & \text{long},\\[2ex]
 \dfrac{P_{\text{entry}} - P_{\text{exit}}}{P_{\text{entry}}}\cdot 100 & \text{short}.
-\end{cases} \tag{22}
+\end{cases} \qquad (22)
 $$
 
 Das in Euro realisierte Ergebnis skaliert mit dem Hebel und ist auf den **Totalverlust der Margin**
-begrenzt (man kann nicht mehr als den Einsatz verlieren):
+begrenzt (man kann nicht mehr als den Einsatz $M$ verlieren):
 
 $$
-\text{pnl}_{\text{€}} = \max\!\left(\; M \cdot \frac{\text{pnl\%}}{100}\cdot L,\ \ -M \;\right),
-\qquad M = \text{Trade-Größe (€)}. \tag{23}
+\text{pnl}_{\text{€}} = \max\left(\; M \cdot \frac{\text{pnl\%}}{100}\cdot L,\;\; -M \;\right),
+\qquad M = \text{Trade-Größe (€)}. \qquad (23)
 $$
 
 Der Margin-Cap $-M$ modelliert vereinfachend die Liquidation auf P&L-Ebene; konsistent dazu wird beim
@@ -309,28 +310,24 @@ tatsächlichen Liquidations-Exit der Ausstiegskurs auf $\text{Liq}$ gesetzt (Abs
 
 ## 9. Schließlogik *(→ `bot.evaluate_active_trade`, `evaluator.evaluate_trades`)*
 
-Ein aktiver Trade wird in **fester Prioritätsreihenfolge** geprüft (schlimmster Fall zuerst):
+Ein aktiver Trade wird in **fester Prioritätsreihenfolge** geprüft (schlimmster Fall zuerst), mit
+$S_{\text{close}} = 35$ (`SIGNAL_CLOSE_THRESHOLD`):
 
-$$
-\textbf{1. } P \le \text{Liq} \ \Rightarrow\ \text{Liquidation 💥}
-\;\to\;
-\textbf{2. } P \le \text{SL} \ \Rightarrow\ \text{Stop-Loss 🛑}
-\;\to\;
-\textbf{3. } P \ge \text{TP} \ \Rightarrow\ \text{Take-Profit 🎯}
-\;\to\;
-\textbf{4. } S < S_{\text{close}} \ \Rightarrow\ \text{Signal-Verfall 📉}, \tag{24}
-$$
+1. $P \le \text{Liq}$ &nbsp;⇒&nbsp; **Liquidation** 💥
+2. $P \le \text{SL}$ &nbsp;⇒&nbsp; **Stop-Loss** 🛑
+3. $P \ge \text{TP}$ &nbsp;⇒&nbsp; **Take-Profit** 🎯
+4. $S < S_{\text{close}}$ &nbsp;⇒&nbsp; **Signal-Verfall** 📉
 
-mit $S_{\text{close}} = \texttt{SIGNAL\_CLOSE\_THRESHOLD} = 35$. Greift keine Bedingung, bleibt die
-Position offen. Es existieren zwei Auswertungspfade mit identischer Mathematik:
+Greift keine Bedingung, bleibt die Position offen. Es existieren zwei Auswertungspfade mit
+identischer Mathematik:
 
 - **60-Sekunden-Monitor** (`bot.monitor_trades`): nutzt den Live-Kurs und die live neu berechnete
   Stärke $S$; schließt intraday bei Liquidation/SL/TP/Signal-Verfall.
 - **Tages-Sweep** (`evaluator.evaluate_trades`, 22:15): nutzt Tages-Hoch/-Tief zur SL/TP-Prüfung und
   schließt alles noch Offene, sodass kein Trade länger als einen Tag läuft.
 
-In beiden Fällen wird das Ergebnis über Gl. (22)–(23) mit dem **trade-individuellen** Hebel berechnet;
-beim Liquidations-Exit ist $P_{\text{exit}} = \text{Liq}$.
+In beiden Fällen wird das Ergebnis über die Gleichungen (22)–(23) mit dem **trade-individuellen**
+Hebel berechnet; beim Liquidations-Exit ist $P_{\text{exit}} = \text{Liq}$.
 
 ---
 
@@ -344,9 +341,9 @@ Stückzahlen $B_s, S_s$ und der Zahl der Kauf-/Verkaufs-Transaktionen $B_n, S_n$
 Netto-Signal $\text{sig}_{\text{ins}} \in [-1, 1]$ gemittelt:
 
 $$
-\text{sig}_{\text{ins}} = \text{mean}\!\left(\frac{B_s - S_s}{B_s + S_s},\ \frac{B_n - S_n}{B_n + S_n}\right),
+\text{sig}_{\text{ins}} = \operatorname{mean}\left(\frac{B_s - S_s}{B_s + S_s},\;\; \frac{B_n - S_n}{B_n + S_n}\right),
 \qquad
-C_{\text{ins}} = 25\,\bigl(1 + \text{sig}_{\text{ins}}\bigr). \tag{25}
+C_{\text{ins}} = 25\,\bigl(1 + \text{sig}_{\text{ins}}\bigr). \qquad (24)
 $$
 
 **Institutionen-Komponente** $[0, 40]$, neutral $= 20$ (SEC 13F, quartalsweise). Aus der mittleren
@@ -354,26 +351,26 @@ Bestandsänderung $\overline{\Delta}$ (auf $[-1,1]$ geklippt) und dem Verhältni
 reduzierenden ($r$) Haltern bei $m$ Haltern insgesamt:
 
 $$
-\text{sig}_{\text{inst}} = \text{mean}\!\left(\text{clip}_{[-1,1]}(\overline{\Delta}),\ \frac{a - r}{m}\right),
+\text{sig}_{\text{inst}} = \operatorname{mean}\left(\operatorname{clip}_{[-1,1]}(\overline{\Delta}),\;\; \frac{a - r}{m}\right),
 \qquad
-C_{\text{inst}} = 20\,\bigl(1 + \text{sig}_{\text{inst}}\bigr). \tag{26}
+C_{\text{inst}} = 20\,\bigl(1 + \text{sig}_{\text{inst}}\bigr). \qquad (25)
 $$
 
 **Niveau-Komponente** $[0, 10]$ aus dem institutionellen Besitzanteil $\pi \in [0,1]$:
-$C_{\text{lvl}} = 10\cdot\text{clip}_{[0,1]}(\pi)$. Der Gesamtscore und die Sterne-Darstellung:
+$C_{\text{lvl}} = 10\cdot\operatorname{clip}_{[0,1]}(\pi)$. Der Gesamtscore und die Sterne-Darstellung:
 
 $$
-\text{SM} = \text{round}\!\Bigl(\text{clip}_{[0,100]}\bigl(C_{\text{ins}} + C_{\text{inst}} + C_{\text{lvl}}\bigr)\Bigr),
+\text{SM} = \operatorname{round}\Bigl(\operatorname{clip}_{[0,100]}\bigl(C_{\text{ins}} + C_{\text{inst}} + C_{\text{lvl}}\bigr)\Bigr),
 \qquad
-\text{Sterne} = \text{clip}_{[1,5]}\!\left(\text{round}\!\tfrac{\text{SM}}{20}\right). \tag{27}
+\text{Sterne} = \operatorname{clip}_{[1,5]}\left(\operatorname{round}\tfrac{\text{SM}}{20}\right). \qquad (26)
 $$
 
 **Re-Ranking** *(→ `smartmoney.rank`)*: Technische Stärke und Smart-Money-Score (beide auf der
-$0$–$100$-Skala) werden linear kombiniert; danach wird absteigend sortiert:
+0–100-Skala) werden linear kombiniert; danach wird absteigend sortiert:
 
 $$
 \text{combined} = w_{\text{tech}}\cdot S + w_{\text{smart}}\cdot \text{SM},
-\qquad (w_{\text{tech}}, w_{\text{smart}}) = (1{,}0,\ 0{,}5). \tag{28}
+\qquad (w_{\text{tech}},\, w_{\text{smart}}) = (1{,}0,\ 0{,}5). \qquad (27)
 $$
 
 ---
@@ -386,11 +383,11 @@ $$
 | `RSI_OVERSOLD` / `RSI_OVERBOUGHT` | 35 / 65 | bullish- / überkauft-Schwelle |
 | MACD-Spannen | 12 / 26 / 9 | schnell / langsam / Signal |
 | `ATR_PERIOD` | 14 | ATR-Glättung |
-| `SIGNAL_TIMEFRAMES` $\omega_{tf}$ | 0,40 / 0,30 / 0,20 / 0,10 | 5m / 15m / 1h / 1d |
-| `STRENGTH_WEIGHTS` $w_c$ | 0,20 / 0,25 / 0,25 / 0,30 | rsi / macd / trend / **volume** |
-| `MIN_SIGNAL_STRENGTH` $S_{\min}$ | 55 | Mindeststärke für ein Signal |
-| `SIGNAL_CLOSE_THRESHOLD` $S_{\text{close}}$ | 35 | Auto-Close bei Signal-Verfall |
-| `SL_TP_MODES` $(m_{sl}, m_{tp})$ | aus / (1,0;1,5) / (1,5;2,5) / (2,5;4,0) | aus / passiv / normal / aggressiv |
+| `SIGNAL_TIMEFRAMES` ($\omega_{tf}$) | 0,40 / 0,30 / 0,20 / 0,10 | 5m / 15m / 1h / 1d |
+| `STRENGTH_WEIGHTS` ($w_c$) | 0,20 / 0,25 / 0,25 / 0,30 | rsi / macd / trend / **volume** |
+| `MIN_SIGNAL_STRENGTH` ($S_{\min}$) | 55 | Mindeststärke für ein Signal |
+| `SIGNAL_CLOSE_THRESHOLD` ($S_{\text{close}}$) | 35 | Auto-Close bei Signal-Verfall |
+| `SL_TP_MODES` ($m_{sl}, m_{tp}$) | aus / (1,0; 1,5) / (1,5; 2,5) / (2,5; 4,0) | aus / passiv / normal / aggressiv |
 | `LEVERAGE_CHOICES` | 1; 1,5; 2; 3; 5; 10 | wählbarer Hebel $L$ |
 | Smart-Money-Maxima | 50 / 40 / 10 | Insider / Institutionen / Niveau |
 | `SMARTMONEY_W_TECH` / `_W_SMART` | 1,0 / 0,5 | Re-Ranking-Gewichte |
