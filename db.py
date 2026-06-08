@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS users (
     dashboard_token   TEXT,
     market_region     TEXT    NOT NULL DEFAULT 'sp500',
     top_n_signals     INTEGER NOT NULL DEFAULT 5,
+    sl_tp_mode        TEXT    NOT NULL DEFAULT 'normal',
+    leverage          REAL    NOT NULL DEFAULT 1.0,
+    auto_accept       INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -94,6 +97,15 @@ def _migrate(conn: sqlite3.Connection):
     if "top_n_signals" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN top_n_signals INTEGER NOT NULL DEFAULT 5")
         log.info("Migration: Spalte users.top_n_signals ergänzt.")
+    if "sl_tp_mode" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN sl_tp_mode TEXT NOT NULL DEFAULT 'normal'")
+        log.info("Migration: Spalte users.sl_tp_mode ergänzt.")
+    if "leverage" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN leverage REAL NOT NULL DEFAULT 1.0")
+        log.info("Migration: Spalte users.leverage ergänzt.")
+    if "auto_accept" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0")
+        log.info("Migration: Spalte users.auto_accept ergänzt.")
 
 
 @contextmanager
@@ -136,6 +148,9 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "is_active":        bool(row["is_active"]),
         "market_region":    row["market_region"],
         "top_n_signals":    row["top_n_signals"],
+        "sl_tp_mode":       row["sl_tp_mode"],
+        "leverage":         row["leverage"],
+        "auto_accept":      bool(row["auto_accept"]),
     }
 
 
@@ -224,6 +239,51 @@ def set_top_n(user_id: int, n: int):
         conn.execute(
             "UPDATE users SET top_n_signals = ?, updated_at = datetime('now') WHERE user_id = ?",
             (n, user_id),
+        )
+
+
+def set_sl_tp_mode(user_id: int, mode: str):
+    """Setzt den SL/TP-Modus des Nutzers ('aus' | 'passiv' | 'normal' | 'aggressiv')."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET sl_tp_mode = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (mode, user_id),
+        )
+
+
+def set_leverage(user_id: int, leverage: float):
+    """Setzt den Standard-Hebel des Nutzers (auf 1..20 begrenzt)."""
+    leverage = max(1.0, min(20.0, float(leverage)))
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET leverage = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (leverage, user_id),
+        )
+
+
+def set_auto_accept(user_id: int, on: bool):
+    """Aktiviert/deaktiviert das automatische Annehmen neuer Signale."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET auto_accept = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
+        )
+
+
+def set_trade_leverage(user_id: int, ticker: str, leverage: float):
+    """Ändert den Hebel eines noch ausstehenden Trades (im gespeicherten signal_json)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT signal_json FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
+            (user_id, _today(), ticker),
+        ).fetchone()
+        if not row:
+            return
+        sig = json.loads(row["signal_json"])
+        sig["leverage"] = float(leverage)
+        conn.execute(
+            "UPDATE trades SET signal_json = ? WHERE user_id = ? AND trade_date = ? AND ticker = ?",
+            (json.dumps(sig, default=str), user_id, _today(), ticker),
         )
 
 
@@ -348,6 +408,16 @@ def get_active_trades(user_id: int) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND status = 'active'",
+            (user_id, _today()),
+        ).fetchall()
+    return [_trade_to_dict(r) for r in rows]
+
+
+def get_pending_trades(user_id: int) -> list[dict]:
+    """Gibt alle heute noch ausstehenden (pending) Trades des Nutzers zurück."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND status = 'pending'",
             (user_id, _today()),
         ).fetchall()
     return [_trade_to_dict(r) for r in rows]

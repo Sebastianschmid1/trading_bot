@@ -30,10 +30,37 @@ def get_day_high_low(ticker: str, fallback: float) -> tuple[float, float]:
     return fallback, fallback
 
 
+# ── Zentrale Geld-Mathematik (Hebel + Liquidation) ──────────────────────────
+
+def liquidation_price(entry: float, leverage: float, direction: str = "long") -> float | None:
+    """Liquidationskurs: Long wird bei einem Kursverlust von 1/Hebel liquidiert.
+    Bei Hebel 1 gibt es keine Liquidation (None)."""
+    if not entry or not leverage or leverage <= 1.0:
+        return None
+    if direction == "long":
+        return entry * (1 - 1.0 / leverage)
+    return entry * (1 + 1.0 / leverage)   # short
+
+
+def realized_pnl(entry: float, exit_price: float, direction: str,
+                 trade_size_eur: float, leverage: float = 1.0) -> tuple[float, float]:
+    """Gibt (pnl_pct, pnl_eur) zurück. pnl_pct = reine Kursbewegung in %,
+    pnl_eur = mit Hebel skaliert (auf Totalverlust der Margin begrenzt)."""
+    if not entry:
+        return 0.0, 0.0
+    if direction == "long":
+        pnl_pct = (exit_price - entry) / entry * 100
+    else:
+        pnl_pct = (entry - exit_price) / entry * 100
+    pnl_eur = trade_size_eur * (pnl_pct / 100) * (leverage or 1.0)
+    pnl_eur = max(pnl_eur, -trade_size_eur)   # mehr als die Margin kann man nicht verlieren
+    return pnl_pct, pnl_eur
+
+
 def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[dict]:
     """
-    Berechnet P&L für alle aktiven Trades anhand der individuellen Trade-Größe des Nutzers.
-    Gibt Liste mit Ergebnissen zurück.
+    Schließt aktive Trades zum Tagesende und berechnet P&L (inkl. individuellem Hebel je Trade).
+    Prüft je Trade Liquidation, Stop-Loss und Take-Profit anhand der Tagesspanne.
     """
     results = []
 
@@ -45,30 +72,24 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
         signal = trade.get("signal", {})
         stop_loss   = signal.get("stop_loss")
         take_profit = signal.get("take_profit")
+        leverage    = signal.get("leverage", 1.0) or 1.0
 
         close_price = get_current_price(ticker, entry)
         exit_price  = close_price
         exit_reason = "Schlusskurs"
 
-        # SL/TP-Prüfung anhand der Tagesspanne (nur long im Demo-Modus).
-        # Konservativ: bei beidseitigem Treffer am selben Tag zählt der Stop zuerst,
-        # da aus Tagesdaten die Reihenfolge nicht ableitbar ist.
-        if direction == "long" and stop_loss and take_profit:
+        if direction == "long" and entry:
             day_high, day_low = get_day_high_low(ticker, close_price)
-            if day_low <= stop_loss:
-                exit_price  = stop_loss
-                exit_reason = "Stop-Loss 🛑"
-            elif day_high >= take_profit:
-                exit_price  = take_profit
-                exit_reason = "Take-Profit 🎯"
+            liq = liquidation_price(entry, leverage, direction)
+            # Reihenfolge: Liquidation (am schlimmsten) → Stop-Loss → Take-Profit
+            if liq is not None and day_low <= liq:
+                exit_price, exit_reason = liq, "Liquidation 💥"
+            elif stop_loss and day_low <= stop_loss:
+                exit_price, exit_reason = stop_loss, "Stop-Loss 🛑"
+            elif take_profit and day_high >= take_profit:
+                exit_price, exit_reason = take_profit, "Take-Profit 🎯"
 
-        # P&L berechnen
-        if direction == "long":
-            pnl_pct = (exit_price - entry) / entry * 100
-        else:  # short
-            pnl_pct = (entry - exit_price) / entry * 100
-
-        pnl_eur = trade_size_eur * (pnl_pct / 100)
+        pnl_pct, pnl_eur = realized_pnl(entry, exit_price, direction, trade_size_eur, leverage)
 
         results.append({
             "ticker":  ticker,
@@ -77,11 +98,12 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
             "pnl_pct": pnl_pct,
             "pnl_eur": pnl_eur,
             "direction": direction,
+            "leverage": leverage,
             "exit_reason": exit_reason,
         })
 
         log.info(
-            f"{ticker}: {entry:.2f} → {exit_price:.2f} ({exit_reason}) | "
+            f"{ticker}: {entry:.2f} → {exit_price:.2f} ({exit_reason}, {leverage:g}×) | "
             f"{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% | "
             f"{'+' if pnl_eur >= 0 else ''}{pnl_eur:.2f}€"
         )

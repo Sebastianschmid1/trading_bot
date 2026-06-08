@@ -30,8 +30,8 @@ import db
 import universes
 import smartmoney
 from onboarding import onboarding_conv_handler
-from analyzer import analyze_universe, scan_strengths
-from evaluator import evaluate_trades, get_current_price
+from analyzer import analyze_universe, scan_strengths, sl_tp_from_atr
+from evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from config import (
     TELEGRAM_TOKEN,
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
@@ -39,7 +39,8 @@ from config import (
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
     UNIVERSES, REGION_LABELS, DEFAULT_REGION, SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
-    SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC
+    SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
+    SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE
 )
 
 os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -55,57 +56,65 @@ log = logging.getLogger(__name__)
 
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 
+# ── Kandidaten-Cache (für das Nachrücken ohne Duplikate) ────────────────────
+
+_candidates_cache: dict[str, dict] = {}   # region -> {"date": date, "ranked": [signal, ...]}
+
+
+def _cache_candidates(region: str, ranked: list[dict]):
+    _candidates_cache[region] = {"date": date.today(), "ranked": ranked}
+
+
+def _get_candidates(region: str) -> list[dict]:
+    e = _candidates_cache.get(region)
+    return e["ranked"] if e and e["date"] == date.today() else []
+
+
 # ── Nachrichten senden ──────────────────────────────────────────────────────
 
-async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
-                       job_queue=None, market_open: bool = True) -> bool:
-    """Sendet eine einzelne Aktienempfehlung an einen Nutzer.
-
-    - Bei offener Börse: JA/NEIN-Buttons, legt einen handelbaren Demo-Trade an und plant
-      (falls job_queue übergeben) das automatische Ablaufen/Löschen nach dem Zeitfenster.
-    - Bei geschlossener Börse: nur ein deaktivierter "Börse geschlossen"-Button, kein Trade.
-
-    Duplikat-Schutz: pro Aktie/Tag wird nur EIN handelbares Signal angelegt.
-    Rückgabe: True, wenn gesendet; False, wenn als Duplikat übersprungen.
-    """
+def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tuple[str, InlineKeyboardMarkup]:
+    """Baut Nachrichtentext + Tastatur eines Signals (inkl. SL/TP, Hebel, Liquidation, Hebel-Buttons)."""
     ticker = signal["ticker"]
-
-    if market_open and db.has_trade_today(chat_id, ticker):
-        log.info(f"[{chat_id}] Signal übersprungen (heute schon vorhanden): {ticker}")
-        return False
-
-    direction_emoji = "🟢 LONG" if signal["direction"] == "long" else "🔴 SHORT"
-    filled = int(round(signal["strength"] / 10))   # 0–100 → 10er-Balken
+    direction = signal["direction"]
+    direction_emoji = "🟢 LONG" if direction == "long" else "🔴 SHORT"
+    filled = int(round(signal["strength"] / 10))
     strength_bar = "█" * filled + "░" * (10 - filled)
+    leverage = signal.get("leverage", 1.0) or 1.0
 
-    # ATR-basierte Risiko-Level (falls vorhanden)
     if signal.get("stop_loss") and signal.get("take_profit"):
         risk_block = (
             f"🎯 Take-Profit: *${signal['take_profit']:.2f}* (+{signal['tp_pct']:.1f}%)\n"
             f"🛑 Stop-Loss: *${signal['stop_loss']:.2f}* ({signal['sl_pct']:.1f}%)\n"
             f"⚖️ Chance/Risiko: ~1:{signal['risk_reward']:.1f}\n"
         )
+    elif signal.get("sl_tp_mode") == "aus":
+        risk_block = "🎯 SL/TP: *aus* — schließt nur bei Liquidation oder Signal-Verfall\n"
     else:
         risk_block = ""
 
-    # Smart-Money-Zeile (falls Score aus dem nächtlichen Scan vorliegt)
+    # Hebel + Liquidation (Liquidationskurs ~ relativ zum aktuellen Kurs)
+    lev_block = f"⚡ Hebel: *{leverage:g}×*"
+    liq = liquidation_price(signal["price"], leverage, direction)
+    if liq is not None:
+        lev_block += f"  ·  💥 Liquidation ~${liq:.2f} (−{100.0/leverage:.0f}%)"
+    lev_block += "\n"
+
     sm = signal.get("smart_money")
-    if sm:
-        sm_stars = "★" * sm["stars"] + "☆" * (5 - sm["stars"])
-        sm_line = f"  • 🐳 Smart-Money: {sm_stars} (Score {sm['score']})\n"
-    else:
-        sm_line = ""
+    sm_line = (f"  • 🐳 Smart-Money: {'★'*sm['stars']}{'☆'*(5-sm['stars'])} (Score {sm['score']})\n"
+               if sm else "")
 
     if market_open:
         footer = (
             f"⏰ Start nur innerhalb von {TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich\n"
             f"⏱ Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr (oder früher bei SL/TP)"
         )
+        # Hebel-Buttons (pro Signal änderbar) + JA/NEIN
+        lev_row = [InlineKeyboardButton(("✅ " if float(v) == leverage else "") + f"{v:g}×",
+                                        callback_data=f"lev:{ticker}:{v}") for v in LEVERAGE_CHOICES]
         keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ JA — Demo-Trade starten", callback_data=f"accept:{ticker}"),
-                InlineKeyboardButton("❌ NEIN", callback_data=f"reject:{ticker}"),
-            ]
+            lev_row,
+            [InlineKeyboardButton("✅ JA — Demo-Trade starten", callback_data=f"accept:{ticker}"),
+             InlineKeyboardButton("❌ NEIN", callback_data=f"reject:{ticker}")],
         ])
     else:
         footer = "🔒 US-Börse geschlossen — Start möglich, sobald der Markt wieder öffnet."
@@ -128,21 +137,62 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         f"{sm_line}"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"{risk_block}"
-        f"💶 Demo-Trade: *{trade_size_eur:.0f}€ {signal['direction'].upper()}*\n"
+        f"{lev_block}"
+        f"💶 Demo-Trade: *{trade_size_eur:.0f}€ {direction.upper()}*\n"
         f"{footer}"
     )
+    return text, keyboard
 
-    msg = await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
+
+def _personalize_signal(signal: dict, sl_tp_mode: str, leverage: float) -> dict:
+    """Erstellt eine Nutzer-Kopie des Signals mit SL/TP gemäß Modus + gewünschtem Hebel."""
+    sig = dict(signal)
+    sig.update(sl_tp_from_atr(sig["price"], sig.get("atr"), sl_tp_mode))
+    sig["sl_tp_mode"] = sl_tp_mode
+    sig["leverage"] = float(leverage)
+    return sig
+
+
+async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
+                      job_queue=None, market_open: bool = True,
+                      sl_tp_mode: str = DEFAULT_SL_TP_MODE, leverage: float = DEFAULT_LEVERAGE,
+                      auto_accept: bool = False) -> bool:
+    """Sendet eine Aktienempfehlung an einen Nutzer (mit dessen SL/TP-Modus + Hebel).
+
+    - Offene Börse: legt einen handelbaren Demo-Trade an, Hebel pro Signal änderbar, JA/NEIN
+      (oder automatische Annahme bei auto_accept). Plant das Ablaufen/Löschen.
+    - Geschlossene Börse: nur Info mit deaktiviertem Button.
+    Duplikat-Schutz: pro Aktie/Tag nur ein Trade. Rückgabe: True wenn gesendet, sonst False.
+    """
+    ticker = signal["ticker"]
+    if market_open and db.has_trade_today(chat_id, ticker):
+        log.info(f"[{chat_id}] Signal übersprungen (heute schon vorhanden): {ticker}")
+        return False
+
+    sig = _personalize_signal(signal, sl_tp_mode, leverage) if market_open else dict(signal)
+
+    # Auto-Accept: sofort starten, keine Buttons
+    if market_open and auto_accept:
+        msg = await bot.send_message(chat_id=chat_id,
+                                     text=_signal_card(sig, trade_size_eur, market_open)[0],
+                                     parse_mode="Markdown")
+        db.add_pending(chat_id, sig, msg.message_id)
+        trade = db.activate_trade(chat_id, ticker)
+        if trade:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"⚡ *{ticker}* automatisch gestartet (Auto-Accept) — Einstieg ${trade['entry']:.2f}, Hebel {leverage:g}×",
+                parse_mode="Markdown",
+            )
+        log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
+        return True
+
+    text, keyboard = _signal_card(sig, trade_size_eur, market_open)
+    msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
 
     if market_open:
-        # Handelbaren Trade vormerken + Ablauf planen
-        db.add_pending(chat_id, signal, msg.message_id)
-        log.info(f"[{chat_id}] Signal gesendet: {ticker} ({signal['direction']})")
+        db.add_pending(chat_id, sig, msg.message_id)
+        log.info(f"[{chat_id}] Signal gesendet: {ticker} ({sig['direction']}, {leverage:g}×)")
         if job_queue is not None:
             job_queue.run_once(
                 expire_pending_trade,
@@ -152,7 +202,6 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
             )
     else:
         log.info(f"[{chat_id}] Info-Signal (Börse geschlossen): {ticker}")
-
     return True
 
 
@@ -187,7 +236,9 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     for region in {u.get("market_region") or DEFAULT_REGION for u in users}:
         tickers = universes.get_tickers(region)
         try:
-            ranked_by_region[region] = analyze_universe(tickers)
+            ranked = analyze_universe(tickers)
+            ranked_by_region[region] = ranked
+            _cache_candidates(region, ranked)   # Kandidaten fürs Nachrücken merken
         except Exception as e:
             log.error(f"Analyse fehlgeschlagen ({region}): {e}")
             ranked_by_region[region] = None  # Fehler-Marker
@@ -218,7 +269,10 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
         )
         for signal in signals:
             await send_signal(bot, chat_id, signal, u["trade_size_eur"],
-                              job_queue=context.job_queue, market_open=market_open)
+                              job_queue=context.job_queue, market_open=market_open,
+                              sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                              leverage=u.get("leverage", DEFAULT_LEVERAGE),
+                              auto_accept=u.get("auto_accept", False))
             await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
         await asyncio.sleep(0.5)  # kurze Pause zwischen Nutzern (Rate-Limit-Schutz)
 
@@ -282,7 +336,12 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
     sig = trade.get("signal", {})
     sl, tp = sig.get("stop_loss"), sig.get("take_profit")
+    leverage = sig.get("leverage", 1.0) or 1.0
+    entry = trade.get("entry")
     if price is not None and trade.get("direction", "long") == "long":
+        liq = liquidation_price(entry, leverage, "long") if entry else None
+        if liq is not None and price <= liq:        # zuerst: Liquidation (Totalverlust)
+            return "Liquidation 💥"
         if sl is not None and price <= sl:
             return "Stop-Loss 🛑"
         if tp is not None and price >= tp:
@@ -325,9 +384,16 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             entry = trade.get("entry") or price
-            pnl_pct = (price - entry) / entry * 100 if entry else 0.0
-            pnl_eur = user["trade_size_eur"] * (pnl_pct / 100)
-            db.close_all(uid, [{"ticker": trade["ticker"], "exit": price,
+            leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
+            # Bei Liquidation zum Liquidationskurs schließen (Totalverlust), sonst zum aktuellen Kurs
+            exit_price = price
+            if reason.startswith("Liquidation"):
+                liq = liquidation_price(entry, leverage, trade["direction"])
+                if liq is not None:
+                    exit_price = liq
+            pnl_pct, pnl_eur = realized_pnl(entry, exit_price, trade["direction"],
+                                            user["trade_size_eur"], leverage)
+            db.close_all(uid, [{"ticker": trade["ticker"], "exit": exit_price,
                                 "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
 
             sign = "+" if pnl_eur >= 0 else ""
@@ -335,9 +401,12 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=uid,
                 text=(f"{emoji} *{trade['ticker']} automatisch geschlossen* — {reason}\n"
-                      f"Verkauf zu ${price:.2f} · Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
+                      f"Verkauf zu ${exit_price:.2f} (Hebel {leverage:g}×) · "
+                      f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
                 parse_mode="Markdown",
             )
+            # nach Auto-Close auch nachrücken (sofern manueller Modus)
+            await refill_pending(context.bot, uid, user, context.job_queue)
             log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}€")
 
 
@@ -380,6 +449,31 @@ def _us_market_open() -> bool:
     return 9 * 60 + 30 <= minutes <= 16 * 60
 
 
+async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
+    """Füllt nach einer Entscheidung die offenen (pending) Signale wieder auf top_n auf —
+    mit neuen Tickern aus der gerankten Kandidatenliste, ohne Duplikate (Punkt 6).
+    Bei Auto-Accept oder geschlossener Börse passiert nichts."""
+    if user.get("auto_accept") or not _us_market_open():
+        return
+    region = user.get("market_region") or DEFAULT_REGION
+    top_n = user.get("top_n_signals") or TOP_N_SIGNALS
+    need = top_n - len(db.get_pending_trades(chat_id))
+    if need <= 0:
+        return
+    for signal in _get_candidates(region):
+        if need <= 0:
+            break
+        if db.has_trade_today(chat_id, signal["ticker"]):
+            continue
+        sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
+                                 job_queue=job_queue, market_open=True,
+                                 sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                 leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                                 auto_accept=False)
+        if sent:
+            need -= 1
+
+
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/ping — prüft, ob der Bot dir Nachrichten senden kann."""
     chat_id = update.effective_chat.id
@@ -406,6 +500,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🔍 Analysiere *{region_label}*… ⏳", parse_mode="Markdown")
     try:
         ranked = analyze_universe(tickers)
+        _cache_candidates(region, ranked)          # Kandidaten fürs Nachrücken merken
         signals = smartmoney.rank(ranked, top_n)   # Smart-Money fließt ins Ranking ein
     except Exception as e:
         await update.message.reply_text(f"⚠️ Analyse-Fehler: {e}")
@@ -430,7 +525,10 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = 0
     for signal in signals:
         if await send_signal(bot, chat_id, signal, user["trade_size_eur"],
-                             job_queue=context.job_queue, market_open=market_open):
+                             job_queue=context.job_queue, market_open=market_open,
+                             sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                             leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                             auto_accept=user.get("auto_accept", False)):
             sent += 1
         await asyncio.sleep(1)
 
@@ -441,26 +539,23 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _unrealized_pnl(trade: dict, trade_size_eur: float):
-    """Aktuellen (unrealisierten) Stand eines aktiven Trades berechnen — echte Kurse, kein Schließen."""
+    """Aktuellen (unrealisierten) Stand eines aktiven Trades berechnen — echte Kurse, mit Hebel."""
     entry = trade["entry"]
-    direction = trade["direction"]
+    leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
     current = get_current_price(trade["ticker"], entry)
-    if direction == "long":
-        pnl_pct = (current - entry) / entry * 100
-    else:
-        pnl_pct = (entry - current) / entry * 100
-    pnl_eur = trade_size_eur * (pnl_pct / 100)
+    pnl_pct, pnl_eur = realized_pnl(entry, current, trade["direction"], trade_size_eur, leverage)
     return current, pnl_pct, pnl_eur
 
 
 def _trade_card(trade: dict, trade_size_eur: float):
     """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade."""
     ticker = trade["ticker"]
+    leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
     current, pnl_pct, pnl_eur = _unrealized_pnl(trade, trade_size_eur)
     emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
     sign = "+" if pnl_eur >= 0 else ""
     text = (
-        f"📊 *{ticker}* — aktiver Demo-Trade ({trade['direction'].upper()})\n"
+        f"📊 *{ticker}* — aktiver Demo-Trade ({trade['direction'].upper()}, {leverage:g}×)\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Einstieg: ${trade['entry']:.2f}\n"
         f"📈 Aktuell: ${current:.2f}\n"
@@ -515,40 +610,45 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💶 Demo-Trade-Größe: *{user['trade_size_eur']:.0f}€*\n"
         f"🌍 Markt-Bereich: *{REGION_LABELS.get(region, region)}*\n"
         f"🔢 Signale pro Tag: *{user.get('top_n_signals') or TOP_N_SIGNALS}*\n"
+        f"🎯 SL/TP-Modus: *{user.get('sl_tp_mode') or DEFAULT_SL_TP_MODE}*\n"
+        f"⚡ Hebel: *{(user.get('leverage') or DEFAULT_LEVERAGE):g}×*\n"
+        f"🤖 Auto-Accept: *{'an' if user.get('auto_accept') else 'aus'}*\n"
         f"{broker_line}\n"
         f"📡 Status: {'aktiv ✅' if user['is_active'] else 'pausiert ⏸'}\n\n"
-        "⚙️ Markt-Bereich & Anzahl ändern: /settings",
+        "⚙️ Alles ändern: /settings",
         parse_mode="Markdown"
     )
 
 
 def _settings_view(user: dict):
-    """Baut Text + Inline-Tastatur für /settings (Markt-Bereich + Anzahl Signale)."""
+    """Baut Text + Inline-Tastatur für /settings (Markt, Anzahl, SL/TP-Modus, Hebel, Auto-Accept)."""
     region = user.get("market_region") or DEFAULT_REGION
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
+    mode = user.get("sl_tp_mode") or DEFAULT_SL_TP_MODE
+    lev = user.get("leverage") or DEFAULT_LEVERAGE
+    auto = user.get("auto_accept")
 
     text = (
         "⚙️ *Einstellungen*\n"
         f"🌍 Markt-Bereich: *{REGION_LABELS.get(region, region)}*\n"
-        f"🔢 Signale pro Tag: *{top_n}*\n\n"
+        f"🔢 Signale pro Tag: *{top_n}*\n"
+        f"🎯 SL/TP-Modus: *{mode}*\n"
+        f"⚡ Hebel: *{lev:g}×*\n"
+        f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n\n"
         "Tippe unten, um zu ändern:"
     )
 
-    region_row = [
-        InlineKeyboardButton(
-            ("✅ " if key == region else "") + label,
-            callback_data=f"set_region:{key}",
-        )
-        for key, label in REGION_LABELS.items()
-    ]
-    count_row = [
-        InlineKeyboardButton(
-            ("✅ " if n == top_n else "") + str(n),
-            callback_data=f"set_count:{n}",
-        )
-        for n in SIGNAL_COUNT_CHOICES
-    ]
-    keyboard = InlineKeyboardMarkup([region_row, count_row])
+    region_row = [InlineKeyboardButton(("✅ " if k == region else "") + lbl, callback_data=f"set_region:{k}")
+                  for k, lbl in REGION_LABELS.items()]
+    count_row = [InlineKeyboardButton(("✅ " if n == top_n else "") + str(n), callback_data=f"set_count:{n}")
+                 for n in SIGNAL_COUNT_CHOICES]
+    mode_row = [InlineKeyboardButton(("✅ " if k == mode else "") + k, callback_data=f"set_mode:{k}")
+                for k in SL_TP_MODES]
+    lev_row = [InlineKeyboardButton(("✅ " if float(v) == lev else "") + f"{v:g}×", callback_data=f"set_lev:{v}")
+               for v in LEVERAGE_CHOICES]
+    auto_row = [InlineKeyboardButton(("✅ " if auto else "") + "Auto-Accept an", callback_data="set_auto:1"),
+                InlineKeyboardButton(("✅ " if not auto else "") + "aus", callback_data="set_auto:0")]
+    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row])
     return text, keyboard
 
 
@@ -565,8 +665,8 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 INFO_TEXT = (
     "📖 *So entstehen die Signale*\n"
-    "Jede Aktie wird mit mehreren technischen Indikatoren geprüft. Stimmen sie überein, "
-    "entsteht ein Long-Signal mit einer Stärke von 1–5.\n"
+    "Jede Aktie wird mit mehreren technischen Indikatoren über mehrere Zeiträume geprüft. "
+    "Stimmen sie überein, entsteht ein Long-Signal mit einer Stärke von 0–100.\n"
     "━━━━━━━━━━━━━━━━━━\n"
     "📉 *RSI (Relative Strength Index)*\n"
     "Misst, ob eine Aktie über- oder unterverkauft ist (0–100). Unter ~35 = überverkauft "
@@ -581,8 +681,9 @@ INFO_TEXT = (
     "Höheres Zeitfenster: Trend auf Wochenbasis. Signale gegen einen klaren Wochen-"
     "Abwärtstrend werden herausgefiltert (weniger Fehlsignale).\n\n"
     "🔊 *Volumen*\n"
-    "Handelsvolumen vs. 20-Tage-Schnitt. Hohes Volumen (>1,5×) bestätigt das Interesse "
-    "hinter einer Bewegung.\n\n"
+    "Relatives Volumen (RVOL) vs. Schnitt. Im Intraday-Handel besonders wichtig: hohes "
+    "Volumen (>1,5×) bestätigt Ausbrüche, zeigt Liquidität und institutionelles Interesse — "
+    "ein Kursimpuls ohne Volumen ist oft ein Fehlausbruch. Daher stark gewichtet.\n\n"
     "🎯 *Level (Support/Widerstand)*\n"
     "Wichtige Kursmarken aus vergangenen Hoch-/Tiefpunkten, inkl. wie oft sie getestet "
     "wurden. Nähe zur Unterstützung = günstigerer Einstieg.\n\n"
@@ -595,7 +696,11 @@ INFO_TEXT = (
     "⭐ *Signal-Stärke 0–100*: gewichtetes Mittel mehrerer Zeiträume (5m/15m/1h/1d) — "
     "aktuellere Zeiträume zählen mehr. Aktive Trades werden alle 60s neu bewertet und bei "
     "Stark-Verfall, Stop-Loss oder Take-Profit automatisch geschlossen.\n"
-    "🛑 *Stop-Loss / 🎯 Take-Profit*: automatisch aus der Schwankungsbreite (ATR) berechnet.\n"
+    "🛑 *Stop-Loss / 🎯 Take-Profit*: aus der Schwankungsbreite (ATR) — je nach SL/TP-Modus "
+    "(*aus* keine Grenzen / *passiv* eng / *normal* / *aggressiv* weit), einstellbar in /settings.\n"
+    "⚡ *Hebel*: 1–10× (Profil-Default in /settings, pro Signal per Button änderbar). Höherer Hebel = "
+    "größerer Gewinn/Verlust UND schnellere *Liquidation* (Long bei −1/Hebel, z. B. 10× → −10 %).\n"
+    "🤖 *Auto-Accept*: Signale werden sofort gestartet (ohne JA/NEIN).\n"
     "_Hinweis: Alles Demo-Modus — kein echtes Geld. Smart-Money-Daten haben Verzug, keine Garantie._"
 )
 
@@ -708,7 +813,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = update.effective_chat.id  # == user_id, im privaten Chat eindeutig
 
-    action, ticker = query.data.split(":")
+    parts = query.data.split(":")
+    action = parts[0]
+    ticker = parts[1] if len(parts) > 1 else ""
 
     # Deaktivierter "Börse geschlossen"-Button: nur Hinweis, keine Aktion
     if action == "noop":
@@ -717,15 +824,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
+    # Hebel pro Signal ändern (vor dem Start)
+    if action == "lev":
+        value = float(parts[2])
+        trade = db.get_trade(chat_id, ticker)
+        if not trade or trade["status"] != "pending":
+            await query.answer("⚠️ Hebel nicht mehr änderbar (Trade bereits bearbeitet).", show_alert=True)
+            return
+        db.set_trade_leverage(chat_id, ticker, value)
+        user = db.get_user(chat_id)
+        updated = db.get_trade(chat_id, ticker)
+        text, keyboard = _signal_card(updated["signal"], user["trade_size_eur"], market_open=True)
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception:
+            pass
+        log.info(f"[{chat_id}] Hebel geändert: {ticker} → {value:g}×")
+        return
+
     if action == "accept":
         trade = db.activate_trade(chat_id, ticker)
         if trade:
+            lev = trade.get("signal", {}).get("leverage", 1.0) or 1.0
             await query.edit_message_reply_markup(reply_markup=None)
             await query.edit_message_text(
-                query.message.text + f"\n\n✅ *Demo-Trade gestartet!*\nEinstiegskurs: ${trade['entry']:.2f}",
+                query.message.text + f"\n\n✅ *Demo-Trade gestartet!*\nEinstiegskurs: ${trade['entry']:.2f} · Hebel {lev:g}×",
                 parse_mode="Markdown"
             )
-            log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f}")
+            log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
+            user = db.get_user(chat_id)
+            if user:
+                await refill_pending(context.bot, chat_id, user, context.job_queue)
         else:
             existing = db.get_trade(chat_id, ticker)
             if existing and existing["status"] == "expired":
@@ -745,6 +874,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             log.info(f"[{chat_id}] Trade abgelehnt: {ticker}")
+            user = db.get_user(chat_id)
+            if user:
+                await refill_pending(context.bot, chat_id, user, context.job_queue)
         else:
             await query.answer("⚠️ Trade bereits bearbeitet oder nicht gefunden.", show_alert=True)
 
@@ -760,12 +892,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         entry = trade["entry"]
+        leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
         current = get_current_price(ticker, entry)
-        if trade["direction"] == "long":
-            pnl_pct = (current - entry) / entry * 100
-        else:
-            pnl_pct = (entry - current) / entry * 100
-        pnl_eur = user["trade_size_eur"] * (pnl_pct / 100)
+        pnl_pct, pnl_eur = realized_pnl(entry, current, trade["direction"], user["trade_size_eur"], leverage)
 
         db.close_all(chat_id, [{
             "ticker": ticker, "exit": current, "pnl_eur": pnl_eur, "pnl_pct": pnl_pct,
@@ -776,7 +905,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=None)
         await query.edit_message_text(
             query.message.text +
-            f"\n\n{emoji} *Verkauft zu ${current:.2f}*\n"
+            f"\n\n{emoji} *Verkauft zu ${current:.2f}* (Hebel {leverage:g}×)\n"
             f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
             parse_mode="Markdown"
         )
@@ -799,6 +928,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.info(f"[{chat_id}] Anzahl Signale geändert: {ticker}")
         except ValueError:
             pass
+        user = db.get_user(chat_id)
+        if user:
+            text, keyboard = _settings_view(user)
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+    elif action in ("set_mode", "set_lev", "set_auto"):
+        if action == "set_mode" and ticker in SL_TP_MODES:
+            db.set_sl_tp_mode(chat_id, ticker)
+        elif action == "set_lev":
+            try:
+                db.set_leverage(chat_id, float(ticker))
+            except ValueError:
+                pass
+        elif action == "set_auto":
+            db.set_auto_accept(chat_id, ticker == "1")
+        log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
         user = db.get_user(chat_id)
         if user:
             text, keyboard = _settings_view(user)

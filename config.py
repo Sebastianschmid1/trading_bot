@@ -165,6 +165,18 @@ SIGNAL_TIMEFRAMES = [
     {"interval": "1h",  "period": "1mo", "weight": 0.20},
     {"interval": "1d",  "period": "1y",  "weight": 0.10},
 ]
+
+# Gewichtung der Stärke-Komponenten INNERHALB eines Zeitraums (0–1, intern normiert).
+# Volumen ist im Intraday-Handel ein zentrales Bestätigungssignal: relatives Volumen
+# (RVOL) bestätigt Ausbrüche, zeigt Liquidität und institutionelles Interesse. Ohne
+# Volumen ist ein Kursimpuls leicht ein Fehlausbruch. Es ist daher hier deutlich höher
+# gewichtet als zuvor. Frei anpassbar (auch durch eine KI).
+STRENGTH_WEIGHTS = {
+    "rsi":    0.20,
+    "macd":   0.25,
+    "trend":  0.25,
+    "volume": 0.30,
+}
 MIN_SIGNAL_STRENGTH    = 55.0   # 0–100: Mindeststärke für ein gültiges Signal
 SIGNAL_CLOSE_THRESHOLD = 35.0   # 0–100: darunter wird ein aktiver Trade automatisch geschlossen
 
@@ -175,8 +187,27 @@ MONITOR_INTERVAL_SEC = 60
 # ATR (Average True Range) misst die typische Tagesschwankung. Stop-Loss und
 # Take-Profit werden als Vielfaches davon vom Einstiegskurs gesetzt.
 ATR_PERIOD   = 14
-ATR_SL_MULT  = 1.5         # Stop-Loss  = Einstieg − 1.5 × ATR
+ATR_SL_MULT  = 1.5         # Stop-Loss  = Einstieg − 1.5 × ATR   (= Modus "normal")
 ATR_TP_MULT  = 2.5         # Take-Profit = Einstieg + 2.5 × ATR  (→ CRV ~1:1.7)
+
+# SL/TP-Modi (ATR-Vielfache: (Stop-Loss-Faktor, Take-Profit-Faktor)) — pro Nutzer wählbar:
+#   aus       = keine festen SL/TP-Grenzen (nur Liquidation & Signal-Verfall schließen)
+#   passiv    = enge Stops, kleine schnelle Ziele
+#   normal    = ausgewogen (bisheriger Standard)
+#   aggressiv = weite Stops, große Ziele (lässt laufen)
+SL_TP_MODES = {
+    "aus":       (None, None),
+    "passiv":    (1.0, 1.5),
+    "normal":    (1.5, 2.5),
+    "aggressiv": (2.5, 4.0),
+}
+DEFAULT_SL_TP_MODE = "normal"
+
+# ── Hebel (Leverage) ─────────────────────────────────────────────────────────
+# Höherer Hebel = höherer Gewinn/Verlust UND schnellere Liquidation:
+# Long wird bei einem Kursverlust von 1/Hebel liquidiert (Hebel 10 → schon bei −10 %).
+LEVERAGE_CHOICES = [1, 1.5, 2, 3, 5, 10]
+DEFAULT_LEVERAGE = 1.0
 
 # ── Smart-Money (was große Trader handeln: Insider + Institutionen) ──────────
 # Der Voll-Scan (1 yfinance-Abfrage pro Aktie) dauert Minuten und läuft daher

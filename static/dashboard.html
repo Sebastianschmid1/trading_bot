@@ -30,6 +30,9 @@
     .badge { font-size: .75rem; padding: .15rem .5rem; border-radius: 6px; background: #243; color: var(--green); }
     .empty { color: var(--muted); text-align: center; padding: 1.5rem; }
     #error { display: none; background: #3a1f24; border: 1px solid #5a2a30; color: #ffb3bd; padding: 1rem; border-radius: 10px; }
+    /* Mindesthöhe für lesbare Charts */
+    .panel canvas { height: 280px !important; }
+    #priceCharts canvas { height: 200px !important; }
   </style>
 </head>
 <body>
@@ -69,6 +72,7 @@
   </div>
 
   <script>
+    Chart.defaults.maintainAspectRatio = false;   // Charts füllen die CSS-Höhe → lesbar
     const token = window.location.pathname.split("/").filter(Boolean).pop();
     const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
     const cls = (n) => n >= 0 ? "green" : "red";

@@ -13,7 +13,8 @@ from config import (
     RSI_PERIOD, RSI_OVERSOLD, RSI_OVERBOUGHT,
     MA_SHORT, MA_LONG,
     ATR_PERIOD, ATR_SL_MULT, ATR_TP_MULT,
-    BLOCK_WEEKLY_DOWNTREND, SIGNAL_TIMEFRAMES
+    BLOCK_WEEKLY_DOWNTREND, SIGNAL_TIMEFRAMES, STRENGTH_WEIGHTS,
+    SL_TP_MODES, DEFAULT_SL_TP_MODE
 )
 
 log = logging.getLogger(__name__)
@@ -76,6 +77,30 @@ def calc_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: in
     for tr in true_range[period:]:      # danach Wilder-Glättung
         atr = (atr * (period - 1) + tr) / period
     return float(atr)
+
+
+def sl_tp_from_atr(price: float, atr: float | None, mode: str = DEFAULT_SL_TP_MODE) -> dict:
+    """
+    Berechnet Stop-Loss/Take-Profit aus dem ATR je Modus (long-only, Demo).
+    Modus 'aus', unbekannter Modus oder fehlendes ATR → keine Grenzen (alle None).
+    Gibt {stop_loss, take_profit, sl_pct, tp_pct, risk_reward} zurück.
+    """
+    none = {"stop_loss": None, "take_profit": None,
+            "sl_pct": None, "tp_pct": None, "risk_reward": None}
+    sl_mult, tp_mult = SL_TP_MODES.get(mode, SL_TP_MODES[DEFAULT_SL_TP_MODE])
+    if mode == "aus" or sl_mult is None or tp_mult is None \
+            or not atr or atr <= 0 or not price:
+        return none
+
+    stop_loss   = price - sl_mult * atr
+    take_profit = price + tp_mult * atr
+    return {
+        "stop_loss":   stop_loss,
+        "take_profit": take_profit,
+        "sl_pct":      (stop_loss - price) / price * 100,    # negativ
+        "tp_pct":      (take_profit - price) / price * 100,  # positiv
+        "risk_reward": tp_mult / sl_mult,
+    }
 
 
 def calc_weekly_trend(df) -> str:
@@ -198,7 +223,11 @@ def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | 
         trend_score = 0.0
     vol_score = _clamp((vol_ratio - 0.8) / 0.7)              # ab 1.5× voll bestätigt
 
-    sub = 0.25 * rsi_score + 0.30 * macd_score + 0.30 * trend_score + 0.15 * vol_score
+    # Gewichtetes Mittel der Komponenten (Gewichte aus config, intern normiert).
+    w = STRENGTH_WEIGHTS
+    total_w = w["rsi"] + w["macd"] + w["trend"] + w["volume"]
+    sub = (w["rsi"] * rsi_score + w["macd"] * macd_score
+           + w["trend"] * trend_score + w["volume"] * vol_score) / total_w
     return round(sub * 100, 1)
 
 
