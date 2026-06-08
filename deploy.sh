@@ -7,6 +7,6 @@
 set -euo pipefail
 
 SERVER_HOST="root@DEINE-SERVER-IP"
-APP_DIR="/root/trading_bot"
+APP_DIR="/root/stockbot"
 
 ssh "$SERVER_HOST" "cd $APP_DIR && git pull && ./venv/bin/pip install -q -r requirements.txt && systemctl restart stockbot && systemctl status stockbot --no-pager -l"

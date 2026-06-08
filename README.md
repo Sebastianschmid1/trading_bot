@@ -150,8 +150,8 @@ Empfohlenes OS: **Ubuntu 24.04** (ohne Plesk/n8n).
 **Einmalig einrichten** (als root auf der VM, nachdem du das Repo per SSH geklont hast):
 
 ```bash
-git clone git@github.com:<dein-user>/trading_bot.git /root/trading_bot
-cd /root/trading_bot
+git clone git@github.com:<dein-user>/trading_bot.git /root/stockbot
+cd /root/stockbot
 bash deploy/setup_server.sh
 # danach TELEGRAM_TOKEN_ENV in die .env eintragen und neu starten:
 nano .env

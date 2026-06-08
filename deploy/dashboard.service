@@ -13,9 +13,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/trading_bot
-EnvironmentFile=/root/trading_bot/.env
-ExecStart=/root/trading_bot/venv/bin/python /root/trading_bot/dashboard.py
+WorkingDirectory=/root/stockbot
+EnvironmentFile=/root/stockbot/.env
+ExecStart=/root/stockbot/venv/bin/python /root/stockbot/dashboard.py
 Restart=always
 RestartSec=10
 
