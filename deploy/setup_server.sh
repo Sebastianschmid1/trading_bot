@@ -24,8 +24,9 @@ if [ ! -f .env ]; then
     echo "  WICHTIG: Jetzt noch TELEGRAM_TOKEN_ENV eintragen:  nano $APP_DIR/.env"
 fi
 
-echo "→ systemd-Service installieren (Dashboard läuft im Bot-Prozess mit)..."
-cp deploy/stockbot.service /etc/systemd/system/stockbot.service
+echo "→ systemd-Service installieren (Pfad = aktueller Repo-Ordner: $APP_DIR)..."
+# Pfade in der Unit auf den tatsächlichen Klon-Ort setzen — egal wie der Ordner heißt.
+sed "s#/root/stockbot#$APP_DIR#g" deploy/stockbot.service > /etc/systemd/system/stockbot.service
 systemctl daemon-reload
 systemctl enable stockbot
 systemctl restart stockbot
