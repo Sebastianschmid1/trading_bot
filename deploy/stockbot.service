@@ -1,8 +1,10 @@
-# systemd-Unit für den Stock Signal Bot.
+# systemd-Unit für den Stock Signal Bot (Strato Ubuntu-VM).
 # Installation: sudo cp deploy/stockbot.service /etc/systemd/system/ && sudo systemctl daemon-reload
 #
-# Passe USER und die Pfade an, falls dein Linux-User nicht "pi" heißt
-# oder das Repo nicht in /home/pi/stockbot liegt.
+# Voraussetzung: Repo unter /root/trading_bot geklont, venv angelegt, .env befüllt.
+# Andere User/Pfade? Dann User= und die drei Pfade entsprechend anpassen.
+# Hinweis: Der Bot startet das Dashboard standardmäßig mit (RUN_DASHBOARD_IN_BOT=true) —
+# ein separater dashboard.service ist dann NICHT nötig.
 
 [Unit]
 Description=Stock Signal Telegram Bot
@@ -11,10 +13,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/stockbot
-EnvironmentFile=/home/pi/stockbot/.env
-ExecStart=/home/pi/stockbot/venv/bin/python /home/pi/stockbot/bot.py
+User=root
+WorkingDirectory=/root/trading_bot
+EnvironmentFile=/root/trading_bot/.env
+ExecStart=/root/trading_bot/venv/bin/python /root/trading_bot/bot.py
 Restart=always
 RestartSec=10
 

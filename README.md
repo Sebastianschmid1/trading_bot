@@ -143,19 +143,42 @@ python dashboard.py   # nur nötig, wenn separat vom Bot betrieben
 
 ---
 
-## Auf einem Server dauerhaft laufen lassen
+## Deployment auf einer Ubuntu-VM (z. B. Strato V-Server)
+
+Empfohlenes OS: **Ubuntu 24.04** (ohne Plesk/n8n).
+
+**Einmalig einrichten** (als root auf der VM, nachdem du das Repo per SSH geklont hast):
 
 ```bash
-# Mit screen (einfach):
-screen -S stockbot
-python bot.py
-# Ctrl+A dann D zum Loslösen
-
-# Mit systemd (empfohlen für VPS):
-# Erstelle /etc/systemd/system/stockbot.service
+git clone git@github.com:<dein-user>/trading_bot.git /root/trading_bot
+cd /root/trading_bot
+bash deploy/setup_server.sh
+# danach TELEGRAM_TOKEN_ENV in die .env eintragen und neu starten:
+nano .env
+systemctl restart stockbot
 ```
+
+`setup_server.sh` installiert git/Python, legt das venv an, installiert die Dependencies,
+erzeugt die `.env` (inkl. automatisch generiertem `ENCRYPTION_KEY`) und richtet den
+`stockbot`-systemd-Dienst ein. Das **Dashboard läuft im Bot-Prozess mit** (Port 8000) —
+trage in der `.env` `DASHBOARD_BASE_URL=http://DEINE-SERVER-IP:8000` ein und öffne den Port
+(`ufw allow 8000`), damit der `/dashboard`-Link von außen erreichbar ist.
+
+**Status & Logs:**
+
+```bash
+systemctl status stockbot
+journalctl -u stockbot -f
+```
+
+**Updates einspielen** (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy.sh`
+anpassen und `bash deploy.sh` ausführen — das macht auf dem Server `git pull` +
+Dependencies + `systemctl restart stockbot`.
+
+> Dashboard als eigener Dienst gewünscht? `deploy/dashboard.service` installieren und in der
+> `.env` `RUN_DASHBOARD_IN_BOT=false` setzen (sonst Portkonflikt auf 8000).
 
 ## Hinweis
 Dies ist ein **Demo-Bot** — es wird kein echtes Geld gehandelt.
-Für echte Trades: Alpaca API-Keys in config.py eintragen und
-die `activate_trade()` Funktion in tracker.py erweitern.
+Für echte Trades später: hinterlegte Broker-API-Keys (Alpaca, per Onboarding verschlüsselt
+gespeichert) nutzen und die Order-Ausführung ergänzen.

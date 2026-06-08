@@ -15,7 +15,11 @@
       "Bash(PYTHONIOENCODING=utf-8 python test_signals.py)",
       "Bash(PYTHONIOENCODING=utf-8 python test_settings.py)",
       "Bash(PYTHONIOENCODING=utf-8 python test_universes.py)",
-      "Bash(grep -vE \"Failed|delisted|YFTzMissing|possibly|^\\\\$\")"
+      "Bash(grep -vE \"Failed|delisted|YFTzMissing|possibly|^\\\\$\")",
+      "Bash(git rm *)",
+      "Bash(rm -f deploy/setup_pi.sh)",
+      "Bash(bash -n deploy/setup_server.sh)",
+      "Bash(bash -n deploy.sh)"
     ]
   }
 }

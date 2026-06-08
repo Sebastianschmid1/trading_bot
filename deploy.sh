@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Schnelles Update-Deployment: lokal committen/pushen, dann dieses Skript ausführen.
-# Holt den neuesten Stand auf den Pi und startet den Service neu.
+# Schnelles Update-Deployment auf die Strato Ubuntu-VM:
+# lokal committen/pushen, dann dieses Skript ausführen — holt den neuesten Stand
+# auf den Server, aktualisiert Dependencies und startet den Dienst neu.
 #
-# Anpassen: PI_HOST (User@Hostname/IP des Pi) und APP_DIR (Pfad zum Repo auf dem Pi)
+# Anpassen: SERVER_HOST (root@DEINE-SERVER-IP) und APP_DIR (Repo-Pfad auf dem Server).
 set -euo pipefail
 
-PI_HOST="pi@auto"
-APP_DIR="~/stockbot"
+SERVER_HOST="root@DEINE-SERVER-IP"
+APP_DIR="/root/trading_bot"
 
-ssh "$PI_HOST" "cd $APP_DIR && git pull && ./venv/bin/pip install -q -r requirements.txt && sudo systemctl restart stockbot && sudo systemctl status stockbot --no-pager -l"
+ssh "$SERVER_HOST" "cd $APP_DIR && git pull && ./venv/bin/pip install -q -r requirements.txt && systemctl restart stockbot && systemctl status stockbot --no-pager -l"
