@@ -58,6 +58,28 @@ def test_regions_without_fetcher_use_basket():
     assert universes.get_tickers("emerging") == list(config.UNIVERSE_EMERGING)
 
 
+def test_auto_false_returns_basket_without_fetch():
+    _tmp_cache()
+    calls = {"n": 0}
+
+    def fake_fetch():
+        calls["n"] += 1
+        return ["AAPL", "MSFT", "NVDA"]
+
+    orig = universes.FETCHERS.copy()
+    universes.FETCHERS["sp500"] = fake_fetch
+    try:
+        # auto=False → kuratierter Korb aus config.py, KEIN Fetch
+        t = universes.get_tickers("sp500", auto=False)
+        assert t == list(config.UNIVERSE_SP500)
+        assert calls["n"] == 0, "Bei auto=False darf der Fetcher nicht laufen"
+        # auto=True (Default) lädt weiterhin die Vollliste
+        assert universes.get_tickers("sp500", auto=True) == ["AAPL", "MSFT", "NVDA"]
+        assert calls["n"] == 1
+    finally:
+        universes.FETCHERS = orig
+
+
 def test_force_refresh_bypasses_cache():
     _tmp_cache()
     calls = {"n": 0}

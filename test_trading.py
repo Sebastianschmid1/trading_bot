@@ -46,13 +46,26 @@ def test_sl_tp_mode_aus_has_no_limits():
     assert r["stop_loss"] is None and r["take_profit"] is None and r["risk_reward"] is None
 
 
-def test_auto_close_aus_holds_without_sl_tp():
-    # Modus "aus" → ohne Hebel kein Schließen bei normalem Kurs, auch tief im Minus
+def test_auto_close_aus_never_sells_without_leverage():
+    # Modus "aus" → KEIN automatischer Verkauf: weder bei Kursverfall noch bei schwachem Signal
     t = {"ticker": "NVDA", "direction": "long", "entry": 100.0,
-         "signal": {"stop_loss": None, "take_profit": None, "leverage": 1.0}}
+         "signal": {"stop_loss": None, "take_profit": None, "leverage": 1.0, "sl_tp_mode": "aus"}}
     assert bot.evaluate_active_trade(t, price=70.0, strength=70.0) is None
-    # aber Signal-Verfall schließt weiterhin
-    assert "verschlechtert" in bot.evaluate_active_trade(t, price=70.0, strength=20.0)
+    assert bot.evaluate_active_trade(t, price=70.0, strength=10.0) is None   # Signal-Verfall greift NICHT
+
+
+def test_auto_close_aus_still_liquidates_with_leverage():
+    # Eine echte Liquidation (Hebel > 1) ist auch bei "aus" unvermeidbar
+    t = {"ticker": "NVDA", "direction": "long", "entry": 100.0,
+         "signal": {"stop_loss": None, "take_profit": None, "leverage": 10.0, "sl_tp_mode": "aus"}}
+    assert "Liquidation" in bot.evaluate_active_trade(t, price=89.0, strength=70.0)
+
+
+def test_auto_close_signal_decay_still_works_in_normal_mode():
+    # Im normalen Modus schließt der Signal-Verfall weiterhin
+    t = {"ticker": "NVDA", "direction": "long", "entry": 100.0,
+         "signal": {"stop_loss": 85.0, "take_profit": 120.0, "leverage": 1.0, "sl_tp_mode": "normal"}}
+    assert "verschlechtert" in bot.evaluate_active_trade(t, price=95.0, strength=20.0)
 
 
 # ── Hebel & Liquidation ──────────────────────────────────────────────────────

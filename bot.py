@@ -37,7 +37,8 @@ from config import (
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
     CLOSE_TIME_HOUR, CLOSE_TIME_MIN,
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
-    UNIVERSES, REGION_LABELS, DEFAULT_REGION, SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
+    UNIVERSES, REGION_LABELS, DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE,
+    SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE
@@ -58,15 +59,25 @@ TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch g
 
 # ── Kandidaten-Cache (für das Nachrücken ohne Duplikate) ────────────────────
 
-_candidates_cache: dict[str, dict] = {}   # region -> {"date": date, "ranked": [signal, ...]}
+_candidates_cache: dict[str, dict] = {}   # key -> {"date": date, "ranked": [signal, ...]}
 
 
-def _cache_candidates(region: str, ranked: list[dict]):
-    _candidates_cache[region] = {"date": date.today(), "ranked": ranked}
+def _auto_uni(user: dict) -> bool:
+    """Ob der Nutzer das Voll-Universum (automatisch geladene Vollliste) nutzt."""
+    return user.get("auto_universe", DEFAULT_AUTO_UNIVERSE)
 
 
-def _get_candidates(region: str) -> list[dict]:
-    e = _candidates_cache.get(region)
+def _universe_key(region: str, auto: bool) -> str:
+    """Cache-/Analyse-Schlüssel: Region + Voll-Universum-Schalter (verschiedene Tickermengen)."""
+    return f"{region}:{int(bool(auto))}"
+
+
+def _cache_candidates(key: str, ranked: list[dict]):
+    _candidates_cache[key] = {"date": date.today(), "ranked": ranked}
+
+
+def _get_candidates(key: str) -> list[dict]:
+    e = _candidates_cache.get(key)
     return e["ranked"] if e and e["date"] == date.today() else []
 
 
@@ -88,7 +99,7 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
             f"⚖️ Chance/Risiko: ~1:{signal['risk_reward']:.1f}\n"
         )
     elif signal.get("sl_tp_mode") == "aus":
-        risk_block = "🎯 SL/TP: *aus* — schließt nur bei Liquidation oder Signal-Verfall\n"
+        risk_block = "🎯 SL/TP: *aus* — kein Auto-Verkauf (nur Liquidation bei Hebel / Tagesende)\n"
     else:
         risk_block = ""
 
@@ -231,23 +242,29 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
         log.info("Keine registrierten Nutzer — überspringe Tagessignale.")
         return
 
-    # Analyse pro benötigtem Markt-Bereich einmal berechnen (für alle Nutzer dieses Bereichs)
-    ranked_by_region: dict[str, list] = {}
-    for region in {u.get("market_region") or DEFAULT_REGION for u in users}:
-        tickers = universes.get_tickers(region)
+    # Analyse pro benötigter (Bereich, Voll-Universum)-Kombination einmal berechnen
+    ranked_by_key: dict[str, list] = {}
+    size_by_key: dict[str, int] = {}
+    needed = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u)) for u in users}
+    for region, auto in needed:
+        key = _universe_key(region, auto)
+        tickers = universes.get_tickers(region, auto=auto)
+        size_by_key[key] = len(tickers)
         try:
             ranked = analyze_universe(tickers)
-            ranked_by_region[region] = ranked
-            _cache_candidates(region, ranked)   # Kandidaten fürs Nachrücken merken
+            ranked_by_key[key] = ranked
+            _cache_candidates(key, ranked)   # Kandidaten fürs Nachrücken merken
         except Exception as e:
-            log.error(f"Analyse fehlgeschlagen ({region}): {e}")
-            ranked_by_region[region] = None  # Fehler-Marker
+            log.error(f"Analyse fehlgeschlagen ({key}): {e}")
+            ranked_by_key[key] = None  # Fehler-Marker
 
     market_open = _us_market_open()
     for u in users:
         chat_id = u["user_id"]
         region = u.get("market_region") or DEFAULT_REGION
-        ranked = ranked_by_region.get(region)
+        key = _universe_key(region, _auto_uni(u))
+        ranked = ranked_by_key.get(key)
+        n_tickers = size_by_key.get(key, 0)
 
         if ranked is None:
             await bot.send_message(chat_id=chat_id, text="⚠️ Analyse-Fehler — bitte später erneut versuchen.")
@@ -263,7 +280,7 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
             chat_id=chat_id,
             text=(
                 f"🌅 *Guten Morgen! Tagesanalyse {now.strftime('%d.%m.%Y')}*\n"
-                f"Bereich: {REGION_LABELS.get(region, region)} ⏳"
+                f"Bereich: {REGION_LABELS.get(region, region)} · {n_tickers} Aktien ⏳"
             ),
             parse_mode="Markdown"
         )
@@ -338,6 +355,10 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     sl, tp = sig.get("stop_loss"), sig.get("take_profit")
     leverage = sig.get("leverage", 1.0) or 1.0
     entry = trade.get("entry")
+    # SL/TP-Modus "aus": kein automatisches Schließen (weder SL/TP noch Signal-Verfall).
+    # Nur eine echte Liquidation (Hebel > 1) ist unvermeidbar; sonst hält der Trade
+    # bis zum manuellen Verkauf bzw. der Tagesend-Auswertung.
+    aus = sig.get("sl_tp_mode") == "aus"
     if price is not None and trade.get("direction", "long") == "long":
         liq = liquidation_price(entry, leverage, "long") if entry else None
         if liq is not None and price <= liq:        # zuerst: Liquidation (Totalverlust)
@@ -346,7 +367,7 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
             return "Stop-Loss 🛑"
         if tp is not None and price >= tp:
             return "Take-Profit 🎯"
-    if strength is not None and strength < SIGNAL_CLOSE_THRESHOLD:
+    if not aus and strength is not None and strength < SIGNAL_CLOSE_THRESHOLD:
         return "Signal verschlechtert 📉"
     return None
 
@@ -412,17 +433,18 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
 
 # ── Smart-Money: nächtlicher Scan (was große Trader handeln) ─────────────────
 
-def _regions_in_use() -> set[str]:
-    """Markt-Bereiche aller aktiven Nutzer (für den Scan-Umfang)."""
-    return {u.get("market_region") or DEFAULT_REGION for u in db.list_active_users()} or {DEFAULT_REGION}
+def _universes_in_use() -> set[tuple[str, bool]]:
+    """(Bereich, Voll-Universum)-Kombinationen aller aktiven Nutzer (für den Scan-Umfang)."""
+    combos = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u)) for u in db.list_active_users()}
+    return combos or {(DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE)}
 
 
 async def scan_smart_money(context: ContextTypes.DEFAULT_TYPE):
     """Job: Scannt nachts die genutzten Universen auf Insider-/Institutionen-Aktivität
     und cacht die Smart-Money-Scores (langsam → läuft im Hintergrund, blockiert nichts)."""
     tickers: set[str] = set()
-    for region in _regions_in_use():
-        tickers.update(universes.get_tickers(region))
+    for region, auto in _universes_in_use():
+        tickers.update(universes.get_tickers(region, auto=auto))
     log.info(f"Starte Smart-Money-Scan über {len(tickers)} Aktien…")
     # in einen Thread auslagern: die yfinance-Aufrufe sind blockierend
     await asyncio.to_thread(smartmoney.scan_universe, sorted(tickers), 0.2)
@@ -460,7 +482,7 @@ async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
     need = top_n - len(db.get_pending_trades(chat_id))
     if need <= 0:
         return
-    for signal in _get_candidates(region):
+    for signal in _get_candidates(_universe_key(region, _auto_uni(user))):
         if need <= 0:
             break
         if db.has_trade_today(chat_id, signal["ticker"]):
@@ -493,14 +515,17 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     bot = context.bot
     region = user.get("market_region") or DEFAULT_REGION
+    auto = _auto_uni(user)
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
-    tickers = universes.get_tickers(region)
+    tickers = universes.get_tickers(region, auto=auto)
+    n_tickers = len(tickers)
     region_label = REGION_LABELS.get(region, region)
 
-    await update.message.reply_text(f"🔍 Analysiere *{region_label}*… ⏳", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"🔍 Analysiere *{region_label}* ({n_tickers} Aktien)… ⏳", parse_mode="Markdown")
     try:
         ranked = analyze_universe(tickers)
-        _cache_candidates(region, ranked)          # Kandidaten fürs Nachrücken merken
+        _cache_candidates(_universe_key(region, auto), ranked)   # Kandidaten fürs Nachrücken merken
         signals = smartmoney.rank(ranked, top_n)   # Smart-Money fließt ins Ranking ein
     except Exception as e:
         await update.message.reply_text(f"⚠️ Analyse-Fehler: {e}")
@@ -513,10 +538,11 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     as_of = signals[0].get("as_of", "?")
     market_open = _us_market_open()
     if market_open:
-        intro = f"✅ *{len(signals)} Live-Signale* — {region_label} (Datenstand: {as_of})"
+        intro = f"✅ *{len(signals)} Live-Signale* aus {n_tickers} analysierten Aktien — {region_label} (Datenstand: {as_of})"
     else:
         intro = (
-            f"📅 *{len(signals)} Signale* — {region_label}, Datenstand: *{as_of}* (letzter Handelstag)\n"
+            f"📅 *{len(signals)} Signale* aus {n_tickers} analysierten Aktien — {region_label}, "
+            f"Datenstand: *{as_of}* (letzter Handelstag)\n"
             "Die US-Börse ist gerade geschlossen, daher ändern sich die Signale bis zur "
             "nächsten Handelssession nicht. Es sind echte Kurse, *keine Testdaten*."
         )
@@ -613,6 +639,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎯 SL/TP-Modus: *{user.get('sl_tp_mode') or DEFAULT_SL_TP_MODE}*\n"
         f"⚡ Hebel: *{(user.get('leverage') or DEFAULT_LEVERAGE):g}×*\n"
         f"🤖 Auto-Accept: *{'an' if user.get('auto_accept') else 'aus'}*\n"
+        f"🌐 Voll-Universum: *{'an' if _auto_uni(user) else 'aus'}*\n"
         f"{broker_line}\n"
         f"📡 Status: {'aktiv ✅' if user['is_active'] else 'pausiert ⏸'}\n\n"
         "⚙️ Alles ändern: /settings",
@@ -621,12 +648,13 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _settings_view(user: dict):
-    """Baut Text + Inline-Tastatur für /settings (Markt, Anzahl, SL/TP-Modus, Hebel, Auto-Accept)."""
+    """Baut Text + Inline-Tastatur für /settings (Markt, Anzahl, SL/TP-Modus, Hebel, Auto-Accept, Voll-Universum)."""
     region = user.get("market_region") or DEFAULT_REGION
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
     mode = user.get("sl_tp_mode") or DEFAULT_SL_TP_MODE
     lev = user.get("leverage") or DEFAULT_LEVERAGE
     auto = user.get("auto_accept")
+    auto_uni = _auto_uni(user)
 
     text = (
         "⚙️ *Einstellungen*\n"
@@ -634,7 +662,8 @@ def _settings_view(user: dict):
         f"🔢 Signale pro Tag: *{top_n}*\n"
         f"🎯 SL/TP-Modus: *{mode}*\n"
         f"⚡ Hebel: *{lev:g}×*\n"
-        f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n\n"
+        f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n"
+        f"🌐 Voll-Universum: *{'an' if auto_uni else 'aus'}*\n\n"
         "Tippe unten, um zu ändern:"
     )
 
@@ -648,7 +677,9 @@ def _settings_view(user: dict):
                for v in LEVERAGE_CHOICES]
     auto_row = [InlineKeyboardButton(("✅ " if auto else "") + "Auto-Accept an", callback_data="set_auto:1"),
                 InlineKeyboardButton(("✅ " if not auto else "") + "aus", callback_data="set_auto:0")]
-    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row])
+    uni_row = [InlineKeyboardButton(("✅ " if auto_uni else "") + "Voll-Universum an", callback_data="set_uni:1"),
+               InlineKeyboardButton(("✅ " if not auto_uni else "") + "aus", callback_data="set_uni:0")]
+    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row, uni_row])
     return text, keyboard
 
 
@@ -720,7 +751,7 @@ async def cmd_top5trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     region = user.get("market_region") or DEFAULT_REGION
     region_label = REGION_LABELS.get(region, region)
-    tickers = universes.get_tickers(region)
+    tickers = universes.get_tickers(region, auto=_auto_uni(user))
     top = smartmoney.get_top(tickers, 5)
 
     if not top:
@@ -933,7 +964,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, keyboard = _settings_view(user)
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
-    elif action in ("set_mode", "set_lev", "set_auto"):
+    elif action in ("set_mode", "set_lev", "set_auto", "set_uni"):
         if action == "set_mode" and ticker in SL_TP_MODES:
             db.set_sl_tp_mode(chat_id, ticker)
         elif action == "set_lev":
@@ -943,6 +974,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         elif action == "set_auto":
             db.set_auto_accept(chat_id, ticker == "1")
+        elif action == "set_uni":
+            db.set_auto_universe(chat_id, ticker == "1")
         log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
         user = db.get_user(chat_id)
         if user:

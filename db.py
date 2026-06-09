@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
     sl_tp_mode        TEXT    NOT NULL DEFAULT 'normal',
     leverage          REAL    NOT NULL DEFAULT 1.0,
     auto_accept       INTEGER NOT NULL DEFAULT 0,
+    auto_universe     INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -106,6 +107,9 @@ def _migrate(conn: sqlite3.Connection):
     if "auto_accept" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0")
         log.info("Migration: Spalte users.auto_accept ergänzt.")
+    if "auto_universe" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN auto_universe INTEGER NOT NULL DEFAULT 1")
+        log.info("Migration: Spalte users.auto_universe ergänzt.")
 
 
 @contextmanager
@@ -151,6 +155,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "sl_tp_mode":       row["sl_tp_mode"],
         "leverage":         row["leverage"],
         "auto_accept":      bool(row["auto_accept"]),
+        "auto_universe":    bool(row["auto_universe"]),
     }
 
 
@@ -266,6 +271,16 @@ def set_auto_accept(user_id: int, on: bool):
     with _connect() as conn:
         conn.execute(
             "UPDATE users SET auto_accept = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
+        )
+
+
+def set_auto_universe(user_id: int, on: bool):
+    """Schaltet das Voll-Universum (automatisch geladene Vollliste) an/aus.
+    Aus → es wird der kuratierte Korb aus config.py genutzt (schnellere Analyse)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET auto_universe = ?, updated_at = datetime('now') WHERE user_id = ?",
             (1 if on else 0, user_id),
         )
 

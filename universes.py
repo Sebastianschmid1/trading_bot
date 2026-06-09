@@ -73,14 +73,21 @@ def _save_cache(cache: dict):
 
 # ── Öffentliche API ──────────────────────────────────────────────────────────
 
-def get_tickers(region: str, max_age_s: int = CACHE_MAX_AGE_S, force: bool = False) -> list[str]:
+def get_tickers(region: str, max_age_s: int = CACHE_MAX_AGE_S, force: bool = False,
+                auto: bool = True) -> list[str]:
     """
     Gibt die Ticker eines Bereichs zurück. Reihenfolge:
       1. frischer Cache (jünger als max_age_s)
       2. Auto-Quelle (falls vorhanden) → in Cache schreiben
       3. alter Cache (falls Auto-Quelle fehlschlägt)
       4. kuratierter Fallback-Korb aus config.py
+
+    `auto=False` überspringt das automatische Laden komplett und gibt direkt den
+    kuratierten Korb aus config.py zurück (kleiner & schnellere Analyse).
     """
+    if not auto:
+        return list(FALLBACK.get(region, []))
+
     fetcher = FETCHERS.get(region)
     if fetcher is None:
         return list(FALLBACK.get(region, []))   # kein Auto-Quell → Korb

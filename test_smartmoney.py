@@ -175,7 +175,7 @@ def test_top5trade_empty_cache_triggers_scan():
     ctx = MagicMock()
     ctx.job_queue = MagicMock()
     orig_get = bot.universes.get_tickers
-    bot.universes.get_tickers = lambda region: ["AAPL", "MSFT"]
+    bot.universes.get_tickers = lambda region, **kw: ["AAPL", "MSFT"]
     try:
         update = _fake_update()
         asyncio.run(bot.cmd_top5trade(update, ctx))
@@ -192,7 +192,7 @@ def test_top5trade_with_cache_lists_tickers():
     orig_fetch = smartmoney.fetch_raw
     smartmoney.fetch_raw = _patch_fetch({"AAPL": RAW_STRONG_BUY, "MSFT": RAW_ONLY_INST})
     orig_get = bot.universes.get_tickers
-    bot.universes.get_tickers = lambda region: ["AAPL", "MSFT"]
+    bot.universes.get_tickers = lambda region, **kw: ["AAPL", "MSFT"]
     try:
         smartmoney.scan_universe(["AAPL", "MSFT"])
         update = _fake_update()

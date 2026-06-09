@@ -131,6 +131,10 @@ REGION_LABELS = {
 
 DEFAULT_REGION = "sp500"
 
+# Voll-Universum (automatisch geladene Vollliste, z. B. ~500 S&P-500-Werte) standardmäßig AN.
+# Aus → kuratierter Korb aus config.py (UNIVERSE_*) → kleiner & schnellere Analyse.
+DEFAULT_AUTO_UNIVERSE = True
+
 # Rückwärtskompatibler Alias (z. B. für analyzer-Standardwerte)
 WATCHLIST = UNIVERSE_SP500
 

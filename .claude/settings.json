@@ -25,7 +25,11 @@
       "Bash(python -m py_compile config.py db.py)",
       "Bash(export PYTHONIOENCODING=utf-8)",
       "Bash(python -c \"import dashboard; print\\('dashboard import OK'\\)\")",
-      "Bash(python test_intraday.py)"
+      "Bash(python test_intraday.py)",
+      "Bash(python -c \"import bot\")",
+      "Bash(echo \"bot import OK\")",
+      "Bash(python test_trading.py)",
+      "Bash(python -c ' *)"
     ]
   }
 }

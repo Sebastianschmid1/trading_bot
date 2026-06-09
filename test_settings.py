@@ -128,6 +128,30 @@ def test_invalid_region_ignored():
     assert db.get_user(CHAT)["market_region"] == "sp500"   # unverändert
 
 
+# ── /settings: Voll-Universum-Schalter ───────────────────────────────────────
+
+def test_auto_universe_default_on_and_setter():
+    fresh_db()
+    u = db.get_or_create_user(CHAT)
+    assert u["auto_universe"] is True                       # Default AN
+    db.set_auto_universe(CHAT, False)
+    assert db.get_user(CHAT)["auto_universe"] is False
+    db.set_auto_universe(CHAT, True)
+    assert db.get_user(CHAT)["auto_universe"] is True
+
+
+def test_set_uni_button_updates_db():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    update, query = _fake_settings_query("set_uni:0")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["auto_universe"] is False      # ausgeschaltet
+    query.edit_message_text.assert_awaited()                # Menü neu gezeichnet
+    update, query = _fake_settings_query("set_uni:1")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["auto_universe"] is True
+
+
 # ── Runner ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
