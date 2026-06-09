@@ -159,9 +159,20 @@ Die Trendfolge-Logik trägt; der fixe Stop war das Problem.
   (per Namen wählen), `/teststrat` (Backtest der aktiven Strategie als Hintergrund-Job → Profitfaktor).
 - Anzeige in `/profil` + `/help`.
 
+**Mehrere Strategien gleichzeitig + Strategie-Dashboards ERLEDIGT (77 Tests grün):**
+- `db.py`: `strategy`-Spalte speichert kommagetrennte Liste; `_user_to_dict["strategies"]`;
+  `toggle_strategy` (mind. 1 bleibt). Keine Migration.
+- `bot.py`: `_user_strategies`; `/signals` & 15:35-Job senden **pro Strategie** top_n Signale mit
+  Kopfzeile (Dedup: eine Position pro Aktie via `has_trade_today`); `refill_pending` füllt pro
+  Strategie auf; `/settings` Strategie-**Mehrfach-Toggle**; `/addstrat` togglet; `/teststrat [name]`
+  testet je gewählter Strategie; `/strategies`, `/profil` zeigen die Liste.
+- `dashboard.py` + `dashboard.html`: `build_dashboard_data(user, strategy=None)` filtert nach
+  `signal.strategy`, liefert **Profitfaktor** (via `metrics`) + Strategie-Tabs („Alle" + je Strategie);
+  HTML-Umschalter lädt `/api/<token>/data?strategy=…` neu.
+
 **Nächste mögliche Schritte (offen):** Walk-Forward/Out-of-Sample (Phase 3), Feature-Attribution
-(Phase 4), Dashboard-Integration der Backtests (Phase 5); Backtest-Engine für volles Universum
-beschleunigen (Signal-Serien vorberechnen statt per-Tag neu).
+(Phase 4), Backtests im Dashboard visualisieren; Backtest-Engine für volles Universum beschleunigen
+(Signal-Serien vorberechnen statt per-Tag neu).
 
 ---
 

@@ -70,9 +70,10 @@ def _auto_uni(user: dict) -> bool:
     return user.get("auto_universe", DEFAULT_AUTO_UNIVERSE)
 
 
-def _user_strategy(user: dict) -> str:
-    """Aktive Signal-Strategie des Nutzers (Schlüssel aus strategies.REGISTRY)."""
-    return user.get("strategy") or strategies.DEFAULT_STRATEGY
+def _user_strategies(user: dict) -> list[str]:
+    """Aktive Signal-Strategien des Nutzers (Liste von Schlüsseln aus strategies.REGISTRY)."""
+    keys = user.get("strategies") or [s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()]
+    return [k for k in keys if k in strategies.REGISTRY] or [strategies.DEFAULT_STRATEGY]
 
 
 def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_STRATEGY) -> str:
@@ -259,7 +260,8 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     # Analyse pro benötigter (Bereich, Voll-Universum, Strategie)-Kombination einmal berechnen
     ranked_by_key: dict[str, list] = {}
     size_by_key: dict[str, int] = {}
-    needed = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u), _user_strategy(u)) for u in users}
+    needed = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u), s)
+              for u in users for s in _user_strategies(u)}
     for region, auto, strat_key in needed:
         key = _universe_key(region, auto, strat_key)
         tickers = universes.get_tickers(region, auto=auto)
@@ -276,35 +278,43 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     for u in users:
         chat_id = u["user_id"]
         region = u.get("market_region") or DEFAULT_REGION
-        key = _universe_key(region, _auto_uni(u), _user_strategy(u))
-        ranked = ranked_by_key.get(key)
-        n_tickers = size_by_key.get(key, 0)
-
-        if ranked is None:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Analyse-Fehler — bitte später erneut versuchen.")
-            continue
-
-        # Smart-Money-Score einblenden + danach neu reihen, dann auf Wunsch-Anzahl kürzen
-        signals = smartmoney.rank(ranked, u.get("top_n_signals") or TOP_N_SIGNALS)
-        if not signals:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
-            continue
+        user_strats = _user_strategies(u)
+        top_n = u.get("top_n_signals") or TOP_N_SIGNALS
 
         await bot.send_message(
             chat_id=chat_id,
             text=(
                 f"🌅 *Guten Morgen! Tagesanalyse {now.strftime('%d.%m.%Y')}*\n"
-                f"Bereich: {REGION_LABELS.get(region, region)} · {n_tickers} Aktien ⏳"
+                f"Bereich: {REGION_LABELS.get(region, region)} · "
+                f"{len(user_strats)} Strategie(n) ⏳"
             ),
             parse_mode="Markdown"
         )
-        for signal in signals:
-            await send_signal(bot, chat_id, signal, u["trade_size_eur"],
-                              job_queue=context.job_queue, market_open=market_open,
-                              sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                              leverage=u.get("leverage", DEFAULT_LEVERAGE),
-                              auto_accept=u.get("auto_accept", False))
-            await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
+
+        # Pro gewählter Strategie eigene top_n Signale (Dedup über has_trade_today)
+        any_sent = False
+        for strat_key in user_strats:
+            strat = strategies.get(strat_key)
+            ranked = ranked_by_key.get(_universe_key(region, _auto_uni(u), strat_key))
+            if ranked is None:
+                await bot.send_message(chat_id=chat_id,
+                                       text=f"⚠️ Analyse-Fehler ({strat.label}).")
+                continue
+            signals = smartmoney.rank(ranked, top_n)
+            if not signals:
+                continue
+            await bot.send_message(chat_id=chat_id,
+                                   text=f"🧠 *Strategie: {strat.label}*", parse_mode="Markdown")
+            for signal in signals:
+                if await send_signal(bot, chat_id, signal, u["trade_size_eur"],
+                                     job_queue=context.job_queue, market_open=market_open,
+                                     sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                     leverage=u.get("leverage", DEFAULT_LEVERAGE),
+                                     auto_accept=u.get("auto_accept", False)):
+                    any_sent = True
+                await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
+        if not any_sent:
+            await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
         await asyncio.sleep(0.5)  # kurze Pause zwischen Nutzern (Rate-Limit-Schutz)
 
 
@@ -486,28 +496,36 @@ def _us_market_open() -> bool:
 
 
 async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
-    """Füllt nach einer Entscheidung die offenen (pending) Signale wieder auf top_n auf —
-    mit neuen Tickern aus der gerankten Kandidatenliste, ohne Duplikate (Punkt 6).
+    """Füllt nach einer Entscheidung die offenen (pending) Signale wieder auf — *pro Strategie*
+    auf top_n, mit neuen Tickern aus der jeweiligen Kandidatenliste, ohne Duplikate (Punkt 6).
     Bei Auto-Accept oder geschlossener Börse passiert nichts."""
     if user.get("auto_accept") or not _us_market_open():
         return
     region = user.get("market_region") or DEFAULT_REGION
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
-    need = top_n - len(db.get_pending_trades(chat_id))
-    if need <= 0:
-        return
-    for signal in _get_candidates(_universe_key(region, _auto_uni(user), _user_strategy(user))):
+
+    # offene (pending) Trades je Strategie zählen
+    pending_by_strat: dict[str, int] = {}
+    for t in db.get_pending_trades(chat_id):
+        s = t.get("signal", {}).get("strategy", "standard")
+        pending_by_strat[s] = pending_by_strat.get(s, 0) + 1
+
+    for strat_key in _user_strategies(user):
+        need = top_n - pending_by_strat.get(strat_key, 0)
         if need <= 0:
-            break
-        if db.has_trade_today(chat_id, signal["ticker"]):
             continue
-        sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
-                                 job_queue=job_queue, market_open=True,
-                                 sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                                 leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                                 auto_accept=False)
-        if sent:
-            need -= 1
+        for signal in _get_candidates(_universe_key(region, _auto_uni(user), strat_key)):
+            if need <= 0:
+                break
+            if db.has_trade_today(chat_id, signal["ticker"]):
+                continue
+            sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
+                                     job_queue=job_queue, market_open=True,
+                                     sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                     leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                                     auto_accept=False)
+            if sent:
+                need -= 1
 
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -530,51 +548,53 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot = context.bot
     region = user.get("market_region") or DEFAULT_REGION
     auto = _auto_uni(user)
-    strat = strategies.get(_user_strategy(user))
+    user_strats = _user_strategies(user)
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
     tickers = universes.get_tickers(region, auto=auto)
     n_tickers = len(tickers)
     region_label = REGION_LABELS.get(region, region)
+    market_open = _us_market_open()
+    strat_labels = ", ".join(strategies.get(k).label for k in user_strats)
 
     await update.message.reply_text(
-        f"🔍 Analysiere *{region_label}* ({n_tickers} Aktien) · Strategie: *{strat.label}*… ⏳",
+        f"🔍 Analysiere *{region_label}* ({n_tickers} Aktien) · Strategien: *{strat_labels}*… ⏳",
         parse_mode="Markdown")
-    try:
-        ranked = analyze_universe(tickers, generate=strat.generate)
-        _cache_candidates(_universe_key(region, auto, strat.key), ranked)   # Kandidaten fürs Nachrücken
-        signals = smartmoney.rank(ranked, top_n)   # Smart-Money fließt ins Ranking ein
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Analyse-Fehler: {e}")
-        return
 
-    if not signals:
-        await update.message.reply_text("⚠️ Heute keine klaren Signale gefunden.")
-        return
+    if not market_open:
+        await update.message.reply_text(
+            "🔒 US-Börse geschlossen — es sind echte Kurse vom letzten Handelstag, *keine Testdaten*. "
+            "Bis zur nächsten Session ändern sich die Signale nicht.",
+            parse_mode="Markdown")
 
-    as_of = signals[0].get("as_of", "?")
-    market_open = _us_market_open()
-    if market_open:
-        intro = f"✅ *{len(signals)} Live-Signale* aus {n_tickers} analysierten Aktien — {region_label} (Datenstand: {as_of})"
-    else:
-        intro = (
-            f"📅 *{len(signals)} Signale* aus {n_tickers} analysierten Aktien — {region_label}, "
-            f"Datenstand: *{as_of}* (letzter Handelstag)\n"
-            "Die US-Börse ist gerade geschlossen, daher ändern sich die Signale bis zur "
-            "nächsten Handelssession nicht. Es sind echte Kurse, *keine Testdaten*."
-        )
-    await update.message.reply_text(intro, parse_mode="Markdown")
+    # Pro gewählter Strategie eigene top_n Signale (Dedup über has_trade_today)
+    total_sent = 0
+    for strat_key in user_strats:
+        strat = strategies.get(strat_key)
+        try:
+            ranked = analyze_universe(tickers, generate=strat.generate)
+            _cache_candidates(_universe_key(region, auto, strat.key), ranked)   # Kandidaten fürs Nachrücken
+            signals = smartmoney.rank(ranked, top_n)
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Analyse-Fehler ({strat.label}): {e}")
+            continue
+        if not signals:
+            await update.message.reply_text(f"🧠 *{strat.label}*: heute keine klaren Signale.",
+                                            parse_mode="Markdown")
+            continue
+        as_of = signals[0].get("as_of", "?")
+        await update.message.reply_text(
+            f"🧠 *Strategie: {strat.label}* — {len(signals)} Signale (Datenstand: {as_of})",
+            parse_mode="Markdown")
+        for signal in signals:
+            if await send_signal(bot, chat_id, signal, user["trade_size_eur"],
+                                 job_queue=context.job_queue, market_open=market_open,
+                                 sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                 leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                                 auto_accept=user.get("auto_accept", False)):
+                total_sent += 1
+            await asyncio.sleep(1)
 
-    sent = 0
-    for signal in signals:
-        if await send_signal(bot, chat_id, signal, user["trade_size_eur"],
-                             job_queue=context.job_queue, market_open=market_open,
-                             sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                             leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                             auto_accept=user.get("auto_accept", False)):
-            sent += 1
-        await asyncio.sleep(1)
-
-    if market_open and sent == 0:
+    if market_open and total_sent == 0:
         await update.message.reply_text(
             "ℹ️ Alle heutigen Signale hattest du bereits — pro Aktie gibt es nur ein Signal pro Tag."
         )
@@ -656,7 +676,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ Hebel: *{(user.get('leverage') or DEFAULT_LEVERAGE):g}×*\n"
         f"🤖 Auto-Accept: *{'an' if user.get('auto_accept') else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if _auto_uni(user) else 'aus'}*\n"
-        f"🧠 Strategie: *{strategies.get(_user_strategy(user)).label}*\n"
+        f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in _user_strategies(user))}*\n"
         f"{broker_line}\n"
         f"📡 Status: {'aktiv ✅' if user['is_active'] else 'pausiert ⏸'}\n\n"
         "⚙️ Alles ändern: /settings",
@@ -672,18 +692,18 @@ def _settings_view(user: dict):
     lev = user.get("leverage") or DEFAULT_LEVERAGE
     auto = user.get("auto_accept")
     auto_uni = _auto_uni(user)
-    strat_key = _user_strategy(user)
+    strat_keys = _user_strategies(user)
 
     text = (
         "⚙️ *Einstellungen*\n"
         f"🌍 Markt-Bereich: *{REGION_LABELS.get(region, region)}*\n"
-        f"🔢 Signale pro Tag: *{top_n}*\n"
+        f"🔢 Signale pro Tag: *{top_n}* (pro Strategie)\n"
         f"🎯 SL/TP-Modus: *{mode}*\n"
         f"⚡ Hebel: *{lev:g}×*\n"
         f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if auto_uni else 'aus'}*\n"
-        f"🧠 Strategie: *{strategies.get(strat_key).label}*\n\n"
-        "Tippe unten, um zu ändern:"
+        f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in strat_keys)}*\n\n"
+        "Tippe unten, um zu ändern (Strategien: mehrere möglich):"
     )
 
     region_row = [InlineKeyboardButton(("✅ " if k == region else "") + lbl, callback_data=f"set_region:{k}")
@@ -698,7 +718,7 @@ def _settings_view(user: dict):
                 InlineKeyboardButton(("✅ " if not auto else "") + "aus", callback_data="set_auto:0")]
     uni_row = [InlineKeyboardButton(("✅ " if auto_uni else "") + "Voll-Universum an", callback_data="set_uni:1"),
                InlineKeyboardButton(("✅ " if not auto_uni else "") + "aus", callback_data="set_uni:0")]
-    strat_row = [InlineKeyboardButton(("✅ " if s.key == strat_key else "") + s.label,
+    strat_row = [InlineKeyboardButton(("✅ " if s.key in strat_keys else "") + s.label,
                                       callback_data=f"set_strat:{s.key}")
                  for s in strategies.all_strategies()]
     keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row])
@@ -723,17 +743,17 @@ async def cmd_strategies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
         return
-    cur = _user_strategy(user)
-    lines = ["🧠 *Verfügbare Strategien*", ""]
+    cur = _user_strategies(user)
+    lines = ["🧠 *Verfügbare Strategien* (mehrere gleichzeitig möglich)", ""]
     for s in strategies.all_strategies():
-        mark = "✅" if s.key == cur else "▫️"
+        mark = "✅" if s.key in cur else "▫️"
         lines.append(f"{mark} *{s.label}*  (`{s.key}`)\n   {s.description}")
-    lines.append("\nWechseln: `/addstrat <name>` oder über /settings.\nKennzahlen der aktiven Strategie: /teststrat")
+    lines.append("\nHinzufügen/Entfernen: `/addstrat <name>` oder über /settings.\nKennzahlen: /teststrat")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def cmd_addstrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/addstrat <name> — wählt eine Strategie per Namen aus der Registry aus."""
+    """/addstrat <name> — fügt eine Strategie zur Auswahl hinzu (bzw. entfernt sie, wenn schon aktiv)."""
     chat_id = update.effective_chat.id
     user = _registered_user(chat_id)
     if not user:
@@ -750,39 +770,48 @@ async def cmd_addstrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"⚠️ Unbekannte Strategie `{key}`.\nVerfügbar: {keys}", parse_mode="Markdown")
         return
-    db.set_strategy(chat_id, key)
-    log.info(f"[{chat_id}] Strategie gewechselt: {key}")
+    active = db.toggle_strategy(chat_id, key)
+    log.info(f"[{chat_id}] Strategie-Auswahl geändert: {key} → {active}")
+    labels = ", ".join(strategies.get(k).label for k in active)
     await update.message.reply_text(
-        f"✅ Strategie aktiv: *{strategies.get(key).label}*\nTeste sie mit /teststrat.",
+        f"✅ Aktive Strategien: *{labels}*\nKennzahlen mit /teststrat.",
         parse_mode="Markdown")
 
 
 async def cmd_teststrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/teststrat — Backtest der aktiven Strategie (kuratierter Korb, 2 J. Tages-TF) → Kennzahlen."""
+    """/teststrat [name] — Backtest je gewählter Strategie (kuratierter Korb, 2 J. Tages-TF).
+    Ohne Argument werden alle aktiven Strategien getestet, sonst die genannte."""
     chat_id = update.effective_chat.id
     user = _registered_user(chat_id)
     if not user:
         await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
         return
 
-    strat = strategies.get(_user_strategy(user))
+    if context.args and context.args[0].strip() in strategies.REGISTRY:
+        strat_keys = [context.args[0].strip()]
+    else:
+        strat_keys = _user_strategies(user)
+
     region = user.get("market_region") or DEFAULT_REGION
     tickers = universes.get_tickers(region, auto=False)   # kuratierter Korb (schnell)
+    labels = ", ".join(strategies.get(k).label for k in strat_keys)
     await update.message.reply_text(
-        f"🧪 Backtest läuft: *{strat.label}* — {len(tickers)} Aktien ({REGION_LABELS.get(region, region)}), "
-        f"2 Jahre Tages-TF.\nDas dauert ein bis zwei Minuten, ich melde mich. ⏳",
+        f"🧪 Backtest läuft: *{labels}* — {len(tickers)} Aktien ({REGION_LABELS.get(region, region)}), "
+        f"2 Jahre Tages-TF.\nDas dauert ein bis zwei Minuten je Strategie, ich melde mich. ⏳",
         parse_mode="Markdown")
 
     async def _run():
-        try:
-            res = await asyncio.to_thread(backtest.run_backtest, strat.key, tickers, 2)
-            txt = metrics.format_metrics(res["metrics"], title=f"Backtest: {res['label']}")
-            txt += (f"\n_{res['n_tickers']} Aktien · {res['years']} Jahre · Tages-TF · "
-                    f"long-only Demo (ohne Gebühren/Slippage)._")
-            await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode="Markdown")
-        except Exception as e:
-            log.error(f"[{chat_id}] /teststrat fehlgeschlagen: {e}")
-            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Backtest-Fehler: {e}")
+        for key in strat_keys:
+            try:
+                res = await asyncio.to_thread(backtest.run_backtest, key, tickers, 2)
+                txt = metrics.format_metrics(res["metrics"], title=f"Backtest: {res['label']}")
+                txt += (f"\n_{res['n_tickers']} Aktien · {res['years']} Jahre · Tages-TF · "
+                        f"long-only Demo (ohne Gebühren/Slippage)._")
+                await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode="Markdown")
+            except Exception as e:
+                log.error(f"[{chat_id}] /teststrat ({key}) fehlgeschlagen: {e}")
+                await context.bot.send_message(chat_id=chat_id,
+                                               text=f"⚠️ Backtest-Fehler ({key}): {e}")
 
     context.application.create_task(_run())
 
@@ -1073,7 +1102,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == "set_uni":
             db.set_auto_universe(chat_id, ticker == "1")
         elif action == "set_strat" and ticker in strategies.REGISTRY:
-            db.set_strategy(chat_id, ticker)
+            db.toggle_strategy(chat_id, ticker)
         log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
         user = db.get_user(chat_id)
         if user:

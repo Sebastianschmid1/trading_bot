@@ -161,7 +161,14 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "auto_accept":      bool(row["auto_accept"]),
         "auto_universe":    bool(row["auto_universe"]),
         "strategy":         row["strategy"],
+        "strategies":       _parse_strategies(row["strategy"]),
     }
+
+
+def _parse_strategies(raw: str | None) -> list[str]:
+    """Kommagetrennte Strategie-Liste aus der DB → Liste (mind. ein Eintrag)."""
+    keys = [s.strip() for s in (raw or "").split(",") if s.strip()]
+    return keys or ["standard"]
 
 
 def get_or_create_user(user_id: int, username: str | None = None) -> dict:
@@ -291,12 +298,30 @@ def set_auto_universe(user_id: int, on: bool):
 
 
 def set_strategy(user_id: int, strategy: str):
-    """Setzt die aktive Signal-Strategie des Nutzers (Schlüssel aus strategies.REGISTRY)."""
+    """Setzt die aktiven Signal-Strategien des Nutzers (ein Schlüssel oder kommagetrennte Liste)."""
     with _connect() as conn:
         conn.execute(
             "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
             (strategy, user_id),
         )
+
+
+def toggle_strategy(user_id: int, key: str) -> list[str]:
+    """Schaltet eine Strategie in der Auswahl des Nutzers an/aus (mind. eine bleibt aktiv).
+    Gibt die neue Liste zurück."""
+    with _connect() as conn:
+        row = conn.execute("SELECT strategy FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        keys = _parse_strategies(row["strategy"] if row else None)
+        if key in keys:
+            if len(keys) > 1:          # die letzte Strategie nicht abschaltbar
+                keys.remove(key)
+        else:
+            keys.append(key)
+        conn.execute(
+            "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (",".join(keys), user_id),
+        )
+    return keys
 
 
 def set_trade_leverage(user_id: int, ticker: str, leverage: float):

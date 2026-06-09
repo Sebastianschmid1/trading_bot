@@ -119,6 +119,31 @@ def test_dashboard_includes_intraday():
     assert series[0]["take_profit"] == 105.0
 
 
+def test_dashboard_filters_by_strategy():
+    fresh_db()
+    db.yf = _FakeYF(101.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.toggle_strategy(CHAT, "adx_trend")   # standard + adx_trend aktiv
+    # zwei aktive Trades, je eine Strategie
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "stop_loss": 97.0, "take_profit": 105.0, "strategy": "standard"}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    db.add_pending(CHAT, {"ticker": "MSFT", "direction": "long", "price": 200.0,
+                          "stop_loss": 195.0, "take_profit": 210.0, "strategy": "adx_trend"}, 2)
+    db.activate_trade(CHAT, "MSFT")
+    user = db.get_user(CHAT)
+
+    all_view = dashboard.build_dashboard_data(user)
+    assert {t["ticker"] for t in all_view["active_trades"]} == {"AAPL", "MSFT"}
+    # Tabs: „Alle" + 2 Strategien
+    assert [t["key"] for t in all_view["strategies"]] == ["", "standard", "adx_trend"]
+
+    adx_view = dashboard.build_dashboard_data(user, strategy="adx_trend")
+    assert {t["ticker"] for t in adx_view["active_trades"]} == {"MSFT"}   # nur ADX-Trade
+    assert adx_view["strategy"] == "adx_trend"
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

@@ -33,6 +33,12 @@
     /* Mindesthöhe für lesbare Charts */
     .panel canvas { height: 280px !important; }
     #priceCharts canvas { height: 200px !important; }
+    /* Strategie-Umschalter */
+    .tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+    .tab { background: var(--card); border: 1px solid var(--border); color: var(--muted);
+           padding: .4rem .9rem; border-radius: 999px; cursor: pointer; font-size: .85rem; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-color: var(--accent); background: #1d2740; }
   </style>
 </head>
 <body>
@@ -42,6 +48,8 @@
       <h1>📊 Trading Dashboard <small id="user"></small></h1>
       <div class="meta" id="generated"></div>
     </header>
+
+    <div id="tabs" class="tabs"></div>
 
     <div class="cards" id="cards"></div>
 
@@ -76,6 +84,7 @@
     const token = window.location.pathname.split("/").filter(Boolean).pop();
     const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
     const cls = (n) => n >= 0 ? "green" : "red";
+    let currentStrategy = "";   // "" = Alle
 
     function replaceCanvas(id, msg) {
       const c = document.getElementById(id);
@@ -87,7 +96,8 @@
 
     async function load() {
       try {
-        const res = await fetch(`/api/${token}/data`);
+        const q = currentStrategy ? "?strategy=" + encodeURIComponent(currentStrategy) : "";
+        const res = await fetch(`/api/${token}/data${q}`);
         if (!res.ok) throw new Error("Daten konnten nicht geladen werden (Token ungültig?).");
         render(await res.json());
       } catch (e) {
@@ -97,13 +107,30 @@
       }
     }
 
+    function renderTabs(d) {
+      const tabs = d.strategies || [];
+      const el = document.getElementById("tabs");
+      if (tabs.length <= 2) { el.innerHTML = ""; return; }   // nur „Alle" + 1 Strategie → kein Umschalter nötig
+      el.innerHTML = tabs.map(t =>
+        `<div class="tab ${t.key === currentStrategy ? "active" : ""}" data-key="${t.key}">${t.label}</div>`
+      ).join("");
+      el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+        currentStrategy = b.dataset.key;
+        load();
+      }));
+    }
+
     function render(d) {
       const s = d.summary;
       document.getElementById("user").textContent = "· @" + d.username;
       document.getElementById("generated").textContent = "Stand: " + d.generated_at;
+      renderTabs(d);
 
+      const pf = (s.profit_factor === null || s.profit_factor === undefined)
+        ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
       document.getElementById("cards").innerHTML = `
         <div class="card"><div class="label">Gesamt P&L</div><div class="value ${cls(s.total_pnl)}">${fmt(s.total_pnl)}</div></div>
+        <div class="card"><div class="label">Profitfaktor</div><div class="value">${pf}</div></div>
         <div class="card"><div class="label">Trefferquote</div><div class="value">${s.win_rate}%</div></div>
         <div class="card"><div class="label">Gewinner / Verlierer</div><div class="value"><span class="green">${s.wins}</span> / <span class="red">${s.losses}</span></div></div>
         <div class="card"><div class="label">Abgeschlossen</div><div class="value">${s.total_closed}</div></div>

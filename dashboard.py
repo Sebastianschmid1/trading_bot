@@ -21,6 +21,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 
 import db
+import strategies
+import metrics as metrics_mod
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL
 from evaluator import get_current_price, realized_pnl
 
@@ -44,11 +46,20 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ── Kennzahlen aus der DB aufbauen ──────────────────────────────────────────
 
-def build_dashboard_data(user: dict) -> dict:
-    """Aggregiert alle Dashboard-Kennzahlen eines Nutzers aus der DB."""
+def _trade_strategy(t: dict) -> str:
+    """Strategie-Schlüssel eines Trades (aus dem gespeicherten Signal; Fallback 'standard')."""
+    return (t.get("signal") or {}).get("strategy", "standard")
+
+
+def build_dashboard_data(user: dict, strategy: str | None = None) -> dict:
+    """Aggregiert die Dashboard-Kennzahlen eines Nutzers aus der DB.
+    `strategy` = Schlüssel → nur Trades dieser Strategie; None → alle (Gesamtansicht)."""
     user_id = user["user_id"]
     closed = db.get_closed_trades(user_id)
     active = db.get_active_trades(user_id)
+    if strategy:
+        closed = [t for t in closed if _trade_strategy(t) == strategy]
+        active = [t for t in active if _trade_strategy(t) == strategy]
 
     # Equity-Kurve: tägliches P&L kumuliert
     daily = OrderedDict()
@@ -60,12 +71,13 @@ def build_dashboard_data(user: dict) -> dict:
         cum += pnl
         equity.append({"date": d, "cumulative": round(cum, 2), "daily": round(pnl, 2)})
 
-    # Zusammenfassung
+    # Zusammenfassung (inkl. Profitfaktor über metrics)
     total_pnl = round(sum((t["pnl_eur"] or 0.0) for t in closed), 2)
     wins   = sum(1 for t in closed if (t["pnl_eur"] or 0) > 0)
     losses = sum(1 for t in closed if (t["pnl_eur"] or 0) < 0)
     n = len(closed)
     win_rate = round(wins / n * 100, 1) if n else 0.0
+    profit_factor = metrics_mod.compute_metrics(closed)["profit_factor"]   # None = ∞ / keine Daten
 
     # P&L pro Ticker
     by_ticker = defaultdict(lambda: {"pnl": 0.0, "trades": 0, "wins": 0})
@@ -126,17 +138,28 @@ def build_dashboard_data(user: dict) -> dict:
             ],
         })
 
+    # Strategie-Tabs: „Alle" + die vom Nutzer gewählten Strategien
+    user_strat_keys = user.get("strategies") or [
+        s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()] or ["standard"]
+    strat_tabs = [{"key": "", "label": "Alle"}] + [
+        {"key": s.key, "label": s.label}
+        for s in strategies.all_strategies() if s.key in user_strat_keys
+    ]
+
     return {
         "username":        user.get("username") or f"user_{user_id}",
         "trade_size_eur":  user["trade_size_eur"],
         "broker_platform": user.get("broker_platform"),
         "is_active":       user.get("is_active", True),
+        "strategy":        strategy or "",
+        "strategies":      strat_tabs,
         "summary": {
             "total_pnl":    total_pnl,
             "total_closed": n,
             "wins":         wins,
             "losses":       losses,
             "win_rate":     win_rate,
+            "profit_factor": profit_factor,
             "active_count": len(active),
         },
         "equity":        equity,
@@ -167,11 +190,11 @@ def dashboard_page(token: str):
 
 
 @app.get("/api/{token}/data")
-def dashboard_data(token: str):
+def dashboard_data(token: str, strategy: str | None = None):
     user = db.get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger Token.")
-    return JSONResponse(build_dashboard_data(user))
+    return JSONResponse(build_dashboard_data(user, strategy=strategy or None))
 
 
 def run():

@@ -154,20 +154,24 @@ def test_set_uni_button_updates_db():
 
 # ── Strategie-Auswahl ────────────────────────────────────────────────────────
 
-def test_strategy_default_and_setter():
+def test_strategy_default_and_toggle():
     fresh_db()
     u = db.get_or_create_user(CHAT)
-    assert u["strategy"] == "standard"
-    db.set_strategy(CHAT, "adx_trend")
-    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    assert u["strategies"] == ["standard"]                  # Default
+    db.toggle_strategy(CHAT, "adx_trend")                   # hinzufügen
+    assert db.get_user(CHAT)["strategies"] == ["standard", "adx_trend"]
+    db.toggle_strategy(CHAT, "standard")                    # entfernen
+    assert db.get_user(CHAT)["strategies"] == ["adx_trend"]
+    db.toggle_strategy(CHAT, "adx_trend")                   # letzte bleibt erhalten
+    assert db.get_user(CHAT)["strategies"] == ["adx_trend"]
 
 
-def test_set_strat_button_updates_db():
+def test_set_strat_button_toggles_multiselect():
     fresh_db()
     db.get_or_create_user(CHAT)
     update, query = _fake_settings_query("set_strat:adx_trend")
     asyncio.run(bot.button_handler(update, MagicMock()))
-    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}   # beide aktiv
     query.edit_message_text.assert_awaited()
 
 
@@ -176,7 +180,7 @@ def test_set_strat_button_ignores_unknown():
     db.get_or_create_user(CHAT)
     update, query = _fake_settings_query("set_strat:does_not_exist")
     asyncio.run(bot.button_handler(update, MagicMock()))
-    assert db.get_user(CHAT)["strategy"] == "standard"      # unverändert
+    assert db.get_user(CHAT)["strategies"] == ["standard"]   # unverändert
 
 
 def _fake_cmd(args):
@@ -188,18 +192,18 @@ def _fake_cmd(args):
     return update, ctx
 
 
-def test_addstrat_command_sets_and_validates():
+def test_addstrat_command_adds_and_validates():
     fresh_db()
     db.get_or_create_user(CHAT, "tester")
     db.save_profile(CHAT, trade_size_eur=25.0)   # Onboarding abschließen (sonst greift /addstrat nicht)
-    # gültige Strategie
+    # gültige Strategie hinzufügen
     update, ctx = _fake_cmd(["adx_trend"])
     asyncio.run(bot.cmd_addstrat(update, ctx))
-    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
     # ungültige Strategie → unverändert
     update, ctx = _fake_cmd(["quatsch"])
     asyncio.run(bot.cmd_addstrat(update, ctx))
-    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────
