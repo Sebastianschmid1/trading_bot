@@ -29,7 +29,18 @@
       "Bash(python -c \"import bot\")",
       "Bash(echo \"bot import OK\")",
       "Bash(python test_trading.py)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(claude mcp *)",
+      "Bash(echo \"---exit:$?---\")",
+      "Bash([ -f \"$f\" ])",
+      "mcp__trader-dev__whoami",
+      "mcp__trader-dev__get_credits",
+      "mcp__trader-dev__search_strategies",
+      "mcp__trader-dev__get_strategy",
+      "Bash(python -c \"import metrics, strategies, backtest; print\\('imports OK'\\)\")",
+      "Bash(python test_backtest.py)",
+      "Bash(python -c \"import bot, dashboard, db, strategies, backtest, metrics, analyzer; print\\('ALL IMPORTS OK'\\)\")",
+      "Bash(python test_settings.py)"
     ]
   }
 }

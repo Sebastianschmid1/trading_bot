@@ -152,6 +152,56 @@ def test_set_uni_button_updates_db():
     assert db.get_user(CHAT)["auto_universe"] is True
 
 
+# ── Strategie-Auswahl ────────────────────────────────────────────────────────
+
+def test_strategy_default_and_setter():
+    fresh_db()
+    u = db.get_or_create_user(CHAT)
+    assert u["strategy"] == "standard"
+    db.set_strategy(CHAT, "adx_trend")
+    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+
+
+def test_set_strat_button_updates_db():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    update, query = _fake_settings_query("set_strat:adx_trend")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    query.edit_message_text.assert_awaited()
+
+
+def test_set_strat_button_ignores_unknown():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    update, query = _fake_settings_query("set_strat:does_not_exist")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["strategy"] == "standard"      # unverändert
+
+
+def _fake_cmd(args):
+    update = MagicMock()
+    update.effective_chat.id = CHAT
+    update.message.reply_text = AsyncMock()
+    ctx = MagicMock()
+    ctx.args = args
+    return update, ctx
+
+
+def test_addstrat_command_sets_and_validates():
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)   # Onboarding abschließen (sonst greift /addstrat nicht)
+    # gültige Strategie
+    update, ctx = _fake_cmd(["adx_trend"])
+    asyncio.run(bot.cmd_addstrat(update, ctx))
+    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+    # ungültige Strategie → unverändert
+    update, ctx = _fake_cmd(["quatsch"])
+    asyncio.run(bot.cmd_addstrat(update, ctx))
+    assert db.get_user(CHAT)["strategy"] == "adx_trend"
+
+
 # ── Runner ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

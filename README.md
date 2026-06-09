@@ -174,6 +174,7 @@ journalctl -u stockbot -f
 **Updates einspielen** (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy.sh`
 anpassen und `bash deploy.sh` ausführen — das macht auf dem Server `git pull` +
 Dependencies + `systemctl restart stockbot`.
+`git pull && systemctl restart stockbot`
 
 > Dashboard als eigener Dienst gewünscht? `deploy/dashboard.service` installieren und in der
 > `.env` `RUN_DASHBOARD_IN_BOT=false` setzen (sonst Portkonflikt auf 8000).

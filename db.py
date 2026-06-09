@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
     leverage          REAL    NOT NULL DEFAULT 1.0,
     auto_accept       INTEGER NOT NULL DEFAULT 0,
     auto_universe     INTEGER NOT NULL DEFAULT 1,
+    strategy          TEXT    NOT NULL DEFAULT 'standard',
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -110,6 +111,9 @@ def _migrate(conn: sqlite3.Connection):
     if "auto_universe" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN auto_universe INTEGER NOT NULL DEFAULT 1")
         log.info("Migration: Spalte users.auto_universe ergänzt.")
+    if "strategy" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN strategy TEXT NOT NULL DEFAULT 'standard'")
+        log.info("Migration: Spalte users.strategy ergänzt.")
 
 
 @contextmanager
@@ -156,6 +160,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "leverage":         row["leverage"],
         "auto_accept":      bool(row["auto_accept"]),
         "auto_universe":    bool(row["auto_universe"]),
+        "strategy":         row["strategy"],
     }
 
 
@@ -282,6 +287,15 @@ def set_auto_universe(user_id: int, on: bool):
         conn.execute(
             "UPDATE users SET auto_universe = ?, updated_at = datetime('now') WHERE user_id = ?",
             (1 if on else 0, user_id),
+        )
+
+
+def set_strategy(user_id: int, strategy: str):
+    """Setzt die aktive Signal-Strategie des Nutzers (Schlüssel aus strategies.REGISTRY)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (strategy, user_id),
         )
 
 

@@ -477,14 +477,18 @@ def _tf_data_for(downloads: dict, ticker: str) -> dict:
 
 # ── Top-Signale auswählen ───────────────────────────────────────────────────
 
-def analyze_universe(tickers: list[str]) -> list[dict]:
+def analyze_universe(tickers: list[str], generate=None) -> list[dict]:
     """
     Analysiert eine Ticker-Liste über ALLE konfigurierten Timeframes und gibt alle
     gefundenen Signale absteigend nach Stärke zurück (Aufrufer schneidet auf top_n).
     Pro Timeframe ein Batch-Download (yfinance fügt intern threadsicher zusammen).
+
+    `generate(ticker, tf_data) -> signal|None` erlaubt eine andere Strategie als die
+    Standard-Analyse (Default: analyze_ticker). Beide nutzen dieselben Timeframe-Daten.
     """
     if not tickers:
         return []
+    gen = generate or analyze_ticker
 
     log.info(f"Analysiere {len(tickers)} Aktien über {len(SIGNAL_TIMEFRAMES)} Timeframes...")
     downloads = _download_all_timeframes(tickers)
@@ -494,7 +498,7 @@ def analyze_universe(tickers: list[str]) -> list[dict]:
         tf_data = _tf_data_for(downloads, ticker)
         if not tf_data:
             continue
-        result = analyze_ticker(ticker, tf_data)
+        result = gen(ticker, tf_data)
         if result:
             results.append(result)
 
