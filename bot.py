@@ -839,6 +839,30 @@ async def cmd_teststrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.application.create_task(_run())
 
 
+async def cmd_kicheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/kicheck — Selbsttest: prüft, ob das KI-Ranking (Claude Haiku) funktioniert."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+
+    await update.message.reply_text("🔌 Prüfe KI-Ranking (Claude Haiku)… ⏳")
+    res = await asyncio.to_thread(llm_ranker.health_check)
+
+    if res["ok"]:
+        top = (res.get("ranking") or [{}])[0]
+        sample = (f"\nBeispiel: {top.get('ticker')} → {top.get('score')}/100"
+                  if top.get("ticker") else "")
+        note = "" if user.get("llm_rank", True) else "\n⚠️ In deinem Profil ist KI-Ranking AUS (/settings)."
+        text = f"✅ KI-Ranking funktioniert.\n{res['detail']}{sample}{note}"
+    else:
+        text = (f"❌ KI-Ranking nicht aktiv/fehlerhaft.\n{res['detail']}\n\n"
+                "Setze ANTHROPIC_API_KEY in der .env und starte den Bot neu.")
+    # bewusst ohne parse_mode — Detailtext kann Sonderzeichen enthalten
+    await update.message.reply_text(text)
+
+
 INFO_TEXT = (
     "📖 *So entstehen die Signale*\n"
     "Jede Aktie wird mit mehreren technischen Indikatoren über mehrere Zeiträume geprüft. "
@@ -968,6 +992,7 @@ HELP_TEXT = (
     "/strategies — Verfügbare Signal-Strategien anzeigen\n"
     "/addstrat <name> — Strategie per Namen wählen (z. B. `adx_trend`)\n"
     "/teststrat — Backtest-Kennzahlen (Profitfaktor) der aktiven Strategie\n"
+    "/kicheck — Prüfen, ob das KI-Ranking (Claude Haiku) funktioniert\n"
     "/info — Wie kommen die Signale zustande? (Metriken erklärt)\n"
     "/ping — Verbindung zum Bot testen\n"
     "/cancel — Laufenden Setup-Dialog abbrechen\n"
@@ -1205,6 +1230,7 @@ def main():
     app.add_handler(CommandHandler("strategies", cmd_strategies))         # verfügbare Strategien
     app.add_handler(CommandHandler("addstrat", cmd_addstrat))             # Strategie per Namen wählen
     app.add_handler(CommandHandler("teststrat", cmd_teststrat))           # Backtest-Kennzahlen der aktiven Strategie
+    app.add_handler(CommandHandler("kicheck", cmd_kicheck))               # Selbsttest des KI-Rankings (Claude Haiku)
     # Button-Handler registrieren
     app.add_handler(CallbackQueryHandler(button_handler))
     # Globaler Error-Handler (saubere Logs statt Tracebacks)

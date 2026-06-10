@@ -13,6 +13,7 @@ Design-Prinzipien:
 """
 
 import json
+import time
 import logging
 from datetime import date
 
@@ -220,3 +221,41 @@ def rank_signals(signals: list[dict], *, client=None, fetch=gather_context) -> l
     )
     log.info(f"LLM-Ranking: {[s['ticker'] for s in ranked]}")
     return ranked
+
+
+def health_check(client=None) -> dict:
+    """Selbsttest: prüft, ob das KI-Ranking wirklich funktioniert (echter Mini-Call an Haiku).
+    Gibt {ok: bool, detail: str, ranking: [...]} zurück — ohne Netzwerk-Fundamentaldaten."""
+    if client is None:
+        if not config.LLM_RANK_ENABLED:
+            return {"ok": False, "detail": "Kein ANTHROPIC_API_KEY gesetzt — KI-Ranking ist aus."}
+        client = _get_client()
+        if client is None:
+            return {"ok": False, "detail": "Anthropic-Client nicht verfügbar (Key ungültig oder Paket fehlt)."}
+
+    payload = {
+        "signals": [{"ticker": "AAA", "strength": 60}, {"ticker": "BBB", "strength": 80}],
+        "fundamentals": {},
+    }
+    t0 = time.time()
+    try:
+        resp = client.messages.create(
+            model=config.LLM_MODEL,
+            max_tokens=256,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+        )
+        text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
+        ranking = json.loads(text).get("ranking", [])
+    except Exception as e:
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+    dt = time.time() - t0
+    if not ranking:
+        return {"ok": False, "detail": "Antwort ohne verwertbares Ranking-JSON."}
+    return {
+        "ok": True,
+        "detail": f"OK — Modell {config.LLM_MODEL}, {len(ranking)} Signale bewertet, {dt:.1f}s",
+        "ranking": ranking,
+    }

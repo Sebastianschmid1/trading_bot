@@ -90,6 +90,39 @@ def test_bad_response_falls_back_to_input():
     assert out is sigs                                      # Fehler → Original-Reihenfolge
 
 
+def test_health_check_no_key():
+    orig = config.LLM_RANK_ENABLED
+    config.LLM_RANK_ENABLED = False
+    try:
+        res = llm_ranker.health_check()          # ohne Client + ohne Key
+        assert res["ok"] is False and "ANTHROPIC_API_KEY" in res["detail"]
+    finally:
+        config.LLM_RANK_ENABLED = orig
+
+
+def test_health_check_ok_with_fake_client():
+    fake = _FakeClient(json.dumps({"ranking": [
+        {"ticker": "AAA", "score": 55, "reason": "ok"},
+        {"ticker": "BBB", "score": 80, "reason": "stark"},
+    ]}))
+    res = llm_ranker.health_check(client=fake)    # Client injiziert → echter Call-Pfad
+    assert res["ok"] is True and "Modell" in res["detail"]
+    assert res["ranking"][0]["ticker"] in ("AAA", "BBB")
+    assert fake.calls == 1
+
+
+def test_health_check_reports_error():
+    class _BoomClient:
+        @property
+        def messages(self):
+            class _M:
+                def create(self, **kw):
+                    raise RuntimeError("401 invalid api key")
+            return _M()
+    res = llm_ranker.health_check(client=_BoomClient())
+    assert res["ok"] is False and "invalid api key" in res["detail"]
+
+
 def test_gather_context_robust_on_error():
     class _BoomYF:
         @staticmethod
