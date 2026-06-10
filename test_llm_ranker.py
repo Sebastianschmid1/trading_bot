@@ -59,11 +59,12 @@ def test_disabled_returns_unchanged():
         config.LLM_RANK_ENABLED = orig
 
 
-def test_single_signal_not_ranked():
-    fake = _FakeClient(json.dumps({"ranking": [{"ticker": "A", "score": 99, "reason": "x"}]}))
+def test_single_signal_is_assessed():
+    fake = _FakeClient(json.dumps({"ranking": [{"ticker": "A", "score": 73, "reason": "solide"}]}))
     sigs = [_sig("A", 60)]
     out = llm_ranker.rank_signals(sigs, client=fake, fetch=lambda t: {})
-    assert out is sigs and fake.calls == 0                  # <2 Signale → kein LLM-Call
+    assert fake.calls == 1                                   # auch EIN Signal wird bewertet
+    assert out[0]["llm_score"] == 73 and out[0]["llm_reason"] == "solide"
 
 
 def test_reorders_and_attaches_scores():

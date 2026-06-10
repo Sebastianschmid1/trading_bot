@@ -172,9 +172,10 @@ def _signal_brief(s: dict) -> dict:
 
 
 def rank_signals(signals: list[dict], *, client=None, fetch=gather_context) -> list[dict]:
-    """Re-rankt die Signale per Claude Haiku (Technik + Fundamentaldaten + News).
+    """Bewertet/re-rankt die Signale per Claude Haiku (Technik + Fundamentaldaten + News).
+    Läuft schon ab EINEM Signal (dann reine KI-Bewertung mit Score + Begründung).
     Robust: bei fehlendem Client/Fehler bleibt die Reihenfolge unverändert."""
-    if not signals or len(signals) < 2:
+    if not signals:
         return signals
 
     cli = client if client is not None else _get_client()

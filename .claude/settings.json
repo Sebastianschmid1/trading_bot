@@ -46,7 +46,10 @@
       "Skill(claude-api)",
       "Skill(claude-api:*)",
       "Bash(python -c \"import bot; print\\('bot import OK'\\)\")",
-      "Bash(python -c \"import bot; n=bot.HELP_TEXT.count\\('\\\\`'\\); print\\('HELP_TEXT Backticks:', n, '\\(gerade =', n%2==0, '\\)'\\); print\\('lone underscores in HELP_TEXT:', bot.HELP_TEXT.replace\\('\\\\`adx_trend\\\\`',''\\).count\\('_'\\)\\)\")"
+      "Bash(python -c \"import bot; n=bot.HELP_TEXT.count\\('\\\\`'\\); print\\('HELP_TEXT Backticks:', n, '\\(gerade =', n%2==0, '\\)'\\); print\\('lone underscores in HELP_TEXT:', bot.HELP_TEXT.replace\\('\\\\`adx_trend\\\\`',''\\).count\\('_'\\)\\)\")",
+      "Bash(python -c \"import config; print\\('API-Key gesetzt:', bool\\(config.ANTHROPIC_API_KEY\\)\\); print\\('LLM_RANK_ENABLED:', config.LLM_RANK_ENABLED\\)\")",
+      "Bash(python -c \"import bot, llm_ranker\")",
+      "Bash(python test_llm_ranker.py)"
     ]
   }
 }
