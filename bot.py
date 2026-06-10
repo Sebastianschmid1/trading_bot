@@ -23,7 +23,7 @@ from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import Conflict
+from telegram.error import Conflict, BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 import db
@@ -1147,6 +1147,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Conflict: Es läuft bereits eine andere Bot-Instanz (getUpdates). "
             "Es darf nur EINE Instanz laufen — beende die übrigen Prozesse."
         )
+        return
+
+    # Harmlos: ein Settings-Button wurde auf den bereits aktiven Zustand getippt →
+    # editMessageText mit identischem Inhalt. Kein Nutzer-Hinweis nötig.
+    if isinstance(err, BadRequest) and "not modified" in str(err).lower():
+        log.debug(f"Ignoriere 'Message is not modified': {err}")
         return
 
     log.error(f"Fehler bei Update-Verarbeitung: {err.__class__.__name__}: {err}")
