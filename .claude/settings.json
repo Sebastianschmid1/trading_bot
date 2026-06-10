@@ -40,7 +40,11 @@
       "Bash(python -c \"import metrics, strategies, backtest; print\\('imports OK'\\)\")",
       "Bash(python test_backtest.py)",
       "Bash(python -c \"import bot, dashboard, db, strategies, backtest, metrics, analyzer; print\\('ALL IMPORTS OK'\\)\")",
-      "Bash(python test_settings.py)"
+      "Bash(python test_settings.py)",
+      "Bash(python test_bot.py)",
+      "Bash(grep -E \"\\\\.env$\")",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)"
     ]
   }
 }

@@ -39,6 +39,22 @@
            padding: .4rem .9rem; border-radius: 999px; cursor: pointer; font-size: .85rem; }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--text); border-color: var(--accent); background: #1d2740; }
+    /* Klickbare Trade-Zeilen → Detail-Analyse */
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: #1d2740; }
+    /* Detail-Analyse-Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+                     z-index: 50; align-items: flex-start; justify-content: center; padding: 2rem 1rem; overflow: auto; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+             padding: 1.2rem 1.4rem; max-width: 760px; width: 100%; }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .modal-x { cursor: pointer; color: var(--muted); font-size: 1.3rem; line-height: 1; }
+    .modal-x:hover { color: var(--text); }
+    .modal canvas { height: 240px !important; }
+    .factor-table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }
+    .factor-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); }
+    .factor-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -76,6 +92,17 @@
     <div class="panel">
       <h2>🕯 Kursverlauf heute (aktive Trades)</h2>
       <div id="priceCharts"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalTitle"></h2>
+        <span class="modal-x" id="modalClose">✕</span>
+      </div>
+      <div id="modalBody"></div>
+      <canvas id="factorChart" height="120"></canvas>
     </div>
   </div>
 
@@ -182,6 +209,7 @@
           },
           options: {
             plugins: { legend: { display: false } },
+            onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
             scales: {
               x: { ticks: { color: "#8a93a6" }, grid: { display: false } },
               y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
@@ -199,7 +227,7 @@
           <table>
             <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
             <tbody>${act.map(t => `
-              <tr>
+              <tr class="clickable" data-ticker="${t.ticker}">
                 <td><b>${t.ticker}</b></td>
                 <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
                 <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
@@ -278,6 +306,86 @@
         });
       }
     }
+
+    // ── Detail-Analyse einer Aktie (Klick auf Trade / Ticker-Balken) ──────────
+    let factorChartObj = null;
+
+    const mkds = (label, data, color, width = 2) => ({
+      label, data, borderColor: color, backgroundColor: "transparent",
+      tension: .25, pointRadius: 0, borderWidth: width,
+    });
+
+    function closeModal() {
+      document.getElementById("modal").classList.remove("open");
+      if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
+    }
+
+    async function openAnalysis(ticker) {
+      const m = document.getElementById("modal");
+      document.getElementById("modalTitle").textContent = "🔬 " + ticker + " — Modell-Faktoren (7 Tage)";
+      document.getElementById("modalBody").innerHTML = `<div class="empty">Lade Analyse…</div>`;
+      if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
+      m.classList.add("open");
+      try {
+        const res = await fetch(`/api/${token}/analyze/${encodeURIComponent(ticker)}`);
+        if (!res.ok) throw new Error("Analyse fehlgeschlagen.");
+        renderAnalysis(await res.json());
+      } catch (e) {
+        document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${e.message}</div>`;
+      }
+    }
+
+    function renderAnalysis(d) {
+      const pts = d.points || [];
+      if (!pts.length) {
+        document.getElementById("modalBody").innerHTML =
+          `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + d.error + ")" : ""}.</div>`;
+        return;
+      }
+      const last = pts[pts.length - 1];
+      document.getElementById("modalBody").innerHTML = `
+        <div class="meta">Stand ${last.date} · Kurs $${last.price.toFixed(2)} · dieselben Faktoren wie im Signal-Modell</div>
+        <table class="factor-table">
+          <tr><td>📉 RSI</td><td class="num">${last.rsi}</td><td class="num">Score ${last.rsi_score}/100</td></tr>
+          <tr><td>📈 MACD-Histogramm</td><td class="num">${last.macd_hist}</td><td class="num">Score ${last.macd_score}/100</td></tr>
+          <tr><td>📊 Trend</td><td class="num">${last.trend}</td><td class="num">Score ${last.trend_score}/100</td></tr>
+          <tr><td>🔊 Volumen (RVOL)</td><td class="num">${last.vol_ratio}×</td><td class="num">Score ${last.vol_score}/100</td></tr>
+          <tr><td><b>⭐ Gesamt-Score (Tag)</b></td><td></td><td class="num"><b>${last.score}/100</b></td></tr>
+        </table>
+        <div class="meta">Verlauf der Faktor-Scores (0–100) über die letzten ${pts.length} Handelstage:</div>`;
+      const labels = pts.map(p => p.date.slice(5));   // MM-DD
+      factorChartObj = new Chart(document.getElementById("factorChart"), {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            mkds("RSI", pts.map(p => p.rsi_score), "#4f8cff"),
+            mkds("MACD", pts.map(p => p.macd_score), "#2ecc71"),
+            mkds("Trend", pts.map(p => p.trend_score), "#e67e22"),
+            mkds("Volumen", pts.map(p => p.vol_score), "#9b59b6"),
+            mkds("Gesamt", pts.map(p => p.score), "#e6e9ef", 3),
+          ],
+        },
+        options: {
+          plugins: { legend: { labels: { color: "#e6e9ef" } } },
+          scales: {
+            x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+            y: { min: 0, max: 100, ticks: { color: "#8a93a6" }, grid: { color: "#222a3a" } }
+          }
+        }
+      });
+    }
+
+    // Klick auf eine aktive Trade-Zeile → Detail-Analyse (Event-Delegation)
+    document.addEventListener("click", (e) => {
+      const row = e.target.closest("tr.clickable[data-ticker]");
+      if (row) openAnalysis(row.dataset.ticker);
+    });
+    document.getElementById("modalClose").addEventListener("click", closeModal);
+    document.getElementById("modal").addEventListener("click", (e) => {
+      if (e.target.id === "modal") closeModal();
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
     load();
   </script>

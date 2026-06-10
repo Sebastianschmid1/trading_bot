@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 import db
 import analyzer
@@ -142,6 +143,37 @@ def test_dashboard_filters_by_strategy():
     adx_view = dashboard.build_dashboard_data(user, strategy="adx_trend")
     assert {t["ticker"] for t in adx_view["active_trades"]} == {"MSFT"}   # nur ADX-Trade
     assert adx_view["strategy"] == "adx_trend"
+
+
+# ── Detail-Analyse: Faktor-Verlauf einer Aktie (7 Tage) ──────────────────────
+
+def test_factor_history_returns_factor_timeseries():
+    import analyzer
+    n = 140
+    close = 100 + np.arange(n) * 0.2 + 1.5 * np.sin(np.arange(n) / 5.0)
+    idx = pd.date_range("2024-01-01", periods=n, freq="B")
+    df = pd.DataFrame({"Open": close, "High": close + 1, "Low": close - 1,
+                       "Close": close, "Volume": np.full(n, 1_000_000.0)}, index=idx)
+
+    class _FakeDL:
+        @staticmethod
+        def download(*a, **k):
+            return df
+
+    orig = analyzer.yf
+    analyzer.yf = _FakeDL
+    try:
+        res = analyzer.factor_history("AAPL", days=7)
+    finally:
+        analyzer.yf = orig
+
+    assert res["ticker"] == "AAPL"
+    assert 1 <= len(res["points"]) <= 7
+    p = res["points"][-1]
+    for k in ("date", "price", "rsi", "macd_score", "trend_score", "vol_score", "score"):
+        assert k in p
+    assert 0 <= p["score"] <= 100
+    assert 0 <= p["rsi_score"] <= 100
 
 
 if __name__ == "__main__":

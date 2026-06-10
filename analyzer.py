@@ -187,14 +187,15 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
 
 
-def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | None:
+def _timeframe_components(closes: np.ndarray, volumes: np.ndarray) -> dict | None:
     """
-    Bullishness eines EINZELNEN Zeitraums als 0–100 (für Long).
-    Kombiniert RSI, MACD, Trend (Kurs vs. MA20/MA50 dieses TF) und Volumen.
-    Gibt None zurück, wenn der Zeitraum zu wenige Bars hat.
+    Aufschlüsselung der Modell-Einflussfaktoren eines EINZELNEN Zeitraums (für Long).
+    Liefert die Rohwerte (RSI, MACD-Histogramm, Volumen-Verhältnis, Trend-Lage) sowie die
+    daraus abgeleiteten 0..1-Teil-Scores und den gewichteten Gesamt-Score (0–100).
+    None, wenn zu wenige Bars (genug für MA50 + MACD(26/9)).
     """
     n = len(closes)
-    if n < 60:                      # genug Bars für MA50 + MACD(26/9)
+    if n < 60:
         return None
 
     rsi = calc_rsi(closes, RSI_PERIOD)
@@ -214,13 +215,13 @@ def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | 
     else:
         macd_score = 0.0
     if price > ma20 > ma50:
-        trend_score = 1.0
+        trend_score, trend_label = 1.0, "Starker Aufwärtstrend"
     elif price > ma20:
-        trend_score = 0.66
+        trend_score, trend_label = 0.66, "Aufwärtstrend"
     elif price > ma50:
-        trend_score = 0.33
+        trend_score, trend_label = 0.33, "Seitwärts"
     else:
-        trend_score = 0.0
+        trend_score, trend_label = 0.0, "Abwärtstrend"
     vol_score = _clamp((vol_ratio - 0.8) / 0.7)              # ab 1.5× voll bestätigt
 
     # Gewichtetes Mittel der Komponenten (Gewichte aus config, intern normiert).
@@ -228,7 +229,64 @@ def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | 
     total_w = w["rsi"] + w["macd"] + w["trend"] + w["volume"]
     sub = (w["rsi"] * rsi_score + w["macd"] * macd_score
            + w["trend"] * trend_score + w["volume"] * vol_score) / total_w
-    return round(sub * 100, 1)
+
+    return {
+        "rsi": rsi, "macd_hist": float(macd_hist), "vol_ratio": vol_ratio,
+        "trend_label": trend_label,
+        "rsi_score": rsi_score, "macd_score": macd_score,
+        "trend_score": trend_score, "vol_score": vol_score,
+        "score": round(sub * 100, 1),
+    }
+
+
+def compute_timeframe_score(closes: np.ndarray, volumes: np.ndarray) -> float | None:
+    """Bullishness eines EINZELNEN Zeitraums als 0–100 (für Long). None bei zu wenigen Bars."""
+    comp = _timeframe_components(closes, volumes)
+    return comp["score"] if comp else None
+
+
+def factor_history(ticker: str, days: int = 7) -> dict:
+    """
+    Verlauf der Modell-Einflussfaktoren (RSI/MACD/Trend/Volumen + Gesamt-Score) der letzten
+    `days` Handelstage einer Aktie (Tages-Timeframe). Für die Detail-Analyse im Dashboard:
+    pro Tag werden die Faktoren NUR aus den Daten bis zu diesem Tag berechnet (kein Look-ahead).
+    Gibt {ticker, points:[{date, price, rsi, macd_hist, vol_ratio, trend, *_score, score}]} zurück.
+    """
+    try:
+        data = yf.download(ticker, period="1y", interval="1d",
+                           progress=False, auto_adjust=True)
+    except Exception as e:
+        log.warning(f"factor_history Download {ticker} fehlgeschlagen: {e}")
+        return {"ticker": ticker, "points": [], "error": str(e)}
+
+    if data is None or len(data) == 0:
+        return {"ticker": ticker, "points": []}
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.droplevel(1, axis=1)
+    data = data.dropna(subset=["Close"])
+    closes = data["Close"].values.flatten().astype(float)
+    volumes = data["Volume"].values.flatten().astype(float)
+    n = len(closes)
+
+    points = []
+    for i in range(max(60, n - days), n):
+        comp = _timeframe_components(closes[:i + 1], volumes[:i + 1])
+        if comp is None:
+            continue
+        points.append({
+            "date":        str(data.index[i].date()),
+            "price":       round(float(closes[i]), 2),
+            "rsi":         round(comp["rsi"], 1),
+            "macd_hist":   round(comp["macd_hist"], 4),
+            "vol_ratio":   round(comp["vol_ratio"], 2),
+            "trend":       comp["trend_label"],
+            "rsi_score":   round(comp["rsi_score"] * 100),
+            "macd_score":  round(comp["macd_score"] * 100),
+            "trend_score": round(comp["trend_score"] * 100),
+            "vol_score":   round(comp["vol_score"] * 100),
+            "score":       comp["score"],
+        })
+    return {"ticker": ticker, "points": points}
 
 
 def _tf_scores(tf_data: dict) -> dict:

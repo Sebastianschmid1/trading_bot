@@ -197,6 +197,16 @@ def dashboard_data(token: str, strategy: str | None = None):
     return JSONResponse(build_dashboard_data(user, strategy=strategy or None))
 
 
+@app.get("/api/{token}/analyze/{ticker}")
+def dashboard_analyze(token: str, ticker: str):
+    """Detail-Analyse einer Aktie: Modell-Einflussfaktoren der letzten 7 Tage
+    (für den Klick auf einen Trade im Dashboard)."""
+    if not db.get_user_by_token(token):
+        raise HTTPException(status_code=404, detail="Ungültiger Token.")
+    import analyzer
+    return JSONResponse(analyzer.factor_history(ticker.upper(), days=7))
+
+
 def run():
     """Startet den Dashboard-Webserver (blockierend). Wird von bot.py im Thread oder hier direkt genutzt."""
     import uvicorn

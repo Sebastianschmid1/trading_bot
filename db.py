@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS users (
     auto_accept       INTEGER NOT NULL DEFAULT 0,
     auto_universe     INTEGER NOT NULL DEFAULT 1,
     strategy          TEXT    NOT NULL DEFAULT 'standard',
+    llm_rank          INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -114,6 +115,9 @@ def _migrate(conn: sqlite3.Connection):
     if "strategy" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN strategy TEXT NOT NULL DEFAULT 'standard'")
         log.info("Migration: Spalte users.strategy ergänzt.")
+    if "llm_rank" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN llm_rank INTEGER NOT NULL DEFAULT 1")
+        log.info("Migration: Spalte users.llm_rank ergänzt.")
 
 
 @contextmanager
@@ -162,6 +166,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "auto_universe":    bool(row["auto_universe"]),
         "strategy":         row["strategy"],
         "strategies":       _parse_strategies(row["strategy"]),
+        "llm_rank":         bool(row["llm_rank"]),
     }
 
 
@@ -303,6 +308,15 @@ def set_strategy(user_id: int, strategy: str):
         conn.execute(
             "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
             (strategy, user_id),
+        )
+
+
+def set_llm_rank(user_id: int, on: bool):
+    """Aktiviert/deaktiviert das LLM-Ranking (Claude Haiku) für den Nutzer."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET llm_rank = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
         )
 
 

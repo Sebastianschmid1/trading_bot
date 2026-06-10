@@ -221,3 +221,12 @@ SMARTMONEY_SCAN_MIN        = 0      # ...23:00 Uhr (nach der 22:15-Auswertung)
 SMARTMONEY_CACHE_MAX_AGE_H = 36     # Cache gilt so lange als „frisch"
 SMARTMONEY_W_TECH  = 1.0           # Gewicht der technischen Stärke beim /signals-Re-Ranking
 SMARTMONEY_W_SMART = 0.5           # Gewicht des Smart-Money-Scores beim /signals-Re-Ranking
+
+# ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
+# Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)
+# + News/Analysten. Bewusst nur Haiku zur Kostenersparnis (eine gebündelte Anfrage pro Lauf).
+# API-Key NUR aus .env (gitignored) — niemals committen/loggen.
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+LLM_MODEL         = "claude-haiku-4-5"      # exakt — kein Datum-Suffix
+LLM_RANK_ENABLED  = bool(ANTHROPIC_API_KEY)  # global aktiv, sobald ein Key vorhanden ist
+LLM_MAX_SIGNALS   = 8                        # Obergrenze Signale pro LLM-Anfrage (Kosten)

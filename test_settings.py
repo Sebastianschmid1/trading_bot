@@ -192,6 +192,28 @@ def _fake_cmd(args):
     return update, ctx
 
 
+def test_llm_rank_default_and_setter():
+    fresh_db()
+    u = db.get_or_create_user(CHAT)
+    assert u["llm_rank"] is True                 # Default an
+    db.set_llm_rank(CHAT, False)
+    assert db.get_user(CHAT)["llm_rank"] is False
+    db.set_llm_rank(CHAT, True)
+    assert db.get_user(CHAT)["llm_rank"] is True
+
+
+def test_set_llm_button_updates_db():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    update, query = _fake_settings_query("set_llm:0")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["llm_rank"] is False
+    query.edit_message_text.assert_awaited()
+    update, query = _fake_settings_query("set_llm:1")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["llm_rank"] is True
+
+
 def test_addstrat_command_adds_and_validates():
     fresh_db()
     db.get_or_create_user(CHAT, "tester")

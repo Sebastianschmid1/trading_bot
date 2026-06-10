@@ -32,6 +32,7 @@ import smartmoney
 import strategies
 import backtest
 import metrics
+import llm_ranker
 from onboarding import onboarding_conv_handler
 from analyzer import analyze_universe, scan_strengths, sl_tp_from_atr
 from evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
@@ -44,7 +45,8 @@ from config import (
     SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
-    SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE
+    SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
+    LLM_RANK_ENABLED
 )
 
 os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -74,6 +76,11 @@ def _user_strategies(user: dict) -> list[str]:
     """Aktive Signal-Strategien des Nutzers (Liste von Schlüsseln aus strategies.REGISTRY)."""
     keys = user.get("strategies") or [s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()]
     return [k for k in keys if k in strategies.REGISTRY] or [strategies.DEFAULT_STRATEGY]
+
+
+def _llm_enabled(user: dict) -> bool:
+    """Ob das LLM-Ranking (Claude Haiku) für diesen Nutzer aktiv ist (Schalter + globaler Key)."""
+    return LLM_RANK_ENABLED and user.get("llm_rank", True)
 
 
 def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_STRATEGY) -> str:
@@ -124,6 +131,9 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
     sm_line = (f"  • 🐳 Smart-Money: {'★'*sm['stars']}{'☆'*(5-sm['stars'])} (Score {sm['score']})\n"
                if sm else "")
 
+    llm_line = (f"  • 🤖 KI-Rang: {signal['llm_score']:.0f}/100 — {signal.get('llm_reason', '')}\n"
+                if isinstance(signal.get("llm_score"), (int, float)) else "")
+
     if market_open:
         footer = (
             f"⏰ Start nur innerhalb von {TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich\n"
@@ -156,6 +166,7 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
         f"  • Volumen: {signal['volume_comment']}\n"
         f"  • Level: {signal.get('sr_comment', '—')}\n"
         f"{sm_line}"
+        f"{llm_line}"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"{risk_block}"
         f"{lev_block}"
@@ -303,6 +314,8 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
             signals = smartmoney.rank(ranked, top_n)
             if not signals:
                 continue
+            if _llm_enabled(u):
+                signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
             await bot.send_message(chat_id=chat_id,
                                    text=f"🧠 *Strategie: {strat.label}*", parse_mode="Markdown")
             for signal in signals:
@@ -574,6 +587,8 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ranked = analyze_universe(tickers, generate=strat.generate)
             _cache_candidates(_universe_key(region, auto, strat.key), ranked)   # Kandidaten fürs Nachrücken
             signals = smartmoney.rank(ranked, top_n)
+            if _llm_enabled(user):
+                signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
         except Exception as e:
             await update.message.reply_text(f"⚠️ Analyse-Fehler ({strat.label}): {e}")
             continue
@@ -677,6 +692,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 Auto-Accept: *{'an' if user.get('auto_accept') else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if _auto_uni(user) else 'aus'}*\n"
         f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in _user_strategies(user))}*\n"
+        f"🤖 KI-Ranking (Haiku): *{'an' if _llm_enabled(user) else 'aus'}*\n"
         f"{broker_line}\n"
         f"📡 Status: {'aktiv ✅' if user['is_active'] else 'pausiert ⏸'}\n\n"
         "⚙️ Alles ändern: /settings",
@@ -693,6 +709,8 @@ def _settings_view(user: dict):
     auto = user.get("auto_accept")
     auto_uni = _auto_uni(user)
     strat_keys = _user_strategies(user)
+    llm_on = _llm_enabled(user)
+    llm_state = ("an" if llm_on else "aus") if LLM_RANK_ENABLED else "aus (kein API-Key)"
 
     text = (
         "⚙️ *Einstellungen*\n"
@@ -702,7 +720,8 @@ def _settings_view(user: dict):
         f"⚡ Hebel: *{lev:g}×*\n"
         f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if auto_uni else 'aus'}*\n"
-        f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in strat_keys)}*\n\n"
+        f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in strat_keys)}*\n"
+        f"🤖 KI-Ranking (Haiku): *{llm_state}*\n\n"
         "Tippe unten, um zu ändern (Strategien: mehrere möglich):"
     )
 
@@ -721,7 +740,9 @@ def _settings_view(user: dict):
     strat_row = [InlineKeyboardButton(("✅ " if s.key in strat_keys else "") + s.label,
                                       callback_data=f"set_strat:{s.key}")
                  for s in strategies.all_strategies()]
-    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row])
+    llm_row = [InlineKeyboardButton(("✅ " if llm_on else "") + "KI-Ranking an", callback_data="set_llm:1"),
+               InlineKeyboardButton(("✅ " if not llm_on else "") + "aus", callback_data="set_llm:0")]
+    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row])
     return text, keyboard
 
 
@@ -1089,7 +1110,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, keyboard = _settings_view(user)
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
-    elif action in ("set_mode", "set_lev", "set_auto", "set_uni", "set_strat"):
+    elif action in ("set_mode", "set_lev", "set_auto", "set_uni", "set_strat", "set_llm"):
         if action == "set_mode" and ticker in SL_TP_MODES:
             db.set_sl_tp_mode(chat_id, ticker)
         elif action == "set_lev":
@@ -1103,6 +1124,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.set_auto_universe(chat_id, ticker == "1")
         elif action == "set_strat" and ticker in strategies.REGISTRY:
             db.toggle_strategy(chat_id, ticker)
+        elif action == "set_llm":
+            db.set_llm_rank(chat_id, ticker == "1")
         log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
         user = db.get_user(chat_id)
         if user:
