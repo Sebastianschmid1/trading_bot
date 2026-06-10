@@ -44,7 +44,9 @@
       "Bash(python test_bot.py)",
       "Bash(grep -E \"\\\\.env$\")",
       "Skill(claude-api)",
-      "Skill(claude-api:*)"
+      "Skill(claude-api:*)",
+      "Bash(python -c \"import bot; print\\('bot import OK'\\)\")",
+      "Bash(python -c \"import bot; n=bot.HELP_TEXT.count\\('\\\\`'\\); print\\('HELP_TEXT Backticks:', n, '\\(gerade =', n%2==0, '\\)'\\); print\\('lone underscores in HELP_TEXT:', bot.HELP_TEXT.replace\\('\\\\`adx_trend\\\\`',''\\).count\\('_'\\)\\)\")"
     ]
   }
 }

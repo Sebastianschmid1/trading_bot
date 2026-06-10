@@ -131,7 +131,9 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
     sm_line = (f"  • 🐳 Smart-Money: {'★'*sm['stars']}{'☆'*(5-sm['stars'])} (Score {sm['score']})\n"
                if sm else "")
 
-    llm_line = (f"  • 🤖 KI-Rang: {signal['llm_score']:.0f}/100 — {signal.get('llm_reason', '')}\n"
+    # Freitext der KI gegen Markdown-Sonderzeichen absichern (sonst „can't parse entities")
+    _llm_reason = "".join(c for c in str(signal.get("llm_reason", "")) if c not in "_*`[]")
+    llm_line = (f"  • 🤖 KI-Rang: {signal['llm_score']:.0f}/100 — {_llm_reason}\n"
                 if isinstance(signal.get("llm_score"), (int, float)) else "")
 
     if market_open:
@@ -964,7 +966,7 @@ HELP_TEXT = (
     "/top5trade — Was große Trader (Insider + Institutionen) zuletzt gekauft haben\n"
     "/evaluate — Deine aktiven Demo-Trades jetzt auswerten\n"
     "/strategies — Verfügbare Signal-Strategien anzeigen\n"
-    "/addstrat <name> — Strategie per Namen wählen (z. B. adx_trend)\n"
+    "/addstrat <name> — Strategie per Namen wählen (z. B. `adx_trend`)\n"
     "/teststrat — Backtest-Kennzahlen (Profitfaktor) der aktiven Strategie\n"
     "/info — Wie kommen die Signale zustande? (Metriken erklärt)\n"
     "/ping — Verbindung zum Bot testen\n"
