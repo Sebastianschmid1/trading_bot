@@ -248,6 +248,36 @@ def test_noop_button_does_nothing():
     assert db.has_trade_today(CHAT, "NVDA") is False
 
 
+# ── Über-Nacht-Halten (eod_close aus): datumsübergreifende Trades ────────────
+
+def test_overnight_trade_is_managed_across_days():
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    # Aktiven Trade von GESTERN direkt einfügen (simuliert über Nacht gehalten)
+    sig = {"ticker": "AAPL", "direction": "long", "price": 100.0,
+           "stop_loss": 95.0, "take_profit": 110.0, "leverage": 1.0}
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, entry) "
+            "VALUES (?, date('now','-1 day'), ?, ?, ?, 'active', ?)",
+            (CHAT, "AAPL", "long", __import__("json").dumps(sig), 100.0),
+        )
+    # get_active_trades findet ihn datumsunabhängig
+    act = db.get_active_trades(CHAT)
+    assert len(act) == 1 and act[0]["ticker"] == "AAPL"
+    # Duplikat-Schutz greift (kein neues Signal heute), obwohl 'heute' kein Datensatz existiert
+    assert db.has_open_position(CHAT, "AAPL") is True
+    assert db.has_trade_today(CHAT, "AAPL") is False
+    # Schließen funktioniert datumsunabhängig
+    db.close_all(CHAT, [{"ticker": "AAPL", "exit": 110.0, "pnl_eur": 21.25, "pnl_pct": 10.0}])
+    assert db.get_active_trades(CHAT) == []
+    with db._connect() as conn:
+        row = conn.execute("SELECT status, pnl_eur FROM trades WHERE user_id = ? AND ticker = ?",
+                           (CHAT, "AAPL")).fetchone()
+    assert row["status"] == "closed" and row["pnl_eur"] == 21.25
+
+
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────
 
 if __name__ == "__main__":

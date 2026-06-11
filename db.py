@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS users (
     auto_universe     INTEGER NOT NULL DEFAULT 1,
     strategy          TEXT    NOT NULL DEFAULT 'standard',
     llm_rank          INTEGER NOT NULL DEFAULT 1,
+    eod_close         INTEGER NOT NULL DEFAULT 1,
+    broker_exec       INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -118,6 +120,12 @@ def _migrate(conn: sqlite3.Connection):
     if "llm_rank" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN llm_rank INTEGER NOT NULL DEFAULT 1")
         log.info("Migration: Spalte users.llm_rank ergänzt.")
+    if "eod_close" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN eod_close INTEGER NOT NULL DEFAULT 1")
+        log.info("Migration: Spalte users.eod_close ergänzt.")
+    if "broker_exec" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN broker_exec INTEGER NOT NULL DEFAULT 0")
+        log.info("Migration: Spalte users.broker_exec ergänzt.")
 
 
 @contextmanager
@@ -167,6 +175,8 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "strategy":         row["strategy"],
         "strategies":       _parse_strategies(row["strategy"]),
         "llm_rank":         bool(row["llm_rank"]),
+        "eod_close":        bool(row["eod_close"]),
+        "broker_exec":      bool(row["broker_exec"]),
     }
 
 
@@ -320,6 +330,56 @@ def set_llm_rank(user_id: int, on: bool):
         )
 
 
+def set_eod_close(user_id: int, on: bool):
+    """Tagesende-Schließung an/aus. Aus → Trades über Nacht halten (nur SL/TP schließt)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET eod_close = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
+        )
+
+
+def set_broker_exec(user_id: int, on: bool):
+    """Echte (Paper-)Order-Ausführung über Alpaca an/aus (Default aus = nur Demo)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET broker_exec = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
+        )
+
+
+def set_alpaca_credentials(user_id: int, api_key: str, api_secret: str):
+    """Speichert die Alpaca-API-Zugangsdaten des Nutzers verschlüsselt (broker_platform='alpaca')."""
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE users SET broker_platform = 'alpaca', broker_api_key = ?,
+                   broker_api_secret = ?, updated_at = datetime('now') WHERE user_id = ?""",
+            (encrypt(api_key), encrypt(api_secret), user_id),
+        )
+    log.info(f"Alpaca-Zugangsdaten gesetzt: user_id={user_id}")
+
+
+def clear_alpaca_credentials(user_id: int):
+    """Entfernt die Alpaca-Zugangsdaten und schaltet die Broker-Ausführung ab."""
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE users SET broker_platform = NULL, broker_api_key = NULL,
+                   broker_api_secret = NULL, broker_exec = 0,
+                   updated_at = datetime('now') WHERE user_id = ?""",
+            (user_id,),
+        )
+    log.info(f"Alpaca-Zugangsdaten entfernt: user_id={user_id}")
+
+
+def has_alpaca_credentials(user_id: int) -> bool:
+    """True, wenn der Nutzer eigene Alpaca-Zugangsdaten hinterlegt hat."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT broker_platform, broker_api_key FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return bool(row and row["broker_platform"] == "alpaca" and row["broker_api_key"] is not None)
+
+
 def toggle_strategy(user_id: int, key: str) -> list[str]:
     """Schaltet eine Strategie in der Auswahl des Nutzers an/aus (mind. eine bleibt aktiv).
     Gibt die neue Liste zurück."""
@@ -395,12 +455,23 @@ def _trade_to_dict(row: sqlite3.Row) -> dict:
 
 
 def has_trade_today(user_id: int, ticker: str) -> bool:
-    """True, wenn für diese Aktie heute bereits ein Signal/Trade existiert (egal welcher Status).
-    Basis für den Duplikat-Schutz: pro Aktie/Tag nur ein Signal."""
+    """True, wenn für diese Aktie heute bereits ein Signal/Trade existiert (egal welcher Status)."""
     with _connect() as conn:
         row = conn.execute(
             "SELECT 1 FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ? LIMIT 1",
             (user_id, _today(), ticker),
+        ).fetchone()
+    return row is not None
+
+
+def has_open_position(user_id: int, ticker: str) -> bool:
+    """Duplikat-Schutz fürs Senden: heute schon ein Datensatz ODER ein über Nacht offener
+    (aktiver) Trade dieser Aktie (egal welches Datum)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM trades WHERE user_id = ? AND ticker = ? "
+            "AND (trade_date = ? OR status = 'active') LIMIT 1",
+            (user_id, ticker, _today()),
         ).fetchone()
     return row is not None
 
@@ -472,11 +543,11 @@ def expire_trade(user_id: int, ticker: str) -> bool:
 
 
 def get_active_trades(user_id: int) -> list[dict]:
-    """Gibt alle heute aktiven Trades des Nutzers zurück."""
+    """Gibt ALLE aktiven Trades des Nutzers zurück (auch über Nacht gehaltene, datumsunabhängig)."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND status = 'active'",
-            (user_id, _today()),
+            "SELECT * FROM trades WHERE user_id = ? AND status = 'active' ORDER BY trade_date ASC, id ASC",
+            (user_id,),
         ).fetchall()
     return [_trade_to_dict(r) for r in rows]
 
@@ -492,22 +563,26 @@ def get_pending_trades(user_id: int) -> list[dict]:
 
 
 def get_trade(user_id: int, ticker: str) -> dict | None:
+    """Relevantester Trade einer Aktie: aktiver (über Nacht gehaltener) zuerst, sonst der heutige.
+    So funktioniert Verkaufen/Hebel auch bei datumsübergreifend offenen Trades."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
-            (user_id, _today(), ticker),
+            "SELECT * FROM trades WHERE user_id = ? AND ticker = ? AND (status = 'active' OR trade_date = ?) "
+            "ORDER BY (status = 'active') DESC, trade_date DESC, id DESC LIMIT 1",
+            (user_id, ticker, _today()),
         ).fetchone()
     return _trade_to_dict(row) if row else None
 
 
 def close_all(user_id: int, results: list[dict]):
-    """Schließt die ausgewerteten Trades des Nutzers mit den Ergebnissen aus evaluate_trades()."""
+    """Schließt die ausgewerteten Trades des Nutzers (matcht den AKTIVEN Trade je Aktie,
+    datumsunabhängig — auch über Nacht gehaltene)."""
     with _connect() as conn:
         for r in results:
             conn.execute(
                 """UPDATE trades SET status = 'closed', exit = ?, pnl_eur = ?, pnl_pct = ?
-                   WHERE user_id = ? AND trade_date = ? AND ticker = ?""",
-                (r["exit"], r["pnl_eur"], r["pnl_pct"], user_id, _today(), r["ticker"]),
+                   WHERE user_id = ? AND ticker = ? AND status = 'active'""",
+                (r["exit"], r["pnl_eur"], r["pnl_pct"], user_id, r["ticker"]),
             )
     log.info(f"user_id={user_id}: {len(results)} Trades geschlossen.")
 

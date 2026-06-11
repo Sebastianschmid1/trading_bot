@@ -14,7 +14,7 @@ import sys
 import logging
 from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -51,15 +51,22 @@ def _trade_strategy(t: dict) -> str:
     return (t.get("signal") or {}).get("strategy", "standard")
 
 
-def build_dashboard_data(user: dict, strategy: str | None = None) -> dict:
+RANGE_CHOICES = [0, 1, 7, 14, 30]   # 0 = „Alle"; sonst letzte N Tage
+
+
+def build_dashboard_data(user: dict, strategy: str | None = None, days: int | None = None) -> dict:
     """Aggregiert die Dashboard-Kennzahlen eines Nutzers aus der DB.
-    `strategy` = Schlüssel → nur Trades dieser Strategie; None → alle (Gesamtansicht)."""
+    `strategy` = Schlüssel → nur Trades dieser Strategie; None → alle.
+    `days` = letzte N Tage (für Kennzahlen/Equity der abgeschlossenen Trades); None/0 = alle."""
     user_id = user["user_id"]
     closed = db.get_closed_trades(user_id)
     active = db.get_active_trades(user_id)
     if strategy:
         closed = [t for t in closed if _trade_strategy(t) == strategy]
         active = [t for t in active if _trade_strategy(t) == strategy]
+    if days:
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        closed = [t for t in closed if (t.get("trade_date") or "") >= cutoff]
 
     # Equity-Kurve: tägliches P&L kumuliert
     daily = OrderedDict()
@@ -153,6 +160,8 @@ def build_dashboard_data(user: dict, strategy: str | None = None) -> dict:
         "is_active":       user.get("is_active", True),
         "strategy":        strategy or "",
         "strategies":      strat_tabs,
+        "days":            days or 0,
+        "ranges":          RANGE_CHOICES,
         "summary": {
             "total_pnl":    total_pnl,
             "total_closed": n,
@@ -190,11 +199,11 @@ def dashboard_page(token: str):
 
 
 @app.get("/api/{token}/data")
-def dashboard_data(token: str, strategy: str | None = None):
+def dashboard_data(token: str, strategy: str | None = None, days: int | None = None):
     user = db.get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger Token.")
-    return JSONResponse(build_dashboard_data(user, strategy=strategy or None))
+    return JSONResponse(build_dashboard_data(user, strategy=strategy or None, days=days or None))
 
 
 @app.get("/api/{token}/analyze/{ticker}")

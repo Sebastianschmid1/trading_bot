@@ -59,6 +59,14 @@ SIGNAL_TIME_MIN  = 35      # ...15:35 Uhr (5 Min nach US-Open)
 CLOSE_TIME_HOUR  = 22      # Trades schließen/auswerten um...
 CLOSE_TIME_MIN   = 15      # ...22:15 Uhr
 
+# Tagesende-Schließung pro Nutzer:
+#   True  = alle Trades am Tagesende (22:15) schließen (bisheriges Verhalten).
+#   False = Trades über Nacht halten, nur per SL/TP/Liquidation schließen — Backtests zeigen,
+#           dass v. a. Trendfolge-Strategien das EOD-Schließen die ganze Kante kostet.
+DEFAULT_EOD_CLOSE = True
+# Sicherheits-Höchsthaltedauer (Kalendertage) für über Nacht gehaltene Trades:
+HOLD_MAX_DAYS     = 14
+
 # ── Aktien-Universen ────────────────────────────────────────────────────────
 # Erste Version: drei wählbare Bereiche. Aus Konsistenzgründen (USD, US-Handelszeit)
 # sind internationale Werte als US-gelistete ADRs enthalten.
@@ -230,3 +238,14 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 LLM_MODEL         = "claude-haiku-4-5"      # exakt — kein Datum-Suffix
 LLM_RANK_ENABLED  = bool(ANTHROPIC_API_KEY)  # global aktiv, sobald ein Key vorhanden ist
 LLM_MAX_SIGNALS   = 8                        # Obergrenze Signale pro LLM-Anfrage (Kosten)
+
+# ── Alpaca (Trading API — eigenes Konto) ─────────────────────────────────────
+# Keys NUR aus .env (gitignored). Standard = PAPER (kein echtes Geld). Ausführung ist
+# zusätzlich pro Nutzer schaltbar (users.broker_exec) und standardmäßig AUS.
+ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY")
+ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
+ALPACA_PAPER      = os.getenv("ALPACA_PAPER", "true").strip().lower() in ("1", "true", "yes")
+ALPACA_ENABLED    = bool(ALPACA_API_KEY and ALPACA_API_SECRET)
+# Erweiterte Handelszeiten (US Pre-/After-Market). Monitoring/Signal-Fenster nutzen dann
+# 4:00–20:00 ET statt 9:30–16:00 ET. yfinance-Extended-Daten sind dünn — Nutzen teilweise.
+EXTENDED_HOURS    = os.getenv("EXTENDED_HOURS", "true").strip().lower() in ("1", "true", "yes")

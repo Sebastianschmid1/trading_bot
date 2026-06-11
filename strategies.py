@@ -155,6 +155,101 @@ def adx_trend_signal(ticker: str, tf_data: dict, p: dict | None = None) -> dict 
     }
 
 
+# ── Weitere Strategien (verschiedene Archetypen) ─────────────────────────────
+
+def _make_signal(ticker: str, df, key: str, strength: float,
+                 sl_mult: float, tp_mult: float) -> dict | None:
+    """Baut ein Signal-Dict (Long) mit ATR-basierten SL/TP + Anzeige-Feldern.
+    Ohne gültiges ATR kein Signal (kein blinder Stop)."""
+    closes = df["Close"].astype(float).values
+    highs = df["High"].astype(float).values
+    lows = df["Low"].astype(float).values
+    vols = df["Volume"].astype(float).values
+    price = float(closes[-1])
+    atr = analyzer.calc_atr(highs, lows, closes, ATR_PERIOD)
+    if not atr or atr <= 0:
+        return None
+
+    rsi = analyzer.calc_rsi(closes, RSI_PERIOD)
+    macd_line, macd_signal, macd_hist = analyzer.calc_macd(closes)
+    ma50 = float(np.mean(closes[-50:])) if len(closes) >= 50 else price
+    ma200 = float(np.mean(closes[-200:])) if len(closes) >= 200 else price
+    avg_vol = float(np.mean(vols[-20:])) if len(vols) >= 20 else float(np.mean(vols))
+    vol_ratio = (float(vols[-1]) / avg_vol) if avg_vol > 0 else 1.0
+
+    stop_loss = price - sl_mult * atr
+    take_profit = price + tp_mult * atr
+    trend = "Aufwärtstrend 📈" if price > ma50 > ma200 else (
+        "Aufwärts 📈" if price > ma50 else "Abwärts/Seitwärts ↔")
+    return {
+        "ticker": ticker, "price": price, "as_of": str(df.index[-1].date()),
+        "direction": "long", "strength": round(strength, 1), "strategy": key,
+        "rsi": rsi, "rsi_comment": f"{rsi:.1f}",
+        "macd_comment": "Bullish ✅" if (macd_hist > 0 and macd_line > macd_signal) else "Neutral",
+        "trend_comment": trend, "weekly_comment": "—",
+        "volume_comment": f"{vol_ratio:.1f}x Durchschnitt", "sr_comment": "—",
+        "macd_hist": float(macd_hist), "atr": atr,
+        "stop_loss": stop_loss, "take_profit": take_profit,
+        "sl_pct": (stop_loss - price) / price * 100, "tp_pct": (take_profit - price) / price * 100,
+        "risk_reward": tp_mult / sl_mult,
+        "support": None, "support_touches": None, "support_dist_pct": None,
+        "resistance": None, "resistance_touches": None, "resistance_dist_pct": None,
+    }
+
+
+def rsi_revert_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Mean-Reversion: kaufe den Rücksetzer (RSI<30) im langfristigen Aufwärtstrend (Kurs>MA200)."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 210:
+        return None
+    closes = df["Close"].astype(float).values
+    price = float(closes[-1])
+    rsi = analyzer.calc_rsi(closes, RSI_PERIOD)
+    ma200 = float(np.mean(closes[-200:]))
+    if not (rsi < 30 and price > ma200):
+        return None
+    strength = 50 + 50 * max(0.0, min(1.0, (35 - rsi) / 25))   # tiefer überverkauft → stärker
+    return _make_signal(ticker, df, "rsi_revert", strength, sl_mult=1.5, tp_mult=2.5)
+
+
+def breakout_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Donchian-Breakout: kaufe den Ausbruch über das 20-Tage-Hoch, bestätigt durch Trend (>MA50)."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 210:
+        return None
+    closes = df["Close"].astype(float).values
+    highs = df["High"].astype(float).values
+    vols = df["Volume"].astype(float).values
+    price = float(closes[-1])
+    prior_high = float(np.max(highs[-21:-1]))                  # 20-Tage-Hoch ohne heute
+    ma50 = float(np.mean(closes[-50:]))
+    if not (price >= prior_high and price > ma50):
+        return None
+    avg_vol = float(np.mean(vols[-20:]))
+    vol_score = max(0.0, min(1.0, (vols[-1] / avg_vol - 0.8) / 0.7)) if avg_vol > 0 else 0.0
+    strength = 60 + 40 * vol_score                             # Ausbruch + Volumen
+    return _make_signal(ticker, df, "breakout", strength, sl_mult=2.0, tp_mult=4.0)
+
+
+def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Trend-Ausrichtung: kaufe nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 210:
+        return None
+    closes = df["Close"].astype(float).values
+    price = float(closes[-1])
+    ma20 = float(np.mean(closes[-20:]))
+    ma50 = float(np.mean(closes[-50:]))
+    ma200 = float(np.mean(closes[-200:]))
+    macd_line, macd_signal, macd_hist = analyzer.calc_macd(closes)
+    if not (price > ma20 > ma50 > ma200 and macd_hist > 0 and macd_line > macd_signal):
+        return None
+    # Stärke aus dem Abstand MA50↔MA200 (Trendkraft), gedeckelt
+    spread = (ma50 - ma200) / ma200 * 100 if ma200 > 0 else 0.0
+    strength = 60 + 40 * max(0.0, min(1.0, spread / 15))
+    return _make_signal(ticker, df, "ma_trend", strength, sl_mult=1.5, tp_mult=3.0)
+
+
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -181,7 +276,22 @@ REGISTRY: dict[str, Strategy] = {
     "adx_trend": Strategy(
         "adx_trend", "ADX-Trendfolge (trader-dev Port)",
         adx_trend_signal,
-        "Trendfolge: Kurs>EMA200 + ADX(14)-Trend + Volatilitäts-Expansion & Velocity. Fix SL 2% / TP 5%.",
+        "Trendfolge: Kurs>EMA200 + ADX(14)-Trend + Volatilitäts-Expansion & Velocity. ATR-SL/TP.",
+    ),
+    "rsi_revert": Strategy(
+        "rsi_revert", "Mean-Reversion (RSI-Dip)",
+        rsi_revert_signal,
+        "Kauft Rücksetzer: RSI(14)<30 im langfristigen Aufwärtstrend (Kurs>MA200). ATR-SL/TP.",
+    ),
+    "breakout": Strategy(
+        "breakout", "Donchian-Ausbruch (20T)",
+        breakout_signal,
+        "Kauft den Ausbruch über das 20-Tage-Hoch (Trendfilter >MA50, Volumen). Weite ATR-SL/TP.",
+    ),
+    "ma_trend": Strategy(
+        "ma_trend", "Trend-Ausrichtung (MA20>50>200)",
+        ma_trend_signal,
+        "Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.",
     ),
 }
 

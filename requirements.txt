@@ -9,3 +9,4 @@ uvicorn[standard]
 requests
 lxml
 anthropic
+alpaca-py

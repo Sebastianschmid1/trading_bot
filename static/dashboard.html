@@ -66,6 +66,7 @@
     </header>
 
     <div id="tabs" class="tabs"></div>
+    <div id="ranges" class="tabs"></div>
 
     <div class="cards" id="cards"></div>
 
@@ -112,6 +113,8 @@
     const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
     const cls = (n) => n >= 0 ? "green" : "red";
     let currentStrategy = "";   // "" = Alle
+    let currentDays = 0;        // 0 = Alle; sonst letzte N Tage
+    const rangeLabel = (n) => n === 0 ? "Alle" : (n === 1 ? "1 Tag" : n + " Tage");
 
     function replaceCanvas(id, msg) {
       const c = document.getElementById(id);
@@ -123,7 +126,10 @@
 
     async function load() {
       try {
-        const q = currentStrategy ? "?strategy=" + encodeURIComponent(currentStrategy) : "";
+        const p = new URLSearchParams();
+        if (currentStrategy) p.set("strategy", currentStrategy);
+        if (currentDays) p.set("days", currentDays);
+        const q = p.toString() ? "?" + p.toString() : "";
         const res = await fetch(`/api/${token}/data${q}`);
         if (!res.ok) throw new Error("Daten konnten nicht geladen werden (Token ungültig?).");
         render(await res.json());
@@ -147,11 +153,25 @@
       }));
     }
 
+    function renderRanges(d) {
+      const ranges = d.ranges || [0, 1, 7, 14, 30];
+      const el = document.getElementById("ranges");
+      el.innerHTML = `<span style="color:var(--muted);font-size:.8rem;align-self:center">Zeitraum:</span>` +
+        ranges.map(n =>
+          `<div class="tab ${n === currentDays ? "active" : ""}" data-days="${n}">${rangeLabel(n)}</div>`
+        ).join("");
+      el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+        currentDays = parseInt(b.dataset.days, 10);
+        load();
+      }));
+    }
+
     function render(d) {
       const s = d.summary;
       document.getElementById("user").textContent = "· @" + d.username;
       document.getElementById("generated").textContent = "Stand: " + d.generated_at;
       renderTabs(d);
+      renderRanges(d);
 
       const pf = (s.profit_factor === null || s.profit_factor === undefined)
         ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
@@ -312,7 +332,9 @@
 
     const mkds = (label, data, color, width = 2) => ({
       label, data, borderColor: color, backgroundColor: "transparent",
-      tension: .25, pointRadius: 0, borderWidth: width,
+      // monotone Interpolation: glatt, aber ohne Über-/Unterschwingen über die echten Werte (0–100)
+      cubicInterpolationMode: "monotone", tension: 0,
+      pointRadius: 2, pointHoverRadius: 4, borderWidth: width,
     });
 
     function closeModal() {
@@ -367,10 +389,11 @@
           ],
         },
         options: {
-          plugins: { legend: { labels: { color: "#e6e9ef" } } },
+          layout: { padding: { top: 8, right: 8, bottom: 2, left: 2 } },
+          plugins: { legend: { labels: { color: "#e6e9ef", boxWidth: 14, padding: 12 } } },
           scales: {
             x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-            y: { min: 0, max: 100, ticks: { color: "#8a93a6" }, grid: { color: "#222a3a" } }
+            y: { min: 0, max: 100, ticks: { color: "#8a93a6", stepSize: 20 }, grid: { color: "#222a3a" } }
           }
         }
       });

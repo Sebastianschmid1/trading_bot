@@ -33,7 +33,9 @@ import strategies
 import backtest
 import metrics
 import llm_ranker
+import broker
 from onboarding import onboarding_conv_handler
+from broker_setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from analyzer import analyze_universe, scan_strengths, sl_tp_from_atr
 from evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from config import (
@@ -46,7 +48,8 @@ from config import (
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
-    LLM_RANK_ENABLED
+    LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
+    EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER
 )
 
 os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -81,6 +84,22 @@ def _user_strategies(user: dict) -> list[str]:
 def _llm_enabled(user: dict) -> bool:
     """Ob das LLM-Ranking (Claude Haiku) für diesen Nutzer aktiv ist (Schalter + globaler Key)."""
     return LLM_RANK_ENABLED and user.get("llm_rank", True)
+
+
+def _alpaca_ready(user: dict) -> bool:
+    """Ob für diesen Nutzer eine Alpaca-Anbindung verfügbar ist: eigene Keys (über den Bot
+    hinterlegt) oder ersatzweise globale .env-Keys."""
+    return bool(user and user.get("broker_platform") == "alpaca") or ALPACA_ENABLED
+
+
+def _alpaca_client(user: dict):
+    """Baut den Alpaca-Client für diesen Nutzer: bevorzugt die eigenen, verschlüsselt
+    gespeicherten Keys; sonst Fallback auf globale .env-Keys. None, wenn nichts verfügbar."""
+    if user and user.get("broker_platform") == "alpaca":
+        creds = db.get_decrypted_credentials(user["user_id"])
+        if creds:
+            return broker.make_client(creds[0], creds[1], paper=ALPACA_PAPER)
+    return broker._get_client()   # globale .env-Keys (oder None)
 
 
 def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_STRATEGY) -> str:
@@ -192,6 +211,36 @@ def _personalize_signal(signal: dict, sl_tp_mode: str, leverage: float) -> dict:
     return sig
 
 
+async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
+    """Sendet (falls für den Nutzer aktiviert) eine echte ALPACA-(Paper-)Order zum gerade
+    aktivierten Trade. Best-effort: scheitert nie hart, meldet das Ergebnis."""
+    if not trade:
+        return
+    user = db.get_user(chat_id)
+    if not user or not user.get("broker_exec") or not _alpaca_ready(user):
+        return
+    client = _alpaca_client(user)
+    if client is None:
+        return
+    sig = trade.get("signal", {})
+    entry = trade.get("entry") or sig.get("price")
+    if not entry:
+        return
+    qty = max(1, int((user["trade_size_eur"]) / float(entry)))   # Demo-Größe ≈ USD (Paper)
+    extended = EXTENDED_HOURS and not _us_market_open(extended=False)
+    res = await asyncio.to_thread(
+        broker.submit_order, trade["ticker"], qty, float(entry),
+        sig.get("stop_loss"), sig.get("take_profit"), extended_hours=extended, client=client)
+    mode = "PAPER" if ALPACA_PAPER else "LIVE"
+    if res["ok"]:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"📈 Alpaca-{mode}-Order gesendet: {res['detail']}"
+                 + ("  ·  SL/TP überwacht der Bot (Extended Hours)" if extended else ""))
+    else:
+        await bot.send_message(chat_id=chat_id, text=f"⚠️ Alpaca-Order nicht gesendet: {res['detail']}")
+
+
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
                       job_queue=None, market_open: bool = True,
                       sl_tp_mode: str = DEFAULT_SL_TP_MODE, leverage: float = DEFAULT_LEVERAGE,
@@ -204,7 +253,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
     Duplikat-Schutz: pro Aktie/Tag nur ein Trade. Rückgabe: True wenn gesendet, sonst False.
     """
     ticker = signal["ticker"]
-    if market_open and db.has_trade_today(chat_id, ticker):
+    if market_open and db.has_open_position(chat_id, ticker):
         log.info(f"[{chat_id}] Signal übersprungen (heute schon vorhanden): {ticker}")
         return False
 
@@ -223,6 +272,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
                 text=f"⚡ *{ticker}* automatisch gestartet (Auto-Accept) — Einstieg ${trade['entry']:.2f}, Hebel {leverage:g}×",
                 parse_mode="Markdown",
             )
+            await _maybe_broker_order(bot, chat_id, trade)
         log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
         return True
 
@@ -333,26 +383,48 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(0.5)  # kurze Pause zwischen Nutzern (Rate-Limit-Schutz)
 
 
+def _trade_age_days(trade: dict) -> int:
+    """Alter eines Trades in Kalendertagen seit Eröffnung (trade_date)."""
+    try:
+        return (date.today() - date.fromisoformat(trade["trade_date"])).days
+    except Exception:
+        return 0
+
+
 async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
-    """Job: Nach US-Börsenschluss alle aktiven Trades je Nutzer schließen & auswerten."""
+    """Job: Nach US-Börsenschluss Trades je Nutzer auswerten.
+    eod_close an → alle schließen. Aus → nur Trades über der Höchsthaltedauer; Rest hält über Nacht."""
     bot = context.bot
     log.info("Starte Tagesauswertung...")
 
     for u in db.list_active_users():
         chat_id = u["user_id"]
         active = db.get_active_trades(chat_id)
-        if not active:
-            await bot.send_message(chat_id=chat_id, text="📭 Heute keine aktiven Demo-Trades zum Auswerten.")
+        eod = u.get("eod_close", DEFAULT_EOD_CLOSE)
+
+        if eod:
+            to_close, kept = active, []
+        else:
+            to_close = [t for t in active if _trade_age_days(t) >= HOLD_MAX_DAYS]
+            kept = [t for t in active if t not in to_close]
+
+        if not to_close:
+            if kept:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🌙 {len(kept)} Demo-Trade(s) werden über Nacht gehalten (Tagesende-Schließung aus).")
+            else:
+                await bot.send_message(chat_id=chat_id, text="📭 Heute keine aktiven Demo-Trades zum Auswerten.")
             await asyncio.sleep(0.5)
             continue
 
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"⏰ *{CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr — Schließe alle Demo-Trades und werte aus...*",
-            parse_mode="Markdown"
-        )
+        head = (f"⏰ *{CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr — Schließe alle Demo-Trades und werte aus...*"
+                if eod else
+                f"⏰ Schließe {len(to_close)} Trade(s) über der Höchsthaltedauer ({HOLD_MAX_DAYS} Tage); "
+                f"{len(kept)} bleiben über Nacht offen.")
+        await bot.send_message(chat_id=chat_id, text=head, parse_mode="Markdown")
 
-        results = evaluate_trades(active, u["trade_size_eur"])
+        results = evaluate_trades(to_close, u["trade_size_eur"])
         db.close_all(chat_id, results)
 
         # Zusammenfassung
@@ -500,13 +572,18 @@ def _registered_user(chat_id: int) -> dict | None:
     return user
 
 
-def _us_market_open() -> bool:
-    """Grobe Prüfung, ob die US-Börse gerade offen ist (Wochentag + 9:30–16:00 ET).
-    Feiertage werden nicht berücksichtigt — reicht, um Wochenend-/Nachtdaten zu erkennen."""
+def _us_market_open(extended: bool | None = None) -> bool:
+    """Grobe Prüfung, ob die US-Börse gerade „offen" ist (Wochentag, ET-Zeitfenster).
+    Regulär 9:30–16:00 ET; mit Extended Hours (Pre-/After-Market) 4:00–20:00 ET.
+    Feiertage werden nicht berücksichtigt."""
+    if extended is None:
+        extended = EXTENDED_HOURS
     now = datetime.now(ZoneInfo("America/New_York"))
     if now.weekday() >= 5:
         return False
     minutes = now.hour * 60 + now.minute
+    if extended:
+        return 4 * 60 <= minutes <= 20 * 60
     return 9 * 60 + 30 <= minutes <= 16 * 60
 
 
@@ -532,7 +609,7 @@ async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
         for signal in _get_candidates(_universe_key(region, _auto_uni(user), strat_key)):
             if need <= 0:
                 break
-            if db.has_trade_today(chat_id, signal["ticker"]):
+            if db.has_open_position(chat_id, signal["ticker"]):
                 continue
             sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
                                      job_queue=job_queue, market_open=True,
@@ -683,6 +760,11 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user["broker_platform"] else
         "🔌 Keine Plattform verbunden (nur Demo-Modus)"
     )
+    if _alpaca_ready(user):
+        _mode = "PAPER" if ALPACA_PAPER else "LIVE"
+        _conn = "eigene Keys" if user.get("broker_platform") == "alpaca" else "globale Keys"
+        broker_line += (f"\n📈 Alpaca ({_mode}, {_conn}) — Ausführung: "
+                        f"*{'an' if user.get('broker_exec') else 'aus'}*")
     region = user.get("market_region") or DEFAULT_REGION
     await update.message.reply_text(
         "👤 *Dein Profil*\n"
@@ -695,6 +777,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 Voll-Universum: *{'an' if _auto_uni(user) else 'aus'}*\n"
         f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in _user_strategies(user))}*\n"
         f"🤖 KI-Ranking (Haiku): *{'an' if _llm_enabled(user) else 'aus'}*\n"
+        f"🌙 Tagesende-Schließung: *{'an' if user.get('eod_close', DEFAULT_EOD_CLOSE) else 'aus (über Nacht halten)'}*\n"
         f"{broker_line}\n"
         f"📡 Status: {'aktiv ✅' if user['is_active'] else 'pausiert ⏸'}\n\n"
         "⚙️ Alles ändern: /settings",
@@ -713,6 +796,10 @@ def _settings_view(user: dict):
     strat_keys = _user_strategies(user)
     llm_on = _llm_enabled(user)
     llm_state = ("an" if llm_on else "aus") if LLM_RANK_ENABLED else "aus (kein API-Key)"
+    eod = user.get("eod_close", DEFAULT_EOD_CLOSE)
+    broker_on = user.get("broker_exec")
+    broker_ready = _alpaca_ready(user)
+    broker_mode = "PAPER" if ALPACA_PAPER else "LIVE"
 
     text = (
         "⚙️ *Einstellungen*\n"
@@ -723,8 +810,10 @@ def _settings_view(user: dict):
         f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if auto_uni else 'aus'}*\n"
         f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in strat_keys)}*\n"
-        f"🤖 KI-Ranking (Haiku): *{llm_state}*\n\n"
-        "Tippe unten, um zu ändern (Strategien: mehrere möglich):"
+        f"🤖 KI-Ranking (Haiku): *{llm_state}*\n"
+        f"🌙 Tagesende-Schließung: *{'an' if eod else f'aus (halten bis SL/TP, max {HOLD_MAX_DAYS}T)'}*\n"
+        + (f"📈 Broker-Ausführung ({broker_mode}): *{'an' if broker_on else 'aus'}*\n" if broker_ready else "")
+        + "\nTippe unten, um zu ändern (Strategien: mehrere möglich):"
     )
 
     region_row = [InlineKeyboardButton(("✅ " if k == region else "") + lbl, callback_data=f"set_region:{k}")
@@ -744,7 +833,15 @@ def _settings_view(user: dict):
                  for s in strategies.all_strategies()]
     llm_row = [InlineKeyboardButton(("✅ " if llm_on else "") + "KI-Ranking an", callback_data="set_llm:1"),
                InlineKeyboardButton(("✅ " if not llm_on else "") + "aus", callback_data="set_llm:0")]
-    keyboard = InlineKeyboardMarkup([region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row])
+    eod_row = [InlineKeyboardButton(("✅ " if eod else "") + "Tagesende-Schließung an", callback_data="set_eod:1"),
+               InlineKeyboardButton(("✅ " if not eod else "") + "aus (halten)", callback_data="set_eod:0")]
+    rows = [region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row, eod_row]
+    if broker_ready:
+        rows.append([
+            InlineKeyboardButton(("✅ " if broker_on else "") + f"Broker-Order ({broker_mode}) an",
+                                 callback_data="set_broker:1"),
+            InlineKeyboardButton(("✅ " if not broker_on else "") + "aus", callback_data="set_broker:0")])
+    keyboard = InlineKeyboardMarkup(rows)
     return text, keyboard
 
 
@@ -859,6 +956,41 @@ async def cmd_kicheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text = (f"❌ KI-Ranking nicht aktiv/fehlerhaft.\n{res['detail']}\n\n"
                 "Setze ANTHROPIC_API_KEY in der .env und starte den Bot neu.")
+    # bewusst ohne parse_mode — Detailtext kann Sonderzeichen enthalten
+    await update.message.reply_text(text)
+
+
+async def cmd_brokercheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/brokercheck — Selbsttest: prüft die Alpaca-Anbindung (Konto + Marktstatus)."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+
+    if not _alpaca_ready(user):
+        await update.message.reply_text(
+            "❌ Alpaca ist nicht verbunden.\nVerbinde dein Konto mit /connectalpaca "
+            "(deine Keys werden verschlüsselt gespeichert).")
+        return
+
+    await update.message.reply_text("🔌 Prüfe Alpaca-Anbindung… ⏳")
+    client = _alpaca_client(user)
+    res = await asyncio.to_thread(broker.health_check, client=client)
+
+    if res["ok"]:
+        mode = "PAPER (Demo)" if res.get("paper") else "LIVE (echtes Geld!)"
+        markt = "offen ✅" if res.get("market_open") else "geschlossen 🌙"
+        exec_on = user.get("broker_exec")
+        note = ("\n✅ Broker-Ausführung ist in deinem Profil AN."
+                if exec_on else
+                "\nℹ️ Broker-Ausführung ist AUS — es werden keine echten Orders gesendet (/settings).")
+        text = (f"✅ Alpaca verbunden — {mode}\n"
+                f"Konto: {res.get('status')} · Cash ${res.get('cash'):,.2f} · "
+                f"Buying Power ${res.get('buying_power'):,.2f}\n"
+                f"Markt: {markt}{note}")
+    else:
+        text = f"❌ Alpaca nicht verbunden.\n{res['detail']}"
     # bewusst ohne parse_mode — Detailtext kann Sonderzeichen enthalten
     await update.message.reply_text(text)
 
@@ -993,6 +1125,9 @@ HELP_TEXT = (
     "/addstrat <name> — Strategie per Namen wählen (z. B. `adx_trend`)\n"
     "/teststrat — Backtest-Kennzahlen (Profitfaktor) der aktiven Strategie\n"
     "/kicheck — Prüfen, ob das KI-Ranking (Claude Haiku) funktioniert\n"
+    "/connectalpaca — Eigenes Alpaca-Konto verbinden (Keys verschlüsselt speichern)\n"
+    "/disconnectalpaca — Alpaca-Zugangsdaten wieder entfernen\n"
+    "/brokercheck — Alpaca-Anbindung prüfen (Konto + Marktstatus)\n"
     "/info — Wie kommen die Signale zustande? (Metriken erklärt)\n"
     "/ping — Verbindung zum Bot testen\n"
     "/cancel — Laufenden Setup-Dialog abbrechen\n"
@@ -1056,6 +1191,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
+            await _maybe_broker_order(context.bot, chat_id, trade)
             user = db.get_user(chat_id)
             if user:
                 await refill_pending(context.bot, chat_id, user, context.job_queue)
@@ -1137,7 +1273,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, keyboard = _settings_view(user)
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
-    elif action in ("set_mode", "set_lev", "set_auto", "set_uni", "set_strat", "set_llm"):
+    elif action in ("set_mode", "set_lev", "set_auto", "set_uni", "set_strat", "set_llm", "set_eod", "set_broker"):
         if action == "set_mode" and ticker in SL_TP_MODES:
             db.set_sl_tp_mode(chat_id, ticker)
         elif action == "set_lev":
@@ -1153,6 +1289,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.toggle_strategy(chat_id, ticker)
         elif action == "set_llm":
             db.set_llm_rank(chat_id, ticker == "1")
+        elif action == "set_eod":
+            db.set_eod_close(chat_id, ticker == "1")
+        elif action == "set_broker" and _alpaca_ready(db.get_user(chat_id) or {}):
+            db.set_broker_exec(chat_id, ticker == "1")
         log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
         user = db.get_user(chat_id)
         if user:
@@ -1217,6 +1357,8 @@ def main():
 
     # Onboarding-Dialog (muss vor dem CallbackQueryHandler stehen, fängt /start ab)
     app.add_handler(onboarding_conv_handler)
+    # Alpaca-Zugangsdaten-Dialog (eigener ConversationHandler für /connectalpaca)
+    app.add_handler(connect_alpaca_handler)
     # Manuelle Befehle: jederzeit aufrufbar, sobald der Bot läuft
     app.add_handler(CommandHandler("help", cmd_help))                     # Befehlsübersicht
     app.add_handler(CommandHandler("profile", cmd_profile))               # eigenes Profil ansehen
@@ -1231,6 +1373,8 @@ def main():
     app.add_handler(CommandHandler("addstrat", cmd_addstrat))             # Strategie per Namen wählen
     app.add_handler(CommandHandler("teststrat", cmd_teststrat))           # Backtest-Kennzahlen der aktiven Strategie
     app.add_handler(CommandHandler("kicheck", cmd_kicheck))               # Selbsttest des KI-Rankings (Claude Haiku)
+    app.add_handler(CommandHandler("brokercheck", cmd_brokercheck))       # Selbsttest der Alpaca-Anbindung
+    app.add_handler(CommandHandler("disconnectalpaca", cmd_disconnect_alpaca))   # Alpaca-Keys löschen
     # Button-Handler registrieren
     app.add_handler(CallbackQueryHandler(button_handler))
     # Globaler Error-Handler (saubere Logs statt Tracebacks)

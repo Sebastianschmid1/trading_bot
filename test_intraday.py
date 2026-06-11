@@ -145,6 +145,25 @@ def test_dashboard_filters_by_strategy():
     assert adx_view["strategy"] == "adx_trend"
 
 
+def test_dashboard_days_filter():
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    sj = '{"strategy": "standard"}'
+    with db._connect() as conn:
+        for off, pnl in [(0, 10.0), (20, -5.0)]:    # heute & vor 20 Tagen
+            conn.execute(
+                "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, "
+                "entry, exit, pnl_eur, pnl_pct) VALUES (?, date('now', ?), ?, 'long', ?, 'closed', 100, 110, ?, 10)",
+                (CHAT, f"-{off} day", f"T{off}", sj, pnl),
+            )
+    user = db.get_user(CHAT)
+    assert dashboard.build_dashboard_data(user)["summary"]["total_closed"] == 2          # alle
+    last7 = dashboard.build_dashboard_data(user, days=7)
+    assert last7["summary"]["total_closed"] == 1 and last7["summary"]["total_pnl"] == 10.0
+    assert last7["days"] == 7 and 30 in last7["ranges"]
+
+
 # ── Detail-Analyse: Faktor-Verlauf einer Aktie (7 Tage) ──────────────────────
 
 def test_factor_history_returns_factor_timeseries():

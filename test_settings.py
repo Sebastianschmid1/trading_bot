@@ -214,6 +214,99 @@ def test_set_llm_button_updates_db():
     assert db.get_user(CHAT)["llm_rank"] is True
 
 
+def test_eod_close_default_and_button():
+    fresh_db()
+    u = db.get_or_create_user(CHAT)
+    assert u["eod_close"] is True                       # Default: am Tagesende schließen
+    update, query = _fake_settings_query("set_eod:0")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["eod_close"] is False      # über Nacht halten
+    query.edit_message_text.assert_awaited()
+    db.set_eod_close(CHAT, True)
+    assert db.get_user(CHAT)["eod_close"] is True
+
+
+def test_broker_exec_default_and_setter():
+    fresh_db()
+    u = db.get_or_create_user(CHAT)
+    assert u["broker_exec"] is False                    # Default AUS (keine echten Orders)
+    db.set_broker_exec(CHAT, True)
+    assert db.get_user(CHAT)["broker_exec"] is True
+    db.set_broker_exec(CHAT, False)
+    assert db.get_user(CHAT)["broker_exec"] is False
+
+
+def test_set_broker_button_updates_db_when_enabled():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    orig = bot.ALPACA_ENABLED
+    bot.ALPACA_ENABLED = True                           # Schalter ist nur bei aktivem Alpaca sichtbar
+    try:
+        update, query = _fake_settings_query("set_broker:1")
+        asyncio.run(bot.button_handler(update, MagicMock()))
+        assert db.get_user(CHAT)["broker_exec"] is True
+        query.edit_message_text.assert_awaited()
+        update, query = _fake_settings_query("set_broker:0")
+        asyncio.run(bot.button_handler(update, MagicMock()))
+        assert db.get_user(CHAT)["broker_exec"] is False
+    finally:
+        bot.ALPACA_ENABLED = orig
+
+
+def test_set_broker_button_ignored_when_disabled():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    orig = bot.ALPACA_ENABLED
+    bot.ALPACA_ENABLED = False
+    try:
+        update, query = _fake_settings_query("set_broker:1")
+        asyncio.run(bot.button_handler(update, MagicMock()))
+        assert db.get_user(CHAT)["broker_exec"] is False   # unverändert
+    finally:
+        bot.ALPACA_ENABLED = orig
+
+
+def test_alpaca_credentials_roundtrip_and_clear():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    assert db.has_alpaca_credentials(CHAT) is False
+    db.set_alpaca_credentials(CHAT, "AK123", "SECRET456")
+    assert db.has_alpaca_credentials(CHAT) is True
+    assert db.get_user(CHAT)["broker_platform"] == "alpaca"
+    assert db.get_decrypted_credentials(CHAT) == ("AK123", "SECRET456")   # entschlüsselt zurück
+    db.clear_alpaca_credentials(CHAT)
+    assert db.has_alpaca_credentials(CHAT) is False
+    assert db.get_user(CHAT)["broker_platform"] is None
+    assert db.get_decrypted_credentials(CHAT) is None
+
+
+def test_alpaca_ready_uses_per_user_creds_even_without_global_keys():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    orig = bot.ALPACA_ENABLED
+    bot.ALPACA_ENABLED = False                     # keine globalen .env-Keys
+    try:
+        assert bot._alpaca_ready(db.get_user(CHAT)) is False
+        db.set_alpaca_credentials(CHAT, "AK", "SK")
+        assert bot._alpaca_ready(db.get_user(CHAT)) is True    # eigene Keys reichen
+        # Broker-Schalter ist nun sichtbar
+        text, keyboard = bot._settings_view(db.get_user(CHAT))
+        flat = [b.text for row in keyboard.inline_keyboard for b in row]
+        assert any("Broker-Order" in t for t in flat)
+    finally:
+        bot.ALPACA_ENABLED = orig
+
+
+def test_clear_alpaca_also_disables_broker_exec():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    db.set_alpaca_credentials(CHAT, "AK", "SK")
+    db.set_broker_exec(CHAT, True)
+    assert db.get_user(CHAT)["broker_exec"] is True
+    db.clear_alpaca_credentials(CHAT)
+    assert db.get_user(CHAT)["broker_exec"] is False     # mit den Keys wird auch die Ausführung aus
+
+
 def test_addstrat_command_adds_and_validates():
     fresh_db()
     db.get_or_create_user(CHAT, "tester")
