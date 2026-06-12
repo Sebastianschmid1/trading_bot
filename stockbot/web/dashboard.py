@@ -145,6 +145,32 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             ],
         })
 
+    # Einzel-Trades (Wertentwicklung je Trade): historische (abgeschlossen) + aktuelle (offen)
+    _strat_label = {s.key: s.label for s in strategies.all_strategies()}
+    trades_log = []
+    for t in closed:
+        trades_log.append({
+            "ticker":   t["ticker"],
+            "date":     t["trade_date"],
+            "entry":    t["entry"],
+            "exit":     t["exit"],
+            "pnl_eur":  round(t["pnl_eur"] or 0.0, 2),
+            "pnl_pct":  round(t["pnl_pct"] or 0.0, 2),
+            "status":   "closed",
+            "strategy": _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+        })
+    for t, v in zip(active, active_view):
+        trades_log.append({
+            "ticker":   v["ticker"],
+            "date":     t["trade_date"],
+            "entry":    v["entry"],
+            "exit":     v["current"],          # aktueller Kurs (unrealisiert)
+            "pnl_eur":  v["pnl_eur"],
+            "pnl_pct":  v["pnl_pct"],
+            "status":   "active",
+            "strategy": _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+        })
+
     # Strategie-Tabs: „Alle" + die vom Nutzer gewählten Strategien
     user_strat_keys = user.get("strategies") or [
         s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()] or ["standard"]
@@ -173,6 +199,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         },
         "equity":        equity,
         "ticker_stats":  ticker_stats,
+        "trades_log":    trades_log,
         "active_trades": active_view,
         "intraday":      intraday,
         "generated_at":  datetime.now().strftime("%d.%m.%Y %H:%M"),

@@ -81,6 +81,12 @@
     </div>
 
     <div class="panel">
+      <h2>📈 Trades einzeln — Wertentwicklung</h2>
+      <div class="meta">Jeder Balken = ein Trade (P&amp;L in €). <b>Weiß umrandet</b> = aktuell offen (unrealisiert). Klick auf einen Balken öffnet die Detail-Analyse.</div>
+      <canvas id="tradesLogChart" height="90"></canvas>
+    </div>
+
+    <div class="panel">
       <h2>🔵 Aktive Demo-Trades</h2>
       <div id="active"></div>
     </div>
@@ -256,6 +262,55 @@
             onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
             scales: {
               x: { ticks: { color: "#8a93a6" }, grid: { display: false } },
+              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
+            }
+          }
+        });
+      }
+
+      // Einzel-Trades — Wertentwicklung (historische + aktuelle, je ein Balken)
+      const tl = d.trades_log || [];
+      if (!tl.length) {
+        replaceCanvas("tradesLogChart", noData);
+      } else {
+        const n2 = (x) => (x == null ? "—" : (+x).toFixed(2));
+        makeChart("tradesLogChart", {
+          type: "bar",
+          data: {
+            labels: tl.map(x => x.ticker),
+            datasets: [{
+              data: tl.map(x => x.pnl_eur),
+              backgroundColor: tl.map(x => x.pnl_eur >= 0 ? "#2ecc71" : "#e74c3c"),
+              // offene Trades hervorheben: weißer Rahmen
+              borderColor: tl.map(x => x.status === "active" ? "#e6e9ef" : "transparent"),
+              borderWidth: tl.map(x => x.status === "active" ? 2 : 0),
+              borderRadius: 4,
+            }]
+          },
+          options: {
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => {
+                    const x = tl[items[0].dataIndex];
+                    return `${x.ticker} · ${x.date}` + (x.status === "active" ? "  (offen)" : "");
+                  },
+                  label: (item) => {
+                    const x = tl[item.dataIndex];
+                    const sgn = (v) => (v >= 0 ? "+" : "");
+                    return [
+                      `P&L: ${sgn(x.pnl_eur)}${n2(x.pnl_eur)}€ (${sgn(x.pnl_pct)}${n2(x.pnl_pct)}%)`,
+                      `Einstieg $${n2(x.entry)} → ${x.status === "active" ? "aktuell" : "Ausstieg"} $${n2(x.exit)}`,
+                      `Strategie: ${x.strategy}`,
+                    ];
+                  }
+                }
+              }
+            },
+            onClick: (evt, els) => { if (els.length) openAnalysis(tl[els[0].index].ticker); },
+            scales: {
+              x: { ticks: { color: "#8a93a6", maxRotation: 0, autoSkip: true }, grid: { display: false } },
               y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
             }
           }

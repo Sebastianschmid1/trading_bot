@@ -164,6 +164,34 @@ def test_dashboard_days_filter():
     assert last7["days"] == 7 and 30 in last7["ranges"]
 
 
+def test_dashboard_trades_log_history_and_active():
+    fresh_db()
+    db.yf = _FakeYF(110.0)                       # aktueller Kurs für den offenen Trade
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    # ein abgeschlossener (historischer) Trade
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, "
+            "entry, exit, pnl_eur, pnl_pct) VALUES (?, date('now','-3 day'), 'MSFT', 'long', "
+            "'{\"strategy\": \"standard\"}', 'closed', 200, 220, 5.0, 10)",
+            (CHAT,),
+        )
+    # ein offener (aktueller) Trade
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "stop_loss": 97.0, "take_profit": 130.0, "strategy": "standard"}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    db.add_tick(CHAT, "AAPL", 110.0, 70.0)       # 60s-Monitor-Tick → aktueller Kurs
+
+    log = dashboard.build_dashboard_data(db.get_user(CHAT))["trades_log"]
+    by_ticker = {x["ticker"]: x for x in log}
+    assert by_ticker["MSFT"]["status"] == "closed" and by_ticker["MSFT"]["pnl_eur"] == 5.0
+    assert by_ticker["AAPL"]["status"] == "active"        # offen → unrealisiert
+    assert by_ticker["AAPL"]["exit"] == 110.0             # aktueller Kurs als „Ausstieg"
+    # historische zuerst, offene danach (chronologisch links→rechts)
+    assert log[0]["ticker"] == "MSFT" and log[-1]["ticker"] == "AAPL"
+
+
 # ── Detail-Analyse: Faktor-Verlauf einer Aktie (7 Tage) ──────────────────────
 
 def test_factor_history_returns_factor_timeseries():
