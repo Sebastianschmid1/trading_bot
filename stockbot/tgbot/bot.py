@@ -848,10 +848,12 @@ def _unrealized_pnl(trade: dict, trade_size_eur: float):
     return current, pnl_pct, pnl_eur
 
 
-def _trade_card(trade: dict, trade_size_eur: float):
-    """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade."""
+def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
+    """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade.
+    `current_strength` = aktuelle Signalstärke (z. B. letzter 60s-Tick); None → unbekannt."""
     ticker = trade["ticker"]
     leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
+    entry_strength = trade.get("signal", {}).get("strength")
     current, pnl_pct, pnl_eur = _unrealized_pnl(trade, trade_size_eur)
     emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
     sign = "+" if pnl_eur >= 0 else ""
@@ -860,6 +862,7 @@ def _trade_card(trade: dict, trade_size_eur: float):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Einstieg: ${trade['entry']:.2f}\n"
         f"📈 Aktuell: ${current:.2f}\n"
+        f"📶 Signal: Einstieg {_fmt_strength(entry_strength)} → jetzt {_fmt_strength(current_strength)}\n"
         f"{emoji} Unrealisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"
     )
     keyboard = InlineKeyboardMarkup([
@@ -886,8 +889,11 @@ async def cmd_evaluate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"automatischen Auswertung um {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr laufen lassen.",
         parse_mode="Markdown"
     )
+    ticks = db.get_today_ticks(chat_id)   # letzte 60s-Stärke je Ticker (für „jetziges Signal")
     for trade in active:
-        text, keyboard = _trade_card(trade, user["trade_size_eur"])
+        pts = ticks.get(trade["ticker"], [])
+        cur_strength = pts[-1].get("strength") if pts else None
+        text, keyboard = _trade_card(trade, user["trade_size_eur"], current_strength=cur_strength)
         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
         await asyncio.sleep(0.3)
 
