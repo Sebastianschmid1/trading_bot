@@ -16,7 +16,7 @@ Type=simple
 User=root
 WorkingDirectory=/root/stockbot
 EnvironmentFile=/root/stockbot/.env
-ExecStart=/root/stockbot/venv/bin/python /root/stockbot/bot.py
+ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_bot.py
 Restart=always
 RestartSec=10
 

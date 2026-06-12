@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stockbot"
+version = "0.1.0"
+description = "Telegram-Aktiensignal-Bot (Signale, Backtests, Alpaca-Anbindung, Web-Dashboard)"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+packages = [
+    "stockbot",
+    "stockbot.core",
+    "stockbot.market",
+    "stockbot.backtest",
+    "stockbot.broker",
+    "stockbot.ai",
+    "stockbot.tgbot",
+    "stockbot.web",
+]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+# Repo-Root auf den Importpfad, damit `import stockbot.*` in tests/ ohne Installation funktioniert.
+pythonpath = ["."]
+testpaths = ["tests"]
+# Das Legacy-Demo test_bot.py (Live-Netz, kein echter Unit-Test) ausschließen.
+addopts = "--ignore=tests/test_bot.py"

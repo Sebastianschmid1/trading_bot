@@ -52,7 +52,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ### 4. Bot starten
 
 ```bash
-python bot.py
+python run_bot.py
 ```
 
 ### 5. Registrieren (pro Nutzer)
@@ -68,21 +68,19 @@ Der Bot ist **multi-user**: Jede Person registriert sich selbst per geführtem S
 
 ### 6. Testen
 
+Die Offline-Test-Suite (kein Netz, kein Telegram) läuft mit **pytest** vom Repo-Root:
+
 ```bash
-# Nur Analyse anzeigen (kein Telegram):
-python test_bot.py analyze
-
-# Testnachricht an den ersten registrierten Nutzer senden:
-python test_bot.py telegram
-
-# Signale sofort an alle registrierten Nutzer senden:
-python test_bot.py signals
-
-# Aktive Trades des ersten registrierten Nutzers sofort auswerten:
-python test_bot.py evaluate
+pip install -r requirements-dev.txt   # einmalig (zieht pytest)
+pytest                                 # alle Suiten
+pytest tests/test_settings.py          # einzelne Datei
 ```
 
-Hinweis: Für die Test-Modi `telegram`/`signals`/`evaluate` muss zuerst mindestens ein Account per `/start` registriert sein.
+Einzelne Suite ohne pytest (nutzt den eingebauten Runner):
+
+```bash
+python -m tests.test_settings
+```
 
 ---
 
@@ -90,7 +88,7 @@ Hinweis: Für die Test-Modi `telegram`/`signals`/`evaluate` muss zuerst mindeste
 
 Zusätzlich zum Telegram-Bot gibt es ein Web-Dashboard mit Equity-Kurve, Trefferquote, P&L pro Ticker und aktiven Trades — pro Nutzer über einen privaten Token-Link.
 
-**Das Dashboard startet automatisch mit dem Bot** (`python bot.py`) — du brauchst lokal keinen zweiten Prozess. Im Telegram-Bot `/dashboard` senden → du bekommst deinen persönlichen Link.
+**Das Dashboard startet automatisch mit dem Bot** (`python run_bot.py`) — du brauchst lokal keinen zweiten Prozess. Im Telegram-Bot `/dashboard` senden → du bekommst deinen persönlichen Link.
 
 Der Link nutzt automatisch die **LAN-IP** dieses Rechners (z. B. `http://192.168.x.x:8000/dashboard/<token>`), funktioniert also auch **vom Handy im selben WLAN**. (`localhost` würde auf dem Handy auf das Handy selbst zeigen — deshalb die LAN-IP.)
 
@@ -102,7 +100,7 @@ Konfiguration über die `.env`:
 Auf einem Server entweder gebündelt mit dem Bot lassen, oder getrennt per `deploy/dashboard.service` (dann `RUN_DASHBOARD_IN_BOT=false`) dauerhaft betreiben:
 
 ```bash
-python dashboard.py   # nur nötig, wenn separat vom Bot betrieben
+python run_dashboard.py   # nur nötig, wenn separat vom Bot betrieben
 ```
 
 ---

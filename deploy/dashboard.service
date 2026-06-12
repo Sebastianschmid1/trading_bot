@@ -15,7 +15,7 @@ Type=simple
 User=root
 WorkingDirectory=/root/stockbot
 EnvironmentFile=/root/stockbot/.env
-ExecStart=/root/stockbot/venv/bin/python /root/stockbot/dashboard.py
+ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_dashboard.py
 Restart=always
 RestartSec=10
 

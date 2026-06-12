@@ -50,7 +50,15 @@
       "Bash(python -c \"import config; print\\('API-Key gesetzt:', bool\\(config.ANTHROPIC_API_KEY\\)\\); print\\('LLM_RANK_ENABLED:', config.LLM_RANK_ENABLED\\)\")",
       "Bash(python -c \"import bot, llm_ranker\")",
       "Bash(python test_llm_ranker.py)",
-      "Bash(python -c \"import llm_ranker; print\\(llm_ranker.health_check\\(\\)\\)\")"
+      "Bash(python -c \"import llm_ranker; print\\(llm_ranker.health_check\\(\\)\\)\")",
+      "Bash(git mv *)",
+      "Bash(python -c \"import stockbot.tgbot.bot, stockbot.web.dashboard, stockbot.backtest.report, stockbot.broker.setup, stockbot.ai.llm_ranker, stockbot.market.strategies; print\\('package imports OK'\\)\")",
+      "Bash(python -c \"import run_bot, run_dashboard; print\\('entrypoints import OK'\\)\")",
+      "Bash(python -c \"from stockbot.paths import DATA_DIR, ENV_FILE, PROJECT_ROOT; print\\('paths:', PROJECT_ROOT.name, DATA_DIR.name, ENV_FILE.name\\)\")",
+      "Bash(python -m pip install -q pytest)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"import tests.test_bot; print\\('tests.test_bot imports OK \\(Legacy-Demo\\)'\\)\")",
+      "Bash(git add *)"
     ]
   }
 }
