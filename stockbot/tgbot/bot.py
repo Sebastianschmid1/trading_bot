@@ -1328,9 +1328,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
             await _maybe_broker_order(context.bot, chat_id, trade)
-            user = db.get_user(chat_id)
-            if user:
-                await refill_pending(context.bot, chat_id, user, context.job_queue)
         else:
             existing = db.get_trade(chat_id, ticker)
             if existing and existing["status"] == "expired":
@@ -1350,9 +1347,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             log.info(f"[{chat_id}] Trade abgelehnt: {ticker}")
-            user = db.get_user(chat_id)
-            if user:
-                await refill_pending(context.bot, chat_id, user, context.job_queue)
         else:
             await query.answer("⚠️ Trade bereits bearbeitet oder nicht gefunden.", show_alert=True)
 
