@@ -36,7 +36,7 @@ from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
-from stockbot.market.analyzer import analyze_universe, scan_strengths, sl_tp_from_atr
+from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.core.evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from stockbot.config import (
     TELEGRAM_TOKEN,
@@ -79,6 +79,12 @@ def _user_strategies(user: dict) -> list[str]:
     """Aktive Signal-Strategien des Nutzers (Liste von Schlüsseln aus strategies.REGISTRY)."""
     keys = user.get("strategies") or [s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()]
     return [k for k in keys if k in strategies.REGISTRY] or [strategies.DEFAULT_STRATEGY]
+
+
+def _trade_strategy_key(trade: dict) -> str:
+    """Strategie-Schlüssel eines Trades (aus dem gespeicherten Signal; Fallback 'standard')."""
+    key = (trade.get("signal") or {}).get("strategy") or "standard"
+    return key if key in strategies.REGISTRY else "standard"
 
 
 def _user_regions(user: dict) -> list[str]:
@@ -620,23 +626,24 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
     if not _us_market_open():
         return
 
-    # aktive Trades aller Nutzer sammeln + eindeutige Ticker
+    # aktive Trades aller Nutzer sammeln + eindeutige (Ticker, Strategie)-Paare
     active_by_user: dict[int, tuple[dict, list]] = {}
-    tickers: set[str] = set()
+    pairs: set[tuple[str, str]] = set()
     for u in db.list_active_users():
         act = db.get_active_trades(u["user_id"])
         if act:
             active_by_user[u["user_id"]] = (u, act)
-            tickers.update(t["ticker"] for t in act)
-    if not tickers:
+            pairs.update((t["ticker"], _trade_strategy_key(t)) for t in act)
+    if not pairs:
         return
 
-    # Live-Kurs + Stärke je Ticker (blockierende yfinance-Aufrufe → Thread)
-    data = await asyncio.to_thread(scan_strengths, sorted(tickers))
+    # Live-Kurs + Score je (Ticker, Strategie): jeder Trade wird mit dem Score SEINER
+    # Strategie bewertet (blockierende yfinance-Aufrufe → Thread)
+    data = await asyncio.to_thread(strategies.live_scores, pairs)
 
     for uid, (user, act) in active_by_user.items():
         for trade in act:
-            info = data.get(trade["ticker"])
+            info = data.get((trade["ticker"], _trade_strategy_key(trade)))
             if not info:
                 continue
             price, strength = info["price"], info["strength"]

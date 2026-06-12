@@ -67,6 +67,46 @@ def test_adx_too_few_bars_returns_none():
     assert strategies.adx_trend_signal("X", {"1d": df}) is None
 
 
+# ── Fortlaufende Live-Scores (Monitoring je Strategie) ───────────────────────
+
+def test_breakout_score_reflects_trend_health():
+    up = _series(100 + np.arange(80) * 0.5)        # Kurs deutlich über MA50
+    down = _series(120 - np.arange(80) * 0.5)      # Kurs unter MA50 → These gebrochen
+    s_up = strategies.breakout_score({"1d": up})
+    s_down = strategies.breakout_score({"1d": down})
+    assert 0 <= s_down < 35 <= s_up <= 100         # intakt > Schwelle, gebrochen darunter
+
+
+def test_rsi_revert_score_dead_when_trend_breaks():
+    # Kurs unter MA200 → langfristiger Aufwärtstrend gebrochen → These tot (20)
+    down = _series(np.concatenate([np.full(150, 150.0), 150 - np.arange(60) * 1.0]))
+    assert strategies.rsi_revert_score({"1d": down}) == 20.0
+
+
+def test_ma_trend_score_high_when_fully_stacked():
+    up = _series(100 + np.arange(220) * 0.6)       # sauber gestapelter Aufwärtstrend
+    assert strategies.ma_trend_score({"1d": up}) >= 70
+
+
+def test_live_scores_uses_each_trades_own_strategy(monkeypatch=None):
+    # _download_all_timeframes/_tf_data_for mocken → kein Netz; je Strategie eigener Score
+    from stockbot.market import analyzer
+    up = _series(100 + np.arange(220) * 0.6)
+    orig_dl, orig_tf, orig_lp = (analyzer._download_all_timeframes,
+                                 analyzer._tf_data_for, analyzer.last_price)
+    analyzer._download_all_timeframes = lambda tickers: {"_": tickers}
+    analyzer._tf_data_for = lambda downloads, ticker: {"1d": up}
+    analyzer.last_price = lambda tf: 230.0
+    try:
+        out = strategies.live_scores({("AAA", "breakout"), ("BBB", "ma_trend")})
+    finally:
+        analyzer._download_all_timeframes, analyzer._tf_data_for, analyzer.last_price = \
+            orig_dl, orig_tf, orig_lp
+    assert out[("AAA", "breakout")]["strength"] == strategies.breakout_score({"1d": up})
+    assert out[("BBB", "ma_trend")]["strength"] == strategies.ma_trend_score({"1d": up})
+    assert out[("AAA", "breakout")]["price"] == 230.0
+
+
 def test_adx_fires_on_trend_with_expansion():
     n = 320
     t = np.arange(n)

@@ -250,13 +250,96 @@ def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
     return _make_signal(ticker, df, "ma_trend", strength, sl_mult=1.5, tp_mult=3.0)
 
 
+# ── Fortlaufende Live-Scores (für das 60s-Monitoring je aktivem Trade) ───────
+#
+# Anders als generate() (das nur im Einstiegsmoment feuert) liefern diese einen
+# *kontinuierlichen* 0–100-Gesundheitswert der jeweiligen Strategie-These.
+# Konvention: These intakt → deutlich über der Schließ-Schwelle (35); These
+# gebrochen → darunter (löst „Signal verschlechtert" aus).
+
+def standard_score(tf_data: dict) -> float | None:
+    return analyzer.compute_strength(analyzer._tf_scores(tf_data))
+
+
+def adx_trend_score(tf_data: dict, p: dict | None = None) -> float | None:
+    """Trendstärke: ADX(14) skaliert; halbiert, wenn Regime gebrochen (Kurs≤EMA200) oder −DI>+DI."""
+    p = {**ADX_PARAMS, **(p or {})}
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < p["adx_len"] + 30:
+        return None
+    c = df["Close"].astype(float); h = df["High"].astype(float); l = df["Low"].astype(float)
+    n = p["adx_len"]
+    rma = lambda s: s.ewm(alpha=1.0 / n, adjust=False).mean()
+    prev = c.shift(1)
+    tr = pd.concat([h - l, (h - prev).abs(), (l - prev).abs()], axis=1).max(axis=1)
+    up = h.diff(); dn = -l.diff()
+    pdm = np.where((up > dn) & (up > 0), up, 0.0)
+    mdm = np.where((dn > up) & (dn > 0), dn, 0.0)
+    atr = rma(tr)
+    pdi = 100 * rma(pd.Series(pdm, index=c.index)) / (atr + 1e-10)
+    mdi = 100 * rma(pd.Series(mdm, index=c.index)) / (atr + 1e-10)
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi + 1e-10)
+    adx = rma(dx)
+    if pd.isna(adx.iloc[-1]):
+        return None
+    ema = c.ewm(span=p["ema_regime"], adjust=False).mean()
+    score = max(0.0, min(1.0, (float(adx.iloc[-1]) - 10) / 30)) * 100
+    if float(c.iloc[-1]) <= float(ema.iloc[-1]) or float(pdi.iloc[-1]) < float(mdi.iloc[-1]):
+        score *= 0.5
+    return round(score, 1)
+
+
+def breakout_score(tf_data: dict) -> float | None:
+    """Donchian-These: solange der Kurs über dem MA50 hält, ist der Ausbruch intakt.
+    50 = am MA50, +8 % darüber = 100, −8 % darunter = 0."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 60:
+        return None
+    closes = df["Close"].astype(float).values
+    price = float(closes[-1]); ma50 = float(np.mean(closes[-50:]))
+    pos = (price - ma50) / ma50 if ma50 > 0 else 0.0
+    return round(max(0.0, min(100.0, 50 + 50 * max(-1.0, min(1.0, pos / 0.08)))), 1)
+
+
+def ma_trend_score(tf_data: dict) -> float | None:
+    """Trend-These: wie viele Stufen des Aufwärts-Stacks (Kurs>MA20>MA50>MA200, MACD bullish)
+    noch intakt sind, plus MA50↔MA200-Abstand als Trendkraft."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 200:
+        return None
+    closes = df["Close"].astype(float).values
+    price = float(closes[-1])
+    ma20 = float(np.mean(closes[-20:])); ma50 = float(np.mean(closes[-50:])); ma200 = float(np.mean(closes[-200:]))
+    _, _, macd_hist = analyzer.calc_macd(closes)
+    conds = [price > ma20, ma20 > ma50, ma50 > ma200, macd_hist > 0]
+    frac = sum(conds) / len(conds)
+    spread = (ma50 - ma200) / ma200 if ma200 > 0 else 0.0
+    return round(frac * 70 + max(0.0, min(1.0, spread / 0.15)) * 30, 1)
+
+
+def rsi_revert_score(tf_data: dict) -> float | None:
+    """Mean-Reversion-These: solange der langfristige Aufwärtstrend hält (Kurs>MA200), ist der
+    Trade gesund; je weiter sich der RSI vom überverkauften Bereich erholt, desto besser.
+    Bricht der Trend (Kurs≤MA200) → These tot."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 200:
+        return None
+    closes = df["Close"].astype(float).values
+    price = float(closes[-1]); ma200 = float(np.mean(closes[-200:]))
+    if price <= ma200:
+        return 20.0
+    rsi = analyzer.calc_rsi(closes, RSI_PERIOD)
+    return round(40 + 60 * max(0.0, min(1.0, (rsi - 30) / 30)), 1)
+
+
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 @dataclass
 class Strategy:
     key: str
     label: str
-    generate: Callable          # (ticker, tf_data) -> signal dict | None
+    generate: Callable                  # (ticker, tf_data) -> signal dict | None  (Einstiegs-Trigger)
+    score: Callable | None = None       # (tf_data) -> float | None  (fortlaufender Health-Score; None → Standard)
     description: str = ""
 
 
@@ -270,27 +353,27 @@ def _standard_generate(ticker: str, tf_data: dict) -> dict | None:
 REGISTRY: dict[str, Strategy] = {
     "standard": Strategy(
         "standard", "Standard (Multi-Timeframe)",
-        _standard_generate,
+        _standard_generate, standard_score,
         "Multi-Timeframe-Momentum: RSI/MACD/Trend/Volumen über 5m–1d, Stärke 0–100, ATR-SL/TP.",
     ),
     "adx_trend": Strategy(
         "adx_trend", "ADX-Trendfolge (trader-dev Port)",
-        adx_trend_signal,
+        adx_trend_signal, adx_trend_score,
         "Trendfolge: Kurs>EMA200 + ADX(14)-Trend + Volatilitäts-Expansion & Velocity. ATR-SL/TP.",
     ),
     "rsi_revert": Strategy(
         "rsi_revert", "Mean-Reversion (RSI-Dip)",
-        rsi_revert_signal,
+        rsi_revert_signal, rsi_revert_score,
         "Kauft Rücksetzer: RSI(14)<30 im langfristigen Aufwärtstrend (Kurs>MA200). ATR-SL/TP.",
     ),
     "breakout": Strategy(
         "breakout", "Donchian-Ausbruch (20T)",
-        breakout_signal,
+        breakout_signal, breakout_score,
         "Kauft den Ausbruch über das 20-Tage-Hoch (Trendfilter >MA50, Volumen). Weite ATR-SL/TP.",
     ),
     "ma_trend": Strategy(
         "ma_trend", "Trend-Ausrichtung (MA20>50>200)",
-        ma_trend_signal,
+        ma_trend_signal, ma_trend_score,
         "Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.",
     ),
 }
@@ -304,3 +387,29 @@ def get(key: str | None) -> Strategy:
 
 def all_strategies() -> list[Strategy]:
     return list(REGISTRY.values())
+
+
+def live_scores(pairs) -> dict:
+    """Für das 60s-Monitoring: zu jedem (Ticker, Strategie)-Paar den aktuellen Kurs + den
+    fortlaufenden Score DIESER Strategie. Lädt die Kursdaten je Ticker nur einmal.
+    Rückgabe: { (ticker, strategy_key): {"price": float|None, "strength": float} }."""
+    pairs = set(pairs)
+    tickers = sorted({t for t, _ in pairs})
+    if not tickers:
+        return {}
+    downloads = analyzer._download_all_timeframes(tickers)
+    tf_cache = {t: analyzer._tf_data_for(downloads, t) for t in tickers}
+    out = {}
+    for ticker, key in pairs:
+        tf = tf_cache.get(ticker)
+        if not tf:
+            continue
+        strat = get(key)
+        try:
+            s = strat.score(tf) if strat.score else None
+        except Exception:
+            s = None
+        if s is None:                                   # Fallback: Standard-Momentum
+            s = analyzer.compute_strength(analyzer._tf_scores(tf))
+        out[(ticker, key)] = {"price": analyzer.last_price(tf), "strength": s}
+    return out

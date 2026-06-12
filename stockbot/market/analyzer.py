@@ -324,6 +324,20 @@ def strength_from_tf_data(tf_data: dict) -> float:
     return compute_strength(_tf_scores(tf_data))
 
 
+def last_price(tf_data: dict) -> float | None:
+    """Aktueller Kurs = letzter Close des kürzesten verfügbaren Timeframes (oder None)."""
+    for tf in SIGNAL_TIMEFRAMES:
+        df = tf_data.get(tf["interval"])
+        if df is None:
+            continue
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.droplevel(1, axis=1)
+        df = df.dropna(subset=["Close"])
+        if len(df):
+            return float(df["Close"].values.flatten()[-1])
+    return None
+
+
 # ── Einzelne Aktie analysieren ──────────────────────────────────────────────
 
 def analyze_ticker(ticker: str, tf_data: dict | None = None) -> dict | None:
