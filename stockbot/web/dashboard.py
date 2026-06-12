@@ -14,7 +14,7 @@ import sys
 import logging
 from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
-from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL
+from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
 from stockbot.core.evaluator import get_current_price, realized_pnl
 
 if sys.platform == "win32":
@@ -31,6 +31,17 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 log = logging.getLogger(__name__)
+
+
+def _berlin_hhmm(ts: str | None) -> str:
+    """SQLite-Zeitstempel (UTC, 'YYYY-MM-DD HH:MM:SS') → 'HH:MM' in Berliner Zeit."""
+    if not ts:
+        return ""
+    try:
+        return (datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+                .astimezone(BERLIN_TZ).strftime("%H:%M"))
+    except Exception:
+        return ts[11:16]
 
 
 @asynccontextmanager
@@ -139,7 +150,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "stop_loss": t["signal"].get("stop_loss"),
             "take_profit": t["signal"].get("take_profit"),
             "points": [
-                {"t": p["ts"][11:16] if p.get("ts") else "",   # HH:MM
+                {"t": _berlin_hhmm(p.get("ts")),   # HH:MM (Berliner Zeit)
                  "price": p["price"], "strength": p["strength"]}
                 for p in pts
             ],

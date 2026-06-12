@@ -53,6 +53,40 @@ def test_get_falls_back_to_default():
     assert strategies.get("adx_trend").key == "adx_trend"
 
 
+# ── 52-Wochen-Hoch-Momentum (aus der Strategiesuche) ─────────────────────────
+
+def test_registry_has_momentum_strategies():
+    keys = {s.key for s in strategies.all_strategies()}
+    assert {"high52", "high52_wide"} <= keys
+    for k in ("high52", "high52_wide"):
+        assert strategies.get(k).score is strategies.high52_score   # Live-Score verdrahtet
+
+
+def test_high52_fires_near_high_not_in_downtrend():
+    up = _series(100 + np.arange(300) * 0.5)            # stetiger Aufwärtstrend → am 52W-Hoch
+    sig = strategies.high52_signal("X", {"1d": up})
+    assert sig is not None and sig["strategy"] == "high52"
+    assert sig["stop_loss"] < sig["price"] < sig["take_profit"]
+    down = _series(250 - np.arange(300) * 0.6)          # Abwärtstrend → weit unter Hoch
+    assert strategies.high52_signal("X", {"1d": down}) is None
+
+
+def test_high52_wide_fires_when_strict_does_not():
+    close = np.full(300, 100.0)
+    close[-30:] = 100 + np.arange(30) * 2.0             # Ramp ans Hoch
+    close[-1] = 0.96 * close.max()                      # knapp drunter: zwischen 95 % und 98 %
+    df = _series(close)
+    assert strategies.high52_signal("X", {"1d": df}) is None         # streng (≥98 %): nein
+    assert strategies.high52_wide_signal("X", {"1d": df}) is not None  # aktiv (≥95 %): ja
+
+
+def test_high52_score_high_near_high_low_when_broken():
+    up = _series(100 + np.arange(300) * 0.5)
+    down = _series(250 - np.arange(300) * 0.6)
+    assert strategies.high52_score({"1d": up}) >= 70
+    assert strategies.high52_score({"1d": down}) < 35
+
+
 # ── ADX-Strategie ────────────────────────────────────────────────────────────
 
 def _series(close, start="2022-01-01"):

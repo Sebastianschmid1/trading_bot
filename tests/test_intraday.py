@@ -87,6 +87,60 @@ def test_auto_close_holds_when_fine():
     assert bot.evaluate_active_trade(_trade(), price=101.0, strength=70.0) is None
 
 
+# ── Auto-Monitoring: Intervall + richtige Strategie je Trade ─────────────────
+
+def test_register_jobs_schedules_monitor_every_interval():
+    from unittest.mock import MagicMock
+    from stockbot import config
+    app = MagicMock()
+    bot._register_jobs(app)
+    jq = app.job_queue
+    jq.run_repeating.assert_called_once()
+    args, kwargs = jq.run_repeating.call_args
+    assert args[0] is bot.monitor_trades                       # der Trade-Monitor wird wiederholt geplant
+    assert kwargs["interval"] == config.MONITOR_INTERVAL_SEC   # … im konfigurierten Intervall
+    assert kwargs["name"] == "monitor_trades"
+    assert jq.run_daily.call_count == 3                        # Signale, Auswertung, Smart-Money
+
+
+def test_monitor_evaluates_each_trade_with_its_own_strategy():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from stockbot.market import strategies
+    fresh_db()
+    db.yf = _FakeYF(100.0)                       # Einstiegskurs = 100
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "stop_loss": 90.0, "take_profit": 130.0,
+                          "strategy": "breakout", "strength": 80}, 1)
+    db.activate_trade(CHAT, "NVDA")
+
+    captured = {}
+    def fake_live_scores(pairs):
+        captured["pairs"] = set(pairs)
+        # schwacher Strategie-Score (<35) → Auto-Close „Signal verschlechtert"
+        return {(t, k): {"price": 101.0, "strength": 10.0} for (t, k) in pairs}
+
+    orig_open, orig_ls = bot._us_market_open, strategies.live_scores
+    bot._us_market_open = lambda *a, **k: True
+    strategies.live_scores = fake_live_scores
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_trades(ctx))
+    finally:
+        bot._us_market_open, strategies.live_scores = orig_open, orig_ls
+
+    # Score wurde mit der RICHTIGEN Strategie des Trades angefordert
+    assert captured["pairs"] == {("NVDA", "breakout")}
+    # mit diesem Strategie-Score (10 < Schwelle 35) wurde der Trade geschlossen
+    assert db.get_active_trades(CHAT) == []
+    ctx.bot.send_message.assert_awaited()
+    # der aufgezeichnete Tick trägt den Strategie-Score (nicht das generische Standard-Momentum)
+    ticks = db.get_today_ticks(CHAT).get("NVDA", [])
+    assert ticks and ticks[-1]["strength"] == 10.0
+
+
 # ── SL/TP-Modus „aus": einmalige Heads-up-Warnung (kein Auto-Close) ──────────
 
 def test_sltp_off_warns_once_on_weak_signal():
@@ -227,6 +281,50 @@ def test_dashboard_trades_curves_history_and_active():
     assert aapl["points"][-1]["y"] == 10.0                  # letzter Tick = +10 % ab Einstieg
     # historische zuerst, offene danach
     assert curves[0]["ticker"] == "MSFT" and curves[-1]["ticker"] == "AAPL"
+
+
+# ── Extended Hours (prepost) + Berliner Zeitachse ────────────────────────────
+
+def test_download_all_timeframes_uses_prepost():
+    from stockbot.market import analyzer
+    calls = []
+    class _FakeYF:
+        @staticmethod
+        def download(*a, **k):
+            calls.append(k)
+            return None
+    orig = analyzer.yf
+    analyzer.yf = _FakeYF
+    try:
+        analyzer._download_all_timeframes(["AAPL"])
+    finally:
+        analyzer.yf = orig
+    # je Timeframe ein Download, jeweils mit Pre-/After-Market-Bars
+    assert calls and all(k.get("prepost") is True for k in calls)
+
+
+def test_dashboard_uses_berlin_time_for_ticks():
+    # 13:30 UTC im Juni = 15:30 Berliner Sommerzeit (CEST, +2)
+    assert dashboard._berlin_hhmm("2026-06-12 13:30:00") == "15:30"
+    assert dashboard._berlin_hhmm(None) == ""
+
+    fresh_db()
+    db.yf = _FakeYF(101.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "stop_loss": 97.0, "take_profit": 105.0}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    # Tick mit explizitem UTC-Zeitstempel schreiben
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO trade_ticks (user_id, trade_date, ticker, ts, price, strength) "
+            "VALUES (?, date('now'), 'AAPL', '2026-06-12 13:30:00', 101.0, 60.0)",
+            (CHAT,),
+        )
+    data = dashboard.build_dashboard_data(db.get_user(CHAT))
+    pts = [s for s in data["intraday"] if s["ticker"] == "AAPL"][0]["points"]
+    assert pts[-1]["t"] == "15:30"        # Berliner Zeit, nicht 13:30 UTC
 
 
 # ── Detail-Analyse: Faktor-Verlauf einer Aktie (7 Tage) ──────────────────────

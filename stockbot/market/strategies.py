@@ -231,6 +231,37 @@ def breakout_signal(ticker: str, tf_data: dict) -> dict | None:
     return _make_signal(ticker, df, "breakout", strength, sl_mult=2.0, tp_mult=4.0)
 
 
+def _high52_strength(price: float, hi252: float, tol: float) -> float:
+    """Einstiegsstärke aus der Nähe zum 52-Wochen-Hoch: bei `tol` = 70, am/über dem Hoch = 100."""
+    ratio = price / hi252 if hi252 > 0 else 0.0
+    span = max(1e-9, 1.02 - tol)
+    return round(70 + 30 * max(0.0, min(1.0, (ratio - tol) / span)), 1)
+
+
+def _high52_signal(ticker: str, tf_data: dict, key: str, tol: float) -> dict | None:
+    """52-Wochen-Hoch-Momentum: Kurs ≥ `tol`×(252-Tage-Hoch) UND > MA50 (long, weite ATR-SL/TP).
+    Aus der Strategiesuche hervorgegangen — schlägt im Backtest die bisherigen robust."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 260:
+        return None
+    c = df["Close"].astype(float).values
+    h = df["High"].astype(float).values
+    price = float(c[-1]); hi252 = float(np.max(h[-252:])); ma50 = float(np.mean(c[-50:]))
+    if not (price >= tol * hi252 and price > ma50):
+        return None
+    return _make_signal(ticker, df, key, _high52_strength(price, hi252, tol), sl_mult=2.5, tp_mult=5.0)
+
+
+def high52_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Momentum 52W-Hoch (streng): Einstieg ab ≥ 98 % des 52-Wochen-Hochs."""
+    return _high52_signal(ticker, tf_data, "high52", 0.98)
+
+
+def high52_wide_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Momentum 52W-Hoch (aktiv): Einstieg schon ab ≥ 95 % des 52-Wochen-Hochs → mehr Signale."""
+    return _high52_signal(ticker, tf_data, "high52_wide", 0.95)
+
+
 def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
     """Trend-Ausrichtung: kaufe nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD."""
     df = _clean_1d(tf_data)
@@ -317,6 +348,20 @@ def ma_trend_score(tf_data: dict) -> float | None:
     return round(frac * 70 + max(0.0, min(1.0, spread / 0.15)) * 30, 1)
 
 
+def high52_score(tf_data: dict) -> float | None:
+    """Momentum-These: gesund, solange der Kurs nahe seinem 52-Wochen-Hoch und über dem MA50 ist.
+    Fällt er weit vom Hoch (≳15 %) und unter den MA50 zurück → These gebrochen (< Schwelle)."""
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < 260:
+        return None
+    c = df["Close"].astype(float).values
+    h = df["High"].astype(float).values
+    price = float(c[-1]); hi252 = float(np.max(h[-252:])); ma50 = float(np.mean(c[-50:]))
+    near = max(0.0, min(1.0, 1 + (price / hi252 - 1.0) / 0.15)) if hi252 > 0 else 0.0   # 0 = −15 % vom Hoch
+    trend = max(0.0, min(1.0, 0.5 + (price / ma50 - 1.0) / 0.10)) if ma50 > 0 else 0.0  # MA50 = 0.5
+    return round((0.6 * near + 0.4 * trend) * 100, 1)
+
+
 def rsi_revert_score(tf_data: dict) -> float | None:
     """Mean-Reversion-These: solange der langfristige Aufwärtstrend hält (Kurs>MA200), ist der
     Trade gesund; je weiter sich der RSI vom überverkauften Bereich erholt, desto besser.
@@ -375,6 +420,17 @@ REGISTRY: dict[str, Strategy] = {
         "ma_trend", "Trend-Ausrichtung (MA20>50>200)",
         ma_trend_signal, ma_trend_score,
         "Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.",
+    ),
+    "high52": Strategy(
+        "high52", "Momentum 52W-Hoch (streng)",
+        high52_signal, high52_score,
+        "Kauft Stärke nahe dem 52-Wochen-Hoch (≥98 %) im Aufwärtstrend (>MA50). Weite ATR-SL/TP. "
+        "Im Backtest robust besser als die übrigen.",
+    ),
+    "high52_wide": Strategy(
+        "high52_wide", "Momentum 52W-Hoch (aktiv)",
+        high52_wide_signal, high52_score,
+        "Wie streng, aber schon ab ≥95 % des 52-Wochen-Hochs → mehr Signale, höhere Gesamtrendite.",
     ),
 }
 

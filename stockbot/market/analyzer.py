@@ -530,6 +530,7 @@ def _download_all_timeframes(tickers: list[str]) -> dict:
             downloads[tf["interval"]] = yf.download(
                 tickers, period=tf["period"], interval=tf["interval"],
                 progress=False, auto_adjust=True, group_by="ticker",
+                prepost=True,   # Pre-/After-Market-Bars einbeziehen (Extended-Hours-Handel)
             )
         except Exception as e:
             log.warning(f"Download {tf['interval']} fehlgeschlagen: {e}")

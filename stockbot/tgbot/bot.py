@@ -1550,6 +1550,29 @@ def _start_dashboard_thread():
     log.info(f"📊 Dashboard aktiv — Link: {DASHBOARD_BASE_URL}")
 
 
+def _register_jobs(app):
+    """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
+    den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
+    job_queue = app.job_queue
+    job_queue.run_daily(
+        send_daily_signals,
+        time=datetime.now(BERLIN_TZ).replace(
+            hour=SIGNAL_TIME_HOUR, minute=SIGNAL_TIME_MIN, second=0, microsecond=0).timetz(),
+        name="daily_signals")
+    job_queue.run_daily(
+        close_and_evaluate,
+        time=datetime.now(BERLIN_TZ).replace(
+            hour=CLOSE_TIME_HOUR, minute=CLOSE_TIME_MIN, second=0, microsecond=0).timetz(),
+        name="daily_close")
+    job_queue.run_daily(
+        scan_smart_money,
+        time=datetime.now(BERLIN_TZ).replace(
+            hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0).timetz(),
+        name="smartmoney_scan")
+    # Aktive Trades laufend überwachen (Auto-Close bei SL/TP oder Signal-Verfall)
+    job_queue.run_repeating(monitor_trades, interval=MONITOR_INTERVAL_SEC, first=30, name="monitor_trades")
+
+
 def main():
     db.init_db()
 
@@ -1584,35 +1607,8 @@ def main():
     # Globaler Error-Handler (saubere Logs statt Tracebacks)
     app.add_error_handler(error_handler)
 
-    # Jobs planen (täglich zur fixen Uhrzeit, Berliner Zeit)
-    job_queue = app.job_queue
-
-    job_queue.run_daily(
-        send_daily_signals,
-        time=datetime.now(BERLIN_TZ).replace(
-            hour=SIGNAL_TIME_HOUR, minute=SIGNAL_TIME_MIN, second=0, microsecond=0
-        ).timetz(),
-        name="daily_signals"
-    )
-
-    job_queue.run_daily(
-        close_and_evaluate,
-        time=datetime.now(BERLIN_TZ).replace(
-            hour=CLOSE_TIME_HOUR, minute=CLOSE_TIME_MIN, second=0, microsecond=0
-        ).timetz(),
-        name="daily_close"
-    )
-
-    job_queue.run_daily(
-        scan_smart_money,
-        time=datetime.now(BERLIN_TZ).replace(
-            hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0
-        ).timetz(),
-        name="smartmoney_scan"
-    )
-
-    # Aktive Trades laufend überwachen (Auto-Close bei SL/TP oder Signal-Verfall)
-    job_queue.run_repeating(monitor_trades, interval=MONITOR_INTERVAL_SEC, first=30, name="monitor_trades")
+    # Jobs planen (täglich zur fixen Uhrzeit + laufender Trade-Monitor)
+    _register_jobs(app)
 
     log.info("🤖 Bot gestartet. Warte auf Jobs...")
     log.info(f"  → Signale: {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr")
