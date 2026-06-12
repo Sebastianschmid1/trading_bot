@@ -58,7 +58,8 @@
       "Bash(python -m pip install -q pytest)",
       "Bash(python -m pytest -q)",
       "Bash(python -c \"import tests.test_bot; print\\('tests.test_bot imports OK \\(Legacy-Demo\\)'\\)\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(python -c \"import stockbot.tgbot.bot, stockbot.broker.client; print\\('imports OK'\\)\")"
     ]
   }
 }

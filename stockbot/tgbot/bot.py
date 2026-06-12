@@ -231,9 +231,23 @@ def _personalize_signal(signal: dict, sl_tp_mode: str, leverage: float) -> dict:
     return sig
 
 
+async def _await_fill(order_id: str, client, tries: int = 6, delay: float = 2.0) -> dict:
+    """Pollt den Order-Status bis 'filled'/Endzustand oder Timeout. Gibt das letzte Status-Dict.
+    Market-Orders füllen i. d. R. sofort; Limit-/Ext-Orders evtl. erst später (DAY)."""
+    final = {"filled", "canceled", "rejected", "expired", "done_for_day"}
+    st = {}
+    for _ in range(tries):
+        st = await asyncio.to_thread(broker.get_order_status, order_id, client)
+        if st.get("status") in final or not st.get("ok"):
+            return st
+        await asyncio.sleep(delay)
+    return st
+
+
 async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     """Sendet (falls für den Nutzer aktiviert) eine echte ALPACA-(Paper-)Order zum gerade
-    aktivierten Trade. Best-effort: scheitert nie hart, meldet das Ergebnis."""
+    aktivierten Trade und bestätigt erst nach der tatsächlichen Ausführung (Fill).
+    Größe = Trade-Größe × Hebel (Demo: € ≈ USD). Best-effort: scheitert nie hart."""
     if not trade:
         return
     user = db.get_user(chat_id)
@@ -246,19 +260,76 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     entry = trade.get("entry") or sig.get("price")
     if not entry:
         return
-    qty = max(1, int((user["trade_size_eur"]) / float(entry)))   # Demo-Größe ≈ USD (Paper)
+
+    ticker = trade["ticker"]
+    leverage = float(sig.get("leverage", 1.0) or 1.0)
+    budget = float(user["trade_size_eur"]) * leverage     # Ziel-Positionsgröße in USD (Hebel berücksichtigt)
     extended = EXTENDED_HOURS and not _us_market_open(extended=False)
-    res = await asyncio.to_thread(
-        broker.submit_order, trade["ticker"], qty, float(entry),
-        sig.get("stop_loss"), sig.get("take_profit"), extended_hours=extended, client=client)
     mode = "PAPER" if ALPACA_PAPER else "LIVE"
-    if res["ok"]:
+
+    if extended:
+        # Extended Hours: Alpaca erlaubt keine Bruchteile → ganze Aktien als Limit-DAY
+        qty = int(budget / float(entry))
+        if qty < 1:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(f"ℹ️ Alpaca-{mode}: Budget {user['trade_size_eur']:.0f}€×{leverage:g} reicht in den "
+                      f"erweiterten Handelszeiten nicht für 1 ganze {ticker}-Aktie (${float(entry):.2f}) — "
+                      f"hier sind keine Bruchteile möglich. Keine Order gesendet."))
+            return
+        res = await asyncio.to_thread(
+            broker.submit_buy, ticker, qty=qty, limit_price=float(entry),
+            extended_hours=True, client=client)
+    else:
+        # Reguläre Zeit: Notional-Order = exakt fürs Budget (Bruchteile möglich)
+        res = await asyncio.to_thread(broker.submit_buy, ticker, notional=round(budget, 2), client=client)
+
+    if not res["ok"]:
+        await bot.send_message(chat_id=chat_id, text=f"⚠️ Alpaca-Order nicht angenommen: {res['detail']}")
+        return
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"📨 Alpaca-{mode}-Order angenommen: {res['detail']}. Warte auf Ausführung…")
+
+    fill = await _await_fill(res.get("id", ""), client)
+    status = fill.get("status", "unbekannt")
+    if status == "filled":
+        q = fill.get("filled_qty", 0.0)
+        px = fill.get("filled_avg_price", 0.0)
         await bot.send_message(
             chat_id=chat_id,
-            text=f"📈 Alpaca-{mode}-Order gesendet: {res['detail']}"
-                 + ("  ·  SL/TP überwacht der Bot (Extended Hours)" if extended else ""))
+            text=(f"✅ Alpaca-{mode}-Order ausgeführt: {q:g} {ticker} @ ${px:.2f} (≈ ${q * px:.2f})\n"
+                  f"SL/TP überwacht der Bot und schließt die Position automatisch."))
+    elif status in ("rejected", "canceled", "expired"):
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"⚠️ Alpaca-Order nicht ausgeführt (Status: {status}). Es wurde nichts gekauft.")
     else:
-        await bot.send_message(chat_id=chat_id, text=f"⚠️ Alpaca-Order nicht gesendet: {res['detail']}")
+        # angenommen, aber (noch) nicht gefüllt — z. B. Markt zu / Limit nicht erreicht
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(f"⏳ Alpaca-Order angenommen, aber noch nicht ausgeführt (Status: {status}).\n"
+                  f"Es ist eine DAY-Order — sie füllt sich automatisch, sobald der Markt/Kurs passt, "
+                  f"sonst verfällt sie zum Handelsschluss. Du musst nichts tun."))
+
+
+async def _maybe_broker_close(bot: Bot, user: dict, ticker: str):
+    """Schließt (falls Broker-Ausführung an) die echte Alpaca-Position zum Ticker. Best-effort.
+    Meldet nur, wenn tatsächlich eine Position geschlossen wurde (oder ein echter Fehler auftrat)."""
+    if not user or not user.get("broker_exec") or not _alpaca_ready(user):
+        return
+    client = _alpaca_client(user)
+    if client is None:
+        return
+    res = await asyncio.to_thread(broker.close_position, ticker, client=client)
+    mode = "PAPER" if ALPACA_PAPER else "LIVE"
+    if res.get("closed"):
+        await bot.send_message(chat_id=user["user_id"],
+                               text=f"📉 Alpaca-{mode}: Position {ticker} geschlossen.")
+    elif not res.get("ok"):
+        await bot.send_message(chat_id=user["user_id"],
+                               text=f"⚠️ Alpaca: {ticker} konnte nicht geschlossen werden: {res['detail']}")
 
 
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
@@ -448,6 +519,9 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
 
         results = evaluate_trades(to_close, u["trade_size_eur"])
         db.close_all(chat_id, results)
+        # echte Alpaca-Positionen (falls vorhanden) mitschließen
+        for r in results:
+            await _maybe_broker_close(bot, u, r["ticker"])
 
         # Zusammenfassung
         total_pnl = sum(r["pnl_eur"] for r in results)
@@ -559,6 +633,8 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                       f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
                 parse_mode="Markdown",
             )
+            # echte Alpaca-Position (falls vorhanden) mitschließen
+            await _maybe_broker_close(context.bot, user, trade["ticker"])
             # nach Auto-Close auch nachrücken (sofern manueller Modus)
             await refill_pending(context.bot, uid, user, context.job_queue)
             log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}€")
@@ -1309,6 +1385,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
             parse_mode="Markdown"
         )
+        # echte Alpaca-Position (falls vorhanden) mitschließen
+        await _maybe_broker_close(context.bot, user, ticker)
         log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
 
     elif action == "set_region":

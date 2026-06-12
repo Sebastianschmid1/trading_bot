@@ -4,11 +4,15 @@ Alpaca-Anbindung (Trading API, eigenes Konto) — Fundament.
 Standard = PAPER (kein echtes Geld). Bricht den Bot nie: ohne Keys / ohne installiertes
 `alpaca-py` / bei Fehlern geben die Funktionen sauber {ok: False, ...} zurück.
 
-Order-Logik:
-- Reguläre Handelszeit → **Bracket-Market-Order** (Einstieg + SL + TP in einem).
-- Erweiterte Handelszeit (Pre-/After-Market) → Alpaca erlaubt **keine** Bracket/Market-Orders,
-  nur **Limit + TimeInForce.DAY + extended_hours=True**. SL/TP werden dann NICHT mitgeschickt
-  (der Bot überwacht sie selbst per Monitor).
+Order-Logik (Kauf = `submit_buy`):
+- Reguläre Handelszeit → **Market-Notional-Order** (Dollar-Betrag = Budget×Hebel) → Alpaca
+  kauft auch **Bruchteile** exakt fürs Budget. TimeInForce.DAY, kein Bracket.
+- Erweiterte Handelszeit (Pre-/After-Market) → Alpaca erlaubt dort **keine** Bruchteile/Notional,
+  nur **ganze Aktien als Limit + TimeInForce.DAY + extended_hours=True**.
+
+SL/TP werden NIE an den Broker geschickt — der Bot überwacht sie selbst (Monitor) und schließt
+die echte Position über `close_position`. Mit `get_order_status` wird die *tatsächliche*
+Ausführung (Fill) bestätigt.
 
 Die Keys liegen NUR in .env (gitignored) — niemals committen/loggen.
 """
@@ -81,41 +85,63 @@ def market_open(client=None) -> bool | None:
         return None
 
 
-def submit_order(symbol: str, qty: int, entry_price: float, stop_loss: float | None,
-                 take_profit: float | None, *, extended_hours: bool = False, client=None) -> dict:
-    """Sendet eine (Paper-)Kauforder. Bracket in regulärer Zeit, Limit-DAY in Extended Hours.
-    Robust: gibt {ok, id|detail} zurück, wirft nie."""
+def submit_buy(symbol: str, *, notional: float | None = None, qty: float | None = None,
+               limit_price: float | None = None, extended_hours: bool = False, client=None) -> dict:
+    """Sendet eine (Paper-)Kauforder (long). SL/TP managt der Bot, daher kein Bracket.
+
+    - `notional` (USD): Market-DAY-Order über genau diesen Betrag → Bruchteile möglich
+      (nur zur regulären Börsenzeit).
+    - `qty` + `limit_price` + `extended_hours=True`: ganze Aktien als Limit-DAY (Pre-/After-Market).
+    Robust: gibt {ok, id, detail} zurück, wirft nie."""
     client = _get_client(client)
     if client is None:
         return {"ok": False, "detail": "Alpaca nicht aktiv."}
-    qty = max(1, int(qty))
     try:
-        from alpaca.trading.requests import (
-            MarketOrderRequest, LimitOrderRequest, TakeProfitRequest, StopLossRequest)
-        from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+        from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
 
         if extended_hours:
-            # Extended Hours: nur Limit + DAY, keine Bracket-Klammer → SL/TP managt der Bot
+            if not (qty and limit_price):
+                return {"ok": False, "detail": "Extended Hours benötigt qty + limit_price."}
             req = LimitOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY,
-                time_in_force=TimeInForce.DAY, limit_price=round(float(entry_price), 2),
-                extended_hours=True,
-            )
+                symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
+                limit_price=round(float(limit_price), 2), extended_hours=True)
+            human = f"{symbol} ×{qty:g} Limit/Ext"
         else:
-            kwargs = dict(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.GTC)
-            if stop_loss and take_profit:
-                kwargs.update(order_class=OrderClass.BRACKET,
-                              take_profit=TakeProfitRequest(limit_price=round(float(take_profit), 2)),
-                              stop_loss=StopLossRequest(stop_price=round(float(stop_loss), 2)))
+            kwargs = dict(symbol=symbol, side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+            if notional is not None:
+                kwargs["notional"] = round(float(notional), 2)
+                human = f"{symbol} ${kwargs['notional']:.2f} (Bruchteile)"
+            elif qty is not None:
+                kwargs["qty"] = qty
+                human = f"{symbol} ×{qty:g}"
+            else:
+                return {"ok": False, "detail": "Weder notional noch qty angegeben."}
             req = MarketOrderRequest(**kwargs)
 
         order = client.submit_order(req)
-        log.info(f"Alpaca-Order {symbol} qty={qty} ext={extended_hours} → id={getattr(order, 'id', '?')}")
-        return {"ok": True, "id": str(getattr(order, "id", "")),
-                "detail": f"{symbol} ×{qty} ({'Limit/Ext' if extended_hours else 'Bracket'})"}
+        log.info(f"Alpaca-Order {symbol} ({human}) ext={extended_hours} → id={getattr(order, 'id', '?')}")
+        return {"ok": True, "id": str(getattr(order, "id", "")), "detail": human}
     except Exception as e:
         log.warning(f"Alpaca-Order {symbol} fehlgeschlagen: {e}")
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def get_order_status(order_id: str, client=None) -> dict:
+    """Aktueller Status einer Order — für die Fill-Bestätigung.
+    status ist klein geschrieben, z. B. 'filled', 'accepted', 'pending_new', 'rejected'."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "status": "unknown", "detail": "Alpaca nicht aktiv."}
+    try:
+        o = client.get_order_by_id(order_id)
+        raw = getattr(o, "status", "")
+        status = str(getattr(raw, "value", None) or str(raw)).split(".")[-1].lower()
+        return {"ok": True, "status": status,
+                "filled_qty": float(getattr(o, "filled_qty", 0) or 0),
+                "filled_avg_price": float(getattr(o, "filled_avg_price", 0) or 0)}
+    except Exception as e:
+        return {"ok": False, "status": "unknown", "detail": f"{type(e).__name__}: {e}"}
 
 
 def list_positions(client=None) -> list[dict]:
@@ -132,11 +158,17 @@ def list_positions(client=None) -> list[dict]:
 
 
 def close_position(symbol: str, client=None) -> dict:
+    """Schließt die offene Position zum Ticker (Market). `closed=False` (aber ok=True),
+    wenn gar keine Position offen ist — dann ist nichts zu tun."""
     client = _get_client(client)
     if client is None:
-        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+        return {"ok": False, "closed": False, "detail": "Alpaca nicht aktiv."}
     try:
-        client.close_position(symbol)
-        return {"ok": True, "detail": f"{symbol} geschlossen"}
+        order = client.close_position(symbol)
+        return {"ok": True, "closed": True, "id": str(getattr(order, "id", "")),
+                "detail": f"{symbol} geschlossen"}
     except Exception as e:
-        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+        msg = str(e).lower()
+        if "position does not exist" in msg or "not found" in msg or "404" in msg:
+            return {"ok": True, "closed": False, "detail": f"keine offene {symbol}-Position"}
+        return {"ok": False, "closed": False, "detail": f"{type(e).__name__}: {e}"}
