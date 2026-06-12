@@ -315,12 +315,13 @@ def test_dashboard_uses_berlin_time_for_ticks():
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
                           "stop_loss": 97.0, "take_profit": 105.0}, 1)
     db.activate_trade(CHAT, "AAPL")
-    # Tick mit explizitem UTC-Zeitstempel schreiben
+    # Tick mit explizitem UTC-Zeitstempel schreiben (trade_date wie der Code = _today(),
+    # damit es auch um Mitternacht/UTC-Versatz deterministisch ist)
     with db._connect() as conn:
         conn.execute(
             "INSERT INTO trade_ticks (user_id, trade_date, ticker, ts, price, strength) "
-            "VALUES (?, date('now'), 'AAPL', '2026-06-12 13:30:00', 101.0, 60.0)",
-            (CHAT,),
+            "VALUES (?, ?, 'AAPL', '2026-06-12 13:30:00', 101.0, 60.0)",
+            (CHAT, db._today()),
         )
     data = dashboard.build_dashboard_data(db.get_user(CHAT))
     pts = [s for s in data["intraday"] if s["ticker"] == "AAPL"][0]["points"]

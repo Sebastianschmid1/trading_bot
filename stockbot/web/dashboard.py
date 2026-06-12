@@ -122,19 +122,20 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         return get_current_price(t["ticker"], t["entry"])
 
     # Offene/aktive Trades (inkl. aktuellem Kurs + unrealisiertem P&L)
+    size = user["trade_size_eur"] or 1.0
     active_view = []
     for t in active:
         cur = _current_price(t)
         leverage = (t["signal"].get("leverage") or 1.0)
-        pnl_pct, pnl_eur = realized_pnl(t["entry"], cur, t["direction"],
-                                        user["trade_size_eur"], leverage)
+        pnl_pct, pnl_eur = realized_pnl(t["entry"], cur, t["direction"], size, leverage)
         active_view.append({
             "ticker":      t["ticker"],
             "direction":   t["direction"],
             "entry":       t["entry"],
             "current":     cur,
             "leverage":    leverage,
-            "pnl_pct":     round(pnl_pct, 2),
+            "pnl_pct":     round(pnl_pct, 2),                 # reine Kursbewegung
+            "roi_pct":     round(pnl_eur / size * 100, 2),    # Rendite auf die Margin (inkl. Hebel) = passt zum €
             "pnl_eur":     round(pnl_eur, 2),
             "stop_loss":   t["signal"].get("stop_loss"),
             "take_profit": t["signal"].get("take_profit"),

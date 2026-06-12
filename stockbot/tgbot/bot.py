@@ -954,56 +954,52 @@ def _settings_view(user: dict):
     auto_uni = _auto_uni(user)
     strat_keys = _user_strategies(user)
     llm_on = _llm_enabled(user)
-    llm_state = ("an" if llm_on else "aus") if LLM_RANK_ENABLED else "aus (kein API-Key)"
     eod = user.get("eod_close", DEFAULT_EOD_CLOSE)
     broker_on = user.get("broker_exec")
     broker_ready = _alpaca_ready(user)
     broker_mode = "PAPER" if ALPACA_PAPER else "LIVE"
 
     text = (
-        "⚙️ *Einstellungen*\n"
-        f"💶 Demo-Trade-Größe: *{size:.0f}€*\n"
-        f"🌍 Markt-Körbe: *{' + '.join(REGION_LABELS.get(k, k) for k in region_keys)}*\n"
-        f"🔢 Signale pro Tag: *{top_n}* (pro Strategie)\n"
-        f"🎯 SL/TP-Modus: *{mode}*\n"
-        f"⚡ Hebel: *{lev:g}×*\n"
-        f"🤖 Auto-Accept: *{'an' if auto else 'aus'}*\n"
-        f"🌐 Voll-Universum: *{'an' if auto_uni else 'aus'}*\n"
-        f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in strat_keys)}*\n"
-        f"🤖 KI-Ranking (Haiku): *{llm_state}*\n"
-        f"🌙 Tagesende-Schließung: *{'an' if eod else f'aus (halten bis SL/TP, max {HOLD_MAX_DAYS}T)'}*\n"
-        + (f"📈 Broker-Ausführung ({broker_mode}): *{'an' if broker_on else 'aus'}*\n" if broker_ready else "")
-        + "\nTippe unten, um zu ändern (Körbe & Strategien: mehrere möglich):"
+        "⚙️ *Einstellungen* — zum Ändern unten antippen\n"
+        f"💶 Trade-Größe *{size:.0f}€*  ·  ⚡ Hebel *{lev:g}×*\n"
+        f"🌍 Körbe *{' + '.join(REGION_LABELS.get(k, k) for k in region_keys)}*\n"
+        f"🔢 Signale/Tag *{top_n}*  ·  🎯 SL/TP *{mode}*\n"
+        f"🧠 Strategien *{', '.join(strategies.get(k).label for k in strat_keys)}*\n"
+        "\n_Schalter: ✅ an/aktiv · ▫️ aus_"
     )
+
+    # Umschalt-Button: zeigt den aktuellen Zustand, ein Tipp kippt ihn (kompakter als an/aus-Paare)
+    def _toggle(label, on, action):
+        return InlineKeyboardButton(("✅ " if on else "▫️ ") + label,
+                                    callback_data=f"{action}:{0 if on else 1}")
 
     size_row = [InlineKeyboardButton(("✅ " if float(v) == float(size) else "") + f"{v:g}€",
                                      callback_data=f"set_size:{v}")
                 for v in TRADE_SIZE_CHOICES]
+    lev_row = [InlineKeyboardButton(("✅ " if float(v) == lev else "") + f"{v:g}×", callback_data=f"set_lev:{v}")
+               for v in LEVERAGE_CHOICES]
     region_row = [InlineKeyboardButton(("✅ " if k in region_keys else "") + lbl, callback_data=f"set_region:{k}")
                   for k, lbl in REGION_LABELS.items()]
     count_row = [InlineKeyboardButton(("✅ " if n == top_n else "") + str(n), callback_data=f"set_count:{n}")
                  for n in SIGNAL_COUNT_CHOICES]
     mode_row = [InlineKeyboardButton(("✅ " if k == mode else "") + k, callback_data=f"set_mode:{k}")
                 for k in SL_TP_MODES]
-    lev_row = [InlineKeyboardButton(("✅ " if float(v) == lev else "") + f"{v:g}×", callback_data=f"set_lev:{v}")
-               for v in LEVERAGE_CHOICES]
-    auto_row = [InlineKeyboardButton(("✅ " if auto else "") + "Auto-Accept an", callback_data="set_auto:1"),
-                InlineKeyboardButton(("✅ " if not auto else "") + "aus", callback_data="set_auto:0")]
-    uni_row = [InlineKeyboardButton(("✅ " if auto_uni else "") + "Voll-Universum an", callback_data="set_uni:1"),
-               InlineKeyboardButton(("✅ " if not auto_uni else "") + "aus", callback_data="set_uni:0")]
-    strat_row = [InlineKeyboardButton(("✅ " if s.key in strat_keys else "") + s.label,
-                                      callback_data=f"set_strat:{s.key}")
-                 for s in strategies.all_strategies()]
-    llm_row = [InlineKeyboardButton(("✅ " if llm_on else "") + "KI-Ranking an", callback_data="set_llm:1"),
-               InlineKeyboardButton(("✅ " if not llm_on else "") + "aus", callback_data="set_llm:0")]
-    eod_row = [InlineKeyboardButton(("✅ " if eod else "") + "Tagesende-Schließung an", callback_data="set_eod:1"),
-               InlineKeyboardButton(("✅ " if not eod else "") + "aus (halten)", callback_data="set_eod:0")]
-    rows = [size_row, region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row, eod_row]
+    # Strategien: 2 pro Reihe (statt alle in einer überfüllten Zeile)
+    strat_btns = [InlineKeyboardButton(("✅ " if s.key in strat_keys else "") + s.label,
+                                       callback_data=f"set_strat:{s.key}")
+                  for s in strategies.all_strategies()]
+    strat_rows = [strat_btns[i:i + 2] for i in range(0, len(strat_btns), 2)]
+    # Boolesche Schalter gesammelt, je 2 pro Reihe
+    toggles = [_toggle("Auto-Accept", auto, "set_auto"),
+               _toggle("Voll-Universum", auto_uni, "set_uni"),
+               _toggle("Tagesende-Schließung", eod, "set_eod")]
+    if LLM_RANK_ENABLED:
+        toggles.append(_toggle("KI-Ranking", llm_on, "set_llm"))
     if broker_ready:
-        rows.append([
-            InlineKeyboardButton(("✅ " if broker_on else "") + f"Broker-Order ({broker_mode}) an",
-                                 callback_data="set_broker:1"),
-            InlineKeyboardButton(("✅ " if not broker_on else "") + "aus", callback_data="set_broker:0")])
+        toggles.append(_toggle(f"Broker-Order ({broker_mode})", broker_on, "set_broker"))
+    toggle_rows = [toggles[i:i + 2] for i in range(0, len(toggles), 2)]
+
+    rows = [size_row, lev_row, region_row, count_row, mode_row] + strat_rows + toggle_rows
     keyboard = InlineKeyboardMarkup(rows)
     return text, keyboard
 

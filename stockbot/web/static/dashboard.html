@@ -329,7 +329,7 @@
                 <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
                 <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
                 <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
-                <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "%)" : "—"}</td>
+                <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
                 <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
                 <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
               </tr>`).join("")}
