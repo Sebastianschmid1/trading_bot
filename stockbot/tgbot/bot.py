@@ -555,6 +555,11 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
 
 # ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────
 
+def _fmt_strength(v) -> str:
+    """Signalstärke (0–100) für Meldungen formatieren; '—' wenn unbekannt."""
+    return f"{v:.0f}" if v is not None else "—"
+
+
 def evaluate_active_trade(trade: dict, price: float | None, strength: float | None) -> str | None:
     """Entscheidet, ob ein aktiver Trade geschlossen werden soll.
     Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
@@ -629,7 +634,9 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=uid,
                 text=(f"{emoji} *{trade['ticker']} automatisch geschlossen* — {reason}\n"
-                      f"Verkauf zu ${exit_price:.2f} (Hebel {leverage:g}×) · "
+                      f"Einstieg ${entry:.2f} → Ausstieg ${exit_price:.2f} (Hebel {leverage:g}×)\n"
+                      f"Einstieg-Signal: {_fmt_strength(trade.get('signal', {}).get('strength'))} → "
+                      f"Ausstieg-Signal: {_fmt_strength(strength)}  ·  "
                       f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
                 parse_mode="Markdown",
             )
@@ -1372,10 +1379,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         sign = "+" if pnl_eur >= 0 else ""
         emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
+        # Ausstiegs-Signalstärke = letzter aufgezeichneter 60s-Tick (sonst unbekannt)
+        _pts = db.get_today_ticks(chat_id).get(ticker, [])
+        exit_strength = _pts[-1].get("strength") if _pts else None
         await query.edit_message_reply_markup(reply_markup=None)
         await query.edit_message_text(
             query.message.text +
-            f"\n\n{emoji} *Verkauft zu ${current:.2f}* (Hebel {leverage:g}×)\n"
+            f"\n\n{emoji} *Verkauft* — Einstieg ${entry:.2f} → Ausstieg ${current:.2f} (Hebel {leverage:g}×)\n"
+            f"Einstieg-Signal: {_fmt_strength(trade.get('signal', {}).get('strength'))} → "
+            f"Ausstieg-Signal: {_fmt_strength(exit_strength)}  ·  "
             f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
             parse_mode="Markdown"
         )
