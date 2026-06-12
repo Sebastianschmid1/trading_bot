@@ -87,6 +87,36 @@ def test_auto_close_holds_when_fine():
     assert bot.evaluate_active_trade(_trade(), price=101.0, strength=70.0) is None
 
 
+# ── SL/TP-Modus „aus": einmalige Heads-up-Warnung (kein Auto-Close) ──────────
+
+def test_sltp_off_warns_once_on_weak_signal():
+    import asyncio
+    from unittest.mock import AsyncMock
+    bot._weak_warned.clear()
+    fake_bot = AsyncMock()
+    trade = {"ticker": "VLO", "direction": "long", "entry": 100.0,
+             "signal": {"sl_tp_mode": "aus", "strength": 72.0, "leverage": 1.0}}
+    asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, trade, 98.0, 10.0))   # schwach → Warnung
+    asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, trade, 97.0, 8.0))    # gleiche Aktie/Tag → keine zweite
+    assert fake_bot.send_message.await_count == 1
+
+
+def test_sltp_off_no_warning_when_mode_on_or_strong():
+    import asyncio
+    from unittest.mock import AsyncMock
+    bot._weak_warned.clear()
+    fake_bot = AsyncMock()
+    # Modus nicht „aus" → keine Warnung (wird ohnehin automatisch geschlossen)
+    t1 = {"ticker": "AAA", "direction": "long", "entry": 100.0,
+          "signal": {"sl_tp_mode": "normal", "strength": 72.0}}
+    asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, t1, 98.0, 5.0))
+    # „aus", aber Signal weiterhin stark → keine Warnung
+    t2 = {"ticker": "BBB", "direction": "long", "entry": 100.0,
+          "signal": {"sl_tp_mode": "aus", "strength": 72.0}}
+    asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, t2, 101.0, 99.0))
+    assert fake_bot.send_message.await_count == 0
+
+
 # ── Tick-Verlauf in der DB ───────────────────────────────────────────────────
 
 def test_add_and_get_today_ticks():

@@ -560,6 +560,36 @@ def _fmt_strength(v) -> str:
     return f"{v:.0f}" if v is not None else "—"
 
 
+# Einmalige „SL/TP aus"-Warnung pro Trade & Tag: (uid, ticker, datum)
+_weak_warned: set = set()
+
+
+async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, strength):
+    """Bei SL/TP-Modus 'aus': der Trade wird NICHT automatisch geschlossen. Damit man nicht
+    blind fährt, gibt es eine *einmalige* Heads-up-Meldung (mit Verkaufen-Button), sobald die
+    Signalstärke unter die Schwelle fällt."""
+    sig = trade.get("signal", {})
+    if sig.get("sl_tp_mode") != "aus":
+        return
+    if strength is None or strength >= SIGNAL_CLOSE_THRESHOLD:
+        return
+    key = (uid, trade["ticker"], date.today().isoformat())
+    if key in _weak_warned:
+        return
+    _weak_warned.add(key)
+    entry = trade.get("entry") or price
+    await bot.send_message(
+        chat_id=uid,
+        text=(f"⚠️ *{trade['ticker']}* — Signal verschlechtert "
+              f"(Einstieg-Signal: {_fmt_strength(sig.get('strength'))} → jetzt: {_fmt_strength(strength)}).\n"
+              f"Dein SL/TP-Modus ist *aus* → der Trade wird *nicht* automatisch geschlossen.\n"
+              f"Einstieg ${entry:.2f} → aktuell ${price:.2f}. Bei Bedarf manuell schließen:"),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("💰 Verkaufen", callback_data=f"sell:{trade['ticker']}")]]),
+    )
+
+
 def evaluate_active_trade(trade: dict, price: float | None, strength: float | None) -> str | None:
     """Entscheidet, ob ein aktiver Trade geschlossen werden soll.
     Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
@@ -613,7 +643,11 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
             db.add_tick(uid, trade["ticker"], price, strength)   # Verlauf für die Charts
 
             reason = evaluate_active_trade(trade, price, strength)
-            if not reason or price is None:
+            if price is None:
+                continue
+            if not reason:
+                # SL/TP-Modus „aus": kein Auto-Close — aber einmalig warnen, wenn das Signal kippt
+                await _maybe_warn_sltp_off(context.bot, uid, trade, price, strength)
                 continue
 
             entry = trade.get("entry") or price
