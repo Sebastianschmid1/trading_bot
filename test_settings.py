@@ -103,13 +103,17 @@ def test_settings_view_marks_current_region_and_count():
     assert any(t == "✅ 5" for t in flat)
 
 
-def test_set_region_button_updates_db():
+def test_set_region_button_toggles_multiselect():
     fresh_db()
-    db.get_or_create_user(CHAT)
+    db.get_or_create_user(CHAT)                  # Default: nur sp500
     update, query = _fake_settings_query("set_region:msci_world")
     asyncio.run(bot.button_handler(update, MagicMock()))
-    assert db.get_user(CHAT)["market_region"] == "msci_world"
+    assert set(db.get_user(CHAT)["market_regions"]) == {"sp500", "msci_world"}   # beide aktiv
     query.edit_message_text.assert_awaited()    # Menü wurde neu gezeichnet
+    # erneut tippen → wieder entfernt
+    update, query = _fake_settings_query("set_region:msci_world")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["market_regions"] == ["sp500"]
 
 
 def test_set_count_button_updates_db():
@@ -264,6 +268,67 @@ def test_set_broker_button_ignored_when_disabled():
         assert db.get_user(CHAT)["broker_exec"] is False   # unverändert
     finally:
         bot.ALPACA_ENABLED = orig
+
+
+def test_toggle_region_keeps_at_least_one():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    assert db.get_user(CHAT)["market_regions"] == ["sp500"]
+    db.toggle_region(CHAT, "emerging")
+    assert set(db.get_user(CHAT)["market_regions"]) == {"sp500", "emerging"}
+    db.toggle_region(CHAT, "sp500")
+    assert db.get_user(CHAT)["market_regions"] == ["emerging"]
+    db.toggle_region(CHAT, "emerging")          # letzter Korb bleibt erhalten
+    assert db.get_user(CHAT)["market_regions"] == ["emerging"]
+
+
+def test_user_regions_filters_unknown_keys():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    db.set_market_region(CHAT, "sp500,quatsch,emerging")   # ungültiger Korb dazwischen
+    assert bot._user_regions(db.get_user(CHAT)) == ["sp500", "emerging"]
+
+
+def test_set_trade_size_persists_and_clamps():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    assert db.set_trade_size(CHAT, 250) == 250.0
+    assert db.get_user(CHAT)["trade_size_eur"] == 250.0
+    assert db.set_trade_size(CHAT, 0) == 1.0                # Untergrenze
+    assert db.set_trade_size(CHAT, 9_999_999) == 1_000_000.0  # Obergrenze
+
+
+def test_set_size_button_updates_db():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    update, query = _fake_settings_query("set_size:100")
+    asyncio.run(bot.button_handler(update, MagicMock()))
+    assert db.get_user(CHAT)["trade_size_eur"] == 100.0
+    query.edit_message_text.assert_awaited()
+
+
+def test_tradesize_command_sets_and_validates():
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    update, ctx = _fake_cmd(["250"])
+    asyncio.run(bot.cmd_tradesize(update, ctx))
+    assert db.get_user(CHAT)["trade_size_eur"] == 250.0
+    update, ctx = _fake_cmd(["quatsch"])                   # ungültig → unverändert
+    asyncio.run(bot.cmd_tradesize(update, ctx))
+    assert db.get_user(CHAT)["trade_size_eur"] == 250.0
+
+
+def test_settings_view_shows_size_and_multiple_regions():
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    db.toggle_region(CHAT, "msci_world")
+    db.set_trade_size(CHAT, 100)
+    text, keyboard = bot._settings_view(db.get_user(CHAT))
+    flat = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert any(t == "✅ 100€" for t in flat)                # gewählte Größe markiert
+    # zwei Körbe markiert
+    assert sum(1 for t in flat if "✅" in t and ("S&P 500" in t or "MSCI" in t)) == 2
 
 
 def test_alpaca_credentials_roundtrip_and_clear():

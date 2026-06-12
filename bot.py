@@ -44,7 +44,7 @@ from config import (
     CLOSE_TIME_HOUR, CLOSE_TIME_MIN,
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
     UNIVERSES, REGION_LABELS, DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE,
-    SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS,
+    SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS, TRADE_SIZE_EUR, TRADE_SIZE_CHOICES,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
@@ -79,6 +79,26 @@ def _user_strategies(user: dict) -> list[str]:
     """Aktive Signal-Strategien des Nutzers (Liste von Schlüsseln aus strategies.REGISTRY)."""
     keys = user.get("strategies") or [s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()]
     return [k for k in keys if k in strategies.REGISTRY] or [strategies.DEFAULT_STRATEGY]
+
+
+def _user_regions(user: dict) -> list[str]:
+    """Aktive Markt-Körbe des Nutzers (Liste von Schlüsseln aus UNIVERSES, mind. einer)."""
+    keys = user.get("market_regions") or [user.get("market_region") or DEFAULT_REGION]
+    return [k for k in keys if k in UNIVERSES] or [DEFAULT_REGION]
+
+
+def _merge_ranked(lists: list) -> list[dict]:
+    """Führt mehrere (region-spezifische) Ranglisten zu einer zusammen: dedupliziert pro Ticker
+    und behält jeweils das stärkste Signal. So liefern mehrere Körbe gemeinsam die besten Treffer."""
+    best: dict[str, dict] = {}
+    for lst in lists:
+        for s in (lst or []):
+            t = s.get("ticker")
+            if not t:
+                continue
+            if t not in best or (s.get("strength", 0) or 0) > (best[t].get("strength", 0) or 0):
+                best[t] = s
+    return list(best.values())
 
 
 def _llm_enabled(user: dict) -> bool:
@@ -323,8 +343,8 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     # Analyse pro benötigter (Bereich, Voll-Universum, Strategie)-Kombination einmal berechnen
     ranked_by_key: dict[str, list] = {}
     size_by_key: dict[str, int] = {}
-    needed = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u), s)
-              for u in users for s in _user_strategies(u)}
+    needed = {(r, _auto_uni(u), s)
+              for u in users for r in _user_regions(u) for s in _user_strategies(u)}
     for region, auto, strat_key in needed:
         key = _universe_key(region, auto, strat_key)
         tickers = universes.get_tickers(region, auto=auto)
@@ -340,29 +360,31 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     market_open = _us_market_open()
     for u in users:
         chat_id = u["user_id"]
-        region = u.get("market_region") or DEFAULT_REGION
+        regions = _user_regions(u)
         user_strats = _user_strategies(u)
         top_n = u.get("top_n_signals") or TOP_N_SIGNALS
+        region_label = " + ".join(REGION_LABELS.get(r, r) for r in regions)
 
         await bot.send_message(
             chat_id=chat_id,
             text=(
                 f"🌅 *Guten Morgen! Tagesanalyse {now.strftime('%d.%m.%Y')}*\n"
-                f"Bereich: {REGION_LABELS.get(region, region)} · "
+                f"Körbe: {region_label} · "
                 f"{len(user_strats)} Strategie(n) ⏳"
             ),
             parse_mode="Markdown"
         )
 
-        # Pro gewählter Strategie eigene top_n Signale (Dedup über has_trade_today)
+        # Pro gewählter Strategie eigene top_n Signale — über alle gewählten Körbe gebündelt
         any_sent = False
         for strat_key in user_strats:
             strat = strategies.get(strat_key)
-            ranked = ranked_by_key.get(_universe_key(region, _auto_uni(u), strat_key))
-            if ranked is None:
+            ranked_lists = [ranked_by_key.get(_universe_key(r, _auto_uni(u), strat_key)) for r in regions]
+            if all(rl is None for rl in ranked_lists):
                 await bot.send_message(chat_id=chat_id,
                                        text=f"⚠️ Analyse-Fehler ({strat.label}).")
                 continue
+            ranked = _merge_ranked([rl for rl in ranked_lists if rl is not None])
             signals = smartmoney.rank(ranked, top_n)
             if not signals:
                 continue
@@ -546,7 +568,7 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
 
 def _universes_in_use() -> set[tuple[str, bool]]:
     """(Bereich, Voll-Universum)-Kombinationen aller aktiven Nutzer (für den Scan-Umfang)."""
-    combos = {((u.get("market_region") or DEFAULT_REGION), _auto_uni(u)) for u in db.list_active_users()}
+    combos = {(r, _auto_uni(u)) for u in db.list_active_users() for r in _user_regions(u)}
     return combos or {(DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE)}
 
 
@@ -593,7 +615,7 @@ async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
     Bei Auto-Accept oder geschlossener Börse passiert nichts."""
     if user.get("auto_accept") or not _us_market_open():
         return
-    region = user.get("market_region") or DEFAULT_REGION
+    regions = _user_regions(user)
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
 
     # offene (pending) Trades je Strategie zählen
@@ -606,7 +628,9 @@ async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
         need = top_n - pending_by_strat.get(strat_key, 0)
         if need <= 0:
             continue
-        for signal in _get_candidates(_universe_key(region, _auto_uni(user), strat_key)):
+        candidates = _merge_ranked([_get_candidates(_universe_key(r, _auto_uni(user), strat_key))
+                                    for r in regions])
+        for signal in candidates:
             if need <= 0:
                 break
             if db.has_open_position(chat_id, signal["ticker"]):
@@ -638,13 +662,13 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     bot = context.bot
-    region = user.get("market_region") or DEFAULT_REGION
+    regions = _user_regions(user)
     auto = _auto_uni(user)
     user_strats = _user_strategies(user)
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
-    tickers = universes.get_tickers(region, auto=auto)
-    n_tickers = len(tickers)
-    region_label = REGION_LABELS.get(region, region)
+    tickers_by_region = {r: universes.get_tickers(r, auto=auto) for r in regions}
+    n_tickers = len({t for ts in tickers_by_region.values() for t in ts})
+    region_label = " + ".join(REGION_LABELS.get(r, r) for r in regions)
     market_open = _us_market_open()
     strat_labels = ", ".join(strategies.get(k).label for k in user_strats)
 
@@ -663,8 +687,12 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for strat_key in user_strats:
         strat = strategies.get(strat_key)
         try:
-            ranked = analyze_universe(tickers, generate=strat.generate)
-            _cache_candidates(_universe_key(region, auto, strat.key), ranked)   # Kandidaten fürs Nachrücken
+            per_region = []
+            for r in regions:
+                rl = analyze_universe(tickers_by_region[r], generate=strat.generate)
+                _cache_candidates(_universe_key(r, auto, strat.key), rl)   # Kandidaten fürs Nachrücken (je Korb)
+                per_region.append(rl)
+            ranked = _merge_ranked(per_region)
             signals = smartmoney.rank(ranked, top_n)
             if _llm_enabled(user):
                 signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
@@ -765,11 +793,11 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _conn = "eigene Keys" if user.get("broker_platform") == "alpaca" else "globale Keys"
         broker_line += (f"\n📈 Alpaca ({_mode}, {_conn}) — Ausführung: "
                         f"*{'an' if user.get('broker_exec') else 'aus'}*")
-    region = user.get("market_region") or DEFAULT_REGION
+    regions = _user_regions(user)
     await update.message.reply_text(
         "👤 *Dein Profil*\n"
         f"💶 Demo-Trade-Größe: *{user['trade_size_eur']:.0f}€*\n"
-        f"🌍 Markt-Bereich: *{REGION_LABELS.get(region, region)}*\n"
+        f"🌍 Markt-Körbe: *{' + '.join(REGION_LABELS.get(r, r) for r in regions)}*\n"
         f"🔢 Signale pro Tag: *{user.get('top_n_signals') or TOP_N_SIGNALS}*\n"
         f"🎯 SL/TP-Modus: *{user.get('sl_tp_mode') or DEFAULT_SL_TP_MODE}*\n"
         f"⚡ Hebel: *{(user.get('leverage') or DEFAULT_LEVERAGE):g}×*\n"
@@ -787,7 +815,8 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def _settings_view(user: dict):
     """Baut Text + Inline-Tastatur für /settings (Markt, Anzahl, SL/TP-Modus, Hebel, Auto-Accept, Voll-Universum)."""
-    region = user.get("market_region") or DEFAULT_REGION
+    region_keys = _user_regions(user)
+    size = user.get("trade_size_eur") or TRADE_SIZE_EUR
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
     mode = user.get("sl_tp_mode") or DEFAULT_SL_TP_MODE
     lev = user.get("leverage") or DEFAULT_LEVERAGE
@@ -803,7 +832,8 @@ def _settings_view(user: dict):
 
     text = (
         "⚙️ *Einstellungen*\n"
-        f"🌍 Markt-Bereich: *{REGION_LABELS.get(region, region)}*\n"
+        f"💶 Demo-Trade-Größe: *{size:.0f}€*\n"
+        f"🌍 Markt-Körbe: *{' + '.join(REGION_LABELS.get(k, k) for k in region_keys)}*\n"
         f"🔢 Signale pro Tag: *{top_n}* (pro Strategie)\n"
         f"🎯 SL/TP-Modus: *{mode}*\n"
         f"⚡ Hebel: *{lev:g}×*\n"
@@ -813,10 +843,13 @@ def _settings_view(user: dict):
         f"🤖 KI-Ranking (Haiku): *{llm_state}*\n"
         f"🌙 Tagesende-Schließung: *{'an' if eod else f'aus (halten bis SL/TP, max {HOLD_MAX_DAYS}T)'}*\n"
         + (f"📈 Broker-Ausführung ({broker_mode}): *{'an' if broker_on else 'aus'}*\n" if broker_ready else "")
-        + "\nTippe unten, um zu ändern (Strategien: mehrere möglich):"
+        + "\nTippe unten, um zu ändern (Körbe & Strategien: mehrere möglich):"
     )
 
-    region_row = [InlineKeyboardButton(("✅ " if k == region else "") + lbl, callback_data=f"set_region:{k}")
+    size_row = [InlineKeyboardButton(("✅ " if float(v) == float(size) else "") + f"{v:g}€",
+                                     callback_data=f"set_size:{v}")
+                for v in TRADE_SIZE_CHOICES]
+    region_row = [InlineKeyboardButton(("✅ " if k in region_keys else "") + lbl, callback_data=f"set_region:{k}")
                   for k, lbl in REGION_LABELS.items()]
     count_row = [InlineKeyboardButton(("✅ " if n == top_n else "") + str(n), callback_data=f"set_count:{n}")
                  for n in SIGNAL_COUNT_CHOICES]
@@ -835,7 +868,7 @@ def _settings_view(user: dict):
                InlineKeyboardButton(("✅ " if not llm_on else "") + "aus", callback_data="set_llm:0")]
     eod_row = [InlineKeyboardButton(("✅ " if eod else "") + "Tagesende-Schließung an", callback_data="set_eod:1"),
                InlineKeyboardButton(("✅ " if not eod else "") + "aus (halten)", callback_data="set_eod:0")]
-    rows = [region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row, eod_row]
+    rows = [size_row, region_row, count_row, mode_row, lev_row, auto_row, uni_row, strat_row, llm_row, eod_row]
     if broker_ready:
         rows.append([
             InlineKeyboardButton(("✅ " if broker_on else "") + f"Broker-Order ({broker_mode}) an",
@@ -854,6 +887,32 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     text, keyboard = _settings_view(user)
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/tradesize <betrag> — Demo-Trade-Größe in € setzen (beliebiger Betrag)."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            f"💶 Aktuelle Demo-Trade-Größe: *{user['trade_size_eur']:.0f}€*\n"
+            "Ändern mit z. B. `/tradesize 250` — oder Schnellauswahl in /settings.",
+            parse_mode="Markdown")
+        return
+    raw = context.args[0].strip().replace(",", ".").replace("€", "")
+    try:
+        val = float(raw)
+        if val <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("⚠️ Bitte eine positive Zahl angeben, z. B. `/tradesize 250`.",
+                                        parse_mode="Markdown")
+        return
+    saved = db.set_trade_size(chat_id, val)
+    await update.message.reply_text(f"✅ Demo-Trade-Größe gesetzt: *{saved:.0f}€*", parse_mode="Markdown")
 
 
 async def cmd_strategies(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1116,7 +1175,8 @@ HELP_TEXT = (
     "━━━━━━━━━━━━━━━━━━\n"
     "/start — Setup starten oder Status anzeigen\n"
     "/profile — Dein Profil ansehen (Trade-Größe, Markt, Broker, Status)\n"
-    "/settings — Markt-Bereich & Anzahl Signale ändern\n"
+    "/settings — Körbe, Trade-Größe & Anzahl Signale ändern\n"
+    "/tradesize <betrag> — Demo-Trade-Größe in € setzen (z. B. /tradesize 250)\n"
     "/dashboard — Link zu deinem Web-Dashboard\n"
     "/signals — Aktuelle Signale jetzt live abrufen\n"
     "/top5trade — Was große Trader (Insider + Institutionen) zuletzt gekauft haben\n"
@@ -1252,10 +1312,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
 
     elif action == "set_region":
-        # 'ticker' enthält hier den Region-Schlüssel (z. B. 'sp500')
+        # 'ticker' enthält hier den Korb-Schlüssel (z. B. 'sp500') — Mehrfachauswahl (Toggle)
         if ticker in UNIVERSES:
-            db.set_market_region(chat_id, ticker)
-            log.info(f"[{chat_id}] Markt-Bereich geändert: {ticker}")
+            keys = db.toggle_region(chat_id, ticker)
+            log.info(f"[{chat_id}] Markt-Körbe geändert: {keys}")
+        user = db.get_user(chat_id)
+        if user:
+            text, keyboard = _settings_view(user)
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+    elif action == "set_size":
+        # 'ticker' enthält hier die Trade-Größe in € als String
+        try:
+            saved = db.set_trade_size(chat_id, float(ticker))
+            log.info(f"[{chat_id}] Demo-Trade-Größe geändert: {saved:.0f}€")
+        except ValueError:
+            pass
         user = db.get_user(chat_id)
         if user:
             text, keyboard = _settings_view(user)
@@ -1363,6 +1435,7 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))                     # Befehlsübersicht
     app.add_handler(CommandHandler("profile", cmd_profile))               # eigenes Profil ansehen
     app.add_handler(CommandHandler("settings", cmd_settings))             # Markt-Bereich + Anzahl ändern
+    app.add_handler(CommandHandler("tradesize", cmd_tradesize))           # Demo-Trade-Größe ändern
     app.add_handler(CommandHandler("info", cmd_info))                     # Metriken erklärt
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))           # Link zum Web-Dashboard
     app.add_handler(CommandHandler("ping", cmd_ping))                     # Verbindungstest

@@ -116,12 +116,36 @@
     let currentDays = 0;        // 0 = Alle; sonst letzte N Tage
     const rangeLabel = (n) => n === 0 ? "Alle" : (n === 1 ? "1 Tag" : n + " Tage");
 
+    // Zerstört einen evtl. schon auf dem Canvas vorhandenen Chart und erzeugt einen neuen.
+    // Verhindert „Canvas is already in use" beim erneuten Laden (Zeitraum/Strategie/Refresh).
+    function makeChart(id, config) {
+      const c = document.getElementById(id);
+      if (!c) return null;
+      const existing = Chart.getChart(c);
+      if (existing) existing.destroy();
+      c.style.display = "";
+      const m = document.getElementById(id + "_msg");
+      if (m) m.style.display = "none";
+      return new Chart(c, config);
+    }
+
+    // Zeigt statt eines Charts eine Hinweismeldung — Canvas bleibt im DOM (id erhalten),
+    // damit ein späteres Laden den Chart wieder erzeugen kann.
     function replaceCanvas(id, msg) {
       const c = document.getElementById(id);
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = msg;
-      c.replaceWith(div);
+      if (!c) return;
+      const existing = Chart.getChart(c);
+      if (existing) existing.destroy();
+      c.style.display = "none";
+      let m = document.getElementById(id + "_msg");
+      if (!m) {
+        m = document.createElement("div");
+        m.id = id + "_msg";
+        m.className = "empty";
+        c.parentNode.insertBefore(m, c.nextSibling);
+      }
+      m.textContent = msg;
+      m.style.display = "";
     }
 
     async function load() {
@@ -192,7 +216,7 @@
       if (!eq.length) {
         replaceCanvas("equityChart", noData);
       } else {
-        new Chart(document.getElementById("equityChart"), {
+        makeChart("equityChart", {
           type: "line",
           data: {
             labels: eq.map(p => p.date),
@@ -217,7 +241,7 @@
       if (!ts.length) {
         replaceCanvas("tickerChart", noData);
       } else {
-        new Chart(document.getElementById("tickerChart"), {
+        makeChart("tickerChart", {
           type: "bar",
           data: {
             labels: ts.map(t => t.ticker),
@@ -269,7 +293,7 @@
         replaceCanvas("strengthChart", "Noch keine aktiven Trades / Verlaufsdaten heute.");
       } else {
         const labels = intraday[0].points.map(p => p.t);
-        new Chart(document.getElementById("strengthChart"), {
+        makeChart("strengthChart", {
           type: "line",
           data: {
             labels,
@@ -292,6 +316,8 @@
 
       // #6 Kursverlauf heute — pro Ticker ein eigener Chart mit SL/TP-Linien
       const pc = document.getElementById("priceCharts");
+      // alte (dynamische) Kurs-Charts zerstören, bevor die Canvas-Elemente ersetzt werden
+      pc.querySelectorAll("canvas").forEach(cv => { const ch = Chart.getChart(cv); if (ch) ch.destroy(); });
       if (!intraday.length) {
         pc.innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
       } else {
@@ -312,7 +338,7 @@
           const tp = refLine(s.take_profit, "#2ecc71"), sl = refLine(s.stop_loss, "#e74c3c"),
                 en = refLine(s.entry, "#8a93a6");
           [tp, sl, en].forEach(r => r && datasets.push(r));
-          new Chart(document.getElementById("price_" + s.ticker), {
+          makeChart("price_" + s.ticker, {
             type: "line",
             data: { labels, datasets },
             options: {
@@ -376,7 +402,7 @@
         </table>
         <div class="meta">Verlauf der Faktor-Scores (0–100) über die letzten ${pts.length} Handelstage:</div>`;
       const labels = pts.map(p => p.date.slice(5));   // MM-DD
-      factorChartObj = new Chart(document.getElementById("factorChart"), {
+      factorChartObj = makeChart("factorChart", {
         type: "line",
         data: {
           labels,

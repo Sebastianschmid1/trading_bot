@@ -166,7 +166,8 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "broker_platform":  row["broker_platform"],
         "onboarding_state": row["onboarding_state"],
         "is_active":        bool(row["is_active"]),
-        "market_region":    row["market_region"],
+        "market_region":    _parse_regions(row["market_region"])[0],   # primärer Bereich (Rückwärtskompat.)
+        "market_regions":   _parse_regions(row["market_region"]),      # alle gewählten Körbe
         "top_n_signals":    row["top_n_signals"],
         "sl_tp_mode":       row["sl_tp_mode"],
         "leverage":         row["leverage"],
@@ -184,6 +185,12 @@ def _parse_strategies(raw: str | None) -> list[str]:
     """Kommagetrennte Strategie-Liste aus der DB → Liste (mind. ein Eintrag)."""
     keys = [s.strip() for s in (raw or "").split(",") if s.strip()]
     return keys or ["standard"]
+
+
+def _parse_regions(raw: str | None) -> list[str]:
+    """Kommagetrennte Markt-Bereich-Liste aus der DB → Liste (mind. ein Eintrag)."""
+    keys = [s.strip() for s in (raw or "").split(",") if s.strip()]
+    return keys or ["sp500"]
 
 
 def get_or_create_user(user_id: int, username: str | None = None) -> dict:
@@ -256,12 +263,41 @@ def set_user_active(user_id: int, active: bool):
 
 
 def set_market_region(user_id: int, region: str):
-    """Setzt den Markt-Bereich des Nutzers (z. B. 'sp500', 'msci_world', 'emerging')."""
+    """Setzt den Markt-Bereich des Nutzers auf genau einen Korb (ersetzt die Auswahl)."""
     with _connect() as conn:
         conn.execute(
             "UPDATE users SET market_region = ?, updated_at = datetime('now') WHERE user_id = ?",
             (region, user_id),
         )
+
+
+def toggle_region(user_id: int, key: str) -> list[str]:
+    """Schaltet einen Markt-Korb in der Auswahl des Nutzers an/aus (mind. einer bleibt aktiv).
+    Gibt die neue Liste zurück."""
+    with _connect() as conn:
+        row = conn.execute("SELECT market_region FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        keys = _parse_regions(row["market_region"] if row else None)
+        if key in keys:
+            if len(keys) > 1:          # der letzte Korb bleibt erhalten
+                keys.remove(key)
+        else:
+            keys.append(key)
+        conn.execute(
+            "UPDATE users SET market_region = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (",".join(keys), user_id),
+        )
+    return keys
+
+
+def set_trade_size(user_id: int, eur: float) -> float:
+    """Setzt die Demo-Trade-Größe in € (auf 1..1.000.000 begrenzt). Gibt den gespeicherten Wert zurück."""
+    eur = max(1.0, min(1_000_000.0, float(eur)))
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET trade_size_eur = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (eur, user_id),
+        )
+    return eur
 
 
 def set_top_n(user_id: int, n: int):
