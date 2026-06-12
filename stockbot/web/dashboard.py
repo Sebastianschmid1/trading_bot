@@ -145,30 +145,43 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             ],
         })
 
-    # Einzel-Trades (Wertentwicklung je Trade): historische (abgeschlossen) + aktuelle (offen)
+    # Einzel-Trades als Kursverlauf (%-Wertentwicklung ab Einstieg): historische + offene.
+    # Offene Trades = echte Intraday-Kurve (60s-Ticks); abgeschlossene = Einstieg→Ausstieg.
+    # x = normierter Verlauf 0..100 (0 = Einstieg, 100 = jetzt/Ausstieg), y = % ab Einstieg (mit Hebel).
     _strat_label = {s.key: s.label for s in strategies.all_strategies()}
-    trades_log = []
+    trades_curves = []
     for t in closed:
-        trades_log.append({
-            "ticker":   t["ticker"],
-            "date":     t["trade_date"],
-            "entry":    t["entry"],
-            "exit":     t["exit"],
-            "pnl_eur":  round(t["pnl_eur"] or 0.0, 2),
-            "pnl_pct":  round(t["pnl_pct"] or 0.0, 2),
-            "status":   "closed",
-            "strategy": _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+        if not t.get("entry"):
+            continue
+        pct = round(t["pnl_pct"] or 0.0, 2)
+        trades_curves.append({
+            "ticker":    t["ticker"],
+            "date":      t["trade_date"],
+            "status":    "closed",
+            "final_pct": pct,
+            "final_eur": round(t["pnl_eur"] or 0.0, 2),
+            "strategy":  _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+            "points":    [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": pct}],
         })
     for t, v in zip(active, active_view):
-        trades_log.append({
-            "ticker":   v["ticker"],
-            "date":     t["trade_date"],
-            "entry":    v["entry"],
-            "exit":     v["current"],          # aktueller Kurs (unrealisiert)
-            "pnl_eur":  v["pnl_eur"],
-            "pnl_pct":  v["pnl_pct"],
-            "status":   "active",
-            "strategy": _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+        entry = v["entry"]
+        lev = v["leverage"] or 1.0
+        valid = [p for p in ticks.get(t["ticker"], []) if p.get("price") is not None]
+        points = [{"x": 0.0, "y": 0.0}]                          # Einstieg = 0 %
+        nn = len(valid)
+        for i, p in enumerate(valid):
+            y = (p["price"] / entry - 1.0) * 100.0 * lev if entry else 0.0
+            points.append({"x": round((i + 1) / nn * 100.0, 2), "y": round(y, 2)})
+        if nn == 0:                                             # keine Ticks → Einstieg→aktuell
+            points.append({"x": 100.0, "y": v["pnl_pct"]})
+        trades_curves.append({
+            "ticker":    v["ticker"],
+            "date":      t["trade_date"],
+            "status":    "active",
+            "final_pct": v["pnl_pct"],
+            "final_eur": v["pnl_eur"],
+            "strategy":  _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
+            "points":    points,
         })
 
     # Strategie-Tabs: „Alle" + die vom Nutzer gewählten Strategien
@@ -199,7 +212,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         },
         "equity":        equity,
         "ticker_stats":  ticker_stats,
-        "trades_log":    trades_log,
+        "trades_curves": trades_curves,
         "active_trades": active_view,
         "intraday":      intraday,
         "generated_at":  datetime.now().strftime("%d.%m.%Y %H:%M"),

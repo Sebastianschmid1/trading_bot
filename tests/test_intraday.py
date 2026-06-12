@@ -164,12 +164,12 @@ def test_dashboard_days_filter():
     assert last7["days"] == 7 and 30 in last7["ranges"]
 
 
-def test_dashboard_trades_log_history_and_active():
+def test_dashboard_trades_curves_history_and_active():
     fresh_db()
-    db.yf = _FakeYF(110.0)                       # aktueller Kurs für den offenen Trade
+    db.yf = _FakeYF(100.0)                        # Einstiegskurs des offenen Trades = 100
     db.get_or_create_user(CHAT, "tester")
     db.save_profile(CHAT, trade_size_eur=25.0)
-    # ein abgeschlossener (historischer) Trade
+    # ein abgeschlossener (historischer) Trade → Linie Einstieg(0%)→Ausstieg(+10%)
     with db._connect() as conn:
         conn.execute(
             "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, "
@@ -177,19 +177,26 @@ def test_dashboard_trades_log_history_and_active():
             "'{\"strategy\": \"standard\"}', 'closed', 200, 220, 5.0, 10)",
             (CHAT,),
         )
-    # ein offener (aktueller) Trade
+    # ein offener (aktueller) Trade mit zwei Intraday-Ticks
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
                           "stop_loss": 97.0, "take_profit": 130.0, "strategy": "standard"}, 1)
     db.activate_trade(CHAT, "AAPL")
-    db.add_tick(CHAT, "AAPL", 110.0, 70.0)       # 60s-Monitor-Tick → aktueller Kurs
+    db.add_tick(CHAT, "AAPL", 105.0, 70.0)       # +5 %
+    db.add_tick(CHAT, "AAPL", 110.0, 72.0)       # +10 %
 
-    log = dashboard.build_dashboard_data(db.get_user(CHAT))["trades_log"]
-    by_ticker = {x["ticker"]: x for x in log}
-    assert by_ticker["MSFT"]["status"] == "closed" and by_ticker["MSFT"]["pnl_eur"] == 5.0
-    assert by_ticker["AAPL"]["status"] == "active"        # offen → unrealisiert
-    assert by_ticker["AAPL"]["exit"] == 110.0             # aktueller Kurs als „Ausstieg"
-    # historische zuerst, offene danach (chronologisch links→rechts)
-    assert log[0]["ticker"] == "MSFT" and log[-1]["ticker"] == "AAPL"
+    curves = dashboard.build_dashboard_data(db.get_user(CHAT))["trades_curves"]
+    by_ticker = {x["ticker"]: x for x in curves}
+
+    msft = by_ticker["MSFT"]
+    assert msft["status"] == "closed" and msft["final_pct"] == 10
+    assert msft["points"] == [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 10}]   # Einstieg→Ausstieg
+
+    aapl = by_ticker["AAPL"]
+    assert aapl["status"] == "active"
+    assert aapl["points"][0] == {"x": 0.0, "y": 0.0}        # startet am Einstieg (0 %)
+    assert aapl["points"][-1]["y"] == 10.0                  # letzter Tick = +10 % ab Einstieg
+    # historische zuerst, offene danach
+    assert curves[0]["ticker"] == "MSFT" and curves[-1]["ticker"] == "AAPL"
 
 
 # ── Detail-Analyse: Faktor-Verlauf einer Aktie (7 Tage) ──────────────────────

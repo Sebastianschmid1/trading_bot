@@ -81,9 +81,9 @@
     </div>
 
     <div class="panel">
-      <h2>📈 Trades einzeln — Wertentwicklung</h2>
-      <div class="meta">Jeder Balken = ein Trade (P&amp;L in €). <b>Weiß umrandet</b> = aktuell offen (unrealisiert). Klick auf einen Balken öffnet die Detail-Analyse.</div>
-      <canvas id="tradesLogChart" height="90"></canvas>
+      <h2>📈 Trades einzeln — Kursverlauf (Wertentwicklung)</h2>
+      <div class="meta">Jede Linie = ein Trade, % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen (Intraday-Verlauf), <b>gestrichelt</b> = abgeschlossen (Einstieg→Ausstieg). Grün/rot = Endergebnis. Klick auf einen Punkt öffnet die Detail-Analyse.</div>
+      <canvas id="tradesLogChart" height="110"></canvas>
     </div>
 
     <div class="panel">
@@ -268,50 +268,48 @@
         });
       }
 
-      // Einzel-Trades — Wertentwicklung (historische + aktuelle, je ein Balken)
-      const tl = d.trades_log || [];
-      if (!tl.length) {
+      // Einzel-Trades — Kursverlauf je Trade (% ab Einstieg), historische + offene überlagert
+      const tc = d.trades_curves || [];
+      if (!tc.length) {
         replaceCanvas("tradesLogChart", noData);
       } else {
-        const n2 = (x) => (x == null ? "—" : (+x).toFixed(2));
+        const sgn = (v) => (v >= 0 ? "+" : "");
         makeChart("tradesLogChart", {
-          type: "bar",
+          type: "line",
           data: {
-            labels: tl.map(x => x.ticker),
-            datasets: [{
-              data: tl.map(x => x.pnl_eur),
-              backgroundColor: tl.map(x => x.pnl_eur >= 0 ? "#2ecc71" : "#e74c3c"),
-              // offene Trades hervorheben: weißer Rahmen
-              borderColor: tl.map(x => x.status === "active" ? "#e6e9ef" : "transparent"),
-              borderWidth: tl.map(x => x.status === "active" ? 2 : 0),
-              borderRadius: 4,
-            }]
+            datasets: tc.map(x => ({
+              label: x.ticker + (x.status === "active" ? " (offen)" : ""),
+              data: x.points,
+              borderColor: x.final_pct >= 0 ? "#2ecc71" : "#e74c3c",
+              backgroundColor: "transparent",
+              borderDash: x.status === "active" ? [] : [5, 4],   // offen = durchgezogen, Historie = gestrichelt
+              tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2,
+            }))
           },
           options: {
+            parsing: false,                 // Daten liegen bereits als {x, y} vor
+            interaction: { mode: "nearest", intersect: false },
             plugins: {
-              legend: { display: false },
+              legend: { labels: { color: "#e6e9ef", boxWidth: 12, font: { size: 11 } } },
               tooltip: {
                 callbacks: {
-                  title: (items) => {
-                    const x = tl[items[0].dataIndex];
-                    return `${x.ticker} · ${x.date}` + (x.status === "active" ? "  (offen)" : "");
-                  },
+                  title: () => "",
                   label: (item) => {
-                    const x = tl[item.dataIndex];
-                    const sgn = (v) => (v >= 0 ? "+" : "");
-                    return [
-                      `P&L: ${sgn(x.pnl_eur)}${n2(x.pnl_eur)}€ (${sgn(x.pnl_pct)}${n2(x.pnl_pct)}%)`,
-                      `Einstieg $${n2(x.entry)} → ${x.status === "active" ? "aktuell" : "Ausstieg"} $${n2(x.exit)}`,
-                      `Strategie: ${x.strategy}`,
-                    ];
+                    const x = tc[item.datasetIndex];
+                    return `${x.ticker} · ${x.date}${x.status === "active" ? " (offen)" : ""}: `
+                         + `${sgn(item.parsed.y)}${item.parsed.y.toFixed(2)}%`
+                         + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
                   }
                 }
               }
             },
-            onClick: (evt, els) => { if (els.length) openAnalysis(tl[els[0].index].ticker); },
+            onClick: (evt, els) => { if (els.length) openAnalysis(tc[els[0].datasetIndex].ticker); },
             scales: {
-              x: { ticks: { color: "#8a93a6", maxRotation: 0, autoSkip: true }, grid: { display: false } },
-              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
+              x: { type: "linear", min: 0, max: 100,
+                   title: { display: true, text: "Verlauf:  0 = Einstieg  →  jetzt / Ausstieg", color: "#8a93a6" },
+                   ticks: { display: false }, grid: { color: "#222a3a" } },
+              y: { title: { display: true, text: "Wertentwicklung", color: "#8a93a6" },
+                   ticks: { color: "#8a93a6", callback: v => v + "%" }, grid: { color: "#222a3a" } }
             }
           }
         });
