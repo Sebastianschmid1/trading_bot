@@ -1,22 +1,23 @@
 <#
-  Upload/Deploy von Windows aus (PowerShell) - interaktiv:
+  Upload/Deploy von Windows aus (PowerShell) - VOLL AUTOMATISCH (kein Tippen):
     1) git commit (nur bei Aenderungen) + push
-    2) ssh -t zum Server -> cd stockbot && git pull && systemctl restart stockbot
+    2) ssh zum Server -> git pull && systemctl restart stockbot
 
-  Die Key-Passphrase wird bei jedem Schritt ganz normal abgefragt - genau wie beim
-  manuellen ssh: einmal fuer die Verbindung zum Server, einmal fuer 'git pull' auf
-  dem Server (dessen GitHub-Key ist ebenfalls passphrase-geschuetzt).
+  Es sind ZWEI passphrase-geschuetzte Keys im Spiel:
+    - lokaler Key  (C:\Users\<du>\.ssh\id_ed25519)  -> Verbindung zum Server
+    - Server-Key   (/root/.ssh/id_ed25519)          -> 'git pull' von GitHub
+  Beide nutzen dieselbe Passphrase = LOCAL_PASSWORD aus .env.
+
+  Automatisierung ueber SSH_ASKPASS:
+    - lokal: ssh nutzt einen kleinen Askpass-Helfer (gibt die Passphrase aus).
+    - serverseitig: das Remote-Kommando legt einen temporaeren Askpass-Helfer an,
+      uebergibt die Passphrase (base64-verpackt ueber den verschluesselten SSH-Kanal),
+      laesst 'git pull' ohne TTY laufen (SSH_ASKPASS_REQUIRE=force) und raeumt wieder auf.
 
   Lauf (im Projektordner):
       .\upload.ps1 "deine commit message"
   Falls "running scripts is disabled": einmalig
       Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-
-  Tipp gegen mehrfaches Tippen: lokalen Key einmalig in den ssh-agent laden
-      Get-Service ssh-agent | Set-Service -StartupType Automatic; Start-Service ssh-agent
-      ssh-add $env:USERPROFILE\.ssh\id_ed25519
-  Danach entfaellt die ERSTE Abfrage (Server-Verbindung); fuer 'git pull' auf dem
-  Server entfaellt sie nur, wenn dort der Key passphrase-frei ist.
 #>
 param([string]$Message = "deploy $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
 
@@ -25,24 +26,62 @@ $Server = "root@217.160.103.25"
 $AppDir = "stockbot"
 Set-Location -LiteralPath $PSScriptRoot
 
-# --- 1) commit (nur bei Aenderungen) + push --------------------------------
-if (git status --porcelain) {
-    Write-Host "-> committe lokale Aenderungen ..." -ForegroundColor Cyan
-    git add -A
-    git commit -m $Message
-} else {
-    Write-Host "i  keine lokalen Aenderungen - ueberspringe commit."
+# --- .env -> LOCAL_PASSWORD (Wert wird nie ausgegeben) ----------------------
+$envFile = Join-Path $PSScriptRoot ".env"
+if (-not (Test-Path $envFile)) { Write-Error ".env nicht gefunden in $PSScriptRoot"; exit 1 }
+$pw = $null
+foreach ($line in Get-Content $envFile) {
+    if ($line -match '^\s*LOCAL_PASSWORD\s*=\s*(.*)$') { $pw = $matches[1].Trim().Trim('"').Trim("'") }
 }
-Write-Host "-> push ..." -ForegroundColor Cyan
-git push
-if ($LASTEXITCODE -ne 0) { throw "git push fehlgeschlagen" }
+if ([string]::IsNullOrWhiteSpace($pw)) { Write-Error "LOCAL_PASSWORD fehlt in .env"; exit 1 }
+if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) {
+    Write-Error "ssh.exe fehlt - OpenSSH-Client aktivieren (Einstellungen > Apps > Optionale Features)."
+    exit 1
+}
 
-# --- 2) Deploy: interaktiv (ssh -t) ----------------------------------------
-# -t = Pseudo-Terminal: beide Passphrase-Abfragen (Server-Login + git pull) erscheinen
-# hier in der Konsole und werden ganz normal eingetippt.
-Write-Host "-> deploye auf $Server  (Passphrase wird abgefragt) ..." -ForegroundColor Cyan
-$remote = "cd $AppDir && git pull && systemctl restart stockbot && systemctl status stockbot --no-pager -l | head -n 15"
-ssh -t $Server $remote
-if ($LASTEXITCODE -ne 0) { throw "Deploy (ssh) fehlgeschlagen" }
+# --- lokaler Askpass-Helfer (Passphrase des LOKALEN Keys beim Verbinden) ----
+# Datei enthaelt KEIN Secret - liest die Passphrase aus der Umgebungsvariable DEPLOY_PW.
+$askpass = Join-Path $env:TEMP ("askpass_{0}.cmd" -f $PID)
+@'
+@echo off
+powershell -NoProfile -Command "[Console]::Out.Write($env:DEPLOY_PW)"
+'@ | Out-File -FilePath $askpass -Encoding ascii
+$env:DEPLOY_PW = $pw
+$env:SSH_ASKPASS = $askpass
+$env:SSH_ASKPASS_REQUIRE = "force"
+$env:DISPLAY = "localhost:0"
 
-Write-Host "OK - gepusht und auf dem Server neu gestartet." -ForegroundColor Green
+try {
+    # --- 1) commit (nur bei Aenderungen) + push ---------------------------
+    if (git status --porcelain) {
+        Write-Host "-> committe lokale Aenderungen ..." -ForegroundColor Cyan
+        git add -A
+        git commit -m $Message
+    } else {
+        Write-Host "i  keine lokalen Aenderungen - ueberspringe commit."
+    }
+    Write-Host "-> push ..." -ForegroundColor Cyan
+    git push
+    if ($LASTEXITCODE -ne 0) { throw "git push fehlgeschlagen" }
+
+    # --- 2) Deploy: Passphrase fuer BEIDE Keys automatisch ----------------
+    Write-Host "-> deploye auf $Server (automatisch) ..." -ForegroundColor Cyan
+    $passB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pw))
+    # Server-seitiges Bash-Kommando (Platzhalter werden literal ersetzt):
+    $tmpl = 'cd {APP} && ASK=$(mktemp) && printf ''#!/bin/sh\nprintf %%s "$DEPLOY_PASS"\n'' > "$ASK" && chmod +x "$ASK" && DEPLOY_PASS="$(printf %s ''{PASS}'' | base64 -d)" SSH_ASKPASS="$ASK" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 git pull < /dev/null; rc=$?; rm -f "$ASK"; [ $rc -eq 0 ] && systemctl restart stockbot && systemctl status stockbot --no-pager -l | head -n 15; exit $rc'
+    $bash = $tmpl.Replace('{APP}', $AppDir).Replace('{PASS}', $passB64)
+    # Ganzes Kommando base64-verpacken -> quote-freie ssh-Argumentzeile
+    # (umgeht PowerShells fehleranfaelliges Native-Arg-Quoting bei Anfuehrungszeichen).
+    $cmdB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash))
+    $null | ssh -o StrictHostKeyChecking=accept-new $Server "echo $cmdB64 | base64 -d | bash"
+    if ($LASTEXITCODE -ne 0) { throw "Deploy (ssh) fehlgeschlagen" }
+
+    Write-Host "OK - gepusht und auf dem Server neu gestartet." -ForegroundColor Green
+}
+finally {
+    Remove-Item $askpass -Force -ErrorAction SilentlyContinue
+    Remove-Item Env:\DEPLOY_PW -ErrorAction SilentlyContinue
+    Remove-Item Env:\SSH_ASKPASS -ErrorAction SilentlyContinue
+    Remove-Item Env:\SSH_ASKPASS_REQUIRE -ErrorAction SilentlyContinue
+    Remove-Item Env:\DISPLAY -ErrorAction SilentlyContinue
+}
