@@ -92,15 +92,19 @@ def test_migration_adds_watchlist_column_to_old_db():
 class _FastInfo:
     def __init__(self, price): self.last_price = price
 class _LkTicker:
-    def __init__(self, price, info): self._price, self._info = price, info
+    def __init__(self, price, info, closes): self._price, self._info, self._closes = price, info, closes
     @property
     def fast_info(self): return _FastInfo(self._price)
     @property
     def info(self): return self._info
+    def history(self, period="5d"):
+        import pandas as pd
+        return pd.DataFrame({"Close": list(self._closes)})
 class _FakeYf:
-    def __init__(self, price=100.0, info=None, quotes=None):
+    def __init__(self, price=100.0, info=None, quotes=None, closes=None):
         self._price, self._info, self._quotes = price, (info or {}), (quotes or [])
-    def Ticker(self, sym): return _LkTicker(self._price, self._info)
+        self._closes = closes or []
+    def Ticker(self, sym): return _LkTicker(self._price, self._info, self._closes)
     def Search(self, q, max_results=5):
         quotes = self._quotes
         class _S:  # noqa: E306
@@ -129,8 +133,16 @@ def test_validate_ticker_ok_equity_and_etf():
 
 
 def test_validate_ticker_not_found_when_no_price():
-    res = _with_yf(_FakeYf(None), lambda: lookup.validate_ticker("NOPE"))
+    res = _with_yf(_FakeYf(None, closes=[]), lambda: lookup.validate_ticker("NOPE"))
     assert res == {"ok": False, "symbol": "NOPE"}
+
+
+def test_validate_ticker_history_fallback_when_market_closed():
+    # Samstag: fast_info.last_price = None, aber Historie liefert letzten Schlusskurs
+    fake = _FakeYf(price=None, closes=[10.0, 11.0, 12.5],
+                   info={"shortName": "D-Wave Quantum", "quoteType": "EQUITY"})
+    res = _with_yf(fake, lambda: lookup.validate_ticker("QBTS"))
+    assert res["ok"] is True and res["price"] == 12.5 and res["symbol"] == "QBTS"
 
 
 def test_search_symbols_maps_quotes():

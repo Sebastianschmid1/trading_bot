@@ -1162,7 +1162,9 @@ async def cmd_watchadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info.get("ok"):
             wl = db.add_watchlist_tickers(chat_id, [info["symbol"]])
             typ = "ETF" if info.get("quote_type") == "ETF" else "Aktie"
-            line = f"✅ *{info['symbol']}* ({info.get('name', info['symbol'])}, {typ}) — Kurs ${info['price']:.2f}"
+            # Firmennamen gegen Markdown-Sonderzeichen absichern (sonst "can't parse entities")
+            safe_name = "".join(c for c in str(info.get("name", info["symbol"])) if c not in "_*`[]")
+            line = f"✅ *{info['symbol']}* ({safe_name}, {typ}) — Kurs ${info['price']:.2f}"
             if alpaca_client is not None:
                 asset = await asyncio.to_thread(broker.get_asset_info, info["symbol"], alpaca_client)
                 if asset.get("ok"):

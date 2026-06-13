@@ -16,25 +16,36 @@ import yfinance as yf
 log = logging.getLogger(__name__)
 
 
+def _last_price(sym: str) -> float | None:
+    """Letzter verfügbarer Kurs eines Symbols. Robust auch bei geschlossener Börse (Wochenende):
+    erst fast_info (schnell), sonst der letzte Schlusskurs aus der Historie."""
+    try:
+        p = yf.Ticker(sym).fast_info.last_price
+        if p is not None:
+            return float(p)
+    except Exception:
+        pass
+    try:
+        closes = yf.Ticker(sym).history(period="5d")["Close"].dropna()
+        if len(closes):
+            return float(closes.iloc[-1])
+    except Exception as e:
+        log.warning(f"Kurs-Historie für {sym} nicht abrufbar: {e}")
+    return None
+
+
 def validate_ticker(symbol: str) -> dict:
     """Prüft, ob `symbol` an der Börse existiert und Kursdaten hat.
 
     Rückgabe:
       {"ok": True,  "symbol", "name", "quote_type" (EQUITY/ETF/…), "price"}  oder
-      {"ok": False, "symbol"}  wenn kein aktueller Kurs abrufbar ist.
+      {"ok": False, "symbol"}  wenn kein Kurs abrufbar ist.
     """
     sym = (symbol or "").strip().upper()
     if not sym:
         return {"ok": False, "symbol": sym}
 
-    price = None
-    try:
-        fi = yf.Ticker(sym).fast_info
-        price = fi.last_price
-    except Exception as e:
-        log.warning(f"Validierung fehlgeschlagen für {sym}: {e}")
-        return {"ok": False, "symbol": sym}
-
+    price = _last_price(sym)
     if price is None:
         return {"ok": False, "symbol": sym}
 
