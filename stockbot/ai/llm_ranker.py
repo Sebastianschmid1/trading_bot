@@ -223,6 +223,48 @@ def rank_signals(signals: list[dict], *, client=None, fetch=gather_context) -> l
     return ranked
 
 
+_SUGGEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tickers": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["tickers"],
+    "additionalProperties": False,
+}
+
+_SUGGEST_SYSTEM = (
+    "Du bist ein Ticker-Finder. Der Nutzer gibt einen (evtl. ungenauen) Firmen-, Produkt- oder "
+    "Markennamen ein. Gib die passendsten BÖRSENTICKER zurück (bevorzugt US-Börsen, auch ETFs), "
+    "max. 3, vom wahrscheinlichsten zuerst. Nur echte, existierende Symbole. Wenn nichts passt: "
+    "leere Liste. Antworte als JSON gemäß Schema (Feld 'tickers')."
+)
+
+
+def suggest_tickers(query: str, *, client=None) -> list[str]:
+    """Schlägt zu einer ungenauen Eingabe (z. B. 'Apple') echte Ticker vor (Claude Haiku).
+    Fallback für die "Meinten Sie?"-Hilfe. Ohne Client/bei Fehler: []. Wirft nie."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    cli = client if client is not None else _get_client()
+    if cli is None:
+        return []
+    try:
+        resp = cli.messages.create(
+            model=config.LLM_MODEL,
+            max_tokens=128,
+            system=_SUGGEST_SYSTEM,
+            messages=[{"role": "user", "content": q}],
+            output_config={"format": {"type": "json_schema", "schema": _SUGGEST_SCHEMA}},
+        )
+        text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
+        tickers = json.loads(text).get("tickers", [])
+    except Exception as e:
+        log.warning(f"Ticker-Vorschlag fehlgeschlagen für '{q}': {e}")
+        return []
+    return [str(t).strip().upper() for t in tickers if str(t).strip()][:3]
+
+
 def health_check(client=None) -> dict:
     """Selbsttest: prüft, ob das KI-Ranking wirklich funktioniert (echter Mini-Call an Haiku).
     Gibt {ok: bool, detail: str, ranking: [...]} zurück — ohne Netzwerk-Fundamentaldaten."""

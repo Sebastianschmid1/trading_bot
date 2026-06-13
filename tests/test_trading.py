@@ -142,6 +142,53 @@ def test_get_pending_trades():
     assert len(db.get_pending_trades(CHAT)) == 2
 
 
+# ── _personalize_signal: Hebel + SL/TP pro Nutzer ────────────────────────────
+
+def test_personalize_signal_standard_applies_sl_tp_and_leverage():
+    # Ohne "strategy"-Feld → Standard-Strategie: SL/TP aus ATR + Modus werden gesetzt
+    sig = {"ticker": "NVDA", "price": 100.0, "atr": 2.0}
+    out = bot._personalize_signal(sig, "normal", 3.0)
+    assert out["stop_loss"] == 97.0 and out["take_profit"] == 105.0
+    assert out["sl_tp_mode"] == "normal" and out["leverage"] == 3.0
+    assert "stop_loss" not in sig          # Original bleibt unverändert (arbeitet auf Kopie)
+
+
+def test_personalize_signal_nonstandard_keeps_own_sl_tp():
+    # Strategie-eigene SL/TP (z. B. ADX-Trendfolge) bleiben erhalten, nur der Hebel wird gesetzt
+    sig = {"ticker": "NVDA", "price": 100.0, "atr": 2.0, "strategy": "adx_trend",
+           "stop_loss": 80.0, "take_profit": 140.0}
+    out = bot._personalize_signal(sig, "normal", 2.0)
+    assert out["stop_loss"] == 80.0 and out["take_profit"] == 140.0
+    assert out["leverage"] == 2.0
+
+
+# ── _unrealized_pnl: aktueller Stand eines aktiven Trades (mit Hebel) ─────────
+
+def test_unrealized_pnl_uses_current_price_and_leverage():
+    trade = {"ticker": "NVDA", "direction": "long", "entry": 100.0,
+             "signal": {"leverage": 3.0}}
+    orig = bot.get_current_price
+    bot.get_current_price = lambda ticker, fallback: 110.0   # +10 % Kursbewegung
+    try:
+        current, pnl_pct, pnl_eur = bot._unrealized_pnl(trade, 25.0)
+    finally:
+        bot.get_current_price = orig
+    assert current == 110.0
+    assert round(pnl_pct, 2) == 10.0
+    assert round(pnl_eur, 2) == 7.5          # 25 € × 10 % × 3
+
+
+def test_unrealized_pnl_defaults_leverage_to_one():
+    trade = {"ticker": "AAPL", "direction": "long", "entry": 100.0, "signal": {}}
+    orig = bot.get_current_price
+    bot.get_current_price = lambda t, f: 105.0
+    try:
+        _, pnl_pct, pnl_eur = bot._unrealized_pnl(trade, 50.0)
+    finally:
+        bot.get_current_price = orig
+    assert round(pnl_pct, 2) == 5.0 and round(pnl_eur, 2) == 2.5   # ohne Hebel: 50 € × 5 %
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

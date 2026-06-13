@@ -36,6 +36,7 @@ from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
+from stockbot.market import lookup
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.core.evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from stockbot.config import (
@@ -79,6 +80,11 @@ def _user_strategies(user: dict) -> list[str]:
     """Aktive Signal-Strategien des Nutzers (Liste von Schlüsseln aus strategies.REGISTRY)."""
     keys = user.get("strategies") or [s.strip() for s in (user.get("strategy") or "").split(",") if s.strip()]
     return [k for k in keys if k in strategies.REGISTRY] or [strategies.DEFAULT_STRATEGY]
+
+
+def _user_watchlist(user: dict) -> list[str]:
+    """Persönliche Watchlist-Symbole des Nutzers (kann leer sein, großgeschrieben)."""
+    return [t.strip().upper() for t in (user.get("watchlist") or []) if t and t.strip()]
 
 
 def _trade_strategy_key(trade: dict) -> str:
@@ -200,8 +206,9 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
             [InlineKeyboardButton("🔒 Börse geschlossen", callback_data=f"noop:{ticker}")]
         ])
 
+    watch_badge = "  📋 Watchlist" if signal.get("watchlist") else ""
     text = (
-        f"📊 *{ticker}* — {direction_emoji}\n"
+        f"📊 *{ticker}* — {direction_emoji}{watch_badge}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Kurs: *${signal['price']:.2f}*\n"
         f"📈 Signal-Stärke: {strength_bar} ({signal['strength']:.0f}/100)\n"
@@ -427,12 +434,29 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
         tickers = universes.get_tickers(region, auto=auto)
         size_by_key[key] = len(tickers)
         try:
-            ranked = analyze_universe(tickers, generate=strategies.get(strat_key).generate)
+            # In einen Thread auslagern: analyze_universe ist blockierend (yfinance),
+            # sonst friert der Bot während des Scans ein (Ja/Nein-Buttons, 60s-Monitoring).
+            ranked = await asyncio.to_thread(
+                analyze_universe, tickers, generate=strategies.get(strat_key).generate)
             ranked_by_key[key] = ranked
             _cache_candidates(key, ranked)   # Kandidaten fürs Nachrücken merken
         except Exception as e:
             log.error(f"Analyse fehlgeschlagen ({key}): {e}")
             ranked_by_key[key] = None  # Fehler-Marker
+
+    # Persönliche Watchlists: Vereinigung aller Nutzer einmal je genutzter Strategie analysieren.
+    # Ergebnis je Strategie als {ticker: signal} — Zuordnung zum Nutzer erfolgt unten.
+    watch_union = sorted({t for u in users for t in _user_watchlist(u)})
+    watch_by_strat: dict[str, dict] = {}
+    if watch_union:
+        for strat_key in {s for u in users for s in _user_strategies(u)}:
+            try:
+                wl_ranked = await asyncio.to_thread(
+                    analyze_universe, watch_union, generate=strategies.get(strat_key).generate)
+                watch_by_strat[strat_key] = {s["ticker"]: s for s in wl_ranked}
+            except Exception as e:
+                log.error(f"Watchlist-Analyse fehlgeschlagen ({strat_key}): {e}")
+                watch_by_strat[strat_key] = {}
 
     market_open = _us_market_open()
     for u in users:
@@ -454,16 +478,30 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
 
         # Pro gewählter Strategie eigene top_n Signale — über alle gewählten Körbe gebündelt
         any_sent = False
+        watchlist = set(_user_watchlist(u))
         for strat_key in user_strats:
             strat = strategies.get(strat_key)
             ranked_lists = [ranked_by_key.get(_universe_key(r, _auto_uni(u), strat_key)) for r in regions]
-            if all(rl is None for rl in ranked_lists):
-                await bot.send_message(chat_id=chat_id,
-                                       text=f"⚠️ Analyse-Fehler ({strat.label}).")
-                continue
+            region_failed = all(rl is None for rl in ranked_lists)
             ranked = _merge_ranked([rl for rl in ranked_lists if rl is not None])
             signals = smartmoney.rank(ranked, top_n)
+
+            # Watchlist-Treffer dieser Strategie immer zusätzlich anhängen (nie vom top_n gekürzt),
+            # sofern sie ausgelöst haben und nicht ohnehin schon unter den top_n sind.
+            if watchlist:
+                have = {s["ticker"] for s in signals}
+                extra = [sig for tkr, sig in watch_by_strat.get(strat_key, {}).items()
+                         if tkr in watchlist and tkr not in have]
+                if extra:
+                    extra = smartmoney.rank(extra, len(extra))   # anreichern, NICHT kürzen
+                    for sig in extra:
+                        sig["watchlist"] = True
+                    signals = signals + extra
+
             if not signals:
+                if region_failed:
+                    await bot.send_message(chat_id=chat_id,
+                                           text=f"⚠️ Analyse-Fehler ({strat.label}).")
                 continue
             if _llm_enabled(u):
                 signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
@@ -934,6 +972,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 Auto-Accept: *{'an' if user.get('auto_accept') else 'aus'}*\n"
         f"🌐 Voll-Universum: *{'an' if _auto_uni(user) else 'aus'}*\n"
         f"🧠 Strategien: *{', '.join(strategies.get(k).label for k in _user_strategies(user))}*\n"
+        f"📋 Watchlist: *{len(_user_watchlist(user))}* Symbol(e) — /watchlist\n"
         f"🤖 KI-Ranking (Haiku): *{'an' if _llm_enabled(user) else 'aus'}*\n"
         f"🌙 Tagesende-Schließung: *{'an' if user.get('eod_close', DEFAULT_EOD_CLOSE) else 'aus (über Nacht halten)'}*\n"
         f"{broker_line}\n"
@@ -1081,6 +1120,92 @@ async def cmd_addstrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Aktive Strategien: *{labels}*\nKennzahlen mit /teststrat.",
         parse_mode="Markdown")
+
+
+async def cmd_watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/watchlist — zeigt die persönliche Watchlist (immer zusätzlich analysierte Symbole)."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+    wl = _user_watchlist(user)
+    body = "\n".join(f"  • `{t}`" for t in wl) if wl else "_(leer)_"
+    await update.message.reply_text(
+        f"📋 *Deine Watchlist* ({len(wl)})\n{body}\n\n"
+        "Diese Symbole laufen täglich zusätzlich durch deine Strategie und werden — wenn sie "
+        "auslösen — *immer* gesendet (nie vom Tageslimit weggeschnitten).\n\n"
+        "Hinzufügen: `/watchadd AAPL` (auch ETFs, z. B. `SPY`)\n"
+        "Entfernen: `/watchdel AAPL`",
+        parse_mode="Markdown")
+
+
+async def cmd_watchadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/watchadd <symbol …> — prüft Symbol(e) und fügt sie der Watchlist hinzu.
+    Unbekannte Eingaben → 'Meinten Sie?' (yfinance-Suche, sonst Claude Haiku)."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+    raw = [a.strip().upper() for a in " ".join(context.args).replace(",", " ").split() if a.strip()]
+    if not raw:
+        await update.message.reply_text(
+            "Nutzung: `/watchadd AAPL` (mehrere möglich: `/watchadd AAPL MSFT`).\n"
+            "Funktioniert auch für ETFs (z. B. `SPY`). Übersicht: /watchlist",
+            parse_mode="Markdown")
+        return
+
+    alpaca_client = _alpaca_client(user) if _alpaca_ready(user) else None
+    for sym in raw:
+        info = await asyncio.to_thread(lookup.validate_ticker, sym)
+        if info.get("ok"):
+            wl = db.add_watchlist_tickers(chat_id, [info["symbol"]])
+            typ = "ETF" if info.get("quote_type") == "ETF" else "Aktie"
+            line = f"✅ *{info['symbol']}* ({info.get('name', info['symbol'])}, {typ}) — Kurs ${info['price']:.2f}"
+            if alpaca_client is not None:
+                asset = await asyncio.to_thread(broker.get_asset_info, info["symbol"], alpaca_client)
+                if asset.get("ok"):
+                    line += "\n   📈 Bei Alpaca handelbar ✓" if asset.get("tradable") else \
+                            "\n   ⚠️ Bei Alpaca *nicht* handelbar — wird nur im Demo-Modus berücksichtigt."
+            line += f"\n   📋 Watchlist ({len(wl)}): {', '.join(wl)}"
+            await update.message.reply_text(line, parse_mode="Markdown")
+            continue
+
+        # Nicht gefunden → "Meinten Sie?" (zuerst yfinance-Suche, dann LLM-Fallback)
+        hits = await asyncio.to_thread(lookup.search_symbols, sym)
+        suggestions = [h["symbol"] for h in hits]
+        if not suggestions:
+            suggestions = await asyncio.to_thread(llm_ranker.suggest_tickers, sym)
+        suggestions = [s for s in suggestions if s != sym][:3]
+        if suggestions:
+            await update.message.reply_text(
+                f"❓ *{sym}* nicht gefunden. Meinten Sie: "
+                + ", ".join(f"`{s}`" for s in suggestions)
+                + "?\nHinzufügen z. B. mit `/watchadd " + suggestions[0] + "`.",
+                parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                f"❌ *{sym}* nicht gefunden und keine Vorschläge verfügbar. "
+                "Prüfe das Börsenkürzel (z. B. `AAPL`).", parse_mode="Markdown")
+
+
+async def cmd_watchdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/watchdel <symbol> — entfernt ein Symbol aus der Watchlist."""
+    chat_id = update.effective_chat.id
+    user = _registered_user(chat_id)
+    if not user:
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+    if not context.args:
+        await update.message.reply_text("Nutzung: `/watchdel AAPL`. Übersicht: /watchlist",
+                                        parse_mode="Markdown")
+        return
+    sym = context.args[0].strip().upper()
+    wl = db.remove_watchlist_ticker(chat_id, sym)
+    body = ", ".join(wl) if wl else "_(leer)_"
+    await update.message.reply_text(f"🗑️ *{sym}* entfernt.\n📋 Watchlist ({len(wl)}): {body}",
+                                    parse_mode="Markdown")
 
 
 async def cmd_teststrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1309,6 +1434,9 @@ HELP_TEXT = (
     "/evaluate — Deine aktiven Demo-Trades jetzt auswerten\n"
     "/strategies — Verfügbare Signal-Strategien anzeigen\n"
     "/addstrat <name> — Strategie per Namen wählen (z. B. `adx_trend`)\n"
+    "/watchlist — Persönliche Watchlist anzeigen (immer zusätzlich analysiert)\n"
+    "/watchadd <symbol> — Aktie/ETF zur Watchlist hinzufügen (z. B. `AAPL`, `SPY`)\n"
+    "/watchdel <symbol> — Symbol aus der Watchlist entfernen\n"
     "/teststrat — Backtest-Kennzahlen (Profitfaktor) der aktiven Strategie\n"
     "/kicheck — Prüfen, ob das KI-Ranking (Claude Haiku) funktioniert\n"
     "/connectalpaca — Eigenes Alpaca-Konto verbinden (Keys verschlüsselt speichern)\n"
@@ -1594,6 +1722,9 @@ def main():
     app.add_handler(CommandHandler("evaluate", cmd_evaluate))             # aktive Demo-Trades jetzt sofort auswerten
     app.add_handler(CommandHandler("strategies", cmd_strategies))         # verfügbare Strategien
     app.add_handler(CommandHandler("addstrat", cmd_addstrat))             # Strategie per Namen wählen
+    app.add_handler(CommandHandler("watchlist", cmd_watchlist))           # persönliche Watchlist anzeigen
+    app.add_handler(CommandHandler("watchadd", cmd_watchadd))             # Symbol zur Watchlist hinzufügen
+    app.add_handler(CommandHandler("watchdel", cmd_watchdel))             # Symbol aus der Watchlist entfernen
     app.add_handler(CommandHandler("teststrat", cmd_teststrat))           # Backtest-Kennzahlen der aktiven Strategie
     app.add_handler(CommandHandler("kicheck", cmd_kicheck))               # Selbsttest des KI-Rankings (Claude Haiku)
     app.add_handler(CommandHandler("brokercheck", cmd_brokercheck))       # Selbsttest der Alpaca-Anbindung

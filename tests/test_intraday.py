@@ -7,6 +7,7 @@ Lauf:  python test_intraday.py   oder   pytest test_intraday.py
 
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -378,6 +379,39 @@ def test_factor_history_returns_factor_timeseries():
         assert k in p
     assert 0 <= p["score"] <= 100
     assert 0 <= p["rsi_score"] <= 100
+
+
+# ── _us_market_open: Markt-offen-Gating (Wochentag + ET-Zeitfenster) ─────────
+
+class _FixedClock:
+    """Ersetzt bot.datetime, damit _us_market_open eine feste 'jetzt'-Zeit sieht."""
+    def __init__(self, dt): self._dt = dt
+    def now(self, tz=None): return self._dt
+
+
+def _market_open(dt, extended):
+    orig = bot.datetime
+    bot.datetime = _FixedClock(dt)
+    try:
+        return bot._us_market_open(extended=extended)
+    finally:
+        bot.datetime = orig
+
+
+def test_us_market_open_regular_vs_extended_hours():
+    wed = lambda h, m=0: datetime(2026, 6, 10, h, m)   # Mittwoch (weekday 2)
+    # 10:00 ET → regulär offen (9:30–16:00)
+    assert _market_open(wed(10), extended=False) is True
+    # 08:00 ET → regulär ZU, aber mit Extended Hours offen (4:00–20:00)
+    assert _market_open(wed(8), extended=False) is False
+    assert _market_open(wed(8), extended=True) is True
+
+
+def test_us_market_closed_at_night_and_on_weekend():
+    # 21:00 ET → auch Extended Hours zu (Fenster endet 20:00)
+    assert _market_open(datetime(2026, 6, 10, 21, 0), extended=True) is False
+    # Samstag (weekday 5) → immer zu, egal welche Uhrzeit
+    assert _market_open(datetime(2026, 6, 13, 12, 0), extended=False) is False
 
 
 if __name__ == "__main__":

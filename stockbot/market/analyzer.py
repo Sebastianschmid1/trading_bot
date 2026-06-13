@@ -4,6 +4,8 @@ Indikatoren: RSI, MACD, Moving Averages, Volumen
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -523,19 +525,25 @@ def _extract(data, ticker: str):
 
 
 def _download_all_timeframes(tickers: list[str]) -> dict:
-    """Lädt je konfiguriertem Timeframe einen Batch-Download. Gibt {interval -> data} zurück."""
-    downloads = {}
-    for tf in SIGNAL_TIMEFRAMES:
+    """Lädt je konfiguriertem Timeframe einen Batch-Download – alle TF parallel.
+
+    yfinance ist für getrennte download()-Aufrufe thread-safe; die 4 Timeframes
+    gleichzeitig zu laden spart den Großteil der Wartezeit (sonst seriell ~35-60 s).
+    Gibt {interval -> data|None} zurück; ein Fehler reißt die übrigen TF nicht mit.
+    """
+    def _one(tf):
         try:
-            downloads[tf["interval"]] = yf.download(
+            return tf["interval"], yf.download(
                 tickers, period=tf["period"], interval=tf["interval"],
                 progress=False, auto_adjust=True, group_by="ticker",
                 prepost=True,   # Pre-/After-Market-Bars einbeziehen (Extended-Hours-Handel)
             )
         except Exception as e:
             log.warning(f"Download {tf['interval']} fehlgeschlagen: {e}")
-            downloads[tf["interval"]] = None
-    return downloads
+            return tf["interval"], None
+
+    with ThreadPoolExecutor(max_workers=len(SIGNAL_TIMEFRAMES)) as ex:
+        return dict(ex.map(_one, SIGNAL_TIMEFRAMES))
 
 
 def _tf_data_for(downloads: dict, ticker: str) -> dict:

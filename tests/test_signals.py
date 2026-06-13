@@ -278,6 +278,23 @@ def test_overnight_trade_is_managed_across_days():
     assert row["status"] == "closed" and row["pnl_eur"] == 21.25
 
 
+# ── _merge_ranked: mehrere Körbe zu einer Rangliste zusammenführen ───────────
+
+def test_merge_ranked_dedups_keeping_strongest():
+    a = [{"ticker": "NVDA", "strength": 60}, {"ticker": "AAPL", "strength": 50}]
+    b = [{"ticker": "NVDA", "strength": 80}, {"ticker": "MSFT", "strength": 40}]
+    merged = bot._merge_ranked([a, b])
+    by_ticker = {s["ticker"]: s["strength"] for s in merged}
+    # NVDA kommt in beiden Körben vor → das stärkere Signal (80) gewinnt
+    assert by_ticker == {"NVDA": 80, "AAPL": 50, "MSFT": 40}
+
+
+def test_merge_ranked_ignores_none_lists_and_tickerless_entries():
+    merged = bot._merge_ranked([None, [{"strength": 99}], [{"ticker": "T", "strength": 10}]])
+    # None-Liste und Einträge ohne Ticker werden übersprungen (kein Absturz)
+    assert [s["ticker"] for s in merged] == ["T"]
+
+
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────
 
 if __name__ == "__main__":

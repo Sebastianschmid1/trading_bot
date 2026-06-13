@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
     llm_rank          INTEGER NOT NULL DEFAULT 1,
     eod_close         INTEGER NOT NULL DEFAULT 1,
     broker_exec       INTEGER NOT NULL DEFAULT 0,
+    watchlist         TEXT    NOT NULL DEFAULT '',
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -126,6 +127,9 @@ def _migrate(conn: sqlite3.Connection):
     if "broker_exec" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN broker_exec INTEGER NOT NULL DEFAULT 0")
         log.info("Migration: Spalte users.broker_exec ergänzt.")
+    if "watchlist" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN watchlist TEXT NOT NULL DEFAULT ''")
+        log.info("Migration: Spalte users.watchlist ergänzt.")
 
 
 @contextmanager
@@ -178,6 +182,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "llm_rank":         bool(row["llm_rank"]),
         "eod_close":        bool(row["eod_close"]),
         "broker_exec":      bool(row["broker_exec"]),
+        "watchlist":        _parse_watchlist(row["watchlist"] if "watchlist" in row.keys() else ""),
     }
 
 
@@ -185,6 +190,11 @@ def _parse_strategies(raw: str | None) -> list[str]:
     """Kommagetrennte Strategie-Liste aus der DB → Liste (mind. ein Eintrag)."""
     keys = [s.strip() for s in (raw or "").split(",") if s.strip()]
     return keys or ["standard"]
+
+
+def _parse_watchlist(raw: str | None) -> list[str]:
+    """Kommagetrennte persönliche Watchlist aus der DB → Liste (kann leer sein)."""
+    return [s.strip().upper() for s in (raw or "").split(",") if s.strip()]
 
 
 def _parse_regions(raw: str | None) -> list[str]:
@@ -432,6 +442,34 @@ def toggle_strategy(user_id: int, key: str) -> list[str]:
             (",".join(keys), user_id),
         )
     return keys
+
+
+def add_watchlist_tickers(user_id: int, tickers: list[str]) -> list[str]:
+    """Fügt Symbole zur persönlichen Watchlist hinzu (dedupliziert, großgeschrieben, sortiert).
+    Gibt die neue Liste zurück."""
+    with _connect() as conn:
+        row = conn.execute("SELECT watchlist FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        current = set(_parse_watchlist(row["watchlist"] if row else None))
+        current.update(t.strip().upper() for t in tickers if t.strip())
+        new_list = sorted(current)
+        conn.execute(
+            "UPDATE users SET watchlist = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (",".join(new_list), user_id),
+        )
+    return new_list
+
+
+def remove_watchlist_ticker(user_id: int, ticker: str) -> list[str]:
+    """Entfernt ein Symbol aus der persönlichen Watchlist. Gibt die neue Liste zurück."""
+    target = ticker.strip().upper()
+    with _connect() as conn:
+        row = conn.execute("SELECT watchlist FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        new_list = [t for t in _parse_watchlist(row["watchlist"] if row else None) if t != target]
+        conn.execute(
+            "UPDATE users SET watchlist = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (",".join(new_list), user_id),
+        )
+    return new_list
 
 
 def set_trade_leverage(user_id: int, ticker: str, leverage: float):

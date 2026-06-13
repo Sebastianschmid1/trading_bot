@@ -74,6 +74,26 @@ def health_check(client=None) -> dict:
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
 
 
+def get_asset_info(symbol: str, client=None) -> dict:
+    """Fragt bei Alpaca, ob ein Symbol als Asset handelbar ist (Aktie oder ETF).
+
+    Rückgabe: {"ok": True, "tradable": bool, "asset_class": str, "symbol": str}
+    oder {"ok": False, "detail": …} (Alpaca aus / Symbol unbekannt / Fehler). Wirft nie."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    try:
+        asset = client.get_asset(symbol)
+        return {
+            "ok": True,
+            "symbol": str(getattr(asset, "symbol", symbol)),
+            "tradable": bool(getattr(asset, "tradable", False)),
+            "asset_class": str(getattr(asset, "asset_class", "")),
+        }
+    except Exception as e:
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
 def market_open(client=None) -> bool | None:
     """Ist der reguläre US-Markt laut Alpaca-Clock offen? None, wenn nicht abrufbar."""
     client = _get_client(client)
