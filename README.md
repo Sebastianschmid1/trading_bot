@@ -169,7 +169,7 @@ systemctl status stockbot
 journalctl -u stockbot -f
 ```
 
-**Updates einspielen** .\upload.ps1 "deine commit message" or  (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy.sh`
+**Updates einspielen** .\upload.ps1 "deine commit message" or (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy.sh`
 anpassen und `bash deploy.sh` ausführen — das macht auf dem Server `git pull` +
 Dependencies + `systemctl restart stockbot`.
 `git pull && systemctl restart stockbot`
