@@ -171,6 +171,27 @@ def test_sltp_off_no_warning_when_mode_on_or_strong():
     assert fake_bot.send_message.await_count == 0
 
 
+# ── Aktive Trades: Einsatz/Exposure + gehebelte Rendite ──────────────────────
+
+def test_active_trade_shows_invested_exposure_and_roi():
+    fresh_db()
+    db.yf = _FakeYF(100.0)                        # Einstiegskurs = 100
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=1000.0)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "stop_loss": 95.0, "take_profit": 110.0, "leverage": 5.0}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    db.add_tick(CHAT, "AAPL", 102.0, 60.0)       # +2 % Kursbewegung
+
+    t = [x for x in dashboard.build_dashboard_data(db.get_user(CHAT))["active_trades"]
+         if x["ticker"] == "AAPL"][0]
+    assert t["invested"] == 1000.0               # eingesetzte Margin
+    assert t["exposure"] == 5000.0               # Margin × Hebel = Position im Markt
+    assert round(t["pnl_pct"], 1) == 2.0         # reine Kursbewegung
+    assert round(t["roi_pct"], 1) == 10.0        # +2 % × 5× = +10 % auf die Margin (passt zum €)
+    assert round(t["pnl_eur"], 0) == 100.0       # 1000 € × 2 % × 5
+
+
 # ── Tick-Verlauf in der DB ───────────────────────────────────────────────────
 
 def test_add_and_get_today_ticks():

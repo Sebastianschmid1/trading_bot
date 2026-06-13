@@ -134,6 +134,8 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "entry":       t["entry"],
             "current":     cur,
             "leverage":    leverage,
+            "invested":    round(size, 2),                    # eingesetzte Margin (dein Geld)
+            "exposure":    round(size * leverage, 2),         # Positionsgröße im Markt (Margin × Hebel)
             "pnl_pct":     round(pnl_pct, 2),                 # reine Kursbewegung
             "roi_pct":     round(pnl_eur / size * 100, 2),    # Rendite auf die Margin (inkl. Hebel) = passt zum €
             "pnl_eur":     round(pnl_eur, 2),

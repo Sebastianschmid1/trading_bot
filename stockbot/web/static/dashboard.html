@@ -32,7 +32,6 @@
     #error { display: none; background: #3a1f24; border: 1px solid #5a2a30; color: #ffb3bd; padding: 1rem; border-radius: 10px; }
     /* Mindesthöhe für lesbare Charts */
     .panel canvas { height: 280px !important; }
-    #priceCharts canvas { height: 200px !important; }
     /* Strategie-Umschalter */
     .tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
     .tab { background: var(--card); border: 1px solid var(--border); color: var(--muted);
@@ -55,6 +54,35 @@
     .factor-table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }
     .factor-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); }
     .factor-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* — Feinschliff & Responsive — */
+    .card, .panel { box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+    .panel h2 { display: flex; align-items: center; gap: .5rem; }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll table { min-width: 540px; }                /* erzwingt horiz. Scroll statt Quetschen */
+    tbody tr:hover { background: #1d2740; }
+    td .sub { color: var(--muted); font-size: .72rem; }
+    .row-head { display: flex; justify-content: space-between; align-items: center;
+                gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
+    .row-head h2 { margin-bottom: 0; }
+    select.dd { background: #131a29; color: var(--text); border: 1px solid var(--border);
+                border-radius: 8px; padding: .45rem .7rem; font-size: .88rem; max-width: 60%; }
+    select.dd:focus { outline: none; border-color: var(--accent); }
+    .chip { font-size: .72rem; color: var(--muted); }
+
+    @media (max-width: 640px) {
+      body { padding: .8rem; }
+      h1 { font-size: 1.2rem; }
+      .cards { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; margin-bottom: 1rem; }
+      .card { padding: .8rem .9rem; border-radius: 10px; }
+      .card .value { font-size: 1.3rem; }
+      .panel { padding: .9rem; margin-bottom: 1rem; border-radius: 10px; }
+      .panel canvas { height: 240px !important; }
+      .modal canvas { height: 260px !important; }
+      table { font-size: .82rem; }
+      th, td { padding: .45rem .4rem; }
+      select.dd { max-width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -81,8 +109,8 @@
     </div>
 
     <div class="panel">
-      <h2>📈 Trades einzeln — Kursverlauf (Wertentwicklung)</h2>
-      <div class="meta">Jede Linie = ein Trade, % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen (Intraday-Verlauf), <b>gestrichelt</b> = abgeschlossen (Einstieg→Ausstieg). Grün/rot = Endergebnis. Klick auf einen Punkt öffnet die Detail-Analyse.</div>
+      <h2>📈 Trades einzeln — Wertentwicklung</h2>
+      <div class="meta">Jede Linie = ein Trade, % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen, <b>gestrichelt</b> = abgeschlossen. Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
       <canvas id="tradesLogChart" height="110"></canvas>
     </div>
 
@@ -97,8 +125,11 @@
     </div>
 
     <div class="panel">
-      <h2>🕯 Kursverlauf heute (aktive Trades)</h2>
-      <div id="priceCharts"></div>
+      <div class="row-head">
+        <h2>🕯 Kursverlauf heute</h2>
+        <select id="priceTicker" class="dd" aria-label="Trade wählen"></select>
+      </div>
+      <canvas id="priceChartSingle" height="90"></canvas>
     </div>
   </div>
 
@@ -120,6 +151,8 @@
     const cls = (n) => n >= 0 ? "green" : "red";
     let currentStrategy = "";   // "" = Alle
     let currentDays = 0;        // 0 = Alle; sonst letzte N Tage
+    let currentPriceTicker = null;   // im „Kursverlauf heute"-Dropdown gewählter Trade
+    let intradaySeries = [];         // zuletzt geladene Intraday-Serien (für das Dropdown)
     const rangeLabel = (n) => n === 0 ? "Alle" : (n === 1 ? "1 Tag" : n + " Tage");
 
     // Zerstört einen evtl. schon auf dem Canvas vorhandenen Chart und erzeugt einen neuen.
@@ -268,36 +301,42 @@
         });
       }
 
-      // Einzel-Trades — Kursverlauf je Trade (% ab Einstieg), historische + offene überlagert
+      // Einzel-Trades — Wertentwicklung je Trade (% ab Einstieg), stauchende (signed-log) y-Achse
       const tc = d.trades_curves || [];
       if (!tc.length) {
         replaceCanvas("tradesLogChart", noData);
       } else {
         const sgn = (v) => (v >= 0 ? "+" : "");
+        // signed-log: komprimiert Ausreißer, behält Vorzeichen (log geht nicht mit Minuswerten)
+        const slog = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v));
+        const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
+        const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
         makeChart("tradesLogChart", {
           type: "line",
           data: {
             datasets: tc.map(x => ({
-              label: x.ticker + (x.status === "active" ? " (offen)" : ""),
-              data: x.points,
+              label: x.ticker,
+              data: x.points.map(p => ({ x: p.x, y: slog(p.y) })),
               borderColor: x.final_pct >= 0 ? "#2ecc71" : "#e74c3c",
               backgroundColor: "transparent",
               borderDash: x.status === "active" ? [] : [5, 4],   // offen = durchgezogen, Historie = gestrichelt
-              tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2,
+              tension: 0.25, pointRadius: 0, pointHoverRadius: 4,
+              borderWidth: 1.6, hoverBorderWidth: 3,
             }))
           },
           options: {
-            parsing: false,                 // Daten liegen bereits als {x, y} vor
+            parsing: false,
             interaction: { mode: "nearest", intersect: false },
             plugins: {
-              legend: { labels: { color: "#e6e9ef", boxWidth: 12, font: { size: 11 } } },
+              legend: { display: false },               // Ticker erscheint beim Hovern im Tooltip
               tooltip: {
                 callbacks: {
                   title: () => "",
                   label: (item) => {
                     const x = tc[item.datasetIndex];
+                    const real = sexp(item.parsed.y);
                     return `${x.ticker} · ${x.date}${x.status === "active" ? " (offen)" : ""}: `
-                         + `${sgn(item.parsed.y)}${item.parsed.y.toFixed(2)}%`
+                         + `${sgn(real)}${real.toFixed(1)}%`
                          + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
                   }
                 }
@@ -308,8 +347,15 @@
               x: { type: "linear", min: 0, max: 100,
                    title: { display: true, text: "Verlauf:  0 = Einstieg  →  jetzt / Ausstieg", color: "#8a93a6" },
                    ticks: { display: false }, grid: { color: "#222a3a" } },
-              y: { title: { display: true, text: "Wertentwicklung", color: "#8a93a6" },
-                   ticks: { color: "#8a93a6", callback: v => v + "%" }, grid: { color: "#222a3a" } }
+              y: { type: "linear",
+                   afterBuildTicks: (axis) => {
+                     if (!isFinite(axis.min) || !isFinite(axis.max)) return;
+                     const t = NICE.filter(p => slog(p) >= axis.min && slog(p) <= axis.max)
+                                   .map(p => ({ value: slog(p) }));
+                     if (t.length) axis.ticks = t;
+                   },
+                   ticks: { color: "#8a93a6", callback: (v) => { const r = sexp(v); return (r >= 0 ? "+" : "") + r.toFixed(0) + "%"; } },
+                   grid: { color: "#222a3a" } }
             }
           }
         });
@@ -317,16 +363,18 @@
 
       // Aktive Trades
       const act = d.active_trades;
+      const eur0 = (n) => Math.round(n).toLocaleString("de-DE") + "€";
       if (!act.length) {
         document.getElementById("active").innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
       } else {
         document.getElementById("active").innerHTML = `
-          <table>
-            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
+          <div class="table-scroll"><table>
+            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einsatz</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
             <tbody>${act.map(t => `
               <tr class="clickable" data-ticker="${t.ticker}">
                 <td><b>${t.ticker}</b></td>
                 <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
+                <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
                 <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
                 <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
                 <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
@@ -334,7 +382,7 @@
                 <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
               </tr>`).join("")}
             </tbody>
-          </table>`;
+          </table></div>`;
       }
 
       // Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker
@@ -367,43 +415,54 @@
         });
       }
 
-      // #6 Kursverlauf heute — pro Ticker ein eigener Chart mit SL/TP-Linien
-      const pc = document.getElementById("priceCharts");
-      // alte (dynamische) Kurs-Charts zerstören, bevor die Canvas-Elemente ersetzt werden
-      pc.querySelectorAll("canvas").forEach(cv => { const ch = Chart.getChart(cv); if (ch) ch.destroy(); });
+      // #6 Kursverlauf heute — EIN Chart, per Dropdown wählbar
+      intradaySeries = intraday;
+      const sel = document.getElementById("priceTicker");
       if (!intraday.length) {
-        pc.innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
+        sel.style.display = "none";
+        replaceCanvas("priceChartSingle", "Keine aktiven Trades.");
       } else {
-        pc.innerHTML = intraday.map(s =>
-          `<div style="margin-bottom:1rem"><div class="label">${s.ticker}</div>
-           <canvas id="price_${s.ticker}" height="70"></canvas></div>`).join("");
-        intraday.forEach((s, i) => {
-          const labels = s.points.map(p => p.t);
-          const refLine = (val, color) => val == null ? null : ({
-            label: "", data: labels.map(() => val), borderColor: color,
-            borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false,
-          });
-          const datasets = [{
-            label: s.ticker + " Kurs", data: s.points.map(p => p.price),
-            borderColor: palette[i % palette.length], backgroundColor: "transparent",
-            tension: .25, pointRadius: 0,
-          }];
-          const tp = refLine(s.take_profit, "#2ecc71"), sl = refLine(s.stop_loss, "#e74c3c"),
-                en = refLine(s.entry, "#8a93a6");
-          [tp, sl, en].forEach(r => r && datasets.push(r));
-          makeChart("price_" + s.ticker, {
-            type: "line",
-            data: { labels, datasets },
-            options: {
-              plugins: { legend: { display: false } },
-              scales: {
-                x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-                y: { ticks: { color: "#8a93a6", callback: v => "$" + v }, grid: { color: "#222a3a" } }
-              }
-            }
-          });
-        });
+        sel.style.display = "";
+        if (!currentPriceTicker || !intraday.some(s => s.ticker === currentPriceTicker)) {
+          currentPriceTicker = intraday[0].ticker;
+        }
+        sel.innerHTML = intraday.map(s =>
+          `<option value="${s.ticker}"${s.ticker === currentPriceTicker ? " selected" : ""}>${s.ticker}</option>`).join("");
+        renderPriceChart(intraday.find(s => s.ticker === currentPriceTicker));
       }
+    }
+
+    // Einzelner Kursverlauf-Chart (für den im Dropdown gewählten Trade), mit SL/TP/Einstieg-Linien
+    function renderPriceChart(s) {
+      if (!s || !s.points || !s.points.length) { replaceCanvas("priceChartSingle", "Keine Daten."); return; }
+      const labels = s.points.map(p => p.t);
+      const refLine = (val, color, label) => val == null ? null : ({
+        label, data: labels.map(() => val), borderColor: color,
+        borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false,
+      });
+      const datasets = [{
+        label: s.ticker, data: s.points.map(p => p.price),
+        borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.10)",
+        tension: .25, pointRadius: 0, fill: true,
+      }];
+      [refLine(s.take_profit, "#2ecc71", "Take-Profit"),
+       refLine(s.stop_loss, "#e74c3c", "Stop-Loss"),
+       refLine(s.entry, "#8a93a6", "Einstieg")].forEach(r => r && datasets.push(r));
+      makeChart("priceChartSingle", {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          interaction: { mode: "nearest", intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: (i) => `${i.dataset.label}: $${(+i.parsed.y).toFixed(2)}` } }
+          },
+          scales: {
+            x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+            y: { ticks: { color: "#8a93a6", callback: v => "$" + v }, grid: { color: "#222a3a" } }
+          }
+        }
+      });
     }
 
     // ── Detail-Analyse einer Aktie (Klick auf Trade / Ticker-Balken) ──────────
@@ -488,6 +547,13 @@
       if (e.target.id === "modal") closeModal();
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+    // „Kursverlauf heute"-Dropdown: gewählten Trade anzeigen
+    document.getElementById("priceTicker").addEventListener("change", (e) => {
+      currentPriceTicker = e.target.value;
+      const s = intradaySeries.find(x => x.ticker === currentPriceTicker);
+      if (s) renderPriceChart(s);
+    });
 
     load();
   </script>
