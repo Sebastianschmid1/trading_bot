@@ -414,31 +414,37 @@ def _load_report(name: str) -> dict | None:
         return None
 
 
-def _filter_report(report: dict | None, selected: list) -> dict | None:
-    """Beschränkt die Zeilen eines Reports auf die ausgewählten Strategien (leer = alle)."""
-    if not report or not selected:
-        return report
-    r = dict(report)
-    r["rows"] = [row for row in report.get("rows", []) if row["key"] in selected]
-    return r
-
-
 @router.get("/app/reports", response_class=HTMLResponse)
-def app_reports(request: Request, strat: list[str] = Query(default=[])):
+def app_reports(request: Request,
+                strat: list[str] = Query(default=[]),
+                lev: list[str] = Query(default=[]),
+                mode: list[str] = Query(default=[])):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
     strategies = _load_report("strategies")
-    sltp = _load_report("sltp")
-    leverage = _load_report("leverage")
-    options = [{"key": r["key"], "label": r["label"]} for r in (strategies or {}).get("rows", [])]
-    valid = {o["key"] for o in options}
-    selected = [s for s in strat if s in valid]
+    matrix = _load_report("matrix")
+
+    strat_options = (matrix or {}).get("strategies") or \
+        [{"key": r["key"], "label": r["label"]} for r in (strategies or {}).get("rows", [])]
+    lev_options = [str(x) for x in (matrix or {}).get("leverages", [])]
+    mode_options = (matrix or {}).get("modes", [])
+
+    # Auswahl gegen gültige Werte filtern; leere Auswahl = alle (auch in der UI vorausgewählt).
+    sel_strat = [s for s in strat if s in {o["key"] for o in strat_options}] or [o["key"] for o in strat_options]
+    sel_lev = [l for l in lev if l in lev_options] or lev_options
+    sel_mode = [m for m in mode if m in mode_options] or mode_options
+
+    rows = []
+    for r in (matrix or {}).get("rows", []):
+        if r["key"] in sel_strat and str(r["leverage"]) in sel_lev and r["mode"] in sel_mode:
+            rows.append(r)
+    rows.sort(key=lambda r: (r.get("return_pct") if r.get("return_pct") is not None else -1e9), reverse=True)
+
     return _render("reports.html", request, user, active="reports",
-                   strategies=_filter_report(strategies, selected),
-                   sltp=_filter_report(sltp, selected),
-                   leverage=_filter_report(leverage, selected),
-                   strat_options=options, selected=selected)
+                   strategies=strategies, matrix=matrix, rows=rows,
+                   strat_options=strat_options, lev_options=lev_options, mode_options=mode_options,
+                   sel_strat=sel_strat, sel_lev=sel_lev, sel_mode=sel_mode)
 
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────

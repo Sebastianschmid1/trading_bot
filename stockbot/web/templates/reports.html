@@ -1,52 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Reports — Stock Signal Bot{% endblock %}
 
-{% macro mcells(m) %}
-  <td class="r">{{ m.trades }}</td>
-  <td class="r">{{ '%.0f'|format(m.win_rate) ~ '%' if m.win_rate is not none else '—' }}</td>
-  <td class="r">{% if m.trades == 0 %}—{% elif m.profit_factor is none %}∞{% else %}{{ '%.2f'|format(m.profit_factor) }}{% endif %}</td>
-  <td class="r">{{ '%.2f'|format(m.expectancy) if m.expectancy is not none else '—' }}</td>
-  <td class="r">{{ '%.1f'|format(m.max_drawdown_pct) ~ '%' if m.max_drawdown_pct is not none else '—' }}</td>
-  <td class="r {{ 'pos' if (m.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '{:+,.0f}$'.format(m.total_pnl_eur or 0) }}</td>
-{% endmacro %}
-
-{% set head %}
-  <th class="r">Trades</th><th class="r">Win%</th><th class="r">Profitf.</th>
-  <th class="r">Erw.wert</th><th class="r">MaxDD%</th><th class="r">P&amp;L</th>
-{% endset %}
-
 {% block content %}
+<style>
+  .filters fieldset { border:1px solid var(--line); border-radius:.6rem; margin:.5rem 0; padding:.4rem .7rem .6rem; }
+  .filters legend { padding:0 .4rem; color:var(--muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; }
+  .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.3rem .65rem; margin:.18rem;
+          border:1px solid var(--line); border-radius:1rem; cursor:pointer; font-size:.88rem; user-select:none; }
+  .chip:hover { background:var(--panel2); }
+  .chip input { accent-color:var(--blue); margin:0; width:1rem; height:1rem; }
+  .filters .actions { margin-top:.5rem; display:flex; gap:.5rem; align-items:center; }
+  .scroll { overflow-x:auto; }
+</style>
+
 <h1>Reports</h1>
-{% if not strategies and not selected %}
+{% if not matrix %}
   <p class="muted">Noch keine Reports vorhanden. Erzeuge sie mit
     <code>python -m tools.sweep_report</code> (sie werden bei jedem Deploy mitgeliefert).</p>
 {% else %}
-<p class="muted">Backtest-Sweeps über das vollständige {{ strategies.region }}-Universum
-  ({{ strategies.n_tickers }} Werte, {{ strategies.years }} Jahre, Stand {{ strategies.generated_at }}).
-  Einheitlich <strong>{{ '{:,.0f}'.format(strategies.trade_size_usd) }} USD pro Trade</strong>.
-  Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust im Zeitraum.</p>
+<p class="muted">Vollständiges {{ matrix.region }}-Universum ({{ matrix.n_tickers }} Werte, {{ matrix.years }} Jahre,
+  Stand {{ matrix.generated_at }}). Einheitlich <strong>{{ '{:,.0f}'.format(matrix.trade_size_usd) }} USD pro Trade</strong>,
+  Portfolio Top-{{ matrix.portfolio_top_n }}/Tag. Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust.</p>
 
-<form class="card" method="get" action="/app/reports">
-  <strong>Strategie-Filter</strong>
-  <p class="muted" style="margin:.3rem 0">Mehrere wählbar (Strg/Cmd-Klick bzw. langes Tippen). Keine Auswahl = alle.</p>
-  <div class="row">
-    <select name="strat" multiple size="{{ strat_options|length }}" style="min-width:220px">
-      {% for o in strat_options %}
-      <option value="{{ o.key }}" {{ 'selected' if o.key in selected }}>{{ o.label }} ({{ o.key }})</option>
-      {% endfor %}
-    </select>
-    <button class="on">Anwenden</button>
-    <a class="btn" href="/app/reports">Alle anzeigen</a>
-  </div>
-</form>
-
-<h2>Overall View — nach Strategie <span class="muted">(native SL/TP, Hebel 1)</span></h2>
+{% if strategies %}
+<h2>Overall View <span class="muted">(native SL/TP, Hebel 1)</span></h2>
+<div class="scroll">
 <table>
   <tr>
-    <th>Strategie</th>
-    <th class="r">Eingesetzt</th><th class="r">Endkapital</th>
-    <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th><th class="r">Trefferquote%</th>
-    <th class="r">Profitf.</th><th class="r">Erw.wert</th><th class="r">MaxDD%</th>
+    <th>Strategie</th><th class="r">Eingesetzt</th><th class="r">Endkapital</th>
+    <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th>
+    <th class="r">Trefferquote%</th><th class="r">Profitf.</th><th class="r">Ø&nbsp;Halten</th><th class="r">MaxDD%</th>
   </tr>
   {% for r in strategies.rows %}
   <tr>
@@ -58,36 +41,65 @@
     <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>
     <td class="r">{{ '%.0f'|format(r.win_rate) ~ '%' if r.win_rate is not none else '—' }}</td>
     <td class="r">{% if r.trades == 0 %}—{% elif r.profit_factor is none %}∞{% else %}{{ '%.2f'|format(r.profit_factor) }}{% endif %}</td>
-    <td class="r">{{ '%.2f'|format(r.expectancy) if r.expectancy is not none else '—' }}</td>
+    <td class="r">{{ '%.1f'|format(r.avg_hold_days) ~ ' T' if r.avg_hold_days is not none else '—' }}</td>
     <td class="r">{{ '%.1f'|format(r.max_drawdown_pct) ~ '%' if r.max_drawdown_pct is not none else '—' }}</td>
   </tr>
   {% endfor %}
 </table>
-
-<h2>Nach SL/TP-Modus <span class="muted">(passiv / normal / aggressiv, Hebel 1)</span></h2>
-{% for r in sltp.rows %}
-<div class="card">
-  <strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span>
-  <table style="margin-top:.4rem">
-    <tr><th>Modus</th>{{ head }}</tr>
-    {% for mode in sltp.modes %}
-    <tr><td>{{ mode }}</td>{{ mcells(r.by_mode[mode]) }}</tr>
-    {% endfor %}
-  </table>
 </div>
-{% endfor %}
+{% endif %}
 
-<h2>Nach Hebel <span class="muted">(Portfolio: Top-{{ leverage.portfolio_top_n }}/Tag, native SL/TP)</span></h2>
-{% for r in leverage.rows %}
-<div class="card">
-  <strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span>
-  <table style="margin-top:.4rem">
-    <tr><th>Hebel</th>{{ head }}</tr>
-    {% for lev in leverage.leverages %}
-    <tr><td>{{ lev }}×</td>{{ mcells(r.by_lev[lev|string]) }}</tr>
+<h2>Matrix — Strategie × Hebel × SL/TP-Modus</h2>
+<form class="card filters" method="get" action="/app/reports">
+  <fieldset>
+    <legend>Strategien</legend>
+    {% for o in strat_options %}
+    <label class="chip"><input type="checkbox" name="strat" value="{{ o.key }}" {{ 'checked' if o.key in sel_strat }}>{{ o.label }}</label>
     {% endfor %}
-  </table>
+  </fieldset>
+  <fieldset>
+    <legend>Hebel</legend>
+    {% for l in lev_options %}
+    <label class="chip"><input type="checkbox" name="lev" value="{{ l }}" {{ 'checked' if l in sel_lev }}>{{ l }}×</label>
+    {% endfor %}
+  </fieldset>
+  <fieldset>
+    <legend>SL/TP-Modus</legend>
+    {% for m in mode_options %}
+    <label class="chip"><input type="checkbox" name="mode" value="{{ m }}" {{ 'checked' if m in sel_mode }}>{{ m }}</label>
+    {% endfor %}
+  </fieldset>
+  <div class="actions">
+    <button class="on">Anwenden</button>
+    <a class="btn" href="/app/reports">Zurücksetzen</a>
+    <span class="muted">{{ rows|length }} von {{ matrix.rows|length }} Analysen</span>
+  </div>
+</form>
+
+<div class="scroll">
+<table>
+  <tr>
+    <th>Strategie</th><th>Hebel</th><th>Modus</th>
+    <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th>
+    <th class="r">Trefferq.%</th><th class="r">Profitf.</th><th class="r">Ø&nbsp;Halten</th>
+    <th class="r">Liquid.</th><th class="r">MaxDD%</th>
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td><strong>{{ r.label }}</strong></td>
+    <td>{{ r.leverage }}×</td>
+    <td>{{ r.mode }}</td>
+    <td class="r">{{ r.trades }}</td>
+    <td class="r {{ 'pos' if (r.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '{:+,.0f}$'.format(r.total_pnl_eur or 0) }}</td>
+    <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>
+    <td class="r">{{ '%.0f'|format(r.win_rate) ~ '%' if r.win_rate is not none else '—' }}</td>
+    <td class="r">{% if r.trades == 0 %}—{% elif r.profit_factor is none %}∞{% else %}{{ '%.2f'|format(r.profit_factor) }}{% endif %}</td>
+    <td class="r">{{ '%.1f'|format(r.avg_hold_days) ~ ' T' if r.avg_hold_days is not none else '—' }}</td>
+    <td class="r {{ 'neg' if (r.liquidations or 0) > 0 }}">{{ r.liquidations }}</td>
+    <td class="r">{{ '%.1f'|format(r.max_drawdown_pct) ~ '%' if r.max_drawdown_pct is not none else '—' }}</td>
+  </tr>
+  {% endfor %}
+</table>
 </div>
-{% endfor %}
 {% endif %}
 {% endblock %}

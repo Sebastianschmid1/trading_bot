@@ -1,13 +1,13 @@
 """
 Backtest-Sweep-Reports für die Website (Reiter „Reports").
 
-Erzeugt drei JSON-Reports unter data/reports/:
-  - strategies.json : je Strategie eine Kennzahlen-Zeile (native SL/TP, Hebel 1).
-  - sltp.json       : je Strategie × SL/TP-Modus (passiv/normal/aggressiv).
-  - leverage.json   : je Strategie × Hebel (1/2/3/5/10), Portfolio-Simulation.
+Erzeugt zwei JSON-Reports unter data/reports/:
+  - strategies.json : Overall-View — je Strategie eine Kennzahlen-Zeile (native SL/TP, Hebel 1).
+  - matrix.json     : VOLLE Matrix aus Strategie × SL/TP-Modus × Hebel (7×3×5 = 105 Analysen),
+                      je mit Trades, P&L, Rendite, Trefferquote, Ø Haltedauer und Liquidationen.
 
 Effizient: lädt den Korb EINMAL und berechnet die Signale EINMAL je Strategie (der teure Teil);
-alle Reports werden aus denselben „Fires" abgeleitet (SL/TP bzw. Hebel nur in der Simulation variiert).
+alle 105 Analysen werden aus denselben „Fires" abgeleitet (SL/TP bzw. Hebel nur in der Simulation variiert).
 
 Lauf (im Repo-Root, venv aktiv):
   python -m tools.sweep_report                 # kuratierter S&P-Korb, 2 Jahre
@@ -132,7 +132,11 @@ def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
     trades = engine.simulate_portfolio(data, by_date, top_n=top_n, leverage=leverage,
                                        trade_size=trade_size, max_concurrent=max_concurrent,
                                        max_hold=engine.MAX_HOLD_DAYS)
-    return _slim(metrics_mod.compute_metrics(trades, initial_capital=initial_capital))
+    m = _slim(metrics_mod.compute_metrics(trades, initial_capital=initial_capital))
+    holds = [t["hold_days"] for t in trades if t.get("hold_days") is not None]
+    m["avg_hold_days"] = round(sum(holds) / len(holds), 1) if holds else None
+    m["liquidations"] = sum(1 for t in trades if t.get("reason") == "Liquidation")
+    return m
 
 
 def collect(region: str, years: int, limit: int | None, full: bool = True, jobs: int = 1) -> dict:
@@ -144,7 +148,7 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
     data = engine._download_daily(tickers, years)
     print(f"→ {len(data)} Ticker mit ausreichender Historie.", flush=True)
 
-    strat_rows, sltp_rows, lev_rows = [], [], []
+    strat_rows, matrix_rows = [], []
     big = max(50, len(data))            # „alle Signale" (Einzelposition je Ticker, kein Top-N-Schnitt)
 
     keys = [s.key for s in strat_mod.all_strategies()]
@@ -156,29 +160,21 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         print(f"  · {s.key}: {sum(len(v) for v in by_date.values())} Signale → Reports ableiten ...", flush=True)
 
         # einheitlicher Einsatz 1.000 USD/Trade in ALLEN Reports.
-        # Strategie-Report: native SL/TP, Hebel 1, alle Signale.
+        # Overall-View: native SL/TP, Hebel 1, alle Signale (Einzelposition).
         strat_rows.append({"key": s.key, "label": s.label,
                            **_sim_metrics(data, by_date, top_n=big, leverage=1.0,
                                           trade_size=TRADE_SIZE, initial_capital=TRADE_SIZE * 10,
                                           max_concurrent=big)})
 
-        # SL/TP-Report: je Modus (per ATR), Hebel 1.
-        by_mode = {}
+        # Vollständige Matrix: jede Kombination aus SL/TP-Modus × Hebel (Portfolio Top-N/Tag).
+        by_mode = {mode: _with_mode(by_date, mode) for mode in MODES}
         for mode in MODES:
-            bm = _with_mode(by_date, mode)
-            by_mode[mode] = _sim_metrics(data, bm, top_n=big, leverage=1.0,
-                                         trade_size=TRADE_SIZE, initial_capital=TRADE_SIZE * 10,
-                                         max_concurrent=big)
-        sltp_rows.append({"key": s.key, "label": s.label, "by_mode": by_mode})
-
-        # Hebel-Report: native SL/TP, Portfolio (Top-N/Tag), je Hebel.
-        by_lev = {}
-        for lev in LEVERAGES:
-            by_lev[str(lev)] = _sim_metrics(data, by_date, top_n=PORTFOLIO_TOPN, leverage=float(lev),
-                                            trade_size=TRADE_SIZE,
-                                            initial_capital=TRADE_SIZE * PORTFOLIO_TOPN,
-                                            max_concurrent=PORTFOLIO_TOPN)
-        lev_rows.append({"key": s.key, "label": s.label, "by_lev": by_lev})
+            for lev in LEVERAGES:
+                m = _sim_metrics(data, by_mode[mode], top_n=PORTFOLIO_TOPN, leverage=float(lev),
+                                 trade_size=TRADE_SIZE, initial_capital=TRADE_SIZE * PORTFOLIO_TOPN,
+                                 max_concurrent=PORTFOLIO_TOPN)
+                matrix_rows.append({"key": s.key, "label": s.label,
+                                    "mode": mode, "leverage": lev, **m})
 
     meta = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -188,8 +184,9 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
     }
     return {
         "strategies": {**meta, "rows": strat_rows},
-        "sltp":       {**meta, "modes": MODES, "rows": sltp_rows},
-        "leverage":   {**meta, "leverages": LEVERAGES, "rows": lev_rows},
+        "matrix":     {**meta, "modes": MODES, "leverages": LEVERAGES,
+                       "strategies": [{"key": s.key, "label": s.label} for s in strat_mod.all_strategies()],
+                       "rows": matrix_rows},
     }
 
 

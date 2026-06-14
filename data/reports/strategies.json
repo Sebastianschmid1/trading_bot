@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-14 21:35 UTC",
+  "generated_at": "2026-06-14 21:46 UTC",
   "region": "sp500",
   "years": 2,
   "n_tickers": 501,
@@ -13,12 +13,14 @@
       "trades": 9356,
       "win_rate": 43.1,
       "profit_factor": 1.26,
-      "total_pnl_eur": 54032.14,
+      "total_pnl_eur": 54032.09,
       "max_drawdown_pct": 45.91,
       "expectancy": 5.78,
       "invested_capital": 9356000.0,
-      "end_capital": 9410032.14,
-      "return_pct": 0.5775132535271483
+      "end_capital": 9410032.09,
+      "return_pct": 0.577512719110731,
+      "avg_hold_days": 8.7,
+      "liquidations": 0
     },
     {
       "key": "adx_trend",
@@ -31,7 +33,9 @@
       "expectancy": 13.21,
       "invested_capital": 2278000.0,
       "end_capital": 2308101.49,
-      "return_pct": 1.3213999122036877
+      "return_pct": 1.3213999122036877,
+      "avg_hold_days": 19.3,
+      "liquidations": 0
     },
     {
       "key": "rsi_revert",
@@ -44,20 +48,24 @@
       "expectancy": 7.21,
       "invested_capital": 401000.0,
       "end_capital": 403890.57,
-      "return_pct": 0.7208403990024939
+      "return_pct": 0.7208403990024939,
+      "avg_hold_days": 9.4,
+      "liquidations": 0
     },
     {
       "key": "breakout",
       "label": "Donchian-Ausbruch (20T)",
-      "trades": 6256,
+      "trades": 6253,
       "win_rate": 41.1,
       "profit_factor": 1.33,
-      "total_pnl_eur": 59694.24,
-      "max_drawdown_pct": 60.74,
-      "expectancy": 9.54,
-      "invested_capital": 6256000.0,
-      "end_capital": 6315694.24,
-      "return_pct": 0.9541918158567775
+      "total_pnl_eur": 59405.22,
+      "max_drawdown_pct": 61.17,
+      "expectancy": 9.5,
+      "invested_capital": 6253000.0,
+      "end_capital": 6312405.22,
+      "return_pct": 0.9500275067967375,
+      "avg_hold_days": 15.3,
+      "liquidations": 0
     },
     {
       "key": "ma_trend",
@@ -65,12 +73,14 @@
       "trades": 6579,
       "win_rate": 39.0,
       "profit_factor": 1.29,
-      "total_pnl_eur": 42383.26,
+      "total_pnl_eur": 42383.24,
       "max_drawdown_pct": 33.22,
       "expectancy": 6.44,
       "invested_capital": 6579000.0,
-      "end_capital": 6621383.26,
-      "return_pct": 0.6442203982368141
+      "end_capital": 6621383.24,
+      "return_pct": 0.6442200942392461,
+      "avg_hold_days": 10.0,
+      "liquidations": 0
     },
     {
       "key": "high52",
@@ -78,12 +88,14 @@
       "trades": 3085,
       "win_rate": 43.1,
       "profit_factor": 1.3,
-      "total_pnl_eur": 29315.74,
+      "total_pnl_eur": 29315.75,
       "max_drawdown_pct": 50.14,
       "expectancy": 9.5,
       "invested_capital": 3085000.0,
-      "end_capital": 3114315.74,
-      "return_pct": 0.9502670988654782
+      "end_capital": 3114315.75,
+      "return_pct": 0.9502674230145867,
+      "avg_hold_days": 20.1,
+      "liquidations": 0
     },
     {
       "key": "high52_wide",
@@ -96,7 +108,9 @@
       "expectancy": 12.93,
       "invested_capital": 4211000.0,
       "end_capital": 4265436.98,
-      "return_pct": 1.2927328425552127
+      "return_pct": 1.2927328425552127,
+      "avg_hold_days": 20.4,
+      "liquidations": 0
     }
   ]
 }
