@@ -157,7 +157,7 @@ def logout_all(request: Request):
 # ── App-Startseite: Signale + aktive Trades ──────────────────────────────────
 
 @router.get("/app", response_class=HTMLResponse)
-def app_home(request: Request, msg: str = ""):
+def app_home(request: Request, msg: str = "", atf: str = ""):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
@@ -171,11 +171,18 @@ def app_home(request: Request, msg: str = ""):
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
     active_trades = build_dashboard_data(user)["active_trades"]
+    # Anlageklasse je aktivem Trade ableiten + optional filtern (atf = Klassen-Key oder leer = alle)
+    label_by_key = {c.key: c.label for c in asset_classes.all_asset_classes()}
+    for t in active_trades:
+        t["asset_key"] = asset_classes.classify_ticker(t["ticker"])
+        t["asset_label"] = label_by_key.get(t["asset_key"], "Aktien")
+    if atf in label_by_key:
+        active_trades = [t for t in active_trades if t["asset_key"] == atf]
     asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
     return _render("app.html", request, user, active="home", msg=msg,
                    pending=pending, active_trades=active_trades, leverages=config.LEVERAGE_CHOICES,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
-                   scanned=_scanned_for(user))
+                   scanned=_scanned_for(user), trade_filter=atf)
 
 
 @router.post("/app/asset")
@@ -207,6 +214,8 @@ async def app_scan(request: Request, asset: str = Form(None)):
     classes = asset_classes.all_asset_classes() if pref == "all" \
         else [asset_classes.get_asset_class(pref)]
 
+    sl_tp_mode = user.get("sl_tp_mode") or "normal"
+
     def _work():
         merged = []
         for cls in classes:
@@ -214,6 +223,7 @@ async def app_scan(request: Request, asset: str = Form(None)):
             if not tickers:
                 continue
             for s in analyzer.analyze_universe(tickers, profile=cls.profile):
+                analyzer.apply_sl_tp_mode(s, sl_tp_mode)     # gewählter SL/TP-Modus wirkt auf alle Strategien
                 s["asset_label"] = cls.label
                 merged.append(s)
         merged.sort(key=lambda s: s.get("strength", 0) or 0, reverse=True)
@@ -391,6 +401,28 @@ async def app_stream(request: Request):
             await asyncio.sleep(3)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ── Reports (Backtest-Sweeps: Strategie / SL-TP-Modus / Hebel) ───────────────
+
+def _load_report(name: str) -> dict | None:
+    from stockbot.paths import REPORTS_DIR
+    path = REPORTS_DIR / f"{name}.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+@router.get("/app/reports", response_class=HTMLResponse)
+def app_reports(request: Request):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    return _render("reports.html", request, user, active="reports",
+                   strategies=_load_report("strategies"),
+                   sltp=_load_report("sltp"),
+                   leverage=_load_report("leverage"))
 
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────

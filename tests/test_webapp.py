@@ -19,6 +19,8 @@ from stockbot.core import db
 from stockbot.market import lookup
 from stockbot.services import notifications as notify_svc
 from stockbot.web import auth
+from stockbot.web import dashboard as _dashboard   # zuerst importieren: vermeidet Zirkularimport
+from stockbot.web import webapp                     # (webapp wird normal über dashboard geladen)
 
 CHAT = 4242
 
@@ -42,6 +44,8 @@ def fresh():
     db.yf = _FakeYF(100.0)
     db.get_or_create_user(CHAT, "weytester")
     db.save_profile(CHAT, trade_size_eur=100.0)
+    auth._auth_hits.clear()          # Rate-Limit-Zähler je Test zurücksetzen (sonst kumuliert er)
+    webapp._scan_cache.clear()       # On-Demand-Scan-Cache je Test leeren (modulglobal)
     return db.get_or_create_dashboard_token(CHAT)
 
 
@@ -246,6 +250,41 @@ def test_scan_all_merges_classes_by_strength(monkeypatch):
     assert db.get_user(CHAT)["asset_pref"] == "all"
     r = c.get("/app")
     assert "BTC-USD" in r.text and "Krypto" in r.text          # stärkster Treffer quer über alle Klassen
+
+
+def test_scan_applies_user_sl_tp_mode(monkeypatch):
+    """Der gewählte SL/TP-Modus (hier passiv) wirkt auf die angeforderten Signale."""
+    fresh()
+    db.set_sl_tp_mode(CHAT, "passiv")        # (1.0, 1.5)
+    from stockbot.market import analyzer, asset_classes
+    monkeypatch.setattr(asset_classes.universes, "get_tickers", lambda region, auto=True: ["NVDA"])
+    monkeypatch.setattr(analyzer, "analyze_universe",
+                        lambda tickers, profile=None: [{"ticker": "NVDA", "direction": "long",
+                                                        "price": 100.0, "atr": 2.0, "strength": 70.0,
+                                                        "stop_loss": 80.0, "take_profit": 140.0}])
+    monkeypatch.setattr(analyzer, "price_history_batch", lambda tickers, days=7: {})
+    c = _client()
+    c.post("/app/scan", data={"asset": "stocks"}, follow_redirects=False)
+    r = c.get("/app")
+    assert "$98.00" in r.text and "$103.00" in r.text       # passiv: SL 98 / TP 103 statt 80/140
+
+
+def test_active_trades_asset_filter():
+    fresh()
+    for tk in ("NVDA", "BTC-USD"):
+        db.add_pending(CHAT, {"ticker": tk, "direction": "long", "price": 100.0, "leverage": 1.0}, 1)
+        db.activate_trade(CHAT, tk)
+    c = _client()
+    all_text = c.get("/app").text
+    assert "NVDA" in all_text and "BTC-USD" in all_text
+    crypto = c.get("/app?atf=crypto").text
+    assert "BTC-USD" in crypto and "NVDA" not in crypto      # gefiltert auf Krypto
+
+
+def test_reports_tab_without_data_shows_hint():
+    fresh()
+    r = _client().get("/app/reports")
+    assert r.status_code == 200 and "Reports" in r.text
 
 
 def test_scan_accept_expired_signal_is_safe():

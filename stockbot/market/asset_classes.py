@@ -115,6 +115,25 @@ def get_asset_class(key: str | None) -> AssetClass:
     return ASSET_CLASSES.get(key or "", ASSET_CLASSES[DEFAULT_ASSET])
 
 
+# Schnelle Zuordnung Ticker → Klasse (für den Filter aktiver Trades).
+_TICKER_CLASS = {}
+for _k, _lst in (("crypto", config.UNIVERSE_CRYPTO), ("commodity", config.UNIVERSE_COMMODITY),
+                 ("etf", config.UNIVERSE_ETF)):
+    for _t in _lst:
+        _TICKER_CLASS.setdefault(_t.upper(), _k)
+
+
+def classify_ticker(ticker: str) -> str:
+    """Ordnet einen Ticker einer Anlageklasse zu (crypto/commodity/etf, sonst 'stocks').
+    Krypto erkennt zusätzlich am '-USD'-Suffix (yfinance), falls nicht in der Liste."""
+    t = (ticker or "").upper()
+    if t in _TICKER_CLASS:
+        return _TICKER_CLASS[t]
+    if t.endswith("-USD"):
+        return "crypto"
+    return "stocks"
+
+
 def all_asset_classes() -> list[AssetClass]:
     """Alle registrierten Asset-Klassen in Anzeige-Reihenfolge (Aktien zuerst)."""
     return list(ASSET_CLASSES.values())

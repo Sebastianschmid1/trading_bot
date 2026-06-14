@@ -72,6 +72,31 @@ def test_asset_pref_persists():
     assert db.get_user(7)["asset_pref"] == "etf"
 
 
+def test_classify_ticker():
+    assert ac.classify_ticker("AAPL") == "stocks"
+    assert ac.classify_ticker("SPY") == "etf"
+    assert ac.classify_ticker("GLD") == "commodity"
+    assert ac.classify_ticker("BTC-USD") == "crypto"
+    assert ac.classify_ticker("FOO-USD") == "crypto"        # -USD-Suffix → Krypto
+    assert ac.classify_ticker("") == "stocks"
+
+
+def test_apply_sl_tp_mode_overrides_and_aus():
+    base = {"price": 100.0, "atr": 2.0, "stop_loss": 90.0, "take_profit": 130.0}
+    # passiv = (1.0, 1.5) → SL 98, TP 103
+    s = analyzer.apply_sl_tp_mode(dict(base), "passiv")
+    assert round(s["stop_loss"], 2) == 98.0 and round(s["take_profit"], 2) == 103.0
+    # aggressiv = (2.5, 4.0) → SL 95, TP 108
+    s = analyzer.apply_sl_tp_mode(dict(base), "aggressiv")
+    assert round(s["stop_loss"], 2) == 95.0 and round(s["take_profit"], 2) == 108.0
+    # 'aus' entfernt die Grenzen
+    s = analyzer.apply_sl_tp_mode(dict(base), "aus")
+    assert s["stop_loss"] is None and s["take_profit"] is None
+    # fehlendes ATR → Strategie-Vorgabe bleibt erhalten
+    s = analyzer.apply_sl_tp_mode({"price": 100.0, "atr": None, "stop_loss": 90.0, "take_profit": 130.0}, "normal")
+    assert s["stop_loss"] == 90.0 and s["take_profit"] == 130.0
+
+
 def test_analyze_universe_empty_is_noop():
     assert analyzer.analyze_universe([], profile=ac.STOCK_PROFILE) == []
 

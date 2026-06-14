@@ -19,6 +19,7 @@ import yfinance as yf
 from stockbot.core import evaluator
 from stockbot.core import metrics as metrics_mod
 from stockbot.market import strategies as strat_mod
+from stockbot.market import analyzer
 from stockbot.market import universes
 from stockbot.config import TRADE_SIZE_EUR, DEFAULT_REGION
 
@@ -47,13 +48,17 @@ def _download_daily(tickers: list[str], years: int) -> dict:
 
 def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
                     trade_size: float, max_hold: int = MAX_HOLD_DAYS,
-                    warmup: int = WARMUP_BARS) -> list[dict]:
-    """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück."""
+                    warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None) -> list[dict]:
+    """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück.
+    `sl_tp_mode` (passiv/normal/aggressiv) überschreibt – falls gesetzt – die SL/TP der Strategie
+    einheitlich per ATR (für die Modus-Vergleichs-Reports)."""
     trades = []
     n = len(df)
     i = warmup
     while i < n - 1:
         sig = strategy.generate(ticker, {"1d": df.iloc[:i + 1]})
+        if sl_tp_mode:
+            sig = analyzer.apply_sl_tp_mode(sig, sl_tp_mode)
         if not sig or sig.get("direction") != "long" or not sig.get("stop_loss"):
             i += 1
             continue

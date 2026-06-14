@@ -105,6 +105,25 @@ def sl_tp_from_atr(price: float, atr: float | None, mode: str = DEFAULT_SL_TP_MO
     }
 
 
+def apply_sl_tp_mode(sig: dict | None, mode: str) -> dict | None:
+    """Überschreibt Stop-Loss/Take-Profit eines Signals gemäß SL/TP-Modus (ATR-basiert).
+
+    So wirkt der pro Nutzer gewählte Modus (passiv/normal/aggressiv) einheitlich auf ALLE
+    Strategien — unabhängig davon, welche festen ATR-Faktoren die Strategie selbst gesetzt hat.
+    'aus' entfernt die festen Grenzen (None). Greift der Modus nicht (z. B. ATR fehlt), bleibt
+    die Strategie-Vorgabe erhalten. Mutiert das Dict und gibt es zurück."""
+    if not sig:
+        return sig
+    price, atr = sig.get("price"), sig.get("atr")
+    res = sl_tp_from_atr(price, atr, mode) if price else None
+    if res is None:
+        return sig
+    if mode == "aus" or res.get("stop_loss") is not None:
+        for k in ("stop_loss", "take_profit", "sl_pct", "tp_pct", "risk_reward"):
+            sig[k] = res[k]
+    return sig
+
+
 def calc_weekly_trend(df) -> str:
     """
     Höheres Zeitfenster: ermittelt den Wochentrend aus täglichen Schlusskursen

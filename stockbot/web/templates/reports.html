@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Reports — Stock Signal Bot{% endblock %}
+
+{% macro mcells(m) %}
+  <td class="r">{{ m.trades }}</td>
+  <td class="r">{{ '%.0f'|format(m.win_rate) ~ '%' if m.win_rate is not none else '—' }}</td>
+  <td class="r">{% if m.trades == 0 %}—{% elif m.profit_factor is none %}∞{% else %}{{ '%.2f'|format(m.profit_factor) }}{% endif %}</td>
+  <td class="r">{{ '%.2f'|format(m.expectancy) if m.expectancy is not none else '—' }}</td>
+  <td class="r">{{ '%.1f'|format(m.max_drawdown_pct) ~ '%' if m.max_drawdown_pct is not none else '—' }}</td>
+  <td class="r {{ 'pos' if (m.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '%+.0f'|format(m.total_pnl_eur or 0) }}€</td>
+{% endmacro %}
+
+{% set head %}
+  <th class="r">Trades</th><th class="r">Win%</th><th class="r">Profitf.</th>
+  <th class="r">Erw.wert</th><th class="r">MaxDD%</th><th class="r">P&amp;L</th>
+{% endset %}
+
+{% block content %}
+<h1>Reports</h1>
+{% if not strategies %}
+  <p class="muted">Noch keine Reports vorhanden. Erzeuge sie mit
+    <code>python -m tools.sweep_report</code> (sie werden bei jedem Deploy mitgeliefert).</p>
+{% else %}
+<p class="muted">Backtest-Sweeps über den kuratierten {{ strategies.region }}-Korb
+  ({{ strategies.n_tickers }} Werte, {{ strategies.years }} Jahre, Stand {{ strategies.generated_at }}).
+  Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust im Zeitraum.</p>
+
+<h2>Nach Strategie <span class="muted">(native SL/TP, Hebel 1)</span></h2>
+<table>
+  <tr><th>Strategie</th>{{ head }}</tr>
+  {% for r in strategies.rows %}
+  <tr><td><strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span></td>{{ mcells(r) }}</tr>
+  {% endfor %}
+</table>
+
+<h2>Nach SL/TP-Modus <span class="muted">(passiv / normal / aggressiv, Hebel 1)</span></h2>
+{% for r in sltp.rows %}
+<div class="card">
+  <strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span>
+  <table style="margin-top:.4rem">
+    <tr><th>Modus</th>{{ head }}</tr>
+    {% for mode in sltp.modes %}
+    <tr><td>{{ mode }}</td>{{ mcells(r.by_mode[mode]) }}</tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+
+<h2>Nach Hebel <span class="muted">(Portfolio: Top-{{ leverage.portfolio_top_n }}/Tag, native SL/TP)</span></h2>
+{% for r in leverage.rows %}
+<div class="card">
+  <strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span>
+  <table style="margin-top:.4rem">
+    <tr><th>Hebel</th>{{ head }}</tr>
+    {% for lev in leverage.leverages %}
+    <tr><td>{{ lev }}×</td>{{ mcells(r.by_lev[lev|string]) }}</tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -3,7 +3,8 @@
 {% block content %}
 <h1>Signale</h1>
 
-<form class="row" method="post" action="/app/scan" style="margin:.4rem 0 1rem">
+<form id="scanForm" class="row" method="post" action="/app/scan" style="margin:.4rem 0 1rem"
+      onsubmit="document.getElementById('scanOverlay').style.display='flex'">
   <label class="muted" for="asset">Anlageklasse</label>
   <select name="asset" id="asset">
     {% for a in asset_classes %}
@@ -13,6 +14,16 @@
   </select>
   <button class="on" title="Live-Analyse für die gewählte Anlageklasse ausführen">🔄 Signale anfordern</button>
 </form>
+
+<div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:50;
+     background:rgba(8,11,18,.82); align-items:center; justify-content:center; text-align:center; padding:1rem">
+  <div class="card" style="max-width:340px">
+    <div style="font-size:1.6rem; margin-bottom:.4rem">⏳</div>
+    <strong>Signale werden berechnet …</strong>
+    <p class="muted" style="margin:.5rem 0 0">Die Live-Analyse läuft (kann je nach Anlageklasse bis zu ~1 Minute dauern,
+      „Alle" auch länger). Bitte das Fenster offen lassen.</p>
+  </div>
+</div>
 
 {% if scanned %}
 <h2>Angeforderte Signale ({{ scanned|length }})</h2>
@@ -89,12 +100,19 @@
 {% endfor %}
 
 <h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>
-{% if not active_trades %}<p class="muted">Keine aktiven Trades.</p>{% endif %}
+<div class="row" style="margin:.2rem 0 .6rem; gap:.3rem">
+  <span class="muted">Filter:</span>
+  <a class="btn {{ 'on' if not trade_filter }}" href="/app">Alle</a>
+  {% for a in asset_classes %}
+  <a class="btn {{ 'on' if trade_filter == a.key }}" href="/app?atf={{ a.key }}">{{ a.label }}</a>
+  {% endfor %}
+</div>
+{% if not active_trades %}<p class="muted">Keine aktiven Trades in dieser Anlageklasse.</p>{% endif %}
 {% for t in active_trades %}
 <div class="card">
   <div class="row">
     <strong>{{ t.ticker }}</strong>
-    <span class="muted">Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell ${{ '%.2f'|format(t.current) }} · {{ '%.1f'|format(t.leverage) }}×</span>
+    <span class="muted">{{ t.asset_label }} · Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell ${{ '%.2f'|format(t.current) }} · {{ '%.1f'|format(t.leverage) }}×</span>
     <span class="spacer"></span>
     <span class="{{ 'pos' if t.pnl_eur >= 0 else 'neg' }}">
       {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}€ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)

@@ -5,3 +5,6 @@ venv/
 logs/*.log
 *.json
 *.db
+# Backtest-Reports (JSON) bewusst versionieren (Ausnahme von *.json)
+!data/reports/
+!data/reports/*.json

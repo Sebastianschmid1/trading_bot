@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-06-14 19:32 UTC",
+  "region": "sp500",
+  "years": 2,
+  "n_tickers": 38,
+  "trade_size_eur": 25.0,
+  "portfolio_capital": 10000.0,
+  "portfolio_top_n": 10,
+  "rows": [
+    {
+      "key": "standard",
+      "label": "Standard (Multi-Timeframe)",
+      "trades": 713,
+      "win_rate": 42.4,
+      "profit_factor": 1.21,
+      "total_pnl_eur": 82.86,
+      "max_drawdown_pct": 12.96,
+      "expectancy": 0.12
+    },
+    {
+      "key": "adx_trend",
+      "label": "ADX-Trendfolge (trader-dev Port)",
+      "trades": 191,
+      "win_rate": 50.8,
+      "profit_factor": 1.48,
+      "total_pnl_eur": 65.1,
+      "max_drawdown_pct": 7.37,
+      "expectancy": 0.34
+    },
+    {
+      "key": "rsi_revert",
+      "label": "Mean-Reversion (RSI-Dip)",
+      "trades": 38,
+      "win_rate": 39.5,
+      "profit_factor": 1.06,
+      "total_pnl_eur": 1.39,
+      "max_drawdown_pct": 4.19,
+      "expectancy": 0.04
+    },
+    {
+      "key": "breakout",
+      "label": "Donchian-Ausbruch (20T)",
+      "trades": 500,
+      "win_rate": 45.4,
+      "profit_factor": 1.63,
+      "total_pnl_eur": 212.71,
+      "max_drawdown_pct": 8.03,
+      "expectancy": 0.43
+    },
+    {
+      "key": "ma_trend",
+      "label": "Trend-Ausrichtung (MA20>50>200)",
+      "trades": 544,
+      "win_rate": 40.6,
+      "profit_factor": 1.36,
+      "total_pnl_eur": 105.45,
+      "max_drawdown_pct": 6.76,
+      "expectancy": 0.19
+    },
+    {
+      "key": "high52",
+      "label": "Momentum 52W-Hoch (streng)",
+      "trades": 243,
+      "win_rate": 46.5,
+      "profit_factor": 1.5,
+      "total_pnl_eur": 91.47,
+      "max_drawdown_pct": 9.69,
+      "expectancy": 0.38
+    },
+    {
+      "key": "high52_wide",
+      "label": "Momentum 52W-Hoch (aktiv)",
+      "trades": 354,
+      "win_rate": 47.2,
+      "profit_factor": 1.58,
+      "total_pnl_eur": 149.0,
+      "max_drawdown_pct": 11.35,
+      "expectancy": 0.42
+    }
+  ]
+}
