@@ -24,17 +24,27 @@ SESSION_DAYS = 30
 # ── CSRF-Schutz: Origin/Referer-Abgleich ─────────────────────────────────────
 
 def is_same_origin(request) -> bool:
-    """True, wenn ein state-ändernder Request vom eigenen Origin kommt (CSRF-Schutz).
-    Vergleicht den Host aus Origin/Referer mit dem Host-Header (funktioniert auch hinter
-    einem TLS-Reverse-Proxy, da beide den öffentlichen Host tragen). Fehlt Origin UND
-    Referer (manche Nicht-Browser-Clients), wird NICHT blockiert — zusammen mit dem
-    SameSite=lax-Cookie bleibt der Schutz gegen Cross-Site-POSTs bestehen."""
+    """True, wenn ein state-ändernder Request NICHT eindeutig von einem fremden Origin kommt
+    (CSRF-Schutz). Blockiert nur, wenn ein Origin/Referer vorhanden, parsebar und sein Host
+    keiner der erlaubten Hosts ist (Host-Header, Request-Host, konfigurierte DASHBOARD_BASE_URL —
+    funktioniert so auch hinter einem TLS-Reverse-Proxy).
+
+    Bewusst tolerant: fehlt Origin/Referer ganz, oder ist der Origin opak ('null', z. B. im
+    Telegram-In-App-Browser/Sandbox), wird NICHT blockiert — dort schützt weiterhin das
+    SameSite=lax-Cookie gegen echte Cross-Site-POSTs. So gibt es keine Fehlalarme für
+    legitime Nutzer."""
     src = request.headers.get("origin") or request.headers.get("referer")
     if not src:
-        return True
+        return True                              # kein Signal → auf SameSite=lax verlassen
     src_host = urlparse(src).hostname
-    host = (request.headers.get("host") or request.url.hostname or "").split(":")[0]
-    return bool(src_host) and src_host == host
+    if not src_host:
+        return True                              # 'null'/opak/unparsebar → nicht blockieren
+    allowed = {h for h in (
+        (request.headers.get("host") or "").split(":")[0],
+        request.url.hostname or "",
+        urlparse(config.DASHBOARD_BASE_URL or "").hostname or "",
+    ) if h}
+    return src_host in allowed
 
 
 # ── Einfaches In-Memory-Rate-Limit (Login-Endpunkte) ─────────────────────────

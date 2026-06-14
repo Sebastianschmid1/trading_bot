@@ -315,6 +315,17 @@ def test_csrf_blocks_cross_origin_post():
     assert bad.status_code == 403
 
 
+def test_csrf_tolerates_opaque_and_missing_origin():
+    """Telegram-In-App-Browser/Sandbox senden teils 'Origin: null' oder gar keins — das darf
+    legitime Nutzer NICHT blockieren (SameSite=lax schützt weiter)."""
+    fresh()
+    c = _client()
+    assert c.post("/app/asset", data={"asset": "stocks"},
+                  headers={"origin": "null"}, follow_redirects=False).status_code == 303
+    assert c.post("/app/asset", data={"asset": "stocks"},
+                  follow_redirects=False).status_code == 303
+
+
 def test_rate_limit_blocks_after_many_attempts():
     fresh()
     from stockbot.web import auth
