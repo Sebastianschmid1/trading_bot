@@ -38,6 +38,7 @@ from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
+from stockbot.services import notifications as notify_svc
 from stockbot.core.evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from stockbot.config import (
     TELEGRAM_TOKEN,
@@ -517,6 +518,10 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
         if not any_sent:
             await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
+        else:
+            # In-App-Mitteilung für die Website (Telegram-Push ist oben bereits erfolgt)
+            notify_svc.notify(chat_id, "📊 Neue Tagessignale",
+                              "Neue Signale verfügbar — jetzt ansehen.", type="signal", user=u)
         await asyncio.sleep(0.5)  # kurze Pause zwischen Nutzern (Rate-Limit-Schutz)
 
 
@@ -593,6 +598,10 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
         summary += f"\n💡 _Alle Trades waren im Demo-Modus (kein echtes Geld)_"
 
         await bot.send_message(chat_id=chat_id, text=summary, parse_mode="Markdown")
+        notify_svc.notify(
+            chat_id, "📋 Tagesauswertung",
+            f"{winners} Gewinner, {losers} Verlierer · Gesamt {'+' if total_pnl >= 0 else ''}{total_pnl:.2f}€",
+            type="evaluation", user=u)
         log.info(f"[{chat_id}] Auswertung abgeschlossen. Gesamt P&L: {total_pnl:.2f}€")
         await asyncio.sleep(0.5)
 

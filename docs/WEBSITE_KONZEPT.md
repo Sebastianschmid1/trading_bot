@@ -116,8 +116,9 @@ Bestehendes Schema (`users`, `trades`, `trade_ticks`) bleibt unverändert → ke
 - **Frontend:** Bewusst minimal für v1 — **server-gerendert (Jinja2-Templates) + etwas HTMX/Alpine.js**
   statt schwergewichtiger SPA. Das vorhandene [dashboard.html](../stockbot/web/static/dashboard.html) +
   Chart.js wird wiederverwendet. (SPA mit React/Vue erst, wenn nötig.)
-- **Deployment:** zweiter systemd-Dienst (`run_web.py`) hinter HTTPS-Reverse-Proxy; Bot-Dienst läuft parallel
-  weiter. Beide auf dieselbe `data/bot.db`.
+- **Deployment:** die Website wird vom selben Server wie das Dashboard ausgeliefert (`run_dashboard.py`
+  bzw. `RUN_DASHBOARD_IN_BOT=true`) hinter HTTPS-Reverse-Proxy; Bot-Dienst läuft parallel auf derselben
+  `data/bot.db`. Kein separater Web-Entrypoint nötig.
 
 ## 11. Migrations-/Parallelbetrieb-Phasen
 - **Phase 0 — Refactor (unsichtbar):** Service-Schicht extrahieren ([§4]), Bot-Handler darauf umstellen,
@@ -148,6 +149,21 @@ E-Mail/Passwort-Registrierung, native Mobile-App, SPA-Framework.
 - Phase 0 (Service-Refactor + Tests): **mittel** — der wertvollste, risikoärmste Schritt.
 - Phase 1 (Web-MVP): **mittel–groß** — Auth + 4–5 Seiten/Endpunkt-Gruppen, baut auf vorhandenem FastAPI/Dashboard auf.
 - Phase 2/3: **inkrementell**, jederzeit pausierbar (Telegram trägt weiter).
+
+## 15. Umsetzungsstand (umgesetzt)
+- **Phase 0 ✅** — Service-Schicht `stockbot/services/` (trades, settings, watchlist, notifications);
+  Telegram-Handler sind dünne Adapter darüber. Tests: `tests/test_services.py`.
+- **Phase 1 ✅** — Web-App `stockbot/web/webapp.py` (+ Jinja-Templates), Auth `stockbot/web/auth.py`
+  (DB-Sessions: Login per Dashboard-Token **und** „Login mit Telegram" via HMAC). Seiten: `/login`,
+  `/app` (Annehmen/Ablehnen/Hebel/Verkaufen), `/app/settings`, `/app/watchlist`. In dieselbe FastAPI-App
+  wie das Dashboard eingehängt → ein Server (`run_dashboard.py`). Tests: `tests/test_webapp.py`.
+- **Phase 2 ✅ (Kern)** — `notify_channel` (DB) + In-App-`notifications` (DB) + Service `notify()`;
+  Seite `/app/notifications` mit **SSE-Live-Feed** (`/app/stream`); die Jobs `send_daily_signals` und
+  `close_and_evaluate` schreiben zusätzlich In-App-Mitteilungen. Telegram bleibt Push-Kanal.
+- **Phase 3 (teilweise)** — Deployment als eigener Dienst ist bereits über `dashboard.service`/
+  `run_dashboard.py` abgedeckt (serviert die komplette Website). **Offen/optional:** echtes Web-Push
+  bei geschlossener Seite (Service-Worker + VAPID) und die Auslagerung der Job-Engine in einen eigenen
+  Prozess — bewusst nicht umgesetzt (Engine läuft weiter stabil im Bot-Prozess).
 
 ---
 *Demo-Kontext: Es wird (noch) kein echtes Geld gehandelt. Vor Echtgeld/öffentlichem Web-Betrieb gelten

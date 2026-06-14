@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Signale — Stock Signal Bot{% endblock %}
+{% block content %}
+<h1>Signale</h1>
+
+<h2>Offene Signale ({{ pending|length }})</h2>
+{% if not pending %}
+  <p class="muted">Aktuell keine offenen Signale. Die Tagesanalyse läuft automatisch — neue Signale
+    erscheinen hier und im Telegram-Bot.</p>
+{% endif %}
+{% for s in pending %}
+<div class="card">
+  <div class="row">
+    <strong>{{ s.ticker }}</strong>
+    <span class="muted">{{ s.direction|upper }} · Stärke {{ '%.0f'|format(s.strength or 0) }}/100 · {{ '%.1f'|format(s.leverage) }}×</span>
+    <span class="spacer"></span>
+    <span class="muted">${{ '%.2f'|format(s.price) }}</span>
+  </div>
+  {% if s.stop_loss and s.take_profit %}
+  <div class="muted">🎯 TP ${{ '%.2f'|format(s.take_profit) }} · 🛑 SL ${{ '%.2f'|format(s.stop_loss) }}</div>
+  {% endif %}
+  <div class="row" style="margin-top:.6rem">
+    <form class="inline" method="post" action="/app/accept">
+      <input type="hidden" name="ticker" value="{{ s.ticker }}">
+      <button class="green">✅ Annehmen</button>
+    </form>
+    <form class="inline" method="post" action="/app/reject">
+      <input type="hidden" name="ticker" value="{{ s.ticker }}">
+      <button class="red">❌ Ablehnen</button>
+    </form>
+    <form class="inline row" method="post" action="/app/lev">
+      <input type="hidden" name="ticker" value="{{ s.ticker }}">
+      <select name="leverage">
+        {% for lv in leverages %}
+        <option value="{{ lv }}" {{ 'selected' if lv == s.leverage }}>{{ '%g'|format(lv) }}×</option>
+        {% endfor %}
+      </select>
+      <button>Hebel setzen</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+<h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>
+{% if not active_trades %}<p class="muted">Keine aktiven Trades.</p>{% endif %}
+{% for t in active_trades %}
+<div class="card">
+  <div class="row">
+    <strong>{{ t.ticker }}</strong>
+    <span class="muted">Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell ${{ '%.2f'|format(t.current) }} · {{ '%.1f'|format(t.leverage) }}×</span>
+    <span class="spacer"></span>
+    <span class="{{ 'pos' if t.pnl_eur >= 0 else 'neg' }}">
+      {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}€ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)
+    </span>
+  </div>
+  <form class="inline" method="post" action="/app/sell" style="margin-top:.5rem">
+    <input type="hidden" name="ticker" value="{{ t.ticker }}">
+    <button class="red">💰 Verkaufen</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

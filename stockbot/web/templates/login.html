@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Login — Stock Signal Bot{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>📈 Anmelden</h1>
+  <p class="muted">Die Website läuft parallel zum Telegram-Bot — beide nutzen denselben Account.</p>
+
+  {% if telegram_bot %}
+  <h2>Mit Telegram anmelden</h2>
+  <script async src="https://telegram.org/js/telegram-widget.js?22"
+          data-telegram-login="{{ telegram_bot }}" data-size="large"
+          data-auth-url="{{ base_url }}/auth/telegram" data-request-access="write"></script>
+  {% endif %}
+
+  <h2>Mit privatem Link</h2>
+  <p class="muted">Du findest deinen persönlichen Token im Telegram-Bot über <code>/dashboard</code>
+     (der Teil nach <code>/dashboard/</code> im Link).</p>
+  <form method="get" action="/auth/token" class="row">
+    <input type="text" name="token" placeholder="dein-token" style="flex:1;min-width:200px" required>
+    <button class="green">Anmelden</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen — Stock Signal Bot{% endblock %}
+{% block content %}
+<h1>Einstellungen</h1>
+<p class="muted">Änderungen gelten sofort — auch im Telegram-Bot (gemeinsamer Account).</p>
+
+<div class="card">
+  <h2>Demo-Trade-Größe</h2>
+  <form class="row" method="post" action="/app/settings/set">
+    <input type="hidden" name="action" value="set_size">
+    <input type="number" name="value" min="1" step="1" value="{{ '%.0f'|format(user.trade_size_eur) }}">
+    <button>Speichern</button>
+    <span class="muted">€ pro Position</span>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Signale pro Tag</h2>
+  <div class="row">
+    {% for n in [1,3,5,8,10] %}
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="set_count"><input type="hidden" name="value" value="{{ n }}">
+      <button class="{{ 'on' if n == user.top_n_signals }}">{{ n }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Markt-Körbe</h2>
+  <div class="row">
+    {% for key, label in universes.items() %}
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="set_region"><input type="hidden" name="value" value="{{ key }}">
+      <button class="{{ 'on' if key in user.market_regions }}">{{ '✅ ' if key in user.market_regions }}{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Strategien</h2>
+  <div class="row">
+    {% for s in strategies %}
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="set_strat"><input type="hidden" name="value" value="{{ s.key }}">
+      <button class="{{ 'on' if s.key in user.strategies }}">{{ '✅ ' if s.key in user.strategies }}{{ s.label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>SL/TP-Modus & Hebel</h2>
+  <div class="row">
+    {% for m in sl_tp_modes %}
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="set_mode"><input type="hidden" name="value" value="{{ m }}">
+      <button class="{{ 'on' if m == user.sl_tp_mode }}">{{ m }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  <div class="row" style="margin-top:.5rem">
+    {% for lv in leverages %}
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="set_lev"><input type="hidden" name="value" value="{{ lv }}">
+      <button class="{{ 'on' if lv == user.leverage }}">{{ '%g'|format(lv) }}×</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Schalter</h2>
+  {% for action, label, on in toggles %}
+  <div class="row" style="margin:.3rem 0">
+    <span style="min-width:230px">{{ label }}</span>
+    <form class="inline" method="post" action="/app/settings/set">
+      <input type="hidden" name="action" value="{{ action }}"><input type="hidden" name="value" value="{{ '0' if on else '1' }}">
+      <button class="{{ 'on' if on }}">{{ 'an' if on else 'aus' }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Benachrichtigungen</h2>
+  <div class="row">
+    {% for ch, label in [('both','Beide'),('web','Nur Web'),('telegram','Nur Telegram')] %}
+    <form class="inline" method="post" action="/app/settings/notify">
+      <input type="hidden" name="value" value="{{ ch }}">
+      <button class="{{ 'on' if ch == user.notify_channel }}">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

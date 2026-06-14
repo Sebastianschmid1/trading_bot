@@ -84,6 +84,21 @@ python -m tests.test_settings
 
 ---
 
+## 🌐 Web-App (parallel zum Telegram-Bot)
+
+Der Bot ist zusätzlich über eine **Website** bedienbar — sie läuft **parallel** zum Telegram-Bot und
+nutzt denselben Account/dieselbe DB (eine Aktion wirkt sofort in beiden Kanälen).
+
+- **Anmelden:** `/login` — entweder per **„Login mit Telegram"** (setzt `TELEGRAM_BOT_USERNAME` + HTTPS
+  voraus) oder per **privatem Token** (der Teil nach `/dashboard/` aus dem `/dashboard`-Link im Bot).
+- **Seiten:** `/app` (Signale annehmen/ablehnen, Hebel, aktive Trades verkaufen), `/app/settings`
+  (Körbe, Strategien, SL/TP, Hebel, Schalter, Benachrichtigungs-Kanal), `/app/watchlist` (mit „Meinten Sie?"),
+  `/app/notifications` (In-App-Mitteilungen mit Live-Feed via SSE), `/app/dashboard` (Kennzahlen/Charts).
+- Telegram-Bot und Web rufen **dieselbe Service-Schicht** (`stockbot/services/*`) auf → identisches Verhalten.
+
+Die Website wird vom **gleichen Server wie das Dashboard** ausgeliefert (`run_dashboard.py` bzw.
+`RUN_DASHBOARD_IN_BOT=true`) — kein zusätzlicher Dienst nötig. Konzept & Phasen: [docs/WEBSITE_KONZEPT.md](docs/WEBSITE_KONZEPT.md).
+
 ## 📊 Web-Dashboard
 
 Zusätzlich zum Telegram-Bot gibt es ein Web-Dashboard mit Equity-Kurve, Trefferquote, P&L pro Ticker und aktiven Trades — pro Nutzer über einen privaten Token-Link.

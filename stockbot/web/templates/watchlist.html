@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Watchlist — Stock Signal Bot{% endblock %}
+{% block content %}
+<h1>Watchlist</h1>
+<p class="muted">Diese Symbole laufen täglich zusätzlich durch deine Strategie und werden — wenn sie
+  auslösen — immer gesendet (nie vom Tageslimit gekürzt). Auch ETFs (z. B. SPY).</p>
+
+<div class="card">
+  <form class="row" method="post" action="/app/watchlist/add">
+    <input type="text" name="symbol" placeholder="z. B. AAPL oder Apple" style="flex:1;min-width:180px" required>
+    <button class="green">Hinzufügen</button>
+  </form>
+  {% if suggestions %}
+  <p class="muted" style="margin-top:.6rem">„{{ query }}" nicht gefunden. Meinten Sie:
+    {% for s in suggestions %}
+    <form class="inline" method="post" action="/app/watchlist/add">
+      <input type="hidden" name="symbol" value="{{ s }}"><button>{{ s }}</button>
+    </form>
+    {% endfor %}
+  </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Deine Watchlist ({{ watchlist|length }})</h2>
+  {% if not watchlist %}<p class="muted">(leer)</p>{% endif %}
+  {% for sym in watchlist %}
+  <div class="row" style="margin:.25rem 0">
+    <strong style="min-width:90px">{{ sym }}</strong>
+    <form class="inline" method="post" action="/app/watchlist/remove">
+      <input type="hidden" name="symbol" value="{{ sym }}"><button class="red">Entfernen</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

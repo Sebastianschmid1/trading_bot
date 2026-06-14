@@ -239,8 +239,10 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
 def index():
     return (
         "<html><body style='font-family:sans-serif;background:#0f1420;color:#e6e6e6;"
-        "padding:2rem'><h2>📊 Stock Signal Bot — Dashboard</h2>"
-        "<p>Öffne deinen persönlichen Link über den Befehl <code>/dashboard</code> im Telegram-Bot.</p>"
+        "padding:2rem'><h2>📈 Stock Signal Bot</h2>"
+        "<p><a href='/login' style='color:#4f8cff'>➡️ Zur Web-App anmelden</a> "
+        "(Signale annehmen, Einstellungen, Watchlist).</p>"
+        "<p>Oder öffne deinen persönlichen Dashboard-Link über <code>/dashboard</code> im Telegram-Bot.</p>"
         "</body></html>"
     )
 
@@ -268,6 +270,12 @@ def dashboard_analyze(token: str, ticker: str):
         raise HTTPException(status_code=404, detail="Ungültiger Token.")
     from stockbot.market import analyzer
     return JSONResponse(analyzer.factor_history(ticker.upper(), days=7))
+
+
+# Interaktive Web-App (Login, Signale, Einstellungen, Watchlist, Mitteilungen) einhängen.
+# Import am Ende, damit build_dashboard_data/app bereits definiert sind (kein Zyklus).
+from stockbot.web.webapp import router as _app_router   # noqa: E402
+app.include_router(_app_router)
 
 
 def run():

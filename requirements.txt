@@ -6,6 +6,8 @@ python-dotenv
 cryptography
 fastapi
 uvicorn[standard]
+jinja2
+python-multipart
 requests
 lxml
 anthropic

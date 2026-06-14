@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
     eod_close         INTEGER NOT NULL DEFAULT 1,
     broker_exec       INTEGER NOT NULL DEFAULT 0,
     watchlist         TEXT    NOT NULL DEFAULT '',
+    notify_channel    TEXT    NOT NULL DEFAULT 'both',
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -80,6 +81,26 @@ CREATE TABLE IF NOT EXISTS trade_ticks (
 
 CREATE INDEX IF NOT EXISTS idx_ticks_user_date_ticker
     ON trade_ticks (user_id, trade_date, ticker, ts);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(user_id),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    ts          TEXT    NOT NULL DEFAULT (datetime('now')),
+    type        TEXT    NOT NULL DEFAULT 'info',
+    title       TEXT    NOT NULL,
+    body        TEXT    NOT NULL DEFAULT '',
+    read        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user
+    ON notifications (user_id, read, id);
 """
 
 
@@ -130,6 +151,9 @@ def _migrate(conn: sqlite3.Connection):
     if "watchlist" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN watchlist TEXT NOT NULL DEFAULT ''")
         log.info("Migration: Spalte users.watchlist ergänzt.")
+    if "notify_channel" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN notify_channel TEXT NOT NULL DEFAULT 'both'")
+        log.info("Migration: Spalte users.notify_channel ergänzt.")
 
 
 @contextmanager
@@ -183,6 +207,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "eod_close":        bool(row["eod_close"]),
         "broker_exec":      bool(row["broker_exec"]),
         "watchlist":        _parse_watchlist(row["watchlist"] if "watchlist" in row.keys() else ""),
+        "notify_channel":   (row["notify_channel"] if "notify_channel" in row.keys() else "both") or "both",
     }
 
 
@@ -509,6 +534,88 @@ def get_user_by_token(token: str) -> dict | None:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM users WHERE dashboard_token = ?", (token,)).fetchone()
     return _user_to_dict(row) if row else None
+
+
+# ── Web-Sessions (Login-Cookies) ─────────────────────────────────────────────
+
+def create_session(user_id: int, days: int = 30) -> str:
+    """Legt eine Web-Session an und gibt das Session-Token (für das Cookie) zurück."""
+    token = secrets.token_urlsafe(32)
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) "
+            "VALUES (?, ?, datetime('now', ?))",
+            (token, user_id, f"+{int(days)} days"),
+        )
+    return token
+
+
+def user_id_for_session(token: str) -> int | None:
+    """Gibt die user_id einer gültigen (nicht abgelaufenen) Session zurück, sonst None."""
+    if not token:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > datetime('now')",
+            (token,),
+        ).fetchone()
+    return row["user_id"] if row else None
+
+
+def delete_session(token: str):
+    """Beendet eine Session (Logout)."""
+    if not token:
+        return
+    with _connect() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+# ── Benachrichtigungs-Kanal & In-App-Benachrichtigungen ──────────────────────
+
+def set_notify_channel(user_id: int, channel: str) -> str:
+    """Setzt den Benachrichtigungs-Kanal ('telegram' | 'web' | 'both'). Gibt den gültigen Wert zurück."""
+    channel = channel if channel in ("telegram", "web", "both") else "both"
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET notify_channel = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (channel, user_id),
+        )
+    return channel
+
+
+def add_notification(user_id: int, title: str, body: str = "", type: str = "info") -> int:
+    """Schreibt eine In-App-Benachrichtigung. Gibt die neue id zurück."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO notifications (user_id, type, title, body) VALUES (?, ?, ?, ?)",
+            (user_id, type, title, body),
+        )
+        return cur.lastrowid
+
+
+def get_notifications(user_id: int, limit: int = 50) -> list[dict]:
+    """Letzte Benachrichtigungen eines Nutzers (neueste zuerst)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, ts, type, title, body, read FROM notifications "
+            "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, int(limit)),
+        ).fetchall()
+    return [{"id": r["id"], "ts": r["ts"], "type": r["type"], "title": r["title"],
+             "body": r["body"], "read": bool(r["read"])} for r in rows]
+
+
+def unread_count(user_id: int) -> int:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0", (user_id,)
+        ).fetchone()
+    return row["n"] if row else 0
+
+
+def mark_notifications_read(user_id: int):
+    with _connect() as conn:
+        conn.execute("UPDATE notifications SET read = 1 WHERE user_id = ?", (user_id,))
 
 
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────
