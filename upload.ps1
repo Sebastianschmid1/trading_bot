@@ -75,8 +75,9 @@ try {
     Write-Host "-> deploye auf $Server (automatisch) ..." -ForegroundColor Cyan
     $passB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pw))
     # Server-seitiges Bash-Kommando (Platzhalter werden literal ersetzt):
-    # nach git pull: Dependencies ins venv (neue Web-Deps wie jinja2/python-multipart), dann restart.
-    $tmpl = 'cd {APP} && ASK=$(mktemp) && printf ''#!/bin/sh\nprintf %%s "$DEPLOY_PASS"\n'' > "$ASK" && chmod +x "$ASK" && DEPLOY_PASS="$(printf %s ''{PASS}'' | base64 -d)" SSH_ASKPASS="$ASK" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 git pull < /dev/null; rc=$?; rm -f "$ASK"; [ $rc -eq 0 ] && { venv/bin/pip install -q -r requirements.txt || echo "WARN: pip install fehlgeschlagen"; systemctl restart stockbot && systemctl status stockbot --no-pager -l | head -n 15; }; exit $rc'
+    # nach git pull: Dependencies ins venv, TLS/Caddy synchronisieren (nur mit DOMAIN in .env),
+    # neu starten, Status zeigen und 30s Live-Logs anhaengen.
+    $tmpl = 'cd {APP} && ASK=$(mktemp) && printf ''#!/bin/sh\nprintf %%s "$DEPLOY_PASS"\n'' > "$ASK" && chmod +x "$ASK" && DEPLOY_PASS="$(printf %s ''{PASS}'' | base64 -d)" SSH_ASKPASS="$ASK" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 git pull < /dev/null; rc=$?; rm -f "$ASK"; [ $rc -eq 0 ] && { venv/bin/pip install -q -r requirements.txt || echo "WARN: pip install fehlgeschlagen"; bash deploy/sync_caddy.sh || echo "WARN: caddy-sync fehlgeschlagen"; systemctl restart stockbot; systemctl status stockbot --no-pager -l | head -n 15; echo "==== stockbot Logs (30s) ===="; timeout 30 journalctl -u stockbot -n 20 -f || true; }; exit $rc'
     $bash = $tmpl.Replace('{APP}', $AppDir).Replace('{PASS}', $passB64)
     # Ganzes Kommando base64-verpacken -> quote-freie ssh-Argumentzeile
     # (umgeht PowerShells fehleranfaelliges Native-Arg-Quoting bei Anfuehrungszeichen).

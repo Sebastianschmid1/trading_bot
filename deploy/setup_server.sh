@@ -37,6 +37,10 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     echo "→ Firewall: Port 8000 (Dashboard) geöffnet."
 fi
 
+# TLS-Reverse-Proxy (Caddy) einrichten — passiert nur, wenn DOMAIN in der .env gesetzt ist.
+echo "→ TLS/Caddy synchronisieren (nur aktiv mit DOMAIN in .env)..."
+bash deploy/sync_caddy.sh || echo "  WARN: Caddy-Sync fehlgeschlagen (Deploy läuft weiter)."
+
 echo
 echo "✅ Fertig."
 echo "   Status:  systemctl status stockbot"
