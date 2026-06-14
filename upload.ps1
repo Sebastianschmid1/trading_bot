@@ -81,8 +81,13 @@ try {
     # Ganzes Kommando base64-verpacken -> quote-freie ssh-Argumentzeile
     # (umgeht PowerShells fehleranfaelliges Native-Arg-Quoting bei Anfuehrungszeichen).
     $cmdB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash))
+    # Der Server relait git-pull-/systemctl-Ausgabe nach stderr; unter Stop wuerde PowerShell
+    # das als Fehler werten. Daher fuer den ssh-Aufruf auf Continue und Erfolg ueber Exitcode.
+    $ErrorActionPreference = "Continue"
     $null | ssh -o StrictHostKeyChecking=accept-new $Server "echo $cmdB64 | base64 -d | bash"
-    if ($LASTEXITCODE -ne 0) { throw "Deploy (ssh) fehlgeschlagen" }
+    $sshRc = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($sshRc -ne 0) { throw "Deploy (ssh) fehlgeschlagen" }
 
     Write-Host "OK - gepusht und auf dem Server neu gestartet." -ForegroundColor Green
 }
