@@ -215,14 +215,14 @@ def test_cmd_watchadd_valid_symbol_added():
     fresh_db()
     _complete_user()
     bot.ALPACA_ENABLED = False
-    monkey = bot.lookup.validate_ticker
-    bot.lookup.validate_ticker = lambda s: {"ok": True, "symbol": "AAPL",
-                                            "name": "Apple Inc.", "quote_type": "EQUITY", "price": 185.0}
+    monkey = lookup.validate_ticker
+    lookup.validate_ticker = lambda s: {"ok": True, "symbol": "AAPL",
+                                        "name": "Apple Inc.", "quote_type": "EQUITY", "price": 185.0}
     try:
         upd, ctx = _cmd(["aapl"])
         asyncio.run(bot.cmd_watchadd(upd, ctx))
     finally:
-        bot.lookup.validate_ticker = monkey
+        lookup.validate_ticker = monkey
     assert db.get_user(CHAT)["watchlist"] == ["AAPL"]
     assert "AAPL" in _replies(upd) and "✅" in _replies(upd)
 
@@ -231,14 +231,14 @@ def test_cmd_watchadd_unknown_suggests_alternatives():
     fresh_db()
     _complete_user()
     bot.ALPACA_ENABLED = False
-    o_val, o_search = bot.lookup.validate_ticker, bot.lookup.search_symbols
-    bot.lookup.validate_ticker = lambda s: {"ok": False, "symbol": s}
-    bot.lookup.search_symbols = lambda s, limit=5: [{"symbol": "AAPL", "name": "Apple", "quote_type": "EQUITY"}]
+    o_val, o_search = lookup.validate_ticker, lookup.search_symbols
+    lookup.validate_ticker = lambda s: {"ok": False, "symbol": s}
+    lookup.search_symbols = lambda s, limit=5: [{"symbol": "AAPL", "name": "Apple", "quote_type": "EQUITY"}]
     try:
         upd, ctx = _cmd(["appel"])
         asyncio.run(bot.cmd_watchadd(upd, ctx))
     finally:
-        bot.lookup.validate_ticker, bot.lookup.search_symbols = o_val, o_search
+        lookup.validate_ticker, lookup.search_symbols = o_val, o_search
     assert db.get_user(CHAT)["watchlist"] == []        # nichts hinzugefügt
     assert "Meinten Sie" in _replies(upd) and "AAPL" in _replies(upd)
 
@@ -247,15 +247,15 @@ def test_cmd_watchadd_unknown_no_suggestions_via_llm():
     fresh_db()
     _complete_user()
     bot.ALPACA_ENABLED = False
-    o_val, o_search, o_sug = bot.lookup.validate_ticker, bot.lookup.search_symbols, bot.llm_ranker.suggest_tickers
-    bot.lookup.validate_ticker = lambda s: {"ok": False, "symbol": s}
-    bot.lookup.search_symbols = lambda s, limit=5: []
-    bot.llm_ranker.suggest_tickers = lambda s: []
+    o_val, o_search, o_sug = lookup.validate_ticker, lookup.search_symbols, llm_ranker.suggest_tickers
+    lookup.validate_ticker = lambda s: {"ok": False, "symbol": s}
+    lookup.search_symbols = lambda s, limit=5: []
+    llm_ranker.suggest_tickers = lambda s: []
     try:
         upd, ctx = _cmd(["zzzzz"])
         asyncio.run(bot.cmd_watchadd(upd, ctx))
     finally:
-        bot.lookup.validate_ticker, bot.lookup.search_symbols, bot.llm_ranker.suggest_tickers = o_val, o_search, o_sug
+        lookup.validate_ticker, lookup.search_symbols, llm_ranker.suggest_tickers = o_val, o_search, o_sug
     assert "nicht gefunden" in _replies(upd)
 
 

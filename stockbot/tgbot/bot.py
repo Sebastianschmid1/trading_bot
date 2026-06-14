@@ -36,8 +36,8 @@ from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
-from stockbot.market import lookup
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
+from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
 from stockbot.core.evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
 from stockbot.config import (
     TELEGRAM_TOKEN,
@@ -1158,37 +1158,31 @@ async def cmd_watchadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     alpaca_client = _alpaca_client(user) if _alpaca_ready(user) else None
     for sym in raw:
-        info = await asyncio.to_thread(lookup.validate_ticker, sym)
-        if info.get("ok"):
-            wl = db.add_watchlist_tickers(chat_id, [info["symbol"]])
+        res = await asyncio.to_thread(watchlist_svc.add_to_watchlist, chat_id, sym, alpaca_client)
+        if res["status"] == "added":
+            info, wl, asset = res["info"], res["watchlist"], res.get("asset")
             typ = "ETF" if info.get("quote_type") == "ETF" else "Aktie"
             # Firmennamen gegen Markdown-Sonderzeichen absichern (sonst "can't parse entities")
             safe_name = "".join(c for c in str(info.get("name", info["symbol"])) if c not in "_*`[]")
             line = f"✅ *{info['symbol']}* ({safe_name}, {typ}) — Kurs ${info['price']:.2f}"
-            if alpaca_client is not None:
-                asset = await asyncio.to_thread(broker.get_asset_info, info["symbol"], alpaca_client)
-                if asset.get("ok"):
-                    line += "\n   📈 Bei Alpaca handelbar ✓" if asset.get("tradable") else \
-                            "\n   ⚠️ Bei Alpaca *nicht* handelbar — wird nur im Demo-Modus berücksichtigt."
+            if asset is not None and asset.get("ok"):
+                line += "\n   📈 Bei Alpaca handelbar ✓" if asset.get("tradable") else \
+                        "\n   ⚠️ Bei Alpaca *nicht* handelbar — wird nur im Demo-Modus berücksichtigt."
             line += f"\n   📋 Watchlist ({len(wl)}): {', '.join(wl)}"
             await update.message.reply_text(line, parse_mode="Markdown")
             continue
 
-        # Nicht gefunden → "Meinten Sie?" (zuerst yfinance-Suche, dann LLM-Fallback)
-        hits = await asyncio.to_thread(lookup.search_symbols, sym)
-        suggestions = [h["symbol"] for h in hits]
-        if not suggestions:
-            suggestions = await asyncio.to_thread(llm_ranker.suggest_tickers, sym)
-        suggestions = [s for s in suggestions if s != sym][:3]
+        # Nicht gefunden → "Meinten Sie?" (Vorschläge kommen aus dem Service: yfinance, dann LLM)
+        suggestions = res["suggestions"]
         if suggestions:
             await update.message.reply_text(
-                f"❓ *{sym}* nicht gefunden. Meinten Sie: "
+                f"❓ *{res['symbol']}* nicht gefunden. Meinten Sie: "
                 + ", ".join(f"`{s}`" for s in suggestions)
                 + "?\nHinzufügen z. B. mit `/watchadd " + suggestions[0] + "`.",
                 parse_mode="Markdown")
         else:
             await update.message.reply_text(
-                f"❌ *{sym}* nicht gefunden und keine Vorschläge verfügbar. "
+                f"❌ *{res['symbol']}* nicht gefunden und keine Vorschläge verfügbar. "
                 "Prüfe das Börsenkürzel (z. B. `AAPL`).", parse_mode="Markdown")
 
 
@@ -1204,7 +1198,7 @@ async def cmd_watchdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         parse_mode="Markdown")
         return
     sym = context.args[0].strip().upper()
-    wl = db.remove_watchlist_ticker(chat_id, sym)
+    wl = watchlist_svc.remove_from_watchlist(chat_id, sym)
     body = ", ".join(wl) if wl else "_(leer)_"
     await update.message.reply_text(f"🗑️ *{sym}* entfernt.\n📋 Watchlist ({len(wl)}): {body}",
                                     parse_mode="Markdown")
@@ -1482,13 +1476,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Hebel pro Signal ändern (vor dem Start)
     if action == "lev":
         value = float(parts[2])
-        trade = db.get_trade(chat_id, ticker)
-        if not trade or trade["status"] != "pending":
+        updated = trade_svc.set_pending_leverage(chat_id, ticker, value)
+        if updated is None:
             await query.answer("⚠️ Hebel nicht mehr änderbar (Trade bereits bearbeitet).", show_alert=True)
             return
-        db.set_trade_leverage(chat_id, ticker, value)
         user = db.get_user(chat_id)
-        updated = db.get_trade(chat_id, ticker)
         text, keyboard = _signal_card(updated["signal"], user["trade_size_eur"], market_open=True)
         try:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -1498,8 +1490,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "accept":
-        trade = db.activate_trade(chat_id, ticker)
-        if trade:
+        result = trade_svc.accept_trade(chat_id, ticker)
+        if result["ok"]:
+            trade = result["trade"]
             lev = trade.get("signal", {}).get("leverage", 1.0) or 1.0
             await query.edit_message_reply_markup(reply_markup=None)
             await query.edit_message_text(
@@ -1508,19 +1501,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
             await _maybe_broker_order(context.bot, chat_id, trade)
+        elif result["reason"] == "expired":
+            await query.answer(
+                f"⏰ Zeitfenster abgelaufen — Start ist nur innerhalb von "
+                f"{TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich.",
+                show_alert=True
+            )
         else:
-            existing = db.get_trade(chat_id, ticker)
-            if existing and existing["status"] == "expired":
-                await query.answer(
-                    f"⏰ Zeitfenster abgelaufen — Start ist nur innerhalb von "
-                    f"{TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich.",
-                    show_alert=True
-                )
-            else:
-                await query.answer("⚠️ Trade bereits aktiv oder nicht gefunden.", show_alert=True)
+            await query.answer("⚠️ Trade bereits aktiv oder nicht gefunden.", show_alert=True)
 
     elif action == "reject":
-        if db.reject_trade(chat_id, ticker):
+        if trade_svc.reject_trade(chat_id, ticker):
             await query.edit_message_reply_markup(reply_markup=None)
             await query.edit_message_text(
                 query.message.text + "\n\n❌ *Abgelehnt*",
@@ -1531,9 +1522,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ Trade bereits bearbeitet oder nicht gefunden.", show_alert=True)
 
     elif action == "sell":
-        user = db.get_user(chat_id)
-        trade = db.get_trade(chat_id, ticker)
-        if not user or not trade or trade["status"] != "active":
+        result = trade_svc.sell_trade(chat_id, ticker)
+        if not result["ok"]:
             await query.answer("⚠️ Trade ist nicht mehr aktiv.", show_alert=True)
             try:
                 await query.edit_message_reply_markup(reply_markup=None)
@@ -1541,89 +1531,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        entry = trade["entry"]
-        leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
-        current = get_current_price(ticker, entry)
-        pnl_pct, pnl_eur = realized_pnl(entry, current, trade["direction"], user["trade_size_eur"], leverage)
-
-        db.close_all(chat_id, [{
-            "ticker": ticker, "exit": current, "pnl_eur": pnl_eur, "pnl_pct": pnl_pct,
-        }])
-
+        entry, current, leverage = result["entry"], result["current"], result["leverage"]
+        pnl_pct, pnl_eur = result["pnl_pct"], result["pnl_eur"]
         sign = "+" if pnl_eur >= 0 else ""
         emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
-        # Ausstiegs-Signalstärke = letzter aufgezeichneter 60s-Tick (sonst unbekannt)
-        _pts = db.get_today_ticks(chat_id).get(ticker, [])
-        exit_strength = _pts[-1].get("strength") if _pts else None
         await query.edit_message_reply_markup(reply_markup=None)
         await query.edit_message_text(
             query.message.text +
             f"\n\n{emoji} *Verkauft* — Einstieg ${entry:.2f} → Ausstieg ${current:.2f} (Hebel {leverage:g}×)\n"
-            f"Einstieg-Signal: {_fmt_strength(trade.get('signal', {}).get('strength'))} → "
-            f"Ausstieg-Signal: {_fmt_strength(exit_strength)}  ·  "
+            f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
+            f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
             f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
             parse_mode="Markdown"
         )
         # echte Alpaca-Position (falls vorhanden) mitschließen
-        await _maybe_broker_close(context.bot, user, ticker)
+        await _maybe_broker_close(context.bot, db.get_user(chat_id), ticker)
         log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
 
-    elif action == "set_region":
-        # 'ticker' enthält hier den Korb-Schlüssel (z. B. 'sp500') — Mehrfachauswahl (Toggle)
-        if ticker in UNIVERSES:
-            keys = db.toggle_region(chat_id, ticker)
-            log.info(f"[{chat_id}] Markt-Körbe geändert: {keys}")
-        user = db.get_user(chat_id)
-        if user:
-            text, keyboard = _settings_view(user)
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
-    elif action == "set_size":
-        # 'ticker' enthält hier die Trade-Größe in € als String
-        try:
-            saved = db.set_trade_size(chat_id, float(ticker))
-            log.info(f"[{chat_id}] Demo-Trade-Größe geändert: {saved:.0f}€")
-        except ValueError:
-            pass
-        user = db.get_user(chat_id)
-        if user:
-            text, keyboard = _settings_view(user)
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
-    elif action == "set_count":
-        # 'ticker' enthält hier die Zahl als String
-        try:
-            db.set_top_n(chat_id, int(ticker))
-            log.info(f"[{chat_id}] Anzahl Signale geändert: {ticker}")
-        except ValueError:
-            pass
-        user = db.get_user(chat_id)
-        if user:
-            text, keyboard = _settings_view(user)
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
-    elif action in ("set_mode", "set_lev", "set_auto", "set_uni", "set_strat", "set_llm", "set_eod", "set_broker"):
-        if action == "set_mode" and ticker in SL_TP_MODES:
-            db.set_sl_tp_mode(chat_id, ticker)
-        elif action == "set_lev":
-            try:
-                db.set_leverage(chat_id, float(ticker))
-            except ValueError:
-                pass
-        elif action == "set_auto":
-            db.set_auto_accept(chat_id, ticker == "1")
-        elif action == "set_uni":
-            db.set_auto_universe(chat_id, ticker == "1")
-        elif action == "set_strat" and ticker in strategies.REGISTRY:
-            db.toggle_strategy(chat_id, ticker)
-        elif action == "set_llm":
-            db.set_llm_rank(chat_id, ticker == "1")
-        elif action == "set_eod":
-            db.set_eod_close(chat_id, ticker == "1")
-        elif action == "set_broker" and _alpaca_ready(db.get_user(chat_id) or {}):
-            db.set_broker_exec(chat_id, ticker == "1")
-        log.info(f"[{chat_id}] Einstellung geändert: {action}={ticker}")
-        user = db.get_user(chat_id)
+    elif action in settings_svc.SETTING_ACTIONS:
+        # 'ticker' trägt hier den Wert der Aktion (Korb-Key / Zahl / "1"/"0" …)
+        alpaca_ready = _alpaca_ready(db.get_user(chat_id) or {})
+        user = settings_svc.apply_setting(chat_id, action, ticker, alpaca_ready=alpaca_ready)
         if user:
             text, keyboard = _settings_view(user)
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
