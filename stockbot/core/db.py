@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     broker_exec       INTEGER NOT NULL DEFAULT 0,
     watchlist         TEXT    NOT NULL DEFAULT '',
     notify_channel    TEXT    NOT NULL DEFAULT 'both',
+    asset_pref        TEXT    NOT NULL DEFAULT 'stocks',
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -154,6 +155,9 @@ def _migrate(conn: sqlite3.Connection):
     if "notify_channel" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN notify_channel TEXT NOT NULL DEFAULT 'both'")
         log.info("Migration: Spalte users.notify_channel ergänzt.")
+    if "asset_pref" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN asset_pref TEXT NOT NULL DEFAULT 'stocks'")
+        log.info("Migration: Spalte users.asset_pref ergänzt.")
 
 
 @contextmanager
@@ -208,6 +212,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "broker_exec":      bool(row["broker_exec"]),
         "watchlist":        _parse_watchlist(row["watchlist"] if "watchlist" in row.keys() else ""),
         "notify_channel":   (row["notify_channel"] if "notify_channel" in row.keys() else "both") or "both",
+        "asset_pref":       (row["asset_pref"] if "asset_pref" in row.keys() else "stocks") or "stocks",
     }
 
 
@@ -545,7 +550,7 @@ def create_session(user_id: int, days: int = 30) -> str:
         conn.execute(
             "INSERT INTO sessions (token, user_id, expires_at) "
             "VALUES (?, ?, datetime('now', ?))",
-            (token, user_id, f"+{int(days)} days"),
+            (token, user_id, f"{int(days):+d} days"),
         )
     return token
 
@@ -570,6 +575,20 @@ def delete_session(token: str):
         conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
 
+def delete_user_sessions(user_id: int) -> int:
+    """Beendet ALLE Web-Sessions eines Nutzers ('überall abmelden'). Gibt die Anzahl zurück."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        return cur.rowcount
+
+
+def delete_expired_sessions() -> int:
+    """Räumt abgelaufene Sessions auf. Gibt die Anzahl gelöschter Zeilen zurück."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
+        return cur.rowcount
+
+
 # ── Benachrichtigungs-Kanal & In-App-Benachrichtigungen ──────────────────────
 
 def set_notify_channel(user_id: int, channel: str) -> str:
@@ -581,6 +600,17 @@ def set_notify_channel(user_id: int, channel: str) -> str:
             (channel, user_id),
         )
     return channel
+
+
+def set_asset_pref(user_id: int, asset_pref: str) -> str:
+    """Setzt die zuletzt gewählte Asset-Klasse (Dropdown auf der Website)."""
+    asset_pref = (asset_pref or "stocks").strip() or "stocks"
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET asset_pref = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (asset_pref, user_id),
+        )
+    return asset_pref
 
 
 def add_notification(user_id: int, title: str, body: str = "", type: str = "info") -> int:

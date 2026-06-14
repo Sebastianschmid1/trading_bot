@@ -50,6 +50,21 @@ DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL") or f"http://{_detect_lan_ip
 # Auf dem VPS mit separatem dashboard.service: RUN_DASHBOARD_IN_BOT=false setzen.
 RUN_DASHBOARD_IN_BOT = os.getenv("RUN_DASHBOARD_IN_BOT", "true").strip().lower() in ("1", "true", "yes")
 
+# ── Web-Sicherheit ───────────────────────────────────────────────────────────
+# Session-Cookie nur über HTTPS senden (secure-Flag). Default = automatisch AN, sobald
+# DASHBOARD_BASE_URL auf https zeigt (sonst würde der Login lokal über http brechen).
+# Hinter einem TLS-Reverse-Proxy (siehe deploy/Caddyfile) zwingend AN — explizit per
+# COOKIE_SECURE=true erzwingbar.
+_cookie_secure_env = os.getenv("COOKIE_SECURE")
+COOKIE_SECURE = (
+    _cookie_secure_env.strip().lower() in ("1", "true", "yes")
+    if _cookie_secure_env is not None
+    else DASHBOARD_BASE_URL.lower().startswith("https")
+)
+# HSTS-Header (Strict-Transport-Security) nur senden, wenn TLS aktiv ist — sonst sperrt
+# man sich lokal über http aus. Folgt standardmäßig COOKIE_SECURE.
+HSTS_ENABLED = os.getenv("HSTS_ENABLED", str(COOKIE_SECURE)).strip().lower() in ("1", "true", "yes")
+
 # ── Zeitplanung ─────────────────────────────────────────────────────────────
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
@@ -140,6 +155,42 @@ REGION_LABELS = {
 }
 
 DEFAULT_REGION = "sp500"
+
+# ── Weitere Anlageklassen (Website-Dropdown) ─────────────────────────────────
+# ETFs: liquide, bei Alpaca als us_equity handelbar; gleiche Analyse-Engine wie Aktien
+# (nur Smart-Money entfällt). Datenquelle yfinance.
+UNIVERSE_ETF = [
+    # Breit / US-Indizes
+    "SPY", "VOO", "IVV", "QQQ", "DIA", "IWM", "VTI", "RSP",
+    # Sektoren
+    "XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLU", "XLB", "XLRE", "SMH", "SOXX",
+    # Themen / Wachstum
+    "ARKK", "IGV", "XBI", "TAN", "LIT",
+    # International
+    "EFA", "EEM", "VEA", "VWO", "EWJ", "FXI", "INDA", "EWZ",
+    # Anleihen / Sonstiges
+    "TLT", "IEF", "HYG", "LQD",
+]
+
+# Rohstoffe: über handelbare Rohstoff-ETFs abgebildet (Alpaca us_equity). Echte Futures
+# (GC=F, CL=F) sind bewusst NICHT enthalten (Rollover/Sessions, bei Alpaca nicht handelbar).
+UNIVERSE_COMMODITY = [
+    "GLD", "IAU",        # Gold
+    "SLV",               # Silber
+    "USO", "BNO",        # Öl (WTI/Brent)
+    "UNG",               # Erdgas
+    "DBC", "PDBC", "GSG",  # breite Rohstoffkörbe
+    "DBA",               # Agrar
+    "CPER",              # Kupfer
+    "PPLT", "PALL",      # Platin / Palladium
+]
+
+# Krypto: yfinance-Symbole (24/7-Handel). Vorerst Demo/Tracking auf der Website; echter
+# Alpaca-Krypto-Handel (Symbolformat BTC/USD, 24/7) ist ein separater Folgeschritt.
+UNIVERSE_CRYPTO = [
+    "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD",
+    "DOGE-USD", "AVAX-USD", "LINK-USD", "DOT-USD", "MATIC-USD", "LTC-USD",
+]
 
 # Voll-Universum (automatisch geladene Vollliste, z. B. ~500 S&P-500-Werte) standardmäßig AN.
 # Aus → kuratierter Korb aus config.py (UNIVERSE_*) → kleiner & schnellere Analyse.

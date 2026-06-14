@@ -1,0 +1,27 @@
+# TLS-Reverse-Proxy für die Web-App (Dashboard + Website) mit automatischem
+# Let's-Encrypt-Zertifikat. Caddy terminiert HTTPS und reicht intern an Port 8000 weiter.
+#
+# Voraussetzungen:
+#   1. Eine Domain, deren A-Record auf die Server-IP zeigt (z. B. bot.example.de → 217.160.103.25).
+#   2. Caddy installiert:  apt install -y caddy   (oder offizielles Caddy-Repo)
+#   3. Diese Datei nach /etc/caddy/Caddyfile kopieren, DEINE-DOMAIN ersetzen, dann:
+#        systemctl reload caddy
+#   4. Den Bot/das Dashboard NUR auf localhost lauschen lassen ist optional, aber sicherer —
+#      auf jeden Fall Port 8000 nach außen schließen:  ufw delete allow 8000  (Caddy nutzt 80/443).
+#   5. In der .env setzen:
+#        DASHBOARD_BASE_URL=https://DEINE-DOMAIN
+#        COOKIE_SECURE=true
+#      und  systemctl restart stockbot.
+#
+# Danach laufen Dashboard (/dashboard/<token>) und Web-App (/app, /login) verschlüsselt
+# unter https://DEINE-DOMAIN — Port 8000 ist von außen nicht mehr erreichbar.
+
+DEINE-DOMAIN {
+    encode gzip
+    reverse_proxy 127.0.0.1:8000 {
+        # SSE (Mitteilungen-Live-Feed) braucht ungepufferte, langlebige Verbindungen.
+        flush_interval -1
+    }
+    # Sinnvolle Defaults; App-spezifische Header setzt die FastAPI-Middleware.
+    header -Server
+}

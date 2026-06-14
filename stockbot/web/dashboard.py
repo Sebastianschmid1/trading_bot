@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
+from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
 from stockbot.core.evaluator import get_current_price, realized_pnl
 
@@ -47,12 +48,41 @@ def _berlin_hhmm(ts: str | None) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    try:
+        removed = db.delete_expired_sessions()
+        if removed:
+            log.info(f"Session-Cleanup: {removed} abgelaufene Web-Session(s) entfernt.")
+    except Exception as e:
+        log.warning(f"Session-Cleanup fehlgeschlagen: {e}")
     yield
 
 
 app = FastAPI(title="Stock Signal Bot — Dashboard", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+# ── Security-Header (gegen Sniffing/Clickjacking/Referer-Leak) ───────────────
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Setzt defensive HTTP-Header auf jede Antwort. HSTS nur bei aktivem TLS
+    (config.HSTS_ENABLED), damit man sich lokal über http nicht aussperrt."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    # CSP: eigene Quelle; Inline-Styles (base.html nutzt <style>) erlaubt, sonst restriktiv.
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; script-src 'self' https://telegram.org 'unsafe-inline'; "
+        "frame-src https://oauth.telegram.org; base-uri 'self'; form-action 'self'",
+    )
+    if config.HSTS_ENABLED:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 
 # ── Kennzahlen aus der DB aufbauen ──────────────────────────────────────────

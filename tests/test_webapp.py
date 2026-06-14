@@ -158,6 +158,72 @@ def test_watchlist_add_unknown_shows_suggestions():
     assert db.get_user(CHAT)["watchlist"] == []
 
 
+# ── Asset-Klassen-Dropdown ───────────────────────────────────────────────────
+
+def test_app_shows_asset_dropdown_with_aktien():
+    fresh()
+    c = _client()
+    r = c.get("/app")
+    assert r.status_code == 200 and "Anlageklasse" in r.text and "Aktien" in r.text
+
+
+def test_set_asset_only_persists_registered_keys():
+    """Die Route validiert gegen die Registry: registrierte Klassen werden gespeichert,
+    unbekannte fallen auf Aktien zurück (so landen nie ungültige Werte in der DB)."""
+    fresh()
+    c = _client()
+    for key in ("etf", "crypto", "commodity"):
+        c.post("/app/asset", data={"asset": key}, follow_redirects=False)
+        assert db.get_user(CHAT)["asset_pref"] == key
+    c.post("/app/asset", data={"asset": "quatsch"}, follow_redirects=False)
+    assert db.get_user(CHAT)["asset_pref"] == "stocks"  # unbekannt → Fallback Aktien
+
+
+def test_dropdown_lists_all_asset_classes():
+    fresh()
+    r = _client().get("/app")
+    for label in ("Aktien", "ETFs", "Krypto", "Rohstoffe"):
+        assert label in r.text
+
+
+# ── On-Demand-Signal-Scan + 7-Tage-Chart ────────────────────────────────────
+
+def test_sparkline_points_and_direction():
+    from stockbot.web import webapp
+    assert webapp._sparkline([1]) is None                 # zu wenig Daten
+    up = webapp._sparkline([1, 2, 3])
+    assert up["up"] is True and up["points"].count(",") == 3
+    assert webapp._sparkline([3, 2, 1])["up"] is False
+
+
+def test_scan_populates_cards_and_accept_starts_trade(monkeypatch):
+    fresh()
+    from stockbot.market import analyzer, asset_classes
+    monkeypatch.setattr(asset_classes.universes, "get_tickers", lambda region, auto=True: ["NVDA"])
+    sig = {"ticker": "NVDA", "direction": "long", "price": 100.0, "strength": 72.0,
+           "rsi_comment": "32.1 — Überverkauft 📉", "macd_comment": "Bullish Crossover ✅",
+           "trend_comment": "Aufwärtstrend 📈", "stop_loss": 95.0, "take_profit": 110.0}
+    monkeypatch.setattr(analyzer, "analyze_universe", lambda tickers, profile=None: [sig])
+    monkeypatch.setattr(analyzer, "price_history_batch",
+                        lambda tickers, days=7: {"NVDA": {"dates": [], "closes": [1, 2, 3, 4, 5, 6, 7]}})
+    c = _client()
+    c.post("/app/scan", follow_redirects=False)
+    r = c.get("/app")
+    assert "Angeforderte Signale" in r.text and "NVDA" in r.text
+    assert "Bullish Crossover" in r.text and "<polyline" in r.text       # volle Infos + Mini-Chart
+    c.post("/app/scan/accept", data={"ticker": "NVDA"}, follow_redirects=False)
+    act = db.get_active_trades(CHAT)
+    assert act and act[0]["ticker"] == "NVDA"
+
+
+def test_scan_accept_expired_signal_is_safe():
+    fresh()
+    c = _client()
+    r = c.post("/app/scan/accept", data={"ticker": "GHOST"}, follow_redirects=False)
+    assert "abgelaufen" in r.headers["location"]
+    assert db.get_active_trades(CHAT) == []
+
+
 # ── Mitteilungen ────────────────────────────────────────────────────────────
 
 def test_notifications_page_and_mark_read():
@@ -192,6 +258,86 @@ def test_cmd_website_sends_one_click_login_link():
     asyncio.run(bot.cmd_website(upd, MagicMock()))
     sent = upd.message.reply_text.call_args.args[0]
     assert f"/auth/token?token={tok}" in sent
+
+
+# ── Sicherheit: Header & Cookie-Flags ───────────────────────────────────────
+
+def test_security_headers_present():
+    fresh()
+    c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+    r = c.get("/login")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert "content-security-policy" in r.headers
+
+
+def test_hsts_only_when_enabled():
+    fresh()
+    from stockbot import config
+    orig = config.HSTS_ENABLED
+    try:
+        config.HSTS_ENABLED = False
+        c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+        assert "strict-transport-security" not in c.get("/login").headers
+        config.HSTS_ENABLED = True
+        c2 = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+        assert "strict-transport-security" in c2.get("/login").headers
+    finally:
+        config.HSTS_ENABLED = orig
+
+
+def test_session_cookie_secure_flag_follows_config():
+    tok = fresh()
+    from stockbot import config
+    orig = config.COOKIE_SECURE
+    try:
+        config.COOKIE_SECURE = True
+        c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+        r = c.get(f"/auth/token?token={tok}", follow_redirects=False)
+        assert "secure" in r.headers.get("set-cookie", "").lower()
+    finally:
+        config.COOKIE_SECURE = orig
+
+
+# ── CSRF / Rate-Limit / Session-Hygiene ──────────────────────────────────────
+
+def test_csrf_blocks_cross_origin_post():
+    fresh()
+    c = _client()
+    # gleicher Origin → ok
+    ok = c.post("/app/asset", data={"asset": "stocks"},
+                headers={"origin": "http://testserver"}, follow_redirects=False)
+    assert ok.status_code == 303
+    # fremder Origin → 403
+    bad = c.post("/app/asset", data={"asset": "stocks"},
+                 headers={"origin": "http://evil.example"}, follow_redirects=False)
+    assert bad.status_code == 403
+
+
+def test_rate_limit_blocks_after_many_attempts():
+    fresh()
+    from stockbot.web import auth
+    auth._auth_hits.clear()
+    assert all(auth.rate_ok("ip:test", limit=3, window=60) for _ in range(3))
+    assert auth.rate_ok("ip:test", limit=3, window=60) is False
+
+
+def test_logout_all_clears_all_sessions():
+    fresh()
+    db.create_session(CHAT)                       # zweite Session „auf anderem Gerät"
+    c = _client()                                 # legt dritte Session an
+    c.post("/logout/all", headers={"origin": "http://testserver"}, follow_redirects=False)
+    assert c.get("/app", follow_redirects=False).status_code == 303   # ausgeloggt
+
+
+def test_delete_expired_sessions():
+    fresh()
+    db.create_session(CHAT, days=-1)              # bereits abgelaufen
+    fresh_tok = db.create_session(CHAT, days=30)
+    removed = db.delete_expired_sessions()
+    assert removed == 1
+    assert db.user_id_for_session(fresh_tok) == CHAT
 
 
 # ── Telegram-Login-HMAC ─────────────────────────────────────────────────────

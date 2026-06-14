@@ -11,12 +11,45 @@ Zwei Login-Wege, beide münden in eine Server-Session (DB-Tabelle `sessions`) al
 import time
 import hmac
 import hashlib
+from urllib.parse import urlparse
 
 from stockbot.core import db
+from stockbot import config
 from stockbot.config import TELEGRAM_TOKEN
 
 SESSION_COOKIE = "sb_session"
 SESSION_DAYS = 30
+
+
+# ── CSRF-Schutz: Origin/Referer-Abgleich ─────────────────────────────────────
+
+def is_same_origin(request) -> bool:
+    """True, wenn ein state-ändernder Request vom eigenen Origin kommt (CSRF-Schutz).
+    Vergleicht den Host aus Origin/Referer mit dem Host-Header (funktioniert auch hinter
+    einem TLS-Reverse-Proxy, da beide den öffentlichen Host tragen). Fehlt Origin UND
+    Referer (manche Nicht-Browser-Clients), wird NICHT blockiert — zusammen mit dem
+    SameSite=lax-Cookie bleibt der Schutz gegen Cross-Site-POSTs bestehen."""
+    src = request.headers.get("origin") or request.headers.get("referer")
+    if not src:
+        return True
+    src_host = urlparse(src).hostname
+    host = (request.headers.get("host") or request.url.hostname or "").split(":")[0]
+    return bool(src_host) and src_host == host
+
+
+# ── Einfaches In-Memory-Rate-Limit (Login-Endpunkte) ─────────────────────────
+
+_auth_hits: dict[str, list] = {}
+
+
+def rate_ok(key: str, limit: int = 20, window: int = 60) -> bool:
+    """True, solange `key` (z. B. Client-IP) im Zeitfenster unter dem Limit bleibt.
+    Schützt die Login-Endpunkte gegen Missbrauch/Brute-Force."""
+    now = time.time()
+    hits = [t for t in _auth_hits.get(key, []) if now - t < window]
+    hits.append(now)
+    _auth_hits[key] = hits
+    return len(hits) <= limit
 
 
 def current_user(request) -> dict | None:
@@ -30,6 +63,7 @@ def login_response(response, user_id: int):
     """Setzt das Session-Cookie für `user_id` auf einer bestehenden Response."""
     token = db.create_session(user_id, days=SESSION_DAYS)
     response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax",
+                        secure=config.COOKIE_SECURE,
                         max_age=SESSION_DAYS * 24 * 3600, path="/")
     return response
 

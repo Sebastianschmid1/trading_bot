@@ -8,17 +8,20 @@ Wird als Router in stockbot/web/dashboard.py eingehängt (ein Server für Dashbo
 
 import os
 import json
+import time
 import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from stockbot.core import db
 from stockbot.market import strategies
+from stockbot.market import asset_classes
+from stockbot.market import analyzer
 from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.services import trades as trade_svc
@@ -30,7 +33,15 @@ from stockbot.web.dashboard import build_dashboard_data
 log = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-router = APIRouter()
+
+
+async def _csrf_protect(request: Request):
+    """CSRF-Schutz: state-ändernde Requests müssen vom eigenen Origin kommen."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and not auth.is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Ungültiger Origin (CSRF-Schutz).")
+
+
+router = APIRouter(dependencies=[Depends(_csrf_protect)])
 
 
 # ── Alpaca-Helfer (leichtgewichtig, ohne Telegram-Abhängigkeit) ──────────────
@@ -58,6 +69,42 @@ def _redirect(path: str):
     return RedirectResponse(path, status_code=303)
 
 
+# ── On-Demand-Signal-Scan (Cache + Mini-Chart) ───────────────────────────────
+
+SCAN_TTL_S = 600                       # angeforderte Signale 10 Min cachen (Reload ≠ Neu-Scan)
+_scan_cache: dict[int, dict] = {}      # user_id -> {"at": ts, "asset": key, "signals": [...]}
+
+
+def _sparkline(closes: list, width: int = 120, height: int = 32) -> dict | None:
+    """Baut aus Schlusskursen die Punkte einer Inline-SVG-Sparkline (keine JS/Deps nötig).
+    Gibt {"points": "x,y x,y …", "up": bool} oder None bei zu wenig Daten."""
+    pts = [c for c in (closes or []) if c is not None]
+    if len(pts) < 2:
+        return None
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1.0
+    n = len(pts)
+    coords = []
+    for i, c in enumerate(pts):
+        x = round(i / (n - 1) * (width - 2) + 1, 1)
+        y = round(height - 1 - (c - lo) / span * (height - 2), 1)
+        coords.append(f"{x},{y}")
+    return {"points": " ".join(coords), "up": pts[-1] >= pts[0]}
+
+
+def _scanned_for(user: dict) -> list:
+    """Frische, on-demand angeforderte Signale des Nutzers (mit Sparkline-Punkten) oder []."""
+    entry = _scan_cache.get(user["user_id"])
+    if not entry or time.time() - entry["at"] > SCAN_TTL_S or entry["asset"] != (user.get("asset_pref") or "stocks"):
+        return []
+    out = []
+    for s in entry["signals"]:
+        card = dict(s)
+        card["spark"] = _sparkline(s.get("spark_closes") or [])
+        out.append(card)
+    return out
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @router.get("/login", response_class=HTMLResponse)
@@ -72,7 +119,9 @@ def login_page(request: Request, msg: str = ""):
 
 
 @router.get("/auth/token")
-def auth_token(token: str = ""):
+def auth_token(request: Request, token: str = ""):
+    if not auth.rate_ok(f"token:{request.client.host if request.client else '?'}"):
+        return _redirect("/login?msg=Zu+viele+Versuche+%E2%80%93+kurz+warten.")
     u = db.get_user_by_token(token)
     if not u:
         return _redirect("/login?msg=Ung%C3%BCltiger+Token")
@@ -81,6 +130,8 @@ def auth_token(token: str = ""):
 
 @router.get("/auth/telegram")
 def auth_telegram(request: Request):
+    if not auth.rate_ok(f"tg:{request.client.host if request.client else '?'}"):
+        return _redirect("/login?msg=Zu+viele+Versuche+%E2%80%93+kurz+warten.")
     uid = auth.verify_telegram_login(dict(request.query_params))
     if not uid or not db.get_user(uid):
         return _redirect("/login?msg=Telegram-Login+fehlgeschlagen")
@@ -90,6 +141,17 @@ def auth_telegram(request: Request):
 @router.post("/logout")
 def logout(request: Request):
     return auth.logout_response(request, _redirect("/login"))
+
+
+@router.post("/logout/all")
+def logout_all(request: Request):
+    """Beendet ALLE Sessions des Nutzers (z. B. nach verlorenem Gerät)."""
+    user = auth.current_user(request)
+    if user:
+        db.delete_user_sessions(user["user_id"])
+    resp = _redirect("/login?msg=Auf+allen+Ger%C3%A4ten+abgemeldet.")
+    resp.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return resp
 
 
 # ── App-Startseite: Signale + aktive Trades ──────────────────────────────────
@@ -109,8 +171,61 @@ def app_home(request: Request, msg: str = ""):
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
     active_trades = build_dashboard_data(user)["active_trades"]
+    asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
     return _render("app.html", request, user, active="home", msg=msg,
-                   pending=pending, active_trades=active_trades, leverages=config.LEVERAGE_CHOICES)
+                   pending=pending, active_trades=active_trades, leverages=config.LEVERAGE_CHOICES,
+                   asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
+                   scanned=_scanned_for(user))
+
+
+@router.post("/app/asset")
+def app_set_asset(request: Request, asset: str = Form(...)):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    cls = asset_classes.get_asset_class(asset)
+    db.set_asset_pref(user["user_id"], cls.key)
+    return _redirect("/app")
+
+
+@router.post("/app/scan")
+async def app_scan(request: Request):
+    """Fordert live Signale für die gewählte Anlageklasse an (gleiche Analyse wie der
+    Telegram-Tagesjob), inkl. 7-Tage-Mini-Chart. Ergebnis wird kurz gecacht."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    cls = asset_classes.get_asset_class(user.get("asset_pref"))
+    tickers = cls.get_tickers(user)
+    if not tickers:
+        return _redirect("/app?msg=Keine+Werte+in+dieser+Anlageklasse.")
+
+    def _work():
+        ranked = analyzer.analyze_universe(tickers, profile=cls.profile)
+        top = ranked[: max(1, int(user.get("top_n_signals") or 5))]
+        spark = analyzer.price_history_batch([s["ticker"] for s in top], days=7)
+        for s in top:
+            s["spark_closes"] = spark.get(s["ticker"], {}).get("closes", [])
+        return top
+
+    top = await run_in_threadpool(_work)
+    _scan_cache[user["user_id"]] = {"at": time.time(), "asset": cls.key, "signals": top}
+    n = len(top)
+    return _redirect(f"/app?msg={n}+Signal(e)+gefunden." if n else "/app?msg=Aktuell+keine+Signale.")
+
+
+@router.post("/app/scan/accept")
+def app_scan_accept(request: Request, ticker: str = Form(...)):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    entry = _scan_cache.get(user["user_id"]) or {}
+    sig = next((s for s in entry.get("signals", []) if s["ticker"] == ticker), None)
+    if not sig:
+        return _redirect("/app?msg=Signal+abgelaufen+%E2%80%93+bitte+neu+anfordern.")
+    res = trade_svc.accept_signal(user["user_id"], sig)
+    msg = f"{ticker} gestartet." if res["ok"] else f"{ticker} heute bereits gehandelt."
+    return _redirect(f"/app?msg={msg}")
 
 
 @router.post("/app/accept")

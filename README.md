@@ -92,8 +92,17 @@ nutzt denselben Account/dieselbe DB (eine Aktion wirkt sofort in beiden Kanälen
 - **Anmelden:** `/login` — entweder per **„Login mit Telegram"** (setzt `TELEGRAM_BOT_USERNAME` + HTTPS
   voraus) oder per **privatem Token** (der Teil nach `/dashboard/` aus dem `/dashboard`-Link im Bot).
 - **Seiten:** `/app` (Signale annehmen/ablehnen, Hebel, aktive Trades verkaufen), `/app/settings`
-  (Körbe, Strategien, SL/TP, Hebel, Schalter, Benachrichtigungs-Kanal), `/app/watchlist` (mit „Meinten Sie?"),
-  `/app/notifications` (In-App-Mitteilungen mit Live-Feed via SSE), `/app/dashboard` (Kennzahlen/Charts).
+  (Körbe, Strategien, SL/TP, Hebel, Schalter, Benachrichtigungs-Kanal, „Überall abmelden"),
+  `/app/watchlist` (mit „Meinten Sie?"), `/app/notifications` (In-App-Mitteilungen mit Live-Feed via SSE),
+  `/app/dashboard` (Kennzahlen/Charts; das Dashboard verlinkt zurück „➡ Zur Web-App").
+- **Signale on-demand:** Auf `/app` „🔄 Signale anfordern" rechnet live die Analyse (gleiche Engine wie der
+  Telegram-Tagesjob) und zeigt die vollen Begründungen **plus 7-Tage-Mini-Chart** je Treffer.
+- **Anlageklassen-Dropdown:** Aktien (Standard), **ETFs**, **Krypto** (yfinance, vorerst Demo/Tracking) und
+  **Rohstoffe** (über handelbare Rohstoff-ETFs). Jede Klasse hat ein eigenes Analyse-Profil
+  ([stockbot/market/asset_classes.py](stockbot/market/asset_classes.py)).
+- **Sicherheit:** Session-Cookies (httponly, `secure` bei HTTPS), Security-Header (CSP/HSTS/…),
+  CSRF-Schutz (Origin-Abgleich), Rate-Limit auf den Login-Endpunkten, Session-Cleanup. Für öffentlichen
+  Betrieb **hinter TLS** stellen — siehe [deploy/Caddyfile](deploy/Caddyfile) und `COOKIE_SECURE=true`.
 - Telegram-Bot und Web rufen **dieselbe Service-Schicht** (`stockbot/services/*`) auf → identisches Verhalten.
 
 Die Website wird vom **gleichen Server wie das Dashboard** ausgeliefert (`run_dashboard.py` bzw.

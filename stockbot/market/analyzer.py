@@ -342,15 +342,21 @@ def last_price(tf_data: dict) -> float | None:
 
 # ── Einzelne Aktie analysieren ──────────────────────────────────────────────
 
-def analyze_ticker(ticker: str, tf_data: dict | None = None) -> dict | None:
+def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None) -> dict | None:
     """
     Berechnet ein Signal für eine Aktie aus mehreren Zeiträumen.
     `tf_data` ist ein Dict {interval -> DataFrame} (Batch-Download je Timeframe).
     Kontext (Eintritts-Gate, SL/TP, S/R, Wochentrend, Kommentare) kommt aus dem 1d-TF,
     die Stärke (0–100) aus der gewichteten Multi-Timeframe-Analyse.
+    `profile` (asset_classes.Profile) erlaubt klassenspezifische Schwellen; None → Aktien-Defaults.
     Gibt None zurück, wenn kein klares Signal.
     """
     try:
+        rsi_oversold   = profile.rsi_oversold   if profile else RSI_OVERSOLD
+        rsi_overbought = profile.rsi_overbought if profile else RSI_OVERBOUGHT
+        min_strength   = profile.min_strength   if profile else MIN_SIGNAL_STRENGTH
+        block_downtrend = profile.block_weekly_downtrend if profile else BLOCK_WEEKLY_DOWNTREND
+
         tf_data = tf_data or {}
         df = tf_data.get("1d")
         if df is None or len(df) == 0:
@@ -394,21 +400,21 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None) -> dict | None:
         # bullishes MACD-Momentum ODER überverkaufter Rücksetzer — aber NICHT
         # in einen überkauften Markt hineinkaufen.
         bullish_macd = macd_hist > 0 and macd_line > macd_signal
-        oversold     = rsi < RSI_OVERSOLD
-        if rsi >= RSI_OVERBOUGHT or not (bullish_macd or oversold):
+        oversold     = rsi < rsi_oversold
+        if rsi >= rsi_overbought or not (bullish_macd or oversold):
             return None  # kein klares Long-Signal
         direction = "long"
 
         # Höheres Zeitfenster: keine Longs in einem klaren Wochen-Abwärtstrend
         weekly_trend = calc_weekly_trend(df)
-        if BLOCK_WEEKLY_DOWNTREND and weekly_trend == "down":
+        if block_downtrend and weekly_trend == "down":
             return None
 
         # Multi-Timeframe-Stärke (0–100)
         tf_scores = _tf_scores(tf_data)
         strength = compute_strength(tf_scores)
 
-        if strength < MIN_SIGNAL_STRENGTH:
+        if strength < min_strength:
             return None
 
         # Kommentare für die Telegram-Nachricht
@@ -524,19 +530,21 @@ def _extract(data, ticker: str):
         return data if "Close" in level0 else None
 
 
-def _download_all_timeframes(tickers: list[str]) -> dict:
+def _download_all_timeframes(tickers: list[str], prepost: bool = True) -> dict:
     """Lädt je konfiguriertem Timeframe einen Batch-Download – alle TF parallel.
 
     yfinance ist für getrennte download()-Aufrufe thread-safe; die 4 Timeframes
     gleichzeitig zu laden spart den Großteil der Wartezeit (sonst seriell ~35-60 s).
-    Gibt {interval -> data|None} zurück; ein Fehler reißt die übrigen TF nicht mit.
+    `prepost` schaltet Pre-/After-Market-Bars zu (für Aktien sinnvoll, für 24/7-Werte
+    wie Krypto irrelevant). Gibt {interval -> data|None} zurück; ein Fehler reißt die
+    übrigen TF nicht mit.
     """
     def _one(tf):
         try:
             return tf["interval"], yf.download(
                 tickers, period=tf["period"], interval=tf["interval"],
                 progress=False, auto_adjust=True, group_by="ticker",
-                prepost=True,   # Pre-/After-Market-Bars einbeziehen (Extended-Hours-Handel)
+                prepost=prepost,   # Pre-/After-Market-Bars einbeziehen (Extended-Hours-Handel)
             )
         except Exception as e:
             log.warning(f"Download {tf['interval']} fehlgeschlagen: {e}")
@@ -558,7 +566,7 @@ def _tf_data_for(downloads: dict, ticker: str) -> dict:
 
 # ── Top-Signale auswählen ───────────────────────────────────────────────────
 
-def analyze_universe(tickers: list[str], generate=None) -> list[dict]:
+def analyze_universe(tickers: list[str], generate=None, profile=None) -> list[dict]:
     """
     Analysiert eine Ticker-Liste über ALLE konfigurierten Timeframes und gibt alle
     gefundenen Signale absteigend nach Stärke zurück (Aufrufer schneidet auf top_n).
@@ -566,13 +574,19 @@ def analyze_universe(tickers: list[str], generate=None) -> list[dict]:
 
     `generate(ticker, tf_data) -> signal|None` erlaubt eine andere Strategie als die
     Standard-Analyse (Default: analyze_ticker). Beide nutzen dieselben Timeframe-Daten.
+    `profile` (asset_classes.Profile) steuert Download (prepost) und – beim Default-Generator –
+    die klassenspezifischen Schwellen. None → Aktien-Verhalten (rückwärtskompatibel).
     """
     if not tickers:
         return []
-    gen = generate or analyze_ticker
+    if generate is None:
+        gen = (lambda t, d: analyze_ticker(t, d, profile=profile)) if profile else analyze_ticker
+    else:
+        gen = generate
+    prepost = profile.prepost if profile else True
 
-    log.info(f"Analysiere {len(tickers)} Aktien über {len(SIGNAL_TIMEFRAMES)} Timeframes...")
-    downloads = _download_all_timeframes(tickers)
+    log.info(f"Analysiere {len(tickers)} Werte über {len(SIGNAL_TIMEFRAMES)} Timeframes...")
+    downloads = _download_all_timeframes(tickers, prepost=prepost)
 
     results = []
     for ticker in tickers:
@@ -586,6 +600,36 @@ def analyze_universe(tickers: list[str], generate=None) -> list[dict]:
     results.sort(key=lambda x: (x["strength"], abs(x["rsi"] - 50)), reverse=True)
     log.info(f"{len(results)} Signale gefunden: {[s['ticker'] for s in results]}")
     return results
+
+
+def price_history_batch(tickers: list[str], days: int = 7) -> dict:
+    """Tägliche Schlusskurse der letzten `days` Handelstage je Ticker — für die
+    Mini-Charts (Sparklines) auf der Website. Ein einziger Batch-Download.
+    Gibt {ticker: {"dates": [...], "closes": [...]}} zurück (leer bei Fehler)."""
+    if not tickers:
+        return {}
+    try:
+        data = yf.download(tickers, period="1mo", interval="1d", progress=False,
+                           auto_adjust=True, group_by="ticker")
+    except Exception as e:
+        log.warning(f"price_history_batch Download fehlgeschlagen: {e}")
+        return {}
+    out = {}
+    for ticker in tickers:
+        sub = _extract(data, ticker)
+        if sub is None:
+            continue
+        if isinstance(sub.columns, pd.MultiIndex):
+            sub = sub.droplevel(1, axis=1)
+        sub = sub.dropna(subset=["Close"])
+        if not len(sub):
+            continue
+        tail = sub.tail(days)
+        out[ticker] = {
+            "dates":  [str(d.date()) for d in tail.index],
+            "closes": [round(float(c), 2) for c in tail["Close"].values.flatten()],
+        }
+    return out
 
 
 def get_top_signals(tickers: list[str] | None = None, top_n: int = TOP_N_SIGNALS) -> list[dict]:

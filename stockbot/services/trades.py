@@ -8,6 +8,24 @@ etwaige Broker-Ausführung anhand des zurückgegebenen Ergebnisses.
 
 from stockbot.core import db
 from stockbot.core.evaluator import get_current_price, realized_pnl
+from stockbot.config import DEFAULT_LEVERAGE
+
+
+def accept_signal(user_id: int, signal: dict) -> dict:
+    """Nimmt ein **on-demand** angefordertes Signal an: legt es als pending an und aktiviert es
+    sofort (für die Website, wo der Nutzer ein gerade berechnetes Signal direkt startet).
+
+    Erwartet ein Signal-Dict aus analyzer.analyze_ticker (mind. ticker/direction/price).
+    Rückgabe wie accept_trade. {"ok": False, "reason": "unavailable"}, wenn heute für die
+    Aktie bereits ein Trade existiert (Duplikat-Schutz greift in db.add_pending)."""
+    sig = dict(signal)
+    sig.setdefault("direction", "long")
+    sig.setdefault("leverage", DEFAULT_LEVERAGE)
+    sig.setdefault("strategy", "standard")
+    if not sig.get("ticker") or sig.get("price") is None:
+        return {"ok": False, "reason": "unavailable"}
+    db.add_pending(user_id, sig, message_id=0)
+    return accept_trade(user_id, sig["ticker"])
 
 
 def accept_trade(user_id: int, ticker: str) -> dict:

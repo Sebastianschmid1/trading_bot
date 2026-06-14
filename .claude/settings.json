@@ -64,7 +64,9 @@
       "Bash(grep -nA25 \"def scan_strengths\" stockbot/market/analyzer.py)",
       "Bash(grep -nA8 \"CREATE TABLE IF NOT EXISTS trade_ticks\" stockbot/core/db.py)",
       "Bash(grep -nA14 \"def add_tick|def get_today_ticks\" stockbot/core/db.py)",
-      "Bash(*)"
+      "Bash(*)",
+      "Bash(python *)"
+
     ]
   }
 }
