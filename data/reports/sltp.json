@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-14 20:52 UTC",
+  "generated_at": "2026-06-14 21:35 UTC",
   "region": "sp500",
   "years": 2,
   "n_tickers": 501,
@@ -20,34 +20,34 @@
           "trades": 14356,
           "win_rate": 43.8,
           "profit_factor": 1.18,
-          "total_pnl_eur": 36864.94,
+          "total_pnl_eur": 36864.92,
           "max_drawdown_pct": 25.63,
           "expectancy": 2.57,
           "invested_capital": 14356000.0,
-          "end_capital": 14392864.94,
-          "return_pct": 0.2567911674561159
+          "end_capital": 14392864.92,
+          "return_pct": 0.2567910281415436
         },
         "normal": {
           "trades": 9356,
           "win_rate": 43.1,
           "profit_factor": 1.26,
-          "total_pnl_eur": 54032.15,
+          "total_pnl_eur": 54032.14,
           "max_drawdown_pct": 45.91,
           "expectancy": 5.78,
           "invested_capital": 9356000.0,
-          "end_capital": 9410032.15,
-          "return_pct": 0.5775133604104319
+          "end_capital": 9410032.14,
+          "return_pct": 0.5775132535271483
         },
         "aggressiv": {
           "trades": 6136,
           "win_rate": 47.9,
           "profit_factor": 1.37,
-          "total_pnl_eur": 72481.79,
+          "total_pnl_eur": 72481.8,
           "max_drawdown_pct": 62.96,
           "expectancy": 11.81,
           "invested_capital": 6136000.0,
-          "end_capital": 6208481.79,
-          "return_pct": 1.1812547262059971
+          "end_capital": 6208481.8,
+          "return_pct": 1.181254889178618
         }
       }
     },
@@ -70,23 +70,23 @@
           "trades": 2433,
           "win_rate": 42.4,
           "profit_factor": 1.25,
-          "total_pnl_eur": 13323.57,
+          "total_pnl_eur": 13323.56,
           "max_drawdown_pct": 30.73,
           "expectancy": 5.48,
           "invested_capital": 2433000.0,
-          "end_capital": 2446323.57,
-          "return_pct": 0.5476189889025894
+          "end_capital": 2446323.56,
+          "return_pct": 0.5476185778873819
         },
         "aggressiv": {
           "trades": 2278,
           "win_rate": 47.7,
           "profit_factor": 1.43,
-          "total_pnl_eur": 30101.51,
+          "total_pnl_eur": 30101.49,
           "max_drawdown_pct": 47.57,
           "expectancy": 13.21,
           "invested_capital": 2278000.0,
-          "end_capital": 2308101.51,
-          "return_pct": 1.321400790166813
+          "end_capital": 2308101.49,
+          "return_pct": 1.3213999122036877
         }
       }
     },
@@ -98,23 +98,23 @@
           "trades": 462,
           "win_rate": 45.0,
           "profit_factor": 1.23,
-          "total_pnl_eur": 1718.84,
+          "total_pnl_eur": 1718.83,
           "max_drawdown_pct": 18.3,
           "expectancy": 3.72,
           "invested_capital": 462000.0,
-          "end_capital": 463718.84,
-          "return_pct": 0.37204329004329
+          "end_capital": 463718.83,
+          "return_pct": 0.37204112554112556
         },
         "normal": {
           "trades": 401,
           "win_rate": 44.9,
           "profit_factor": 1.29,
-          "total_pnl_eur": 2890.56,
+          "total_pnl_eur": 2890.57,
           "max_drawdown_pct": 18.58,
           "expectancy": 7.21,
           "invested_capital": 401000.0,
-          "end_capital": 403890.56,
-          "return_pct": 0.7208379052369077
+          "end_capital": 403890.57,
+          "return_pct": 0.7208403990024939
         },
         "aggressiv": {
           "trades": 357,
@@ -134,37 +134,37 @@
       "label": "Donchian-Ausbruch (20T)",
       "by_mode": {
         "passiv": {
-          "trades": 11457,
+          "trades": 11453,
           "win_rate": 41.3,
           "profit_factor": 1.09,
-          "total_pnl_eur": 15306.26,
-          "max_drawdown_pct": 41.11,
+          "total_pnl_eur": 15292.74,
+          "max_drawdown_pct": 41.03,
           "expectancy": 1.34,
-          "invested_capital": 11457000.0,
-          "end_capital": 11472306.26,
-          "return_pct": 0.13359745133979226
+          "invested_capital": 11453000.0,
+          "end_capital": 11468292.74,
+          "return_pct": 0.13352606304025147
         },
         "normal": {
-          "trades": 8427,
-          "win_rate": 40.7,
-          "profit_factor": 1.17,
-          "total_pnl_eur": 32635.68,
-          "max_drawdown_pct": 52.12,
-          "expectancy": 3.87,
-          "invested_capital": 8427000.0,
-          "end_capital": 8459635.68,
-          "return_pct": 0.3872751868992524
+          "trades": 8430,
+          "win_rate": 40.8,
+          "profit_factor": 1.18,
+          "total_pnl_eur": 33003.52,
+          "max_drawdown_pct": 51.85,
+          "expectancy": 3.92,
+          "invested_capital": 8430000.0,
+          "end_capital": 8463003.52,
+          "return_pct": 0.3915008303677342
         },
         "aggressiv": {
-          "trades": 5942,
+          "trades": 5945,
           "win_rate": 46.5,
           "profit_factor": 1.34,
-          "total_pnl_eur": 63869.84,
-          "max_drawdown_pct": 72.42,
+          "total_pnl_eur": 63888.41,
+          "max_drawdown_pct": 72.51,
           "expectancy": 10.75,
-          "invested_capital": 5942000.0,
-          "end_capital": 6005869.84,
-          "return_pct": 1.074887916526422
+          "invested_capital": 5945000.0,
+          "end_capital": 6008888.41,
+          "return_pct": 1.0746578637510513
         }
       }
     },
@@ -187,23 +187,23 @@
           "trades": 7348,
           "win_rate": 42.2,
           "profit_factor": 1.24,
-          "total_pnl_eur": 37445.6,
+          "total_pnl_eur": 37445.56,
           "max_drawdown_pct": 34.14,
           "expectancy": 5.1,
           "invested_capital": 7348000.0,
-          "end_capital": 7385445.6,
-          "return_pct": 0.5096026129559064
+          "end_capital": 7385445.56,
+          "return_pct": 0.5096020685900925
         },
         "aggressiv": {
           "trades": 4419,
           "win_rate": 46.5,
           "profit_factor": 1.36,
-          "total_pnl_eur": 48594.58,
+          "total_pnl_eur": 48594.6,
           "max_drawdown_pct": 45.86,
           "expectancy": 11.0,
           "invested_capital": 4419000.0,
-          "end_capital": 4467594.58,
-          "return_pct": 1.099673681828468
+          "end_capital": 4467594.6,
+          "return_pct": 1.0996741344195518
         }
       }
     },
@@ -226,12 +226,12 @@
           "trades": 5389,
           "win_rate": 41.0,
           "profit_factor": 1.16,
-          "total_pnl_eur": 17681.16,
+          "total_pnl_eur": 17681.15,
           "max_drawdown_pct": 36.42,
           "expectancy": 3.28,
           "invested_capital": 5389000.0,
-          "end_capital": 5406681.16,
-          "return_pct": 0.3280972351085545
+          "end_capital": 5406681.15,
+          "return_pct": 0.3280970495453702
         },
         "aggressiv": {
           "trades": 3374,
@@ -254,34 +254,34 @@
           "trades": 16975,
           "win_rate": 43.4,
           "profit_factor": 1.15,
-          "total_pnl_eur": 32622.34,
+          "total_pnl_eur": 32622.36,
           "max_drawdown_pct": 25.04,
           "expectancy": 1.92,
           "invested_capital": 16975000.0,
-          "end_capital": 17007622.34,
-          "return_pct": 0.19217873343151695
+          "end_capital": 17007622.36,
+          "return_pct": 0.19217885125184095
         },
         "normal": {
           "trades": 8595,
           "win_rate": 42.7,
           "profit_factor": 1.25,
-          "total_pnl_eur": 43413.49,
+          "total_pnl_eur": 43413.48,
           "max_drawdown_pct": 30.76,
           "expectancy": 5.05,
           "invested_capital": 8595000.0,
-          "end_capital": 8638413.49,
-          "return_pct": 0.5051016870273415
+          "end_capital": 8638413.48,
+          "return_pct": 0.5051015706806283
         },
         "aggressiv": {
           "trades": 4702,
           "win_rate": 46.9,
           "profit_factor": 1.35,
-          "total_pnl_eur": 48117.74,
+          "total_pnl_eur": 48117.79,
           "max_drawdown_pct": 47.68,
           "expectancy": 10.23,
           "invested_capital": 4702000.0,
-          "end_capital": 4750117.74,
-          "return_pct": 1.0233462356444065
+          "end_capital": 4750117.79,
+          "return_pct": 1.023347299021693
         }
       }
     }

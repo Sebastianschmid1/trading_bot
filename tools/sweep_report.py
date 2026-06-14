@@ -14,10 +14,12 @@ Lauf (im Repo-Root, venv aktiv):
   python -m tools.sweep_report --years 3 --limit 15
 """
 
+import os
 import sys
 import json
 import time
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,21 +63,49 @@ def _slim(m: dict) -> dict:
     }
 
 
-def _gather(strategy, data: dict) -> dict:
-    """Wie engine.gather_fires, speichert zusätzlich ATR + native SL/TP — so lassen sich
-    alle SL/TP-Modi ohne erneute Signalberechnung simulieren. Gibt {date: [fire,...]}."""
-    by_date: dict[str, list] = {}
-    for tkr, df in data.items():
-        for i in range(engine.WARMUP_BARS, len(df) - 1):
-            sig = strategy.generate(tkr, {"1d": df.iloc[:i + 1]})
+def _gather_ticker(args) -> dict:
+    """Worker (in eigenem Prozess): berechnet für EINEN Ticker die „Fires" ALLER Strategien.
+    Jeder Ticker ist unabhängig → so wird die teure Signalberechnung über alle CPU-Kerne verteilt.
+    Speichert je Fire zusätzlich ATR + native SL/TP (für die SL/TP-Modus-Ableitung ohne Neuberechnung).
+    Gibt {strategy_key: [fire,...]} zurück (jede Fire trägt ihr Datum)."""
+    ticker, df, strat_keys = args
+    n = len(df)
+    out: dict[str, list] = {k: [] for k in strat_keys}
+    for sk in strat_keys:
+        gen = strat_mod.get(sk).generate
+        fires = out[sk]
+        for i in range(engine.WARMUP_BARS, n - 1):
+            sig = gen(ticker, {"1d": df.iloc[:i + 1]})
             if not sig or sig.get("direction") != "long" or not sig.get("stop_loss"):
                 continue
-            by_date.setdefault(str(df.index[i].date()), []).append({
-                "ticker": tkr, "idx": i, "strength": sig.get("strength", 0.0),
-                "entry": float(df["Close"].iloc[i]), "atr": sig.get("atr"),
-                "sl": float(sig["stop_loss"]), "tp": float(sig["take_profit"]),
+            fires.append({
+                "date": str(df.index[i].date()), "ticker": ticker, "idx": i,
+                "strength": sig.get("strength", 0.0), "entry": float(df["Close"].iloc[i]),
+                "atr": sig.get("atr"), "sl": float(sig["stop_loss"]), "tp": float(sig["take_profit"]),
             })
-    return by_date
+    return out
+
+
+def _gather_all(data: dict, strat_keys: list, jobs: int) -> dict:
+    """Berechnet die Fires aller Ticker × Strategien — parallel über `jobs` Prozesse.
+    Gibt {strategy_key: {date: [fire,...]}} zurück."""
+    tasks = [(t, df, strat_keys) for t, df in data.items()]
+    fires_by_strat = {k: {} for k in strat_keys}
+
+    def _merge(per_ticker: dict):
+        for sk, fires in per_ticker.items():
+            bd = fires_by_strat[sk]
+            for f in fires:
+                bd.setdefault(f["date"], []).append(f)
+
+    if jobs <= 1:
+        for res in map(_gather_ticker, tasks):
+            _merge(res)
+    else:
+        with ProcessPoolExecutor(max_workers=jobs) as ex:
+            for res in ex.map(_gather_ticker, tasks, chunksize=2):
+                _merge(res)
+    return fires_by_strat
 
 
 def _with_mode(by_date: dict, mode: str) -> dict:
@@ -105,7 +135,7 @@ def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
     return _slim(metrics_mod.compute_metrics(trades, initial_capital=initial_capital))
 
 
-def collect(region: str, years: int, limit: int | None, full: bool = True) -> dict:
+def collect(region: str, years: int, limit: int | None, full: bool = True, jobs: int = 1) -> dict:
     # Standard: vollständiges Universum (komplette S&P 500, ~500 Werte). --curated = kleiner Korb (schnell).
     tickers = universes.get_tickers(region, auto=full)
     if limit:
@@ -117,9 +147,13 @@ def collect(region: str, years: int, limit: int | None, full: bool = True) -> di
     strat_rows, sltp_rows, lev_rows = [], [], []
     big = max(50, len(data))            # „alle Signale" (Einzelposition je Ticker, kein Top-N-Schnitt)
 
+    keys = [s.key for s in strat_mod.all_strategies()]
+    print(f"→ Signale berechnen ({jobs} Prozess{'e' if jobs != 1 else ''}, {len(data)} Ticker × {len(keys)} Strategien) ...", flush=True)
+    fires_by_strat = _gather_all(data, keys, jobs)
+
     for s in strat_mod.all_strategies():
-        print(f"  · {s.key}: Signale berechnen ...", flush=True)
-        by_date = _gather(s, data)
+        by_date = fires_by_strat[s.key]
+        print(f"  · {s.key}: {sum(len(v) for v in by_date.values())} Signale → Reports ableiten ...", flush=True)
 
         # einheitlicher Einsatz 1.000 USD/Trade in ALLEN Reports.
         # Strategie-Report: native SL/TP, Hebel 1, alle Signale.
@@ -165,16 +199,21 @@ def main():
     ap.add_argument("--years", type=int, default=2)
     ap.add_argument("--limit", type=int, default=None, help="nur die ersten N Ticker (Schnelltest)")
     ap.add_argument("--curated", action="store_true", help="kleiner kuratierter Korb statt vollem Universum")
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="parallele Prozesse (0 = alle CPU-Kerne, 1 = seriell)")
+    ap.add_argument("--out", default=None, help="Ziel-Verzeichnis (Default: data/reports)")
     args = ap.parse_args()
 
+    jobs = args.jobs if args.jobs > 0 else (os.cpu_count() or 1)
+    out_dir = Path(args.out) if args.out else REPORTS_DIR
     t0 = time.time()
-    reports = collect(args.region, args.years, args.limit, full=not args.curated)
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    reports = collect(args.region, args.years, args.limit, full=not args.curated, jobs=jobs)
+    out_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in reports.items():
-        path = REPORTS_DIR / f"{name}.json"
+        path = out_dir / f"{name}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"✓ {path}  ({len(payload['rows'])} Zeilen)")
-    print(f"Fertig in {time.time() - t0:.0f}s → {REPORTS_DIR}")
+    print(f"Fertig in {time.time() - t0:.0f}s ({jobs} Prozesse) → {out_dir}")
 
 
 if __name__ == "__main__":
