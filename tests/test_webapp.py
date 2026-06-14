@@ -330,6 +330,7 @@ def test_reports_overall_and_matrix_columns(tmp_path, monkeypatch):
                 "Matrix", "Ø&nbsp;Halten", "Liquid.", "Kapitalpool", "10,000 USD"):
         assert col in r.text
     assert "8 von 8 Analysen" in r.text          # 2 Strat × 2 Hebel × 2 Modi
+    assert 'class="sortable-table"' in r.text and "data-sort=" in r.text   # sortierbare Spalten
 
 
 def test_reports_three_multiselect_filters(tmp_path, monkeypatch):

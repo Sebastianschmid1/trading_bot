@@ -11,6 +11,9 @@
   .chip input { accent-color:var(--blue); margin:0; width:1rem; height:1rem; }
   .filters .actions { margin-top:.5rem; display:flex; gap:.5rem; align-items:center; }
   .scroll { overflow-x:auto; }
+  .sortable-table th { cursor:pointer; user-select:none; white-space:nowrap; }
+  .sortable-table th:hover { color:var(--blue); }
+  .sortable-table .arrow { color:var(--blue); }
 </style>
 
 <h1>Reports</h1>
@@ -78,30 +81,65 @@
   </div>
 </form>
 
+<p class="muted" style="margin:.2rem 0">Tipp: auf einen Spaltennamen klicken zum Sortieren (nochmal klicken = umkehren).</p>
 <div class="scroll">
-<table>
-  <tr>
-    <th>Strategie</th><th>Hebel</th><th>Modus</th>
+<table class="sortable-table">
+  <thead><tr>
+    <th>Strategie</th><th class="r">Hebel</th><th>Modus</th>
     <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th>
     <th class="r">Trefferq.%</th><th class="r">Profitf.</th><th class="r">Ø&nbsp;Halten</th>
     <th class="r">Liquid.</th><th class="r">MaxDD%</th>
-  </tr>
+  </tr></thead>
+  <tbody>
   {% for r in rows %}
   <tr>
-    <td><strong>{{ r.label }}</strong></td>
-    <td>{{ r.leverage }}×</td>
-    <td>{{ r.mode }}</td>
-    <td class="r">{{ r.trades }}</td>
-    <td class="r {{ 'pos' if (r.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '{:+,.0f}$'.format(r.total_pnl_eur or 0) }}</td>
-    <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>
-    <td class="r">{{ '%.0f'|format(r.win_rate) ~ '%' if r.win_rate is not none else '—' }}</td>
-    <td class="r">{% if r.trades == 0 %}—{% elif r.profit_factor is none %}∞{% else %}{{ '%.2f'|format(r.profit_factor) }}{% endif %}</td>
-    <td class="r">{{ '%.1f'|format(r.avg_hold_days) ~ ' T' if r.avg_hold_days is not none else '—' }}</td>
-    <td class="r {{ 'neg' if (r.liquidations or 0) > 0 }}">{{ r.liquidations }}</td>
-    <td class="r">{{ '%.1f'|format(r.max_drawdown_pct) ~ '%' if r.max_drawdown_pct is not none else '—' }}</td>
+    <td data-sort="{{ r.label }}"><strong>{{ r.label }}</strong></td>
+    <td class="r" data-sort="{{ r.leverage }}">{{ r.leverage }}×</td>
+    <td data-sort="{{ r.mode }}">{{ r.mode }}</td>
+    <td class="r" data-sort="{{ r.trades }}">{{ r.trades }}</td>
+    <td class="r {{ 'pos' if (r.total_pnl_eur or 0) >= 0 else 'neg' }}" data-sort="{{ r.total_pnl_eur or 0 }}">{{ '{:+,.0f}$'.format(r.total_pnl_eur or 0) }}</td>
+    <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}" data-sort="{{ r.return_pct if r.return_pct is not none else -1e9 }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>
+    <td class="r" data-sort="{{ r.win_rate if r.win_rate is not none else -1e9 }}">{{ '%.0f'|format(r.win_rate) ~ '%' if r.win_rate is not none else '—' }}</td>
+    <td class="r" data-sort="{{ 1e9 if (r.profit_factor is none and r.trades > 0) else (r.profit_factor if r.profit_factor is not none else -1e9) }}">{% if r.trades == 0 %}—{% elif r.profit_factor is none %}∞{% else %}{{ '%.2f'|format(r.profit_factor) }}{% endif %}</td>
+    <td class="r" data-sort="{{ r.avg_hold_days if r.avg_hold_days is not none else -1e9 }}">{{ '%.1f'|format(r.avg_hold_days) ~ ' T' if r.avg_hold_days is not none else '—' }}</td>
+    <td class="r {{ 'neg' if (r.liquidations or 0) > 0 }}" data-sort="{{ r.liquidations or 0 }}">{{ r.liquidations }}</td>
+    <td class="r" data-sort="{{ r.max_drawdown_pct if r.max_drawdown_pct is not none else -1e9 }}">{{ '%.1f'|format(r.max_drawdown_pct) ~ '%' if r.max_drawdown_pct is not none else '—' }}</td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
 </div>
+
+<script>
+(function () {
+  document.querySelectorAll('table.sortable-table').forEach(function (table) {
+    var ths = table.tHead.rows[0].cells;
+    Array.prototype.forEach.call(ths, function (th, i) {
+      th.addEventListener('click', function () {
+        var tbody = table.tBodies[0];
+        var rows = Array.prototype.slice.call(tbody.rows);
+        var asc = th.getAttribute('data-dir') !== 'asc';
+        Array.prototype.forEach.call(ths, function (h) {
+          h.removeAttribute('data-dir');
+          var a = h.querySelector('.arrow'); if (a) a.remove();
+        });
+        th.setAttribute('data-dir', asc ? 'asc' : 'desc');
+        rows.sort(function (ra, rb) {
+          var x = ra.cells[i].getAttribute('data-sort') || '';
+          var y = rb.cells[i].getAttribute('data-sort') || '';
+          var nx = parseFloat(x), ny = parseFloat(y), cmp;
+          if (!isNaN(nx) && !isNaN(ny)) cmp = nx - ny;
+          else cmp = x.localeCompare(y);
+          return asc ? cmp : -cmp;
+        });
+        rows.forEach(function (r) { tbody.appendChild(r); });
+        var arrow = document.createElement('span');
+        arrow.className = 'arrow'; arrow.textContent = asc ? ' ▲' : ' ▼';
+        th.appendChild(arrow);
+      });
+    });
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}
