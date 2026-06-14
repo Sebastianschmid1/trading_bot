@@ -299,7 +299,8 @@ def _write_reports(d):
                 "avg_hold_days": 3.2, "liquidations": 0, **extra}
 
     Path(d, "strategies.json").write_text(_json.dumps({**meta, "rows": [
-        row("breakout", "Breakout", 100, 5000), row("ma_trend", "MA-Trend", 80, 2000)]}), encoding="utf-8")
+        row("breakout", "Breakout", 100, 5000), row("ma_trend", "MA-Trend", 80, 2000),
+        row("buyhold_sp500", "Buy & Hold S&P 500", 1, 1500)]}), encoding="utf-8")
 
     matrix_rows = []
     for s in STRATS:
@@ -316,7 +317,9 @@ def _write_reports(d):
             for mode in MODES:
                 curves[f"{s['key']}|{lev}|{mode}"] = [["2024-01-02", 10000.0], ["2026-01-02", 11000.0]]
     Path(d, "equity.json").write_text(_json.dumps({"start_capital": 10000.0, "start": "2024-01-02",
-                                                   "end": "2026-01-02", "curves": curves}), encoding="utf-8")
+                                                   "end": "2026-01-02", "curves": curves,
+                                                   "benchmark": [["2024-01-02", 10000.0], ["2026-01-02", 10800.0]]}),
+                                      encoding="utf-8")
 
 
 def test_reports_tab_without_data_shows_hint(tmp_path, monkeypatch):
@@ -364,7 +367,16 @@ def test_reports_equity_endpoint(tmp_path, monkeypatch):
     r = c.get("/app/reports/equity?key=breakout&lev=1&mode=passiv")
     assert r.status_code == 200 and r.json()["points"][0] == ["2024-01-02", 10000.0]
     assert r.json()["start_capital"] == 10000.0
+    assert r.json()["benchmark"][-1] == ["2026-01-02", 10800.0]      # S&P-500-Referenz mitgeliefert
     assert c.get("/app/reports/equity?key=nope&lev=9&mode=x").status_code == 404
+
+
+def test_reports_shows_sp500_benchmark_row(tmp_path, monkeypatch):
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    _write_reports(tmp_path)
+    assert "Buy &amp; Hold S&amp;P 500" in _client().get("/app/reports").text   # Overall-Benchmark-Zeile
 
 
 def test_scan_accept_expired_signal_is_safe():

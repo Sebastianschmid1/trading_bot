@@ -148,10 +148,17 @@ def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
                               trade_size=trade_size, max_concurrent=max_concurrent), initial_capital)
 
 
-def _equity_curve(trades: list, start_capital: float, start_date: str, end_date: str,
-                  max_points: int = 140) -> list:
+def _downsample(pts: list, max_points: int = 140) -> list:
+    """Dünnt eine Punktliste gleichmäßig auf max_points aus (Endpunkt bleibt erhalten)."""
+    if len(pts) <= max_points:
+        return pts
+    idx = sorted(set(int(i * (len(pts) - 1) / (max_points - 1)) for i in range(max_points)))
+    return [pts[i] for i in idx]
+
+
+def _equity_curve(trades: list, start_capital: float, start_date: str, end_date: str) -> list:
     """Realisierte Depotentwicklung (Start + kumulierter P&L), gestuft je Trade-Ausstieg.
-    Gibt [[datum, depotwert], ...] zurück (downgesampelt auf max_points)."""
+    Gibt [[datum, depotwert], ...] zurück (downgesampelt)."""
     by_date = {}
     cum = 0.0
     for t in sorted(trades, key=lambda x: x["exit_date"]):
@@ -160,10 +167,36 @@ def _equity_curve(trades: list, start_capital: float, start_date: str, end_date:
     pts = [[start_date, start_capital]] + [[d, by_date[d]] for d in sorted(by_date)]
     if end_date and pts[-1][0] != end_date:
         pts.append([end_date, pts[-1][1]])
-    if len(pts) > max_points:                       # gleichmäßig ausdünnen, Endpunkt behalten
-        idx = sorted(set(int(i * (len(pts) - 1) / (max_points - 1)) for i in range(max_points)))
-        pts = [pts[i] for i in idx]
-    return pts
+    return _downsample(pts)
+
+
+def _sp500_benchmark(years: int, start_capital: float, start_date: str, end_date: str):
+    """Buy-&-Hold-S&P-500-Referenz (SPY, inkl. Dividenden via auto_adjust) über das Testfenster.
+    Gibt (kennzahlen_zeile, equity_kurve) zurück oder (None, []) bei Fehler/zu wenig Daten."""
+    try:
+        sdf = engine._download_daily(["SPY"], years).get("SPY")
+        if sdf is None:
+            return None, []
+        sdf = sdf.loc[start_date:end_date]
+        closes = sdf["Close"].astype(float)
+        if len(closes) < 3:
+            return None, []
+        c0, cN = float(closes.iloc[0]), float(closes.iloc[-1])
+        eq = closes / c0 * start_capital
+        curve = _downsample([[str(d.date()), round(float(v), 2)] for d, v in eq.items()])
+        dd = float((eq / eq.cummax() - 1.0).min()) * 100
+        pnl = start_capital * (cN / c0 - 1.0)
+        row = {"key": "buyhold_sp500", "label": "Buy & Hold S&P 500", "trades": 1,
+               "win_rate": 100.0 if pnl >= 0 else 0.0,
+               "profit_factor": None if pnl >= 0 else 0.0,
+               "total_pnl_eur": pnl, "max_drawdown_pct": abs(round(dd, 2)),
+               "expectancy": pnl, "invested_capital": start_capital,
+               "end_capital": start_capital + pnl, "return_pct": (cN / c0 - 1.0) * 100,
+               "avg_hold_days": len(closes), "liquidations": 0}
+        return row, curve
+    except Exception as e:
+        print(f"  ! Benchmark (S&P 500) übersprungen: {e}", flush=True)
+        return None, []
 
 
 def collect(region: str, years: int, limit: int | None, full: bool = True, jobs: int = 1) -> dict:
@@ -183,6 +216,9 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
     last = max(df.index[-1] for df in data.values())
     start_str = str((last - pd.Timedelta(days=int(years * 365.25))).date())
     end_str = str(last.date())
+
+    print("→ S&P-500-Benchmark (Buy & Hold) laden ...", flush=True)
+    bench_row, bench_curve = _sp500_benchmark(years, START_CAPITAL, start_str, end_str)
 
     for s in strat_mod.all_strategies():
         by_date = fires_by_strat[s.key]
@@ -215,13 +251,16 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         "start_capital_usd": START_CAPITAL,
         "universe": "voll" if full else "kuratiert",
     }
+    if bench_row:
+        strat_rows.append(bench_row)
+
     return {
         "strategies": {**meta, "rows": strat_rows},
         "matrix":     {**meta, "modes": MODES, "leverages": LEVERAGES,
                        "strategies": [{"key": s.key, "label": s.label} for s in strat_mod.all_strategies()],
                        "rows": matrix_rows},
         "equity":     {"start_capital": START_CAPITAL, "start": start_str, "end": end_str,
-                       "curves": equity_curves},
+                       "curves": equity_curves, "benchmark": bench_curve},
     }
 
 

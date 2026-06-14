@@ -158,27 +158,36 @@
     var svg = document.getElementById('equitySvg');
     var pts = (d && d.points) || [];
     if (pts.length < 2) { svg.innerHTML = '<text x="12" y="20" fill="#8a93a6" font-size="12">Keine Trades.</text>'; return; }
+    var bm = (d && d.benchmark) || [];
     var W = 640, H = 240, padL = 60, padR = 12, padT = 16, padB = 28;
     var t0 = Date.parse(pts[0][0]), t1 = Date.parse(pts[pts.length - 1][0]) || (t0 + 1);
     var base = d.start_capital || 0;
-    var vals = pts.map(function (p) { return p[1]; }).concat([base]);
+    var vals = pts.map(function (p) { return p[1]; }).concat([base], bm.map(function (p) { return p[1]; }));
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     if (hi === lo) hi = lo + 1;
     var X = function (t) { return padL + (Date.parse(t) - t0) / ((t1 - t0) || 1) * (W - padL - padR); };
     var Y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
-    var pl = pts.map(function (p) { return X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' ');
+    var poly = function (arr) { return arr.map(function (p) { return X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' '); };
     var up = pts[pts.length - 1][1] >= base;
     var color = up ? '#2ecc71' : '#e74c3c';
     var yb = Y(base).toFixed(1);
     var fmt = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
     var s = '';
     s += '<line x1="' + padL + '" y1="' + yb + '" x2="' + (W - padR) + '" y2="' + yb + '" stroke="#8a93a6" stroke-dasharray="4 3"/>';
-    s += '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + pl + '"/>';
+    if (bm.length > 1) s += '<polyline fill="none" stroke="#c9a227" stroke-width="1.5" points="' + poly(bm) + '"/>';
+    s += '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + poly(pts) + '"/>';
     s += '<text x="6" y="' + (Y(hi) + 4) + '" fill="#8a93a6" font-size="11">' + fmt(hi) + '</text>';
     s += '<text x="6" y="' + (Y(lo) + 4) + '" fill="#8a93a6" font-size="11">' + fmt(lo) + '</text>';
     s += '<text x="6" y="' + (yb - 3) + '" fill="#8a93a6" font-size="11">' + fmt(base) + '</text>';
     s += '<text x="' + padL + '" y="' + (H - 8) + '" fill="#8a93a6" font-size="11">' + pts[0][0] + '</text>';
     s += '<text x="' + (W - padR) + '" y="' + (H - 8) + '" fill="#8a93a6" font-size="11" text-anchor="end">' + pts[pts.length - 1][0] + '</text>';
+    // Legende
+    s += '<rect x="' + (padL + 4) + '" y="6" width="10" height="10" fill="' + color + '"/>';
+    s += '<text x="' + (padL + 18) + '" y="15" fill="#e6e9ef" font-size="11">Strategie</text>';
+    if (bm.length > 1) {
+      s += '<rect x="' + (padL + 90) + '" y="6" width="10" height="10" fill="#c9a227"/>';
+      s += '<text x="' + (padL + 104) + '" y="15" fill="#e6e9ef" font-size="11">S&amp;P 500 (Buy &amp; Hold)</text>';
+    }
     svg.innerHTML = s;
   }
 

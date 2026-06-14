@@ -457,7 +457,8 @@ def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str
     curve = (eq.get("curves") or {}).get(f"{key}|{lev}|{mode}")
     if curve is None:
         return JSONResponse({"error": "not_found", "points": []}, status_code=404)
-    return JSONResponse({"points": curve, "start_capital": eq.get("start_capital"),
+    return JSONResponse({"points": curve, "benchmark": eq.get("benchmark") or [],
+                         "start_capital": eq.get("start_capital"),
                          "start": eq.get("start"), "end": eq.get("end")})
 
 
