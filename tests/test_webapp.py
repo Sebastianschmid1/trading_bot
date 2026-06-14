@@ -178,6 +178,22 @@ def test_notify_service_respects_channel():
     assert notify_svc.notify(CHAT, "y") is True and db.unread_count(CHAT) == 1
 
 
+# ── /website-Befehl im Telegram-Bot ─────────────────────────────────────────
+
+def test_cmd_website_sends_one_click_login_link():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from stockbot.tgbot import bot
+    fresh()
+    tok = db.get_or_create_dashboard_token(CHAT)
+    upd = MagicMock()
+    upd.effective_chat.id = CHAT
+    upd.message.reply_text = AsyncMock()
+    asyncio.run(bot.cmd_website(upd, MagicMock()))
+    sent = upd.message.reply_text.call_args.args[0]
+    assert f"/auth/token?token={tok}" in sent
+
+
 # ── Telegram-Login-HMAC ─────────────────────────────────────────────────────
 
 def test_verify_telegram_login_valid_and_tampered():

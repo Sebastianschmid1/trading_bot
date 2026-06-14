@@ -185,9 +185,9 @@ journalctl -u stockbot -f
 ```
 
 **Updates einspielen** .\upload.ps1 "deine commit message" or (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy.sh`
-anpassen und `bash deploy.sh` ausführen — das macht auf dem Server `git pull` +
+anpassen und `bash deploy/deploy.sh` ausführen — das macht auf dem Server `git pull` +
 Dependencies + `systemctl restart stockbot`.
-`git pull && systemctl restart stockbot`
+`git pull && bash deploy/setup_server.sh && systemctl restart stockbot` 
 
 
 > Dashboard als eigener Dienst gewünscht? `deploy/dashboard.service` installieren und in der

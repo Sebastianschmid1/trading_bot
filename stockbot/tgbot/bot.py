@@ -1426,6 +1426,27 @@ async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_website(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/website — sendet den persönlichen Ein-Klick-Login-Link zur Web-App."""
+    chat_id = update.effective_chat.id
+    if not _registered_user(chat_id):
+        await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
+        return
+
+    token = db.get_or_create_dashboard_token(chat_id)
+    base = DASHBOARD_BASE_URL.rstrip("/")
+    url = f"{base}/auth/token?token={token}"
+    # Kein Markdown: der Token enthält oft _ und -, was Markdown-Parsing bricht.
+    await update.message.reply_text(
+        "🌐 Deine Web-App (läuft parallel zu Telegram — gleicher Account)\n"
+        f"{url}\n\n"
+        "Damit bist du direkt eingeloggt: Signale annehmen/ablehnen, Einstellungen, Watchlist, "
+        "Mitteilungen & Dashboard.\n"
+        "🔒 Der Link ist privat — teile ihn nicht.",
+        disable_web_page_preview=True,
+    )
+
+
 HELP_TEXT = (
     "🤖 *Verfügbare Befehle*\n"
     "━━━━━━━━━━━━━━━━━━\n"
@@ -1433,6 +1454,7 @@ HELP_TEXT = (
     "/profile — Dein Profil ansehen (Trade-Größe, Markt, Broker, Status)\n"
     "/settings — Körbe, Trade-Größe & Anzahl Signale ändern\n"
     "/tradesize <betrag> — Demo-Trade-Größe in € setzen (z. B. /tradesize 250)\n"
+    "/website — Ein-Klick-Login zur Web-App (Signale, Einstellungen, Watchlist)\n"
     "/dashboard — Link zu deinem Web-Dashboard\n"
     "/signals — Aktuelle Signale jetzt live abrufen\n"
     "/top5trade — Was große Trader (Insider + Institutionen) zuletzt gekauft haben\n"
@@ -1654,6 +1676,7 @@ def main():
     app.add_handler(CommandHandler("settings", cmd_settings))             # Markt-Bereich + Anzahl ändern
     app.add_handler(CommandHandler("tradesize", cmd_tradesize))           # Demo-Trade-Größe ändern
     app.add_handler(CommandHandler("info", cmd_info))                     # Metriken erklärt
+    app.add_handler(CommandHandler("website", cmd_website))               # Ein-Klick-Login zur Web-App
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))           # Link zum Web-Dashboard
     app.add_handler(CommandHandler("ping", cmd_ping))                     # Verbindungstest
     app.add_handler(CommandHandler("signals", cmd_signals))               # echte Live-Analyse jetzt sofort
