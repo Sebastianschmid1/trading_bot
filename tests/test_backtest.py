@@ -30,6 +30,37 @@ def test_profit_factor_no_losses_is_none():
     assert m["profit_factor"] is None         # kein Verlust → ∞ (None)
 
 
+def test_trade_level_extras():
+    trades = [{"pnl_eur": 10.0, "pnl_pct": 10.0}, {"pnl_eur": -5.0, "pnl_pct": -5.0},
+              {"pnl_eur": 10.0, "pnl_pct": 10.0}, {"pnl_eur": 10.0, "pnl_pct": 10.0}]
+    m = metrics.compute_metrics(trades)
+    assert m["payoff_ratio"] == 2.0                     # Ø10 / |Ø-5|
+    assert m["max_consec_wins"] == 2 and m["max_consec_losses"] == 1
+    assert m["best_trade_pct"] == 10.0 and m["worst_trade_pct"] == -5.0
+    assert m["kelly_pct"] == 62.5                        # (0.75 − 0.25/2)·100
+    assert m["t_stat"] is not None and m["t_stat"] > 0
+
+
+def test_equity_metrics_returns_and_drawdown():
+    eq = [100.0, 120.0, 90.0, 110.0, 130.0]
+    m = metrics.equity_metrics(eq)
+    assert round(m["total_return_pct"], 1) == 30.0       # 130/100 − 1
+    assert m["max_dd_pct"] == 25.0                        # (120−90)/120
+    assert m["max_dd_days"] == 2                          # 90,110 unter Wasser bis neues Hoch 130
+
+
+def test_equity_metrics_beta_corr_identical_series():
+    eq = [100.0, 110.0, 105.0, 115.0, 120.0]
+    m = metrics.equity_metrics(eq, bench=eq)             # Strategie == Benchmark
+    assert m["beta"] == 1.0 and m["corr"] == 1.0
+    assert abs(m["alpha_pct"]) < 1e-6                     # kein Mehrwert ggü. sich selbst
+
+
+def test_equity_metrics_flat_is_safe():
+    m = metrics.equity_metrics([100.0, 100.0, 100.0])    # keine Bewegung
+    assert m["sharpe"] is None and m["calmar"] is None and m["max_dd_pct"] == 0.0
+
+
 def test_max_drawdown():
     # +100, dann -60 → Peak 1100, Tief 1040 → DD = 60/1100
     m = metrics.compute_metrics([{"pnl_eur": 100.0}, {"pnl_eur": -60.0}], initial_capital=1000.0)
