@@ -14,6 +14,9 @@
   .sortable-table th { cursor:pointer; user-select:none; white-space:nowrap; }
   .sortable-table th:hover { color:var(--blue); }
   .sortable-table .arrow { color:var(--blue); }
+  tr.matrow { cursor:pointer; }
+  tr.matrow:hover { background:var(--panel2); }
+  tr.matrow.sel td { background:rgba(79,140,255,.14); }
 </style>
 
 <h1>Reports</h1>
@@ -81,7 +84,17 @@
   </div>
 </form>
 
-<p class="muted" style="margin:.2rem 0">Tipp: auf einen Spaltennamen klicken zum Sortieren (nochmal klicken = umkehren).</p>
+<div id="equityPanel" class="card" style="display:none">
+  <div class="row">
+    <strong id="equityTitle"></strong>
+    <span class="spacer"></span>
+    <button type="button" class="btn" onclick="document.getElementById('equityPanel').style.display='none'">✕</button>
+  </div>
+  <svg id="equitySvg" viewBox="0 0 640 240" width="100%" style="height:240px; display:block"></svg>
+</div>
+
+<p class="muted" style="margin:.2rem 0">Tipp: auf einen <strong>Spaltennamen</strong> klicken zum Sortieren,
+  auf eine <strong>Zeile</strong> klicken zeigt die Depotentwicklung (10.000 USD Start) über den Testzeitraum.</p>
 <div class="scroll">
 <table class="sortable-table">
   <thead><tr>
@@ -92,7 +105,7 @@
   </tr></thead>
   <tbody>
   {% for r in rows %}
-  <tr>
+  <tr class="matrow" data-key="{{ r.key }}" data-lev="{{ r.leverage }}" data-mode="{{ r.mode }}">
     <td data-sort="{{ r.label }}"><strong>{{ r.label }}</strong></td>
     <td class="r" data-sort="{{ r.leverage }}">{{ r.leverage }}×</td>
     <td data-sort="{{ r.mode }}">{{ r.mode }}</td>
@@ -137,6 +150,52 @@
         arrow.className = 'arrow'; arrow.textContent = asc ? ' ▲' : ' ▼';
         th.appendChild(arrow);
       });
+    });
+  });
+
+  // Klick auf eine Matrix-Zeile → Depot-Equity-Kurve laden und zeichnen.
+  function drawEquity(d) {
+    var svg = document.getElementById('equitySvg');
+    var pts = (d && d.points) || [];
+    if (pts.length < 2) { svg.innerHTML = '<text x="12" y="20" fill="#8a93a6" font-size="12">Keine Trades.</text>'; return; }
+    var W = 640, H = 240, padL = 60, padR = 12, padT = 16, padB = 28;
+    var t0 = Date.parse(pts[0][0]), t1 = Date.parse(pts[pts.length - 1][0]) || (t0 + 1);
+    var base = d.start_capital || 0;
+    var vals = pts.map(function (p) { return p[1]; }).concat([base]);
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (hi === lo) hi = lo + 1;
+    var X = function (t) { return padL + (Date.parse(t) - t0) / ((t1 - t0) || 1) * (W - padL - padR); };
+    var Y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
+    var pl = pts.map(function (p) { return X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' ');
+    var up = pts[pts.length - 1][1] >= base;
+    var color = up ? '#2ecc71' : '#e74c3c';
+    var yb = Y(base).toFixed(1);
+    var fmt = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
+    var s = '';
+    s += '<line x1="' + padL + '" y1="' + yb + '" x2="' + (W - padR) + '" y2="' + yb + '" stroke="#8a93a6" stroke-dasharray="4 3"/>';
+    s += '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + pl + '"/>';
+    s += '<text x="6" y="' + (Y(hi) + 4) + '" fill="#8a93a6" font-size="11">' + fmt(hi) + '</text>';
+    s += '<text x="6" y="' + (Y(lo) + 4) + '" fill="#8a93a6" font-size="11">' + fmt(lo) + '</text>';
+    s += '<text x="6" y="' + (yb - 3) + '" fill="#8a93a6" font-size="11">' + fmt(base) + '</text>';
+    s += '<text x="' + padL + '" y="' + (H - 8) + '" fill="#8a93a6" font-size="11">' + pts[0][0] + '</text>';
+    s += '<text x="' + (W - padR) + '" y="' + (H - 8) + '" fill="#8a93a6" font-size="11" text-anchor="end">' + pts[pts.length - 1][0] + '</text>';
+    svg.innerHTML = s;
+  }
+
+  document.querySelectorAll('tr.matrow').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      document.querySelectorAll('tr.matrow.sel').forEach(function (x) { x.classList.remove('sel'); });
+      tr.classList.add('sel');
+      var k = tr.getAttribute('data-key'), l = tr.getAttribute('data-lev'), m = tr.getAttribute('data-mode');
+      var panel = document.getElementById('equityPanel');
+      document.getElementById('equityTitle').textContent =
+        'Depotentwicklung: ' + tr.cells[0].textContent.trim() + ' · ' + l + '× · ' + m;
+      panel.style.display = 'block';
+      document.getElementById('equitySvg').innerHTML = '';
+      fetch('/app/reports/equity?key=' + encodeURIComponent(k) + '&lev=' + encodeURIComponent(l) + '&mode=' + encodeURIComponent(m))
+        .then(function (r) { return r.json(); })
+        .then(function (d) { drawEquity(d); panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); })
+        .catch(function () { document.getElementById('equitySvg').innerHTML = '<text x="12" y="20" fill="#e74c3c" font-size="12">Fehler beim Laden.</text>'; });
     });
   });
 })();

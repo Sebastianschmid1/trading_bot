@@ -310,6 +310,14 @@ def _write_reports(d):
     Path(d, "matrix.json").write_text(_json.dumps({**meta, "modes": MODES, "leverages": LEVS,
                                                    "strategies": STRATS, "rows": matrix_rows}), encoding="utf-8")
 
+    curves = {}
+    for s in STRATS:
+        for lev in LEVS:
+            for mode in MODES:
+                curves[f"{s['key']}|{lev}|{mode}"] = [["2024-01-02", 10000.0], ["2026-01-02", 11000.0]]
+    Path(d, "equity.json").write_text(_json.dumps({"start_capital": 10000.0, "start": "2024-01-02",
+                                                   "end": "2026-01-02", "curves": curves}), encoding="utf-8")
+
 
 def test_reports_tab_without_data_shows_hint(tmp_path, monkeypatch):
     fresh()
@@ -343,6 +351,20 @@ def test_reports_three_multiselect_filters(tmp_path, monkeypatch):
     assert "4 von 8 Analysen" in c.get("/app/reports?lev=1").text                    # nur Hebel 1
     assert "2 von 8 Analysen" in c.get("/app/reports?strat=breakout&lev=1").text     # Strat × Hebel
     assert "1 von 8 Analysen" in c.get("/app/reports?strat=breakout&lev=1&mode=passiv").text  # alle drei
+
+
+def test_reports_equity_endpoint(tmp_path, monkeypatch):
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    _write_reports(tmp_path)
+    c = _client()
+    # Zeilen sind klickbar (Markup), und die Equity-Kurve ist abrufbar
+    assert 'class="matrow"' in c.get("/app/reports").text
+    r = c.get("/app/reports/equity?key=breakout&lev=1&mode=passiv")
+    assert r.status_code == 200 and r.json()["points"][0] == ["2024-01-02", 10000.0]
+    assert r.json()["start_capital"] == 10000.0
+    assert c.get("/app/reports/equity?key=nope&lev=9&mode=x").status_code == 404
 
 
 def test_scan_accept_expired_signal_is_safe():

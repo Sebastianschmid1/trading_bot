@@ -127,16 +127,43 @@ def _with_mode(by_date: dict, mode: str) -> dict:
     return out
 
 
-def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
-                 trade_size: float, initial_capital: float, max_concurrent: int) -> dict:
-    trades = engine.simulate_portfolio(data, by_date, top_n=top_n, leverage=leverage,
-                                       trade_size=trade_size, max_concurrent=max_concurrent,
-                                       max_hold=engine.MAX_HOLD_DAYS)
+def _simulate(data: dict, by_date: dict, *, top_n: int, leverage: float,
+              trade_size: float, max_concurrent: int) -> list:
+    return engine.simulate_portfolio(data, by_date, top_n=top_n, leverage=leverage,
+                                     trade_size=trade_size, max_concurrent=max_concurrent,
+                                     max_hold=engine.MAX_HOLD_DAYS)
+
+
+def _metrics(trades: list, initial_capital: float) -> dict:
     m = _slim(metrics_mod.compute_metrics(trades, initial_capital=initial_capital))
     holds = [t["hold_days"] for t in trades if t.get("hold_days") is not None]
     m["avg_hold_days"] = round(sum(holds) / len(holds), 1) if holds else None
     m["liquidations"] = sum(1 for t in trades if t.get("reason") == "Liquidation")
     return m
+
+
+def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
+                 trade_size: float, initial_capital: float, max_concurrent: int) -> dict:
+    return _metrics(_simulate(data, by_date, top_n=top_n, leverage=leverage,
+                              trade_size=trade_size, max_concurrent=max_concurrent), initial_capital)
+
+
+def _equity_curve(trades: list, start_capital: float, start_date: str, end_date: str,
+                  max_points: int = 140) -> list:
+    """Realisierte Depotentwicklung (Start + kumulierter P&L), gestuft je Trade-Ausstieg.
+    Gibt [[datum, depotwert], ...] zurück (downgesampelt auf max_points)."""
+    by_date = {}
+    cum = 0.0
+    for t in sorted(trades, key=lambda x: x["exit_date"]):
+        cum += t["pnl_eur"]
+        by_date[t["exit_date"]] = round(start_capital + cum, 2)
+    pts = [[start_date, start_capital]] + [[d, by_date[d]] for d in sorted(by_date)]
+    if end_date and pts[-1][0] != end_date:
+        pts.append([end_date, pts[-1][1]])
+    if len(pts) > max_points:                       # gleichmäßig ausdünnen, Endpunkt behalten
+        idx = sorted(set(int(i * (len(pts) - 1) / (max_points - 1)) for i in range(max_points)))
+        pts = [pts[i] for i in idx]
+    return pts
 
 
 def collect(region: str, years: int, limit: int | None, full: bool = True, jobs: int = 1) -> dict:
@@ -148,10 +175,14 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
     data = engine._download_daily(tickers, years)
     print(f"→ {len(data)} Ticker mit ausreichender Historie.", flush=True)
 
-    strat_rows, matrix_rows = [], []
+    strat_rows, matrix_rows, equity_curves = [], [], {}
     keys = [s.key for s in strat_mod.all_strategies()]
     print(f"→ Signale berechnen ({jobs} Prozess{'e' if jobs != 1 else ''}, {len(data)} Ticker × {len(keys)} Strategien) ...", flush=True)
     fires_by_strat = _gather_all(data, keys, jobs)
+
+    last = max(df.index[-1] for df in data.values())
+    start_str = str((last - pd.Timedelta(days=int(years * 365.25))).date())
+    end_str = str(last.date())
 
     for s in strat_mod.all_strategies():
         by_date = fires_by_strat[s.key]
@@ -166,14 +197,16 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
                                           max_concurrent=PORTFOLIO_TOPN)})
 
         # Vollständige Matrix: jede Kombination aus SL/TP-Modus × Hebel (gleicher 10k-Pool).
+        # Pro Kombination zusätzlich die Depot-Equity-Kurve (für den Klick-auf-Zeile-Chart).
         by_mode = {mode: _with_mode(by_date, mode) for mode in MODES}
         for mode in MODES:
             for lev in LEVERAGES:
-                m = _sim_metrics(data, by_mode[mode], top_n=PORTFOLIO_TOPN, leverage=float(lev),
-                                 trade_size=TRADE_SIZE, initial_capital=START_CAPITAL,
-                                 max_concurrent=PORTFOLIO_TOPN)
-                matrix_rows.append({"key": s.key, "label": s.label,
-                                    "mode": mode, "leverage": lev, **m})
+                trades = _simulate(data, by_mode[mode], top_n=PORTFOLIO_TOPN, leverage=float(lev),
+                                   trade_size=TRADE_SIZE, max_concurrent=PORTFOLIO_TOPN)
+                matrix_rows.append({"key": s.key, "label": s.label, "mode": mode, "leverage": lev,
+                                    **_metrics(trades, START_CAPITAL)})
+                equity_curves[f"{s.key}|{lev}|{mode}"] = _equity_curve(trades, START_CAPITAL,
+                                                                       start_str, end_str)
 
     meta = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -187,6 +220,8 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         "matrix":     {**meta, "modes": MODES, "leverages": LEVERAGES,
                        "strategies": [{"key": s.key, "label": s.label} for s in strat_mod.all_strategies()],
                        "rows": matrix_rows},
+        "equity":     {"start_capital": START_CAPITAL, "start": start_str, "end": end_str,
+                       "curves": equity_curves},
     }
 
 
@@ -209,7 +244,8 @@ def main():
     for name, payload in reports.items():
         path = out_dir / f"{name}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"✓ {path}  ({len(payload['rows'])} Zeilen)")
+        count = len(payload["rows"]) if "rows" in payload else len(payload.get("curves", {}))
+        print(f"✓ {path}  ({count} Einträge)")
     print(f"Fertig in {time.time() - t0:.0f}s ({jobs} Prozesse) → {out_dir}")
 
 

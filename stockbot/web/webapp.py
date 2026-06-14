@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
@@ -445,6 +445,20 @@ def app_reports(request: Request,
                    strategies=strategies, matrix=matrix, rows=rows,
                    strat_options=strat_options, lev_options=lev_options, mode_options=mode_options,
                    sel_strat=sel_strat, sel_lev=sel_lev, sel_mode=sel_mode)
+
+
+@router.get("/app/reports/equity")
+def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str = ""):
+    """Depot-Equity-Kurve einer Matrix-Kombination (für den Klick-auf-Zeile-Chart)."""
+    user = auth.current_user(request)
+    if not user:
+        return JSONResponse({"error": "auth"}, status_code=401)
+    eq = _load_report("equity") or {}
+    curve = (eq.get("curves") or {}).get(f"{key}|{lev}|{mode}")
+    if curve is None:
+        return JSONResponse({"error": "not_found", "points": []}, status_code=404)
+    return JSONResponse({"points": curve, "start_capital": eq.get("start_capital"),
+                         "start": eq.get("start"), "end": eq.get("end")})
 
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────
