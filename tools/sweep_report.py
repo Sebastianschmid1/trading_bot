@@ -37,20 +37,27 @@ from stockbot.config import SL_TP_MODES, DEFAULT_REGION
 
 MODES = ["passiv", "normal", "aggressiv"]
 LEVERAGES = [1, 2, 3, 5, 10]
-TRADE_SIZE = 25.0
-PORTFOLIO_CAPITAL = 10000.0
+TRADE_SIZE = 1000.0          # fester Einsatz pro Trade (USD) — einheitlich für ALLE Reports
 PORTFOLIO_TOPN = 10
 
 
 def _slim(m: dict) -> dict:
-    """Kompakte, anzeigefertige Kennzahlen-Teilmenge."""
+    """Kompakte, anzeigefertige Kennzahlen-Teilmenge inkl. Kapital-/Rendite-Kennzahlen.
+    Eingesetztes Kapital = Anzahl Trades × Einsatz; Endkapital = eingesetzt + P&L;
+    Rendite % = P&L / eingesetztes Kapital × 100."""
+    trades = m.get("trades", 0)
+    pnl = m.get("total_pnl_eur", 0.0)
+    invested = trades * TRADE_SIZE
     return {
-        "trades":           m.get("trades", 0),
+        "trades":           trades,
         "win_rate":         m.get("win_rate"),
         "profit_factor":    m.get("profit_factor"),     # None = kein Verlust (∞)
-        "total_pnl_eur":    m.get("total_pnl_eur", 0.0),
+        "total_pnl_eur":    pnl,
         "max_drawdown_pct": m.get("max_drawdown_pct"),
         "expectancy":       m.get("expectancy"),
+        "invested_capital": invested,
+        "end_capital":      invested + pnl,
+        "return_pct":       (pnl / invested * 100) if invested else None,
     }
 
 
@@ -98,11 +105,12 @@ def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
     return _slim(metrics_mod.compute_metrics(trades, initial_capital=initial_capital))
 
 
-def collect(region: str, years: int, limit: int | None) -> dict:
-    tickers = universes.get_tickers(region, auto=False)        # kuratierter Korb (schnell)
+def collect(region: str, years: int, limit: int | None, full: bool = True) -> dict:
+    # Standard: vollständiges Universum (komplette S&P 500, ~500 Werte). --curated = kleiner Korb (schnell).
+    tickers = universes.get_tickers(region, auto=full)
     if limit:
         tickers = tickers[:limit]
-    print(f"→ Lade {len(tickers)} Ticker ({years} J) ...", flush=True)
+    print(f"→ Lade {len(tickers)} Ticker ({years} J{', voll' if full else ', kuratiert'}) ...", flush=True)
     data = engine._download_daily(tickers, years)
     print(f"→ {len(data)} Ticker mit ausreichender Historie.", flush=True)
 
@@ -113,6 +121,7 @@ def collect(region: str, years: int, limit: int | None) -> dict:
         print(f"  · {s.key}: Signale berechnen ...", flush=True)
         by_date = _gather(s, data)
 
+        # einheitlicher Einsatz 1.000 USD/Trade in ALLEN Reports.
         # Strategie-Report: native SL/TP, Hebel 1, alle Signale.
         strat_rows.append({"key": s.key, "label": s.label,
                            **_sim_metrics(data, by_date, top_n=big, leverage=1.0,
@@ -132,16 +141,16 @@ def collect(region: str, years: int, limit: int | None) -> dict:
         by_lev = {}
         for lev in LEVERAGES:
             by_lev[str(lev)] = _sim_metrics(data, by_date, top_n=PORTFOLIO_TOPN, leverage=float(lev),
-                                            trade_size=PORTFOLIO_CAPITAL / PORTFOLIO_TOPN,
-                                            initial_capital=PORTFOLIO_CAPITAL,
+                                            trade_size=TRADE_SIZE,
+                                            initial_capital=TRADE_SIZE * PORTFOLIO_TOPN,
                                             max_concurrent=PORTFOLIO_TOPN)
         lev_rows.append({"key": s.key, "label": s.label, "by_lev": by_lev})
 
     meta = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "region": region, "years": years, "n_tickers": len(data),
-        "trade_size_eur": TRADE_SIZE, "portfolio_capital": PORTFOLIO_CAPITAL,
-        "portfolio_top_n": PORTFOLIO_TOPN,
+        "trade_size_usd": TRADE_SIZE, "portfolio_top_n": PORTFOLIO_TOPN,
+        "universe": "voll" if full else "kuratiert",
     }
     return {
         "strategies": {**meta, "rows": strat_rows},
@@ -155,10 +164,11 @@ def main():
     ap.add_argument("--region", default=DEFAULT_REGION)
     ap.add_argument("--years", type=int, default=2)
     ap.add_argument("--limit", type=int, default=None, help="nur die ersten N Ticker (Schnelltest)")
+    ap.add_argument("--curated", action="store_true", help="kleiner kuratierter Korb statt vollem Universum")
     args = ap.parse_args()
 
     t0 = time.time()
-    reports = collect(args.region, args.years, args.limit)
+    reports = collect(args.region, args.years, args.limit, full=not args.curated)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     for name, payload in reports.items():
         path = REPORTS_DIR / f"{name}.json"

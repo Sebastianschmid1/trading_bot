@@ -281,10 +281,52 @@ def test_active_trades_asset_filter():
     assert "BTC-USD" in crypto and "NVDA" not in crypto      # gefiltert auf Krypto
 
 
-def test_reports_tab_without_data_shows_hint():
+def _write_reports(d):
+    """Schreibt synthetische Report-JSONs (mit den neuen Kapital-/Rendite-Feldern) nach d."""
+    import json as _json
+    meta = {"generated_at": "2026-06-14 00:00 UTC", "region": "sp500", "years": 2,
+            "n_tickers": 500, "trade_size_usd": 1000.0, "portfolio_top_n": 10, "universe": "voll"}
+
+    def row(key, label, trades, pnl, wr=55.0, pf=1.5):
+        inv = trades * 1000
+        return {"key": key, "label": label, "trades": trades, "win_rate": wr, "profit_factor": pf,
+                "total_pnl_eur": pnl, "max_drawdown_pct": 5.0, "expectancy": 1.0,
+                "invested_capital": inv, "end_capital": inv + pnl,
+                "return_pct": (pnl / inv * 100) if inv else None}
+
+    Path(d, "strategies.json").write_text(_json.dumps({**meta, "rows": [
+        row("breakout", "Breakout", 100, 5000), row("ma_trend", "MA-Trend", 80, 2000)]}), encoding="utf-8")
+    Path(d, "sltp.json").write_text(_json.dumps({**meta, "modes": ["passiv", "normal", "aggressiv"], "rows": [
+        {"key": "breakout", "label": "Breakout", "by_mode": {m: row("breakout", "Breakout", 50, 1000) for m in ["passiv", "normal", "aggressiv"]}},
+        {"key": "ma_trend", "label": "MA-Trend", "by_mode": {m: row("ma_trend", "MA-Trend", 40, 500) for m in ["passiv", "normal", "aggressiv"]}}]}), encoding="utf-8")
+    Path(d, "leverage.json").write_text(_json.dumps({**meta, "leverages": [1, 2, 3, 5, 10], "rows": [
+        {"key": "breakout", "label": "Breakout", "by_lev": {str(l): row("breakout", "Breakout", 50, 1000) for l in [1, 2, 3, 5, 10]}},
+        {"key": "ma_trend", "label": "MA-Trend", "by_lev": {str(l): row("ma_trend", "MA-Trend", 40, 500) for l in [1, 2, 3, 5, 10]}}]}), encoding="utf-8")
+
+
+def test_reports_tab_without_data_shows_hint(tmp_path, monkeypatch):
     fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)     # leeres Verzeichnis
     r = _client().get("/app/reports")
-    assert r.status_code == 200 and "Reports" in r.text
+    assert r.status_code == 200 and "Reports" in r.text and "Noch keine Reports" in r.text
+
+
+def test_reports_columns_and_multiselect_filter(tmp_path, monkeypatch):
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    _write_reports(tmp_path)
+    c = _client()
+    r = c.get("/app/reports")
+    assert r.status_code == 200
+    # neue Overall-Spalten + einheitliche 1.000 USD/Trade
+    for col in ("Overall View", "Eingesetzt", "Endkapital", "Rendite%", "1,000 USD pro Trade"):
+        assert col in r.text
+    assert "$100,000" in r.text and "$80,000" in r.text     # eingesetztes Kapital beider Strategien
+    # Multi-Select-Filter: nur breakout → ma_trend-Datenzeilen ($80,000) verschwinden
+    r2 = c.get("/app/reports?strat=breakout")
+    assert "$100,000" in r2.text and "$80,000" not in r2.text
 
 
 def test_scan_accept_expired_signal_is_safe():

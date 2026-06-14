@@ -13,7 +13,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Form, Depends, HTTPException
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -414,15 +414,31 @@ def _load_report(name: str) -> dict | None:
         return None
 
 
+def _filter_report(report: dict | None, selected: list) -> dict | None:
+    """Beschränkt die Zeilen eines Reports auf die ausgewählten Strategien (leer = alle)."""
+    if not report or not selected:
+        return report
+    r = dict(report)
+    r["rows"] = [row for row in report.get("rows", []) if row["key"] in selected]
+    return r
+
+
 @router.get("/app/reports", response_class=HTMLResponse)
-def app_reports(request: Request):
+def app_reports(request: Request, strat: list[str] = Query(default=[])):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
+    strategies = _load_report("strategies")
+    sltp = _load_report("sltp")
+    leverage = _load_report("leverage")
+    options = [{"key": r["key"], "label": r["label"]} for r in (strategies or {}).get("rows", [])]
+    valid = {o["key"] for o in options}
+    selected = [s for s in strat if s in valid]
     return _render("reports.html", request, user, active="reports",
-                   strategies=_load_report("strategies"),
-                   sltp=_load_report("sltp"),
-                   leverage=_load_report("leverage"))
+                   strategies=_filter_report(strategies, selected),
+                   sltp=_filter_report(sltp, selected),
+                   leverage=_filter_report(leverage, selected),
+                   strat_options=options, selected=selected)
 
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────

@@ -7,7 +7,7 @@
   <td class="r">{% if m.trades == 0 %}—{% elif m.profit_factor is none %}∞{% else %}{{ '%.2f'|format(m.profit_factor) }}{% endif %}</td>
   <td class="r">{{ '%.2f'|format(m.expectancy) if m.expectancy is not none else '—' }}</td>
   <td class="r">{{ '%.1f'|format(m.max_drawdown_pct) ~ '%' if m.max_drawdown_pct is not none else '—' }}</td>
-  <td class="r {{ 'pos' if (m.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '%+.0f'|format(m.total_pnl_eur or 0) }}€</td>
+  <td class="r {{ 'pos' if (m.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '{:+,.0f}$'.format(m.total_pnl_eur or 0) }}</td>
 {% endmacro %}
 
 {% set head %}
@@ -17,19 +17,50 @@
 
 {% block content %}
 <h1>Reports</h1>
-{% if not strategies %}
+{% if not strategies and not selected %}
   <p class="muted">Noch keine Reports vorhanden. Erzeuge sie mit
     <code>python -m tools.sweep_report</code> (sie werden bei jedem Deploy mitgeliefert).</p>
 {% else %}
-<p class="muted">Backtest-Sweeps über den kuratierten {{ strategies.region }}-Korb
+<p class="muted">Backtest-Sweeps über das vollständige {{ strategies.region }}-Universum
   ({{ strategies.n_tickers }} Werte, {{ strategies.years }} Jahre, Stand {{ strategies.generated_at }}).
+  Einheitlich <strong>{{ '{:,.0f}'.format(strategies.trade_size_usd) }} USD pro Trade</strong>.
   Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust im Zeitraum.</p>
 
-<h2>Nach Strategie <span class="muted">(native SL/TP, Hebel 1)</span></h2>
+<form class="card" method="get" action="/app/reports">
+  <strong>Strategie-Filter</strong>
+  <p class="muted" style="margin:.3rem 0">Mehrere wählbar (Strg/Cmd-Klick bzw. langes Tippen). Keine Auswahl = alle.</p>
+  <div class="row">
+    <select name="strat" multiple size="{{ strat_options|length }}" style="min-width:220px">
+      {% for o in strat_options %}
+      <option value="{{ o.key }}" {{ 'selected' if o.key in selected }}>{{ o.label }} ({{ o.key }})</option>
+      {% endfor %}
+    </select>
+    <button class="on">Anwenden</button>
+    <a class="btn" href="/app/reports">Alle anzeigen</a>
+  </div>
+</form>
+
+<h2>Overall View — nach Strategie <span class="muted">(native SL/TP, Hebel 1)</span></h2>
 <table>
-  <tr><th>Strategie</th>{{ head }}</tr>
+  <tr>
+    <th>Strategie</th>
+    <th class="r">Eingesetzt</th><th class="r">Endkapital</th>
+    <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th><th class="r">Trefferquote%</th>
+    <th class="r">Profitf.</th><th class="r">Erw.wert</th><th class="r">MaxDD%</th>
+  </tr>
   {% for r in strategies.rows %}
-  <tr><td><strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span></td>{{ mcells(r) }}</tr>
+  <tr>
+    <td><strong>{{ r.label }}</strong> <span class="muted">{{ r.key }}</span></td>
+    <td class="r">{{ '${:,.0f}'.format(r.invested_capital) }}</td>
+    <td class="r {{ 'pos' if r.end_capital >= r.invested_capital else 'neg' }}">{{ '${:,.0f}'.format(r.end_capital) }}</td>
+    <td class="r">{{ r.trades }}</td>
+    <td class="r {{ 'pos' if (r.total_pnl_eur or 0) >= 0 else 'neg' }}">{{ '{:+,.0f}$'.format(r.total_pnl_eur or 0) }}</td>
+    <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>
+    <td class="r">{{ '%.0f'|format(r.win_rate) ~ '%' if r.win_rate is not none else '—' }}</td>
+    <td class="r">{% if r.trades == 0 %}—{% elif r.profit_factor is none %}∞{% else %}{{ '%.2f'|format(r.profit_factor) }}{% endif %}</td>
+    <td class="r">{{ '%.2f'|format(r.expectancy) if r.expectancy is not none else '—' }}</td>
+    <td class="r">{{ '%.1f'|format(r.max_drawdown_pct) ~ '%' if r.max_drawdown_pct is not none else '—' }}</td>
+  </tr>
   {% endfor %}
 </table>
 
