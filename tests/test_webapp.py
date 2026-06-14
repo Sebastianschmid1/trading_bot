@@ -287,7 +287,8 @@ def _write_reports(d):
     LEVS, MODES = [1, 2], ["passiv", "normal"]
     STRATS = [{"key": "breakout", "label": "Breakout"}, {"key": "ma_trend", "label": "MA-Trend"}]
     meta = {"generated_at": "2026-06-14 00:00 UTC", "region": "sp500", "years": 2,
-            "n_tickers": 500, "trade_size_usd": 1000.0, "portfolio_top_n": 10, "universe": "voll"}
+            "n_tickers": 500, "trade_size_usd": 1000.0, "portfolio_top_n": 10,
+            "start_capital_usd": 10000.0, "universe": "voll"}
 
     def row(key, label, trades, pnl, **extra):
         inv = trades * 1000
@@ -326,7 +327,7 @@ def test_reports_overall_and_matrix_columns(tmp_path, monkeypatch):
     r = _client().get("/app/reports")
     assert r.status_code == 200
     for col in ("Overall View", "Eingesetzt", "Endkapital", "Rendite%",
-                "Matrix", "Ø&nbsp;Halten", "Liquid.", "1,000 USD pro Trade"):
+                "Matrix", "Ø&nbsp;Halten", "Liquid.", "Kapitalpool", "10,000 USD"):
         assert col in r.text
     assert "8 von 8 Analysen" in r.text          # 2 Strat × 2 Hebel × 2 Modi
 

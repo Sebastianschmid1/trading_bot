@@ -19,11 +19,13 @@
     <code>python -m tools.sweep_report</code> (sie werden bei jedem Deploy mitgeliefert).</p>
 {% else %}
 <p class="muted">Vollständiges {{ matrix.region }}-Universum ({{ matrix.n_tickers }} Werte, {{ matrix.years }} Jahre,
-  Stand {{ matrix.generated_at }}). Einheitlich <strong>{{ '{:,.0f}'.format(matrix.trade_size_usd) }} USD pro Trade</strong>,
-  Portfolio Top-{{ matrix.portfolio_top_n }}/Tag. Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust.</p>
+  Stand {{ matrix.generated_at }}). Fester Kapitalpool
+  <strong>{{ '{:,.0f}'.format(matrix.start_capital_usd) }} USD</strong> — max. {{ matrix.portfolio_top_n }} Positionen
+  à {{ '{:,.0f}'.format(matrix.trade_size_usd) }} USD; ist das Budget belegt, werden neue Signale übersprungen.
+  Rendite = P&amp;L ÷ {{ '{:,.0f}'.format(matrix.start_capital_usd) }} USD. Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust.</p>
 
 {% if strategies %}
-<h2>Overall View <span class="muted">(native SL/TP, Hebel 1)</span></h2>
+<h2>Overall View <span class="muted">(Kapitalpool {{ '{:,.0f}'.format(strategies.start_capital_usd) }}$, native SL/TP, Hebel 1)</span></h2>
 <div class="scroll">
 <table>
   <tr>

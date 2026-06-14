@@ -39,27 +39,27 @@ from stockbot.config import SL_TP_MODES, DEFAULT_REGION
 
 MODES = ["passiv", "normal", "aggressiv"]
 LEVERAGES = [1, 2, 3, 5, 10]
-TRADE_SIZE = 1000.0          # fester Einsatz pro Trade (USD) — einheitlich für ALLE Reports
-PORTFOLIO_TOPN = 10
+TRADE_SIZE = 1000.0          # Einsatz (Margin) pro Position (USD)
+PORTFOLIO_TOPN = 10          # max. gleichzeitige Positionen
+START_CAPITAL = TRADE_SIZE * PORTFOLIO_TOPN   # = 10.000 USD fester Kapitalpool
 
 
 def _slim(m: dict) -> dict:
     """Kompakte, anzeigefertige Kennzahlen-Teilmenge inkl. Kapital-/Rendite-Kennzahlen.
-    Eingesetztes Kapital = Anzahl Trades × Einsatz; Endkapital = eingesetzt + P&L;
-    Rendite % = P&L / eingesetztes Kapital × 100."""
-    trades = m.get("trades", 0)
+    Fester Startkapital-Pool (10.000 USD); pro Position 1.000 USD Margin, max. 10 gleichzeitig
+    (neue Signale werden übersprungen, wenn das Budget belegt ist — siehe simulate_portfolio).
+    Endkapital = Startkapital + P&L; Rendite % = P&L / Startkapital × 100."""
     pnl = m.get("total_pnl_eur", 0.0)
-    invested = trades * TRADE_SIZE
     return {
-        "trades":           trades,
+        "trades":           m.get("trades", 0),
         "win_rate":         m.get("win_rate"),
         "profit_factor":    m.get("profit_factor"),     # None = kein Verlust (∞)
         "total_pnl_eur":    pnl,
         "max_drawdown_pct": m.get("max_drawdown_pct"),
         "expectancy":       m.get("expectancy"),
-        "invested_capital": invested,
-        "end_capital":      invested + pnl,
-        "return_pct":       (pnl / invested * 100) if invested else None,
+        "invested_capital": START_CAPITAL,
+        "end_capital":      START_CAPITAL + pnl,
+        "return_pct":       pnl / START_CAPITAL * 100,
     }
 
 
@@ -149,8 +149,6 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
     print(f"→ {len(data)} Ticker mit ausreichender Historie.", flush=True)
 
     strat_rows, matrix_rows = [], []
-    big = max(50, len(data))            # „alle Signale" (Einzelposition je Ticker, kein Top-N-Schnitt)
-
     keys = [s.key for s in strat_mod.all_strategies()]
     print(f"→ Signale berechnen ({jobs} Prozess{'e' if jobs != 1 else ''}, {len(data)} Ticker × {len(keys)} Strategien) ...", flush=True)
     fires_by_strat = _gather_all(data, keys, jobs)
@@ -159,19 +157,20 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         by_date = fires_by_strat[s.key]
         print(f"  · {s.key}: {sum(len(v) for v in by_date.values())} Signale → Reports ableiten ...", flush=True)
 
-        # einheitlicher Einsatz 1.000 USD/Trade in ALLEN Reports.
-        # Overall-View: native SL/TP, Hebel 1, alle Signale (Einzelposition).
+        # Fester 10.000-USD-Pool: max. 10 Positionen à 1.000 USD; ist das Budget belegt,
+        # werden neue Signale übersprungen (simulate_portfolio: free = max_concurrent − offene).
+        # Overall-View: native SL/TP, Hebel 1.
         strat_rows.append({"key": s.key, "label": s.label,
-                           **_sim_metrics(data, by_date, top_n=big, leverage=1.0,
-                                          trade_size=TRADE_SIZE, initial_capital=TRADE_SIZE * 10,
-                                          max_concurrent=big)})
+                           **_sim_metrics(data, by_date, top_n=PORTFOLIO_TOPN, leverage=1.0,
+                                          trade_size=TRADE_SIZE, initial_capital=START_CAPITAL,
+                                          max_concurrent=PORTFOLIO_TOPN)})
 
-        # Vollständige Matrix: jede Kombination aus SL/TP-Modus × Hebel (Portfolio Top-N/Tag).
+        # Vollständige Matrix: jede Kombination aus SL/TP-Modus × Hebel (gleicher 10k-Pool).
         by_mode = {mode: _with_mode(by_date, mode) for mode in MODES}
         for mode in MODES:
             for lev in LEVERAGES:
                 m = _sim_metrics(data, by_mode[mode], top_n=PORTFOLIO_TOPN, leverage=float(lev),
-                                 trade_size=TRADE_SIZE, initial_capital=TRADE_SIZE * PORTFOLIO_TOPN,
+                                 trade_size=TRADE_SIZE, initial_capital=START_CAPITAL,
                                  max_concurrent=PORTFOLIO_TOPN)
                 matrix_rows.append({"key": s.key, "label": s.label,
                                     "mode": mode, "leverage": lev, **m})
@@ -180,6 +179,7 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "region": region, "years": years, "n_tickers": len(data),
         "trade_size_usd": TRADE_SIZE, "portfolio_top_n": PORTFOLIO_TOPN,
+        "start_capital_usd": START_CAPITAL,
         "universe": "voll" if full else "kuratiert",
     }
     return {
