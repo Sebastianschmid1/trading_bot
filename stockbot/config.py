@@ -249,6 +249,10 @@ SIGNAL_CLOSE_THRESHOLD = 35.0   # 0–100: darunter wird ein aktiver Trade autom
 # 60-Sekunden-Überwachung aktiver Trades
 MONITOR_INTERVAL_SEC = 60
 
+# Intraday-Signal-Scan: während der Handelszeit alle 30 Min nach NEUEN Signalen suchen und
+# sie per Telegram + Website pushen (über den Eröffnungs-Scan hinaus, ohne top_n-Deckel).
+INTRADAY_SCAN_INTERVAL_SEC = 30 * 60
+
 # ── ATR-basierte Stop-Loss / Take-Profit ────────────────────────────────────
 # ATR (Average True Range) misst die typische Tagesschwankung. Stop-Loss und
 # Take-Profit werden als Vielfaches davon vom Einstiegskurs gesetzt.

@@ -46,9 +46,9 @@ from stockbot.config import (
     CLOSE_TIME_HOUR, CLOSE_TIME_MIN,
     BERLIN_TZ, DASHBOARD_BASE_URL, RUN_DASHBOARD_IN_BOT,
     UNIVERSES, REGION_LABELS, DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE,
-    SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS, TRADE_SIZE_EUR, TRADE_SIZE_CHOICES,
+    SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS, MAX_SIGNALS, TRADE_SIZE_EUR, TRADE_SIZE_CHOICES,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
-    SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC,
+    SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER
@@ -152,7 +152,8 @@ def _get_candidates(key: str) -> list[dict]:
 
 # ── Nachrichten senden ──────────────────────────────────────────────────────
 
-def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tuple[str, InlineKeyboardMarkup]:
+def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
+                 expiry_min: int | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """Baut Nachrichtentext + Tastatur eines Signals (inkl. SL/TP, Hebel, Liquidation, Hebel-Buttons)."""
     ticker = signal["ticker"]
     direction = signal["direction"]
@@ -189,8 +190,10 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool) -> tupl
                 if isinstance(signal.get("llm_score"), (int, float)) else "")
 
     if market_open:
+        window_line = (f"⏰ Start nur innerhalb von {expiry_min} Minuten möglich"
+                       if expiry_min else "✅ Jederzeit annehmbar (kein Zeitlimit)")
         footer = (
-            f"⏰ Start nur innerhalb von {TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich\n"
+            f"{window_line}\n"
             f"⏱ Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr (oder früher bei SL/TP)"
         )
         # Hebel-Buttons (pro Signal änderbar) + JA/NEIN
@@ -349,7 +352,7 @@ async def _maybe_broker_close(bot: Bot, user: dict, ticker: str):
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
                       job_queue=None, market_open: bool = True,
                       sl_tp_mode: str = DEFAULT_SL_TP_MODE, leverage: float = DEFAULT_LEVERAGE,
-                      auto_accept: bool = False) -> bool:
+                      auto_accept: bool = False, expiry_min: int | None = None) -> bool:
     """Sendet eine Aktienempfehlung an einen Nutzer (mit dessen SL/TP-Modus + Hebel).
 
     - Offene Börse: legt einen handelbaren Demo-Trade an, Hebel pro Signal änderbar, JA/NEIN
@@ -367,7 +370,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
     # Auto-Accept: sofort starten, keine Buttons
     if market_open and auto_accept:
         msg = await bot.send_message(chat_id=chat_id,
-                                     text=_signal_card(sig, trade_size_eur, market_open)[0],
+                                     text=_signal_card(sig, trade_size_eur, market_open, expiry_min)[0],
                                      parse_mode="Markdown")
         db.add_pending(chat_id, sig, msg.message_id)
         trade = db.activate_trade(chat_id, ticker)
@@ -381,16 +384,17 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
         return True
 
-    text, keyboard = _signal_card(sig, trade_size_eur, market_open)
+    text, keyboard = _signal_card(sig, trade_size_eur, market_open, expiry_min)
     msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
 
     if market_open:
         db.add_pending(chat_id, sig, msg.message_id)
         log.info(f"[{chat_id}] Signal gesendet: {ticker} ({sig['direction']}, {leverage:g}×)")
-        if job_queue is not None:
+        # Ablauf-Job NUR planen, wenn der Nutzer das 15-Min-Fenster aktiviert hat (sonst dauerhaft annehmbar)
+        if expiry_min and job_queue is not None:
             job_queue.run_once(
                 expire_pending_trade,
-                when=timedelta(minutes=TRADE_ACTIVATION_WINDOW_MIN),
+                when=timedelta(minutes=expiry_min),
                 data={"chat_id": chat_id, "ticker": ticker, "message_id": msg.message_id},
                 name=f"expire_{chat_id}_{ticker}_{date.today()}"
             )
@@ -415,25 +419,38 @@ async def expire_pending_trade(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
-    """Job: Täglich um 8:45 Uhr die 5 besten Signale an alle aktiven Nutzer senden."""
+    """Job: Eröffnungs-Scan (Börsenöffnung) — die besten top_n Signale je Nutzer mit Begrüßung."""
+    await _run_signal_scan(context, opening=True)
+
+
+async def scan_intraday(context: ContextTypes.DEFAULT_TYPE):
+    """Job: alle 30 Min während der US-Handelszeit — NEUE Signale (über die Eröffnung hinaus)
+    leise nachschieben und per Telegram + Website (In-App-Mitteilung) pushen.
+    Kein top_n-Deckel; der Duplikat-Schutz verhindert erneutes Senden bereits gemeldeter Aktien."""
+    await _run_signal_scan(context, opening=False)
+
+
+async def _run_signal_scan(context: ContextTypes.DEFAULT_TYPE, opening: bool):
     bot = context.bot
     now = datetime.now(BERLIN_TZ)
-    log.info(f"Sende Tagessignale um {now.strftime('%H:%M')}")
+    market_open = _us_market_open()
+    if not opening and not market_open:
+        return  # Intraday-Scan nur während der US-Handelszeit
+    log.info(f"{'Eröffnungs' if opening else 'Intraday'}-Scan um {now.strftime('%H:%M')}")
 
     users = db.list_active_users()
     if not users:
-        log.info("Keine registrierten Nutzer — überspringe Tagessignale.")
+        if opening:
+            log.info("Keine registrierten Nutzer — überspringe Tagessignale.")
         return
 
     # Analyse pro benötigter (Bereich, Voll-Universum, Strategie)-Kombination einmal berechnen
     ranked_by_key: dict[str, list] = {}
-    size_by_key: dict[str, int] = {}
     needed = {(r, _auto_uni(u), s)
               for u in users for r in _user_regions(u) for s in _user_strategies(u)}
     for region, auto, strat_key in needed:
         key = _universe_key(region, auto, strat_key)
         tickers = universes.get_tickers(region, auto=auto)
-        size_by_key[key] = len(tickers)
         try:
             # In einen Thread auslagern: analyze_universe ist blockierend (yfinance),
             # sonst friert der Bot während des Scans ein (Ja/Nein-Buttons, 60s-Monitoring).
@@ -446,7 +463,6 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
             ranked_by_key[key] = None  # Fehler-Marker
 
     # Persönliche Watchlists: Vereinigung aller Nutzer einmal je genutzter Strategie analysieren.
-    # Ergebnis je Strategie als {ticker: signal} — Zuordnung zum Nutzer erfolgt unten.
     watch_union = sorted({t for u in users for t in _user_watchlist(u)})
     watch_by_strat: dict[str, dict] = {}
     if watch_union:
@@ -459,25 +475,22 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
                 log.error(f"Watchlist-Analyse fehlgeschlagen ({strat_key}): {e}")
                 watch_by_strat[strat_key] = {}
 
-    market_open = _us_market_open()
     for u in users:
         chat_id = u["user_id"]
         regions = _user_regions(u)
         user_strats = _user_strategies(u)
-        top_n = u.get("top_n_signals") or TOP_N_SIGNALS
+        # top_n gilt nur für den Eröffnungs-Scan; intraday ohne Deckel (Duplikat-Schutz filtert).
+        cap = (u.get("top_n_signals") or TOP_N_SIGNALS) if opening else MAX_SIGNALS
+        expiry_min = TRADE_ACTIVATION_WINDOW_MIN if u.get("signal_window") else None
         region_label = " + ".join(REGION_LABELS.get(r, r) for r in regions)
 
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"🌅 *Guten Morgen! Tagesanalyse {now.strftime('%d.%m.%Y')}*\n"
-                f"Körbe: {region_label} · "
-                f"{len(user_strats)} Strategie(n) ⏳"
-            ),
-            parse_mode="Markdown"
-        )
+        if opening:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(f"🌅 *Guten Morgen! Tagesanalyse {now.strftime('%d.%m.%Y')}*\n"
+                      f"Körbe: {region_label} · {len(user_strats)} Strategie(n) ⏳"),
+                parse_mode="Markdown")
 
-        # Pro gewählter Strategie eigene top_n Signale — über alle gewählten Körbe gebündelt
         any_sent = False
         watchlist = set(_user_watchlist(u))
         for strat_key in user_strats:
@@ -485,10 +498,9 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
             ranked_lists = [ranked_by_key.get(_universe_key(r, _auto_uni(u), strat_key)) for r in regions]
             region_failed = all(rl is None for rl in ranked_lists)
             ranked = _merge_ranked([rl for rl in ranked_lists if rl is not None])
-            signals = smartmoney.rank(ranked, top_n)
+            signals = smartmoney.rank(ranked, cap)
 
-            # Watchlist-Treffer dieser Strategie immer zusätzlich anhängen (nie vom top_n gekürzt),
-            # sofern sie ausgelöst haben und nicht ohnehin schon unter den top_n sind.
+            # Watchlist-Treffer dieser Strategie immer zusätzlich anhängen (nie gekürzt).
             if watchlist:
                 have = {s["ticker"] for s in signals}
                 extra = [sig for tkr, sig in watch_by_strat.get(strat_key, {}).items()
@@ -500,28 +512,31 @@ async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
                     signals = signals + extra
 
             if not signals:
-                if region_failed:
-                    await bot.send_message(chat_id=chat_id,
-                                           text=f"⚠️ Analyse-Fehler ({strat.label}).")
+                if opening and region_failed:
+                    await bot.send_message(chat_id=chat_id, text=f"⚠️ Analyse-Fehler ({strat.label}).")
                 continue
             if _llm_enabled(u):
                 signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
-            await bot.send_message(chat_id=chat_id,
-                                   text=f"🧠 *Strategie: {strat.label}*", parse_mode="Markdown")
+            if opening:   # im Intraday-Scan keine Strategie-Header (nur die neuen Karten)
+                await bot.send_message(chat_id=chat_id,
+                                       text=f"🧠 *Strategie: {strat.label}*", parse_mode="Markdown")
             for signal in signals:
                 if await send_signal(bot, chat_id, signal, u["trade_size_eur"],
                                      job_queue=context.job_queue, market_open=market_open,
                                      sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
                                      leverage=u.get("leverage", DEFAULT_LEVERAGE),
-                                     auto_accept=u.get("auto_accept", False)):
+                                     auto_accept=u.get("auto_accept", False),
+                                     expiry_min=expiry_min):
                     any_sent = True
                 await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
-        if not any_sent:
+
+        if opening and not any_sent:
             await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
-        else:
+        elif any_sent:
             # In-App-Mitteilung für die Website (Telegram-Push ist oben bereits erfolgt)
-            notify_svc.notify(chat_id, "📊 Neue Tagessignale",
-                              "Neue Signale verfügbar — jetzt ansehen.", type="signal", user=u)
+            title = "📊 Neue Tagessignale" if opening else "📊 Neue Signale"
+            notify_svc.notify(chat_id, title, "Neue Signale verfügbar — jetzt ansehen.",
+                              type="signal", user=u)
         await asyncio.sleep(0.5)  # kurze Pause zwischen Nutzern (Rate-Limit-Schutz)
 
 
@@ -810,7 +825,8 @@ async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
                                      job_queue=job_queue, market_open=True,
                                      sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
                                      leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                                     auto_accept=False)
+                                     auto_accept=False,
+                                     expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None)
             if sent:
                 need -= 1
 
@@ -883,7 +899,8 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                  job_queue=context.job_queue, market_open=market_open,
                                  sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
                                  leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                                 auto_accept=user.get("auto_accept", False)):
+                                 auto_accept=user.get("auto_accept", False),
+                                 expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None):
                 total_sent += 1
             await asyncio.sleep(1)
 
@@ -1040,7 +1057,8 @@ def _settings_view(user: dict):
     # Boolesche Schalter gesammelt, je 2 pro Reihe
     toggles = [_toggle("Auto-Accept", auto, "set_auto"),
                _toggle("Voll-Universum", auto_uni, "set_uni"),
-               _toggle("Tagesende-Schließung", eod, "set_eod")]
+               _toggle("Tagesende-Schließung", eod, "set_eod"),
+               _toggle("15-Min-Fenster", user.get("signal_window"), "set_window")]
     if LLM_RANK_ENABLED:
         toggles.append(_toggle("KI-Ranking", llm_on, "set_llm"))
     if broker_ready:
@@ -1475,9 +1493,10 @@ HELP_TEXT = (
     "/help — Diese Übersicht anzeigen\n"
     "━━━━━━━━━━━━━━━━━━\n"
     "📅 *Täglicher Ablauf*\n"
-    f"  • {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr — Tagessignale mit JA/NEIN-Buttons\n"
+    f"  • {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr — Eröffnungs-Signale (Top-N) mit JA/NEIN-Buttons\n"
+    "  • alle 30 Min während der Handelszeit — neue Signale werden automatisch nachgeschoben\n"
     f"  • {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr — automatische Auswertung aller Demo-Trades\n"
-    f"  • ⏰ Start eines Trades nur innerhalb von {TRADE_ACTIVATION_WINDOW_MIN} Minuten nach dem Signal möglich"
+    "  • ✅ Signale bleiben den ganzen Handelstag annehmbar (optionales 15-Min-Fenster in /settings)"
 )
 
 
@@ -1654,6 +1673,9 @@ def _register_jobs(app):
         time=datetime.now(BERLIN_TZ).replace(
             hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0).timetz(),
         name="smartmoney_scan")
+    # Intraday: alle 30 Min während der Handelszeit nach NEUEN Signalen suchen und pushen.
+    job_queue.run_repeating(scan_intraday, interval=INTRADAY_SCAN_INTERVAL_SEC,
+                            first=INTRADAY_SCAN_INTERVAL_SEC, name="intraday_signals")
     # Aktive Trades laufend überwachen (Auto-Close bei SL/TP oder Signal-Verfall)
     job_queue.run_repeating(monitor_trades, interval=MONITOR_INTERVAL_SEC, first=30, name="monitor_trades")
 

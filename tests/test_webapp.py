@@ -387,6 +387,29 @@ def test_scan_accept_expired_signal_is_safe():
     assert db.get_active_trades(CHAT) == []
 
 
+# ── 15-Min-Fenster (optional) & Signal-Annahme ───────────────────────────────
+
+def test_signal_window_toggle_via_web():
+    fresh()
+    c = _client()
+    assert db.get_user(CHAT)["signal_window"] is False          # Default: dauerhaft annehmbar
+    c.post("/app/settings/set", data={"action": "set_window", "value": "1"}, follow_redirects=False)
+    assert db.get_user(CHAT)["signal_window"] is True
+    c.post("/app/settings/set", data={"action": "set_window", "value": "0"}, follow_redirects=False)
+    assert db.get_user(CHAT)["signal_window"] is False
+
+
+def test_signal_card_window_is_optional():
+    from stockbot.tgbot import bot
+    sig = {"ticker": "NVDA", "direction": "long", "strength": 70.0, "price": 100.0, "rsi": 40.0,
+           "rsi_comment": "x", "macd_comment": "y", "trend_comment": "z", "volume_comment": "v",
+           "sr_comment": "-", "weekly_comment": "-"}
+    perm, _ = bot._signal_card(dict(sig), 100.0, True, None)
+    assert "Jederzeit annehmbar" in perm and "innerhalb von" not in perm
+    win, _ = bot._signal_card(dict(sig), 100.0, True, 15)
+    assert "innerhalb von 15 Minuten" in win
+
+
 # ── Mitteilungen ────────────────────────────────────────────────────────────
 
 def test_notifications_page_and_mark_read():

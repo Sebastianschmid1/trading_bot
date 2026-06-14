@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # Alle von der Einstellungs-Ansicht ausgelösten Aktionen (für die Weiche im Aufrufer).
 SETTING_ACTIONS = frozenset({
     "set_region", "set_size", "set_count", "set_mode", "set_lev",
-    "set_auto", "set_uni", "set_strat", "set_llm", "set_eod", "set_broker",
+    "set_auto", "set_uni", "set_strat", "set_llm", "set_eod", "set_broker", "set_window",
 })
 
 
@@ -56,6 +56,8 @@ def apply_setting(user_id: int, action: str, value: str, *, alpaca_ready: bool =
         db.set_llm_rank(user_id, value == "1")
     elif action == "set_eod":
         db.set_eod_close(user_id, value == "1")
+    elif action == "set_window":
+        db.set_signal_window(user_id, value == "1")
     elif action == "set_broker" and alpaca_ready:
         db.set_broker_exec(user_id, value == "1")
 

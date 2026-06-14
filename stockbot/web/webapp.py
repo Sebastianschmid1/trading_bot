@@ -308,6 +308,7 @@ def app_settings(request: Request, msg: str = ""):
         ("set_uni", "Voll-Universum (große Aktienliste)", user["auto_universe"]),
         ("set_llm", "KI-Ranking (Claude Haiku)", user["llm_rank"]),
         ("set_eod", "Tagesende-Schließung", user["eod_close"]),
+        ("set_window", "15-Min-Annahmefenster (aus = dauerhaft annehmbar)", user.get("signal_window")),
     ]
     if _alpaca_ready(user):
         toggles.append(("set_broker", "Echte Broker-Order (Alpaca)", user["broker_exec"]))

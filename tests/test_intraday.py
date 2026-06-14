@@ -96,12 +96,14 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    jq.run_repeating.assert_called_once()
-    args, kwargs = jq.run_repeating.call_args
-    assert args[0] is bot.monitor_trades                       # der Trade-Monitor wird wiederholt geplant
-    assert kwargs["interval"] == config.MONITOR_INTERVAL_SEC   # … im konfigurierten Intervall
-    assert kwargs["name"] == "monitor_trades"
-    assert jq.run_daily.call_count == 3                        # Signale, Auswertung, Smart-Money
+    # zwei wiederkehrende Jobs: Intraday-Signal-Scan + Trade-Monitor
+    assert jq.run_repeating.call_count == 2
+    by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
+    assert by_name["monitor_trades"].args[0] is bot.monitor_trades
+    assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
+    assert by_name["intraday_signals"].args[0] is bot.scan_intraday
+    assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
+    assert jq.run_daily.call_count == 3                        # Eröffnungs-Signale, Auswertung, Smart-Money
 
 
 def test_monitor_evaluates_each_trade_with_its_own_strategy():

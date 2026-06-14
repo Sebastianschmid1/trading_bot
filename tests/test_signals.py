@@ -208,7 +208,13 @@ def test_open_market_has_trade_buttons_and_creates_pending():
     assert any(c.startswith("accept:") for c in callbacks)
     assert any(c.startswith("reject:") for c in callbacks)
     assert db.has_trade_today(CHAT, "NVDA") is True   # handelbarer Trade angelegt
-    assert jq.run_once.called                          # Ablauf-Job geplant
+    assert not jq.run_once.called                      # Default: KEIN Ablauf-Job (dauerhaft annehmbar)
+
+    # Nur mit aktiviertem 15-Min-Fenster (expiry_min) wird der Ablauf-Job geplant
+    jq2 = MagicMock()
+    asyncio.run(bot.send_signal(b, CHAT, make_signal("AAPL"), 25.0,
+                                job_queue=jq2, market_open=True, expiry_min=15))
+    assert jq2.run_once.called
 
 
 def test_closed_market_has_disabled_noop_button_and_no_trade():

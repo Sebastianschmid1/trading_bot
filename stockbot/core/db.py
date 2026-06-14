@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
     llm_rank          INTEGER NOT NULL DEFAULT 1,
     eod_close         INTEGER NOT NULL DEFAULT 1,
     broker_exec       INTEGER NOT NULL DEFAULT 0,
+    signal_window     INTEGER NOT NULL DEFAULT 0,
     watchlist         TEXT    NOT NULL DEFAULT '',
     notify_channel    TEXT    NOT NULL DEFAULT 'both',
     asset_pref        TEXT    NOT NULL DEFAULT 'stocks',
@@ -158,6 +159,9 @@ def _migrate(conn: sqlite3.Connection):
     if "asset_pref" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN asset_pref TEXT NOT NULL DEFAULT 'stocks'")
         log.info("Migration: Spalte users.asset_pref ergänzt.")
+    if "signal_window" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN signal_window INTEGER NOT NULL DEFAULT 0")
+        log.info("Migration: Spalte users.signal_window ergänzt.")
 
 
 @contextmanager
@@ -210,6 +214,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
         "llm_rank":         bool(row["llm_rank"]),
         "eod_close":        bool(row["eod_close"]),
         "broker_exec":      bool(row["broker_exec"]),
+        "signal_window":    bool(row["signal_window"] if "signal_window" in row.keys() else 0),
         "watchlist":        _parse_watchlist(row["watchlist"] if "watchlist" in row.keys() else ""),
         "notify_channel":   (row["notify_channel"] if "notify_channel" in row.keys() else "both") or "both",
         "asset_pref":       (row["asset_pref"] if "asset_pref" in row.keys() else "stocks") or "stocks",
@@ -411,6 +416,15 @@ def set_eod_close(user_id: int, on: bool):
     with _connect() as conn:
         conn.execute(
             "UPDATE users SET eod_close = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (1 if on else 0, user_id),
+        )
+
+
+def set_signal_window(user_id: int, on: bool):
+    """15-Minuten-Annahmefenster an/aus. Aus (Default) → Signale bleiben den ganzen Handelstag annehmbar."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET signal_window = ?, updated_at = datetime('now') WHERE user_id = ?",
             (1 if on else 0, user_id),
         )
 
