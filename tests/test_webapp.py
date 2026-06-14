@@ -216,6 +216,38 @@ def test_scan_populates_cards_and_accept_starts_trade(monkeypatch):
     assert act and act[0]["ticker"] == "NVDA"
 
 
+def test_scan_with_asset_switches_class_and_shows_it(monkeypatch):
+    """Auswahl + Anfordern in einem Schritt: POST /app/scan mit asset=crypto persistiert die
+    Klasse UND scannt sie (kein separater Klick/JS nötig)."""
+    fresh()
+    from stockbot.market import analyzer
+    monkeypatch.setattr(analyzer, "analyze_universe",
+                        lambda tickers, profile=None: [{"ticker": tickers[0], "direction": "long",
+                                                        "price": 50.0, "strength": 80.0}])
+    monkeypatch.setattr(analyzer, "price_history_batch", lambda tickers, days=7: {})
+    c = _client()
+    c.post("/app/scan", data={"asset": "crypto"}, follow_redirects=False)
+    assert db.get_user(CHAT)["asset_pref"] == "crypto"
+    r = c.get("/app")
+    assert "BTC-USD" in r.text and "Krypto" in r.text and "Alle" in r.text   # Dropdown hat 'Alle'
+
+
+def test_scan_all_merges_classes_by_strength(monkeypatch):
+    fresh()
+    from stockbot.market import analyzer, asset_classes
+    monkeypatch.setattr(asset_classes.universes, "get_tickers", lambda region, auto=True: ["NVDA"])
+    monkeypatch.setattr(analyzer, "analyze_universe",
+                        lambda tickers, profile=None: [{"ticker": t, "direction": "long", "price": 10.0,
+                                                        "strength": 95.0 if t == "BTC-USD" else 60.0}
+                                                       for t in tickers])
+    monkeypatch.setattr(analyzer, "price_history_batch", lambda tickers, days=7: {})
+    c = _client()
+    c.post("/app/scan", data={"asset": "all"}, follow_redirects=False)
+    assert db.get_user(CHAT)["asset_pref"] == "all"
+    r = c.get("/app")
+    assert "BTC-USD" in r.text and "Krypto" in r.text          # stärkster Treffer quer über alle Klassen
+
+
 def test_scan_accept_expired_signal_is_safe():
     fresh()
     c = _client()

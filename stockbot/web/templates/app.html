@@ -3,21 +3,16 @@
 {% block content %}
 <h1>Signale</h1>
 
-<div class="row" style="margin:.4rem 0 1rem">
-  <form class="row inline" method="post" action="/app/asset">
-    <label class="muted" for="asset">Anlageklasse</label>
-    <select name="asset" id="asset" onchange="this.form.submit()">
-      {% for a in asset_classes %}
-      <option value="{{ a.key }}" {{ 'selected' if a.key == asset_pref }}>{{ a.label }}</option>
-      {% endfor %}
-    </select>
-    <noscript><button>Wechseln</button></noscript>
-  </form>
-  <span class="spacer"></span>
-  <form class="inline" method="post" action="/app/scan">
-    <button class="on" title="Live-Analyse jetzt ausführen">🔄 Signale anfordern</button>
-  </form>
-</div>
+<form class="row" method="post" action="/app/scan" style="margin:.4rem 0 1rem">
+  <label class="muted" for="asset">Anlageklasse</label>
+  <select name="asset" id="asset">
+    {% for a in asset_classes %}
+    <option value="{{ a.key }}" {{ 'selected' if a.key == asset_pref }}>{{ a.label }}</option>
+    {% endfor %}
+    <option value="all" {{ 'selected' if asset_pref == 'all' }}>Alle</option>
+  </select>
+  <button class="on" title="Live-Analyse für die gewählte Anlageklasse ausführen">🔄 Signale anfordern</button>
+</form>
 
 {% if scanned %}
 <h2>Angeforderte Signale ({{ scanned|length }})</h2>
@@ -25,7 +20,7 @@
 <div class="card">
   <div class="row">
     <strong>{{ s.ticker }}</strong>
-    <span class="muted">{{ s.direction|upper }} · Stärke {{ '%.0f'|format(s.strength or 0) }}/100</span>
+    <span class="muted">{% if s.asset_label %}{{ s.asset_label }} · {% endif %}{{ s.direction|upper }} · Stärke {{ '%.0f'|format(s.strength or 0) }}/100</span>
     <span class="spacer"></span>
     <span class="muted">${{ '%.2f'|format(s.price) }}</span>
   </div>

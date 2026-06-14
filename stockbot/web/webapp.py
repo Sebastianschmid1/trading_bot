@@ -189,27 +189,42 @@ def app_set_asset(request: Request, asset: str = Form(...)):
 
 
 @router.post("/app/scan")
-async def app_scan(request: Request):
-    """Fordert live Signale für die gewählte Anlageklasse an (gleiche Analyse wie der
-    Telegram-Tagesjob), inkl. 7-Tage-Mini-Chart. Ergebnis wird kurz gecacht."""
+async def app_scan(request: Request, asset: str = Form(None)):
+    """Wählt die Anlageklasse (persistiert) UND fordert live Signale dafür an — in einem
+    Schritt (kein JS nötig). `asset='all'` scannt ALLE Klassen mit ihrem jeweiligen Profil
+    und mischt die Treffer nach Stärke. Ergebnis (inkl. 7-Tage-Mini-Chart) wird kurz gecacht."""
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
-    cls = asset_classes.get_asset_class(user.get("asset_pref"))
-    tickers = cls.get_tickers(user)
-    if not tickers:
-        return _redirect("/app?msg=Keine+Werte+in+dieser+Anlageklasse.")
+
+    # Auswahl übernehmen + merken (gültig: 'all' oder eine registrierte Klasse)
+    if asset:
+        pref = "all" if asset == "all" else asset_classes.get_asset_class(asset).key
+        db.set_asset_pref(user["user_id"], pref)
+    else:
+        pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
+
+    classes = asset_classes.all_asset_classes() if pref == "all" \
+        else [asset_classes.get_asset_class(pref)]
 
     def _work():
-        ranked = analyzer.analyze_universe(tickers, profile=cls.profile)
-        top = ranked[: max(1, int(user.get("top_n_signals") or 5))]
+        merged = []
+        for cls in classes:
+            tickers = cls.get_tickers(user)
+            if not tickers:
+                continue
+            for s in analyzer.analyze_universe(tickers, profile=cls.profile):
+                s["asset_label"] = cls.label
+                merged.append(s)
+        merged.sort(key=lambda s: s.get("strength", 0) or 0, reverse=True)
+        top = merged[: max(1, int(user.get("top_n_signals") or 5))]
         spark = analyzer.price_history_batch([s["ticker"] for s in top], days=7)
         for s in top:
             s["spark_closes"] = spark.get(s["ticker"], {}).get("closes", [])
         return top
 
     top = await run_in_threadpool(_work)
-    _scan_cache[user["user_id"]] = {"at": time.time(), "asset": cls.key, "signals": top}
+    _scan_cache[user["user_id"]] = {"at": time.time(), "asset": pref, "signals": top}
     n = len(top)
     return _redirect(f"/app?msg={n}+Signal(e)+gefunden." if n else "/app?msg=Aktuell+keine+Signale.")
 
