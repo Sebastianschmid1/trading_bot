@@ -53,16 +53,23 @@ $env:DISPLAY = "localhost:0"
 
 try {
     # --- 1) commit (nur bei Aenderungen) + push ---------------------------
+    # git schreibt normale Hinweise (z. B. LF/CRLF) und Push-Fortschritt nach stderr. Unter
+    # ErrorActionPreference=Stop wuerde PowerShell (5.1) das faelschlich als Fehler werten.
+    # Daher NUR fuer die git-Aufrufe temporaer auf "Continue" und Erfolg ueber $LASTEXITCODE.
+    $ErrorActionPreference = "Continue"
     if (git status --porcelain) {
         Write-Host "-> committe lokale Aenderungen ..." -ForegroundColor Cyan
         git add -A
         git commit -m $Message
+        if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = "Stop"; throw "git commit fehlgeschlagen" }
     } else {
         Write-Host "i  keine lokalen Aenderungen - ueberspringe commit."
     }
     Write-Host "-> push ..." -ForegroundColor Cyan
     git push
-    if ($LASTEXITCODE -ne 0) { throw "git push fehlgeschlagen" }
+    $pushRc = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($pushRc -ne 0) { throw "git push fehlgeschlagen" }
 
     # --- 2) Deploy: Passphrase fuer BEIDE Keys automatisch ----------------
     Write-Host "-> deploye auf $Server (automatisch) ..." -ForegroundColor Cyan
