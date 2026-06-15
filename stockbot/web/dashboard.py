@@ -76,7 +76,8 @@ async def security_headers(request, call_next):
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; script-src 'self' https://telegram.org 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "script-src 'self' https://telegram.org https://cdn.jsdelivr.net 'unsafe-inline'; "
         "frame-src https://oauth.telegram.org; base-uri 'self'; form-action 'self'",
     )
     if config.HSTS_ENABLED:
