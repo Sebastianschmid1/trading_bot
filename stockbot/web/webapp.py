@@ -270,6 +270,11 @@ async def app_scan(request: Request, asset: str = Form(None)):
     return _redirect(f"/app?msg={n}+Signal(e)+gefunden." if n else "/app?msg=Aktuell+keine+Signale.")
 
 
+def _wants_json(request: Request) -> bool:
+    """True, wenn die Anfrage per fetch/AJAX kommt (für Inline-Status statt Redirect)."""
+    return request.headers.get("x-requested-with", "").lower() == "fetch"
+
+
 @router.post("/app/scan/accept")
 async def app_scan_accept(request: Request, ticker: str = Form(...)):
     user = auth.current_user(request)
@@ -278,11 +283,18 @@ async def app_scan_accept(request: Request, ticker: str = Form(...)):
     entry = _scan_cache.get(user["user_id"]) or {}
     sig = next((s for s in entry.get("signals", []) if s["ticker"] == ticker), None)
     if not sig:
+        msg = "Signal abgelaufen – bitte neu anfordern."
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "status": "expired", "msg": msg})
         return _redirect("/app?msg=Signal+abgelaufen+%E2%80%93+bitte+neu+anfordern.")
     res = await run_in_threadpool(trade_svc.accept_signal, user["user_id"], sig)
     if res["ok"]:
         await run_in_threadpool(_attach_demo_option, user, ticker)
-    msg = f"{ticker} gestartet." if res["ok"] else f"{ticker} heute bereits gehandelt."
+        msg, status = f"{ticker} gestartet.", "accepted"
+    else:
+        msg, status = f"{ticker} heute bereits gehandelt.", "unavailable"
+    if _wants_json(request):
+        return JSONResponse({"ok": res["ok"], "status": status, "msg": msg})
     return _redirect(f"/app?msg={msg}")
 
 
@@ -294,9 +306,13 @@ async def app_accept(request: Request, ticker: str = Form(...)):
     res = await run_in_threadpool(trade_svc.accept_trade, user["user_id"], ticker)
     if res["ok"]:
         await run_in_threadpool(_attach_demo_option, user, ticker)
-    msg = (f"{ticker} gestartet." if res["ok"]
-           else ("Zeitfenster abgelaufen." if res.get("reason") == "expired"
-                 else "Trade nicht mehr verfügbar."))
+        msg, status = f"{ticker} gestartet.", "accepted"
+    elif res.get("reason") == "expired":
+        msg, status = "Zeitfenster abgelaufen.", "expired"
+    else:
+        msg, status = "Trade nicht mehr verfügbar.", "unavailable"
+    if _wants_json(request):
+        return JSONResponse({"ok": res["ok"], "status": status, "msg": msg})
     return _redirect(f"/app?msg={msg}")
 
 

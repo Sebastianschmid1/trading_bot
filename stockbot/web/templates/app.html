@@ -53,7 +53,7 @@
   {% if s.stop_loss and s.take_profit %}
   <div class="muted">🎯 TP ${{ '%.2f'|format(s.take_profit) }} · 🛑 SL ${{ '%.2f'|format(s.stop_loss) }}</div>
   {% endif %}
-  <form class="inline" method="post" action="/app/scan/accept" style="margin-top:.6rem">
+  <form class="inline js-accept" method="post" action="/app/scan/accept" style="margin-top:.6rem">
     <input type="hidden" name="ticker" value="{{ s.ticker }}">
     <button class="green">✅ Annehmen &amp; starten</button>
   </form>
@@ -78,7 +78,7 @@
   <div class="muted">🎯 TP ${{ '%.2f'|format(s.take_profit) }} · 🛑 SL ${{ '%.2f'|format(s.stop_loss) }}</div>
   {% endif %}
   <div class="row" style="margin-top:.6rem">
-    <form class="inline" method="post" action="/app/accept">
+    <form class="inline js-accept" method="post" action="/app/accept">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
       <button class="green">✅ Annehmen</button>
     </form>
@@ -124,4 +124,53 @@
   </form>
 </div>
 {% endfor %}
+
+<script>
+// Annehmen ohne Seiten-Neuladen: der Button zeigt direkt den Status (Wird angenommen → Angenommen).
+// Fällt ohne JS auf den normalen POST/Redirect zurück (Formular bleibt funktionsfähig).
+(function () {
+  document.querySelectorAll("form.js-accept").forEach(function (form) {
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var btn = form.querySelector("button");
+      if (btn.dataset.busy === "1") return;
+      btn.dataset.busy = "1";
+      btn.disabled = true;
+      btn.classList.remove("green", "red");
+      btn.textContent = "⏳ Wird angenommen…";
+      var card = form.closest(".card");
+      var others = card ? Array.prototype.slice.call(card.querySelectorAll("button")).filter(function (b) { return b !== btn; }) : [];
+      others.forEach(function (b) { b.disabled = true; });
+
+      fetch(form.action, { method: "POST", headers: { "X-Requested-With": "fetch" }, body: new FormData(form) })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, msg: "Fehler bei der Antwort." }; }); })
+        .then(function (d) {
+          if (d.ok) {
+            btn.classList.add("green");
+            btn.textContent = "✅ Angenommen";
+            var note = document.createElement("span");
+            note.className = "muted";
+            note.style.marginLeft = ".5rem";
+            note.textContent = (d.msg || "Gestartet.") + " Aktualisiere…";
+            btn.parentNode.appendChild(note);
+            setTimeout(function () { location.reload(); }, 1000);
+          } else {
+            btn.classList.add("red");
+            btn.textContent = "⚠️ " + (d.msg || "Nicht möglich");
+            others.forEach(function (b) { b.disabled = false; });
+            btn.disabled = false;
+            btn.dataset.busy = "";
+          }
+        })
+        .catch(function () {
+          btn.classList.add("red");
+          btn.textContent = "⚠️ Fehler — nochmal versuchen";
+          others.forEach(function (b) { b.disabled = false; });
+          btn.disabled = false;
+          btn.dataset.busy = "";
+        });
+    });
+  });
+})();
+</script>
 {% endblock %}
