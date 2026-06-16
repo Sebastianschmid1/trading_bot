@@ -58,6 +58,37 @@ def _alpaca_client(user: dict):
     return broker._get_client()
 
 
+def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
+    """Roh-Keys (für Options-Marktdaten) des Nutzers oder die globalen .env-Keys."""
+    if user and user.get("broker_platform") == "alpaca":
+        creds = db.get_decrypted_credentials(user["user_id"])
+        if creds:
+            return creds[0], creds[1]
+    return config.ALPACA_API_KEY, config.ALPACA_API_SECRET
+
+
+def _attach_demo_option(user: dict, ticker: str) -> None:
+    """Wählt bei Hebel>1 für den gerade aktivierten Trade einen Optionskontrakt fürs Budget und
+    schreibt ihn ins Signal (Demo-Options-Simulation). Best-effort; nur falls Alpaca-Daten da."""
+    trade = db.get_trade(user["user_id"], ticker)
+    if not trade or trade["status"] != "active":
+        return
+    entry = trade.get("entry") or (trade.get("signal") or {}).get("price")
+    if not entry:
+        return
+    client = _alpaca_client(user) if _alpaca_ready(user) else None
+    key, sec = _alpaca_keys(user)
+
+    def _selector(budget, target_leverage):
+        return broker.select_option_for_leverage(
+            ticker, float(entry), target_leverage, budget, client=client, api_key=key, api_secret=sec)
+
+    try:
+        trade_svc.attach_option_for_trade(user, trade, _selector)
+    except Exception as e:
+        log.warning(f"[{user['user_id']}] Options-Auswahl (Demo) fehlgeschlagen: {e}")
+
+
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
     return templates.TemplateResponse(request, name, {
         "user": user, "active": active, "msg": msg,
@@ -240,7 +271,7 @@ async def app_scan(request: Request, asset: str = Form(None)):
 
 
 @router.post("/app/scan/accept")
-def app_scan_accept(request: Request, ticker: str = Form(...)):
+async def app_scan_accept(request: Request, ticker: str = Form(...)):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
@@ -248,17 +279,21 @@ def app_scan_accept(request: Request, ticker: str = Form(...)):
     sig = next((s for s in entry.get("signals", []) if s["ticker"] == ticker), None)
     if not sig:
         return _redirect("/app?msg=Signal+abgelaufen+%E2%80%93+bitte+neu+anfordern.")
-    res = trade_svc.accept_signal(user["user_id"], sig)
+    res = await run_in_threadpool(trade_svc.accept_signal, user["user_id"], sig)
+    if res["ok"]:
+        await run_in_threadpool(_attach_demo_option, user, ticker)
     msg = f"{ticker} gestartet." if res["ok"] else f"{ticker} heute bereits gehandelt."
     return _redirect(f"/app?msg={msg}")
 
 
 @router.post("/app/accept")
-def app_accept(request: Request, ticker: str = Form(...)):
+async def app_accept(request: Request, ticker: str = Form(...)):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
-    res = trade_svc.accept_trade(user["user_id"], ticker)
+    res = await run_in_threadpool(trade_svc.accept_trade, user["user_id"], ticker)
+    if res["ok"]:
+        await run_in_threadpool(_attach_demo_option, user, ticker)
     msg = (f"{ticker} gestartet." if res["ok"]
            else ("Zeitfenster abgelaufen." if res.get("reason") == "expired"
                  else "Trade nicht mehr verfügbar."))
@@ -335,6 +370,33 @@ def app_settings_notify(request: Request, value: str = Form(...)):
         return _redirect("/login")
     db.set_notify_channel(user["user_id"], value)
     return _redirect("/app/settings?msg=Benachrichtigungen+aktualisiert.")
+
+
+@router.post("/app/reset")
+async def app_reset(request: Request):
+    """Setzt den Demo-Trade-Modus des Nutzers zurück: schließt zuerst (falls Broker-Ausführung
+    aktiv) alle offenen Alpaca-Positionen und löscht dann alle Trades, Ticks & Mitteilungen.
+    Profil, Einstellungen und Alpaca-Verbindung bleiben erhalten."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+
+    closed, failed = [], []
+    if user.get("broker_exec") and _alpaca_ready(user):
+        client = _alpaca_client(user)
+        if client is not None:
+            for p in await run_in_threadpool(broker.list_positions, client):
+                res = await run_in_threadpool(broker.close_position, p["symbol"], client)
+                (closed if res.get("closed") else failed).append(p["symbol"])
+
+    n = await run_in_threadpool(db.reset_user_trades, user["user_id"])
+
+    parts = [f"Reset: {n} Einträge gelöscht"]
+    if closed:
+        parts.append(f"{len(closed)} Alpaca-Position(en) geschlossen ({', '.join(closed)})")
+    if failed:
+        parts.append(f"⚠️ {len(failed)} nicht schließbar ({', '.join(failed)})")
+    return _redirect("/app/settings?msg=" + "; ".join(parts) + ".")
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────

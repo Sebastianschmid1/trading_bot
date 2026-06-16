@@ -34,12 +34,14 @@ from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
+from stockbot.broker import sizing
+from stockbot.broker import reconcile as reconcile_mod
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
 from stockbot.services import notifications as notify_svc
-from stockbot.core.evaluator import evaluate_trades, get_current_price, realized_pnl, liquidation_price
+from stockbot.core.evaluator import evaluate_trades, get_current_price, trade_pnl, liquidation_price
 from stockbot.config import (
     TELEGRAM_TOKEN,
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
@@ -51,7 +53,8 @@ from stockbot.config import (
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
-    EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER
+    EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
+    ALPACA_API_KEY, ALPACA_API_SECRET,
 )
 
 os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -133,6 +136,67 @@ def _alpaca_client(user: dict):
         if creds:
             return broker.make_client(creds[0], creds[1], paper=ALPACA_PAPER)
     return broker._get_client()   # globale .env-Keys (oder None)
+
+
+def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
+    """Roh-Keys des Nutzers (für die Options-Marktdaten) oder die globalen .env-Keys."""
+    if user and user.get("broker_platform") == "alpaca":
+        creds = db.get_decrypted_credentials(user["user_id"])
+        if creds:
+            return creds[0], creds[1]
+    return ALPACA_API_KEY, ALPACA_API_SECRET
+
+
+def _make_option_selector(user: dict, client, ticker: str, price: float):
+    """Closure für sizing.plan_order / attach_option_for_trade: wählt bei Hebel>1 einen passenden
+    Long-Call fürs Budget. Kapselt Alpaca-Trading-Client (Kontrakte) + Roh-Keys (Snapshots/Greeks)."""
+    key, sec = _alpaca_keys(user)
+
+    def _selector(budget: float, target_leverage: float):
+        return broker.select_option_for_leverage(
+            ticker, price, target_leverage, budget,
+            client=client, api_key=key, api_secret=sec)
+
+    return _selector
+
+
+def _attach_demo_option(user: dict, trade: dict) -> dict | None:
+    """Wählt bei Hebel>1 (und verfügbaren Alpaca-Daten) einen Long-Call fürs Budget und schreibt
+    ihn ins Signal des aktiven Trades — Grundlage der Demo-Options-Simulation und (bei broker_exec)
+    der echten Order. Synchron (Alpaca-Calls) — über asyncio.to_thread aufrufen."""
+    entry = trade.get("entry") or (trade.get("signal") or {}).get("price")
+    if not entry:
+        return None
+    selector = _make_option_selector(user, _alpaca_client(user), trade["ticker"], float(entry))
+    return trade_svc.attach_option_for_trade(user, trade, selector)
+
+
+async def _reconcile_and_alert(bot: Bot, user: dict, client, *, context: str):
+    """Gleicht nach einem Broker-Vorgang die Bot-Sicht (aktive Trades) gegen die echten
+    Alpaca-Positionen ab. Bei Abweichung: ausführliches Error-Log + Telegram-Meldung an den
+    Nutzer (und optional an ADMIN_CHAT_ID). Best-effort — wirft nie."""
+    if not user or not user.get("broker_exec") or not _alpaca_ready(user) or client is None:
+        return
+    try:
+        rep = await asyncio.to_thread(reconcile_mod.reconcile_user, user, client)
+    except Exception as e:
+        log.warning(f"[{user['user_id']}] Reconcile fehlgeschlagen: {e}")
+        return
+    if rep.get("ok"):
+        return
+    detail = rep.get("detail", "")
+    log.error(f"[{user['user_id']}] Positions-Abweichung ({context}):\n{detail}")
+    msg = (f"🛑 *Positions-Abweichung* ({context})\n"
+           f"Bot-Trades und echte Alpaca-Positionen stimmen nicht überein:\n\n{detail}\n\n"
+           f"Bitte prüfen — ggf. manuell ausgleichen oder zurücksetzen.")
+    try:
+        await bot.send_message(chat_id=user["user_id"], text=msg, parse_mode="Markdown")
+        if ADMIN_CHAT_ID and ADMIN_CHAT_ID != user["user_id"]:
+            await bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"[user {user['user_id']}] {msg}", parse_mode="Markdown")
+    except Exception as e:
+        log.warning(f"[{user['user_id']}] Abweichungs-Meldung nicht zustellbar: {e}")
 
 
 def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_STRATEGY) -> str:
@@ -280,26 +344,58 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
 
     ticker = trade["ticker"]
     leverage = float(sig.get("leverage", 1.0) or 1.0)
-    budget = float(user["trade_size_eur"]) * leverage     # Ziel-Positionsgröße in USD (Hebel berücksichtigt)
+    budget = float(user["trade_size_eur"])     # Trade-Wert = Budget; Hebel hebelt NICHT den Einsatz
     extended = EXTENDED_HOURS and not _us_market_open(extended=False)
     mode = "PAPER" if ALPACA_PAPER else "LIVE"
 
-    if extended:
-        # Extended Hours: Alpaca erlaubt keine Bruchteile → ganze Aktien als Limit-DAY
-        qty = int(budget / float(entry))
-        if qty < 1:
+    # Order-Plan: Hebel>1 (reguläre Zeit) → Option fürs Budget; sonst ganze Aktien fürs Budget.
+    # Wurde bei der Aktivierung bereits ein Kontrakt für die Demo-Simulation gewählt, exakt den kaufen.
+    if sig.get("option_symbol") and not extended:
+        plan = {"kind": "option", "option_symbol": sig["option_symbol"], "qty": int(sig["contracts"]),
+                "premium": float(sig["entry_premium"]), "delta": sig.get("delta"),
+                "omega": sig.get("omega"), "strike": sig.get("strike"), "expiry": sig.get("expiry")}
+    else:
+        plan = await asyncio.to_thread(
+            sizing.plan_order, float(entry), budget, leverage,
+            option_selector=_make_option_selector(user, client, ticker, float(entry)), extended=extended)
+
+    if plan["kind"] == "none":
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(f"ℹ️ Alpaca-{mode}: Budget {budget:.0f}$ reicht nicht für {ticker} "
+                  f"(${float(entry):.2f}). Keine Order gesendet."))
+        return
+
+    if plan["kind"] == "option":
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(f"🎯 Hebel {leverage:g}× → Option statt Aktien: {plan['option_symbol']} "
+                  f"(≈{plan['omega']:g}× Hebel, Strike {plan['strike']:g}, Verfall {plan['expiry']}), "
+                  f"{plan['qty']}× Kontrakt(e) ≈ ${plan['premium'] * 100 * plan['qty']:.2f}."))
+        res = await asyncio.to_thread(
+            broker.submit_option_buy, plan["option_symbol"], plan["qty"], client)
+        order_label = f"{plan['qty']}× {plan['option_symbol']}"
+    elif plan.get("qty"):
+        # Ganze Aktien fürs Budget (reguläre Zeit: Market-qty; erweiterte Zeit: Limit/Ext).
+        if extended:
+            res = await asyncio.to_thread(
+                broker.submit_buy, ticker, qty=plan["qty"], limit_price=float(entry),
+                extended_hours=True, client=client)
+        else:
+            res = await asyncio.to_thread(broker.submit_buy, ticker, qty=plan["qty"], client=client)
+        order_label = f"{plan['qty']:g} {ticker}"
+    else:
+        # Aktie teurer als Budget → einziger Bruchteil-Fall (Notional). In Extended-Hours nicht möglich.
+        if extended:
             await bot.send_message(
                 chat_id=chat_id,
-                text=(f"ℹ️ Alpaca-{mode}: Budget {user['trade_size_eur']:.0f}€×{leverage:g} reicht in den "
-                      f"erweiterten Handelszeiten nicht für 1 ganze {ticker}-Aktie (${float(entry):.2f}) — "
-                      f"hier sind keine Bruchteile möglich. Keine Order gesendet."))
+                text=(f"ℹ️ Alpaca-{mode}: Eine {ticker}-Aktie (${float(entry):.2f}) ist teurer als das "
+                      f"Budget {budget:.0f}$ — in erweiterten Handelszeiten sind keine Bruchteile möglich. "
+                      f"Keine Order gesendet."))
             return
         res = await asyncio.to_thread(
-            broker.submit_buy, ticker, qty=qty, limit_price=float(entry),
-            extended_hours=True, client=client)
-    else:
-        # Reguläre Zeit: Notional-Order = exakt fürs Budget (Bruchteile möglich)
-        res = await asyncio.to_thread(broker.submit_buy, ticker, notional=round(budget, 2), client=client)
+            broker.submit_buy, ticker, notional=plan["notional"], client=client)
+        order_label = f"{ticker} ${plan['notional']:.2f} (Bruchteil)"
 
     if not res["ok"]:
         await bot.send_message(chat_id=chat_id, text=f"⚠️ Alpaca-Order nicht angenommen: {res['detail']}")
@@ -316,8 +412,9 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
         px = fill.get("filled_avg_price", 0.0)
         await bot.send_message(
             chat_id=chat_id,
-            text=(f"✅ Alpaca-{mode}-Order ausgeführt: {q:g} {ticker} @ ${px:.2f} (≈ ${q * px:.2f})\n"
+            text=(f"✅ Alpaca-{mode}-Order ausgeführt: {q:g} × @ ${px:.2f} (≈ ${q * px:.2f}) [{order_label}]\n"
                   f"SL/TP überwacht der Bot und schließt die Position automatisch."))
+        await _reconcile_and_alert(bot, user, client, context="nach Kauf")
     elif status in ("rejected", "canceled", "expired"):
         await bot.send_message(
             chat_id=chat_id,
@@ -331,22 +428,25 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
                   f"sonst verfällt sie zum Handelsschluss. Du musst nichts tun."))
 
 
-async def _maybe_broker_close(bot: Bot, user: dict, ticker: str):
-    """Schließt (falls Broker-Ausführung an) die echte Alpaca-Position zum Ticker. Best-effort.
-    Meldet nur, wenn tatsächlich eine Position geschlossen wurde (oder ein echter Fehler auftrat)."""
+async def _maybe_broker_close(bot: Bot, user: dict, ticker: str, *, broker_symbol: str | None = None):
+    """Schließt (falls Broker-Ausführung an) die echte Alpaca-Position. Best-effort.
+    `broker_symbol` ist bei Options der Kontrakt (sonst = Ticker). Meldet nur bei tatsächlicher
+    Schließung oder echtem Fehler; gleicht danach Bot- gegen Alpaca-Positionen ab."""
     if not user or not user.get("broker_exec") or not _alpaca_ready(user):
         return
     client = _alpaca_client(user)
     if client is None:
         return
-    res = await asyncio.to_thread(broker.close_position, ticker, client=client)
+    symbol = broker_symbol or ticker
+    res = await asyncio.to_thread(broker.close_position, symbol, client=client)
     mode = "PAPER" if ALPACA_PAPER else "LIVE"
     if res.get("closed"):
         await bot.send_message(chat_id=user["user_id"],
-                               text=f"📉 Alpaca-{mode}: Position {ticker} geschlossen.")
+                               text=f"📉 Alpaca-{mode}: Position {symbol} geschlossen.")
     elif not res.get("ok"):
         await bot.send_message(chat_id=user["user_id"],
-                               text=f"⚠️ Alpaca: {ticker} konnte nicht geschlossen werden: {res['detail']}")
+                               text=f"⚠️ Alpaca: {symbol} konnte nicht geschlossen werden: {res['detail']}")
+    await _reconcile_and_alert(bot, user, client, context="nach Schließung")
 
 
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
@@ -380,6 +480,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
                 text=f"⚡ *{ticker}* automatisch gestartet (Auto-Accept) — Einstieg ${trade['entry']:.2f}, Hebel {leverage:g}×",
                 parse_mode="Markdown",
             )
+            await asyncio.to_thread(_attach_demo_option, db.get_user(chat_id), trade)
             await _maybe_broker_order(bot, chat_id, trade)
         log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
         return True
@@ -583,9 +684,10 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
 
         results = evaluate_trades(to_close, u["trade_size_eur"])
         db.close_all(chat_id, results)
-        # echte Alpaca-Positionen (falls vorhanden) mitschließen
+        # echte Alpaca-Positionen (falls vorhanden) mitschließen — bei Options der Kontrakt
+        _bsym = {t["ticker"]: reconcile_mod.bot_symbol(t) for t in to_close}
         for r in results:
-            await _maybe_broker_close(bot, u, r["ticker"])
+            await _maybe_broker_close(bot, u, r["ticker"], broker_symbol=_bsym.get(r["ticker"]))
 
         # Zusammenfassung
         total_pnl = sum(r["pnl_eur"] for r in results)
@@ -721,14 +823,15 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
 
             entry = trade.get("entry") or price
             leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
-            # Bei Liquidation zum Liquidationskurs schließen (Totalverlust), sonst zum aktuellen Kurs
+            is_option = bool(trade.get("signal", {}).get("option_symbol"))
+            # Bei Liquidation zum Liquidationskurs schließen (Totalverlust), sonst zum aktuellen Kurs.
+            # Long-Optionen werden nicht liquidiert (Verlust ist auf die Prämie begrenzt).
             exit_price = price
-            if reason.startswith("Liquidation"):
+            if reason.startswith("Liquidation") and not is_option:
                 liq = liquidation_price(entry, leverage, trade["direction"])
                 if liq is not None:
                     exit_price = liq
-            pnl_pct, pnl_eur = realized_pnl(entry, exit_price, trade["direction"],
-                                            user["trade_size_eur"], leverage)
+            pnl_pct, pnl_eur = trade_pnl(trade, exit_price, user["trade_size_eur"])
             db.close_all(uid, [{"ticker": trade["ticker"], "exit": exit_price,
                                 "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
 
@@ -743,8 +846,9 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                       f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
                 parse_mode="Markdown",
             )
-            # echte Alpaca-Position (falls vorhanden) mitschließen
-            await _maybe_broker_close(context.bot, user, trade["ticker"])
+            # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
+            await _maybe_broker_close(context.bot, user, trade["ticker"],
+                                      broker_symbol=reconcile_mod.bot_symbol(trade))
             # nach Auto-Close auch nachrücken (sofern manueller Modus)
             await refill_pending(context.bot, uid, user, context.job_queue)
             log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}€")
@@ -911,11 +1015,11 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _unrealized_pnl(trade: dict, trade_size_eur: float):
-    """Aktuellen (unrealisierten) Stand eines aktiven Trades berechnen — echte Kurse, mit Hebel."""
+    """Aktuellen (unrealisierten) Stand eines aktiven Trades berechnen — echte Kurse, optionsbewusst.
+    Bei Options-Trades wird über die Omega-Näherung gerechnet (kein Live-Prämien-Abruf im Monitor)."""
     entry = trade["entry"]
-    leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
     current = get_current_price(trade["ticker"], entry)
-    pnl_pct, pnl_eur = realized_pnl(entry, current, trade["direction"], trade_size_eur, leverage)
+    pnl_pct, pnl_eur = trade_pnl(trade, current, trade_size_eur)
     return current, pnl_pct, pnl_eur
 
 
@@ -1550,6 +1654,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
+            await asyncio.to_thread(_attach_demo_option, db.get_user(chat_id), trade)
             await _maybe_broker_order(context.bot, chat_id, trade)
         elif result["reason"] == "expired":
             await query.answer(
@@ -1594,8 +1699,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
             parse_mode="Markdown"
         )
-        # echte Alpaca-Position (falls vorhanden) mitschließen
-        await _maybe_broker_close(context.bot, db.get_user(chat_id), ticker)
+        # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
+        await _maybe_broker_close(context.bot, db.get_user(chat_id), ticker,
+                                  broker_symbol=reconcile_mod.bot_symbol(result["trade"]))
         log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
 
     elif action in settings_svc.SETTING_ACTIONS:

@@ -533,6 +533,25 @@ def set_trade_leverage(user_id: int, ticker: str, leverage: float):
         )
 
 
+def merge_active_trade_signal(user_id: int, ticker: str, extra: dict) -> None:
+    """Ergänzt das gespeicherte Signal eines aktiven Trades um zusätzliche Felder (z. B. den
+    gewählten Optionskontrakt: option_symbol/entry_premium/delta/omega/contracts). Idempotent."""
+    if not extra:
+        return
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, signal_json FROM trades WHERE user_id = ? AND ticker = ? AND status = 'active' "
+            "ORDER BY trade_date DESC, id DESC LIMIT 1",
+            (user_id, ticker),
+        ).fetchone()
+        if not row:
+            return
+        sig = json.loads(row["signal_json"])
+        sig.update(extra)
+        conn.execute("UPDATE trades SET signal_json = ? WHERE id = ?",
+                     (json.dumps(sig, default=str), row["id"]))
+
+
 # ── Dashboard-Zugang (Token-basierter Link) ─────────────────────────────────
 
 def get_or_create_dashboard_token(user_id: int) -> str:
@@ -601,6 +620,19 @@ def delete_expired_sessions() -> int:
     with _connect() as conn:
         cur = conn.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
         return cur.rowcount
+
+
+def reset_user_trades(user_id: int) -> int:
+    """Setzt den Trading-Verlauf eines Nutzers zurück: löscht ALLE Trades (jeden Status),
+    deren Intraday-Ticks und die In-App-Mitteilungen. Profil, Einstellungen und etwaige
+    Alpaca-Zugangsdaten bleiben unangetastet. Gibt die Gesamtzahl gelöschter Zeilen zurück."""
+    with _connect() as conn:
+        total = 0
+        for table in ("trades", "trade_ticks", "notifications"):
+            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            total += cur.rowcount
+    log.info(f"Reset: user_id={user_id} — {total} Zeile(n) gelöscht (trades/ticks/notifications).")
+    return total
 
 
 # ── Benachrichtigungs-Kanal & In-App-Benachrichtigungen ──────────────────────

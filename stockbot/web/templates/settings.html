@@ -102,4 +102,15 @@
     <button class="red">Überall abmelden</button>
   </form>
 </div>
+
+<div class="card">
+  <h2>Demo zurücksetzen</h2>
+  <p class="muted">Löscht <strong>alle</strong> deine Trades, den Verlauf und Mitteilungen und schließt
+    (falls echte Broker-Ausführung aktiv) deine offenen Alpaca-Positionen. Einstellungen und die
+    Alpaca-Verbindung bleiben erhalten. Das kann nicht rückgängig gemacht werden.</p>
+  <form class="inline" method="post" action="/app/reset"
+        onsubmit="return confirm('Wirklich alle Trades &amp; den Verlauf löschen und offene Alpaca-Positionen schließen?');">
+    <button class="red">🗑️ Zurücksetzen</button>
+  </form>
+</div>
 {% endblock %}

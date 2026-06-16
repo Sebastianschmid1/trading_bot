@@ -57,6 +57,42 @@ def realized_pnl(entry: float, exit_price: float, direction: str,
     return pnl_pct, pnl_eur
 
 
+def option_pnl(signal: dict, entry_underlying: float, current_underlying: float,
+               trade_size_eur: float, *, current_premium: float | None = None) -> tuple[float, float]:
+    """P&L eines Long-Call-Demo-Trades. Rückgabe (underlying_pct, pnl_eur).
+
+    - Mit `current_premium` (live): echte, nichtlineare Bewertung
+      `(premium_jetzt − premium_einstieg) × 100 × Kontrakte`.
+    - Ohne Live-Prämie: Omega-Näherung `trade_size × underlying_pct% × omega`.
+    Verlust ist auf die gezahlte Prämie (≈ Budget) begrenzt."""
+    entry_premium = signal.get("entry_premium")
+    contracts = int(signal.get("contracts") or 0)
+    omega = float(signal.get("omega") or 1.0)
+    underlying_pct = ((current_underlying - entry_underlying) / entry_underlying * 100
+                      if entry_underlying else 0.0)
+    if current_premium is not None and entry_premium and contracts:
+        pnl_eur = (current_premium - entry_premium) * 100 * contracts
+        pnl_eur = max(pnl_eur, -entry_premium * 100 * contracts)   # Prämie ist der Maximalverlust
+    else:
+        pnl_eur = trade_size_eur * (underlying_pct / 100) * omega
+        pnl_eur = max(pnl_eur, -trade_size_eur)
+    return underlying_pct, pnl_eur
+
+
+def trade_pnl(trade: dict, current_underlying: float, trade_size_eur: float,
+              *, current_premium: float | None = None) -> tuple[float, float]:
+    """Einheitliche P&L für aktive Trades: optionsbewusst. Gibt (pct, eur) zurück.
+    Bei Options-Trades (Signal hat `option_symbol`) wird die Optionslogik genutzt, sonst
+    das lineare Aktien-/Hebelmodell (`realized_pnl`)."""
+    sig = trade.get("signal") or {}
+    if sig.get("option_symbol"):
+        return option_pnl(sig, trade["entry"], current_underlying, trade_size_eur,
+                          current_premium=current_premium)
+    leverage = sig.get("leverage", 1.0) or 1.0
+    return realized_pnl(trade["entry"], current_underlying, trade["direction"],
+                        trade_size_eur, leverage)
+
+
 def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[dict]:
     """
     Schließt aktive Trades zum Tagesende und berechnet P&L (inkl. individuellem Hebel je Trade).
@@ -73,6 +109,7 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
         stop_loss   = signal.get("stop_loss")
         take_profit = signal.get("take_profit")
         leverage    = signal.get("leverage", 1.0) or 1.0
+        is_option   = bool(signal.get("option_symbol"))
 
         close_price = get_current_price(ticker, entry)
         exit_price  = close_price
@@ -80,7 +117,8 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
 
         if direction == "long" and entry:
             day_high, day_low = get_day_high_low(ticker, close_price)
-            liq = liquidation_price(entry, leverage, direction)
+            # Liquidation gilt nur für gehebelte Aktien — Long-Optionen können maximal die Prämie verlieren.
+            liq = None if is_option else liquidation_price(entry, leverage, direction)
             # Reihenfolge: Liquidation (am schlimmsten) → Stop-Loss → Take-Profit
             if liq is not None and day_low <= liq:
                 exit_price, exit_reason = liq, "Liquidation 💥"
@@ -89,7 +127,8 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
             elif take_profit and day_high >= take_profit:
                 exit_price, exit_reason = take_profit, "Take-Profit 🎯"
 
-        pnl_pct, pnl_eur = realized_pnl(entry, exit_price, direction, trade_size_eur, leverage)
+        # P&L optionsbewusst (EOD ohne Live-Prämie → Omega-Näherung für Optionen).
+        pnl_pct, pnl_eur = trade_pnl(trade, exit_price, trade_size_eur)
 
         results.append({
             "ticker":  ticker,

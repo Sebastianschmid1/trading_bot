@@ -307,3 +307,14 @@ ALPACA_ENABLED    = bool(ALPACA_API_KEY and ALPACA_API_SECRET)
 # Erweiterte Handelszeiten (US Pre-/After-Market). Monitoring/Signal-Fenster nutzen dann
 # 4:00–20:00 ET statt 9:30–16:00 ET. yfinance-Extended-Daten sind dünn — Nutzen teilweise.
 EXTENDED_HOURS    = os.getenv("EXTENDED_HOURS", "true").strip().lower() in ("1", "true", "yes")
+
+# ── Options (gehebelte Trades über Long-Calls statt gehebelter Aktien) ───────
+# Bei Hebel > 1 kauft der Bot für den Trade-Wert eine Option mit ~diesem Hebel (Omega),
+# statt Trade-Wert × Hebel an Aktien. Verfallsfenster (Tage bis Expiry) für die Kontraktwahl:
+OPTION_TARGET_DTE_MIN = int(os.getenv("OPTION_TARGET_DTE_MIN", "30"))
+OPTION_TARGET_DTE_MAX = int(os.getenv("OPTION_TARGET_DTE_MAX", "45"))
+OPTION_TYPE           = os.getenv("OPTION_TYPE", "call").strip().lower()   # long-only: call
+
+# Optionaler Admin-Chat (Telegram-User-ID) für zentrale Fehler-/Abgleich-Logs. Leer = aus.
+_admin = os.getenv("ADMIN_CHAT_ID", "").strip()
+ADMIN_CHAT_ID = int(_admin) if _admin.lstrip("-").isdigit() else None

@@ -192,3 +192,132 @@ def close_position(symbol: str, client=None) -> dict:
         if "position does not exist" in msg or "not found" in msg or "404" in msg:
             return {"ok": True, "closed": False, "detail": f"keine offene {symbol}-Position"}
         return {"ok": False, "closed": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+# ── Options (Long-Calls als gehebelte Trades) ────────────────────────────────
+
+def _option_data_client(api_key: str | None = None, api_secret: str | None = None):
+    """OptionHistoricalDataClient aus expliziten Keys (pro Nutzer) oder den .env-Keys.
+    Gibt None zurück, wenn Keys/Paket fehlen — wirft nie."""
+    key = api_key or config.ALPACA_API_KEY
+    sec = api_secret or config.ALPACA_API_SECRET
+    if not (key and sec):
+        return None
+    try:
+        from alpaca.data.historical.option import OptionHistoricalDataClient
+        return OptionHistoricalDataClient(key, sec)
+    except Exception as e:
+        log.warning(f"Options-Datenclient nicht verfügbar: {e}")
+        return None
+
+
+def list_option_contracts(underlying: str, *, dte_min: int, dte_max: int,
+                          opt_type: str = "call", client=None) -> list[dict]:
+    """Aktive Optionskontrakte zum Underlying im Verfallsfenster [heute+dte_min, heute+dte_max].
+    Rückgabe: [{"symbol", "strike", "expiry"}]; [] bei Fehler/keine Daten. Wirft nie."""
+    client = _get_client(client)
+    if client is None:
+        return []
+    try:
+        from datetime import date, timedelta
+        from alpaca.trading.requests import GetOptionContractsRequest
+        from alpaca.trading.enums import ContractType, AssetStatus
+        today = date.today()
+        req = GetOptionContractsRequest(
+            underlying_symbols=[underlying],
+            status=AssetStatus.ACTIVE,
+            expiration_date_gte=today + timedelta(days=dte_min),
+            expiration_date_lte=today + timedelta(days=dte_max),
+            type=ContractType.CALL if opt_type == "call" else ContractType.PUT,
+            limit=1000,
+        )
+        resp = client.get_option_contracts(req)
+        return [{"symbol": c.symbol, "strike": float(c.strike_price),
+                 "expiry": str(c.expiration_date)}
+                for c in (getattr(resp, "option_contracts", None) or [])]
+    except Exception as e:
+        log.warning(f"Optionskontrakte {underlying} nicht abrufbar: {e}")
+        return []
+
+
+def get_option_snapshot(symbol: str, *, api_key: str | None = None,
+                        api_secret: str | None = None) -> dict:
+    """Aktueller Snapshot eines Optionskontrakts: Mid-Prämie (aus Bid/Ask), Delta, IV.
+    Rückgabe: {"ok": True, "premium", "bid", "ask", "delta", "iv"} oder {"ok": False, ...}."""
+    dc = _option_data_client(api_key, api_secret)
+    if dc is None:
+        return {"ok": False, "detail": "Keine Options-Marktdaten (Keys/Paket fehlen)."}
+    try:
+        from alpaca.data.requests import OptionSnapshotRequest
+        snaps = dc.get_option_snapshot(OptionSnapshotRequest(symbol_or_symbols=symbol))
+        s = snaps.get(symbol) if isinstance(snaps, dict) else None
+        if s is None:
+            return {"ok": False, "detail": "kein Snapshot"}
+        q = getattr(s, "latest_quote", None)
+        bid = float(getattr(q, "bid_price", 0) or 0) if q else 0.0
+        ask = float(getattr(q, "ask_price", 0) or 0) if q else 0.0
+        mid = (bid + ask) / 2 if (bid and ask) else (ask or bid)
+        greeks = getattr(s, "greeks", None)
+        delta = float(getattr(greeks, "delta", 0) or 0) if greeks else None
+        iv = float(getattr(s, "implied_volatility", 0) or 0) or None
+        return {"ok": True, "premium": mid, "bid": bid, "ask": ask, "delta": delta, "iv": iv}
+    except Exception as e:
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def submit_option_buy(option_symbol: str, qty: int, client=None) -> dict:
+    """Kauft `qty` Optionskontrakte (Market-DAY, long). Nur ganze Kontrakte, kein Notional.
+    Rückgabe {ok, id, detail}; wirft nie."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    if not qty or qty < 1:
+        return {"ok": False, "detail": "qty < 1 Kontrakt."}
+    try:
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        req = MarketOrderRequest(symbol=option_symbol, qty=int(qty),
+                                 side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+        order = client.submit_order(req)
+        human = f"{option_symbol} ×{int(qty)} Kontrakt(e)"
+        log.info(f"Alpaca-Options-Order {human} → id={getattr(order, 'id', '?')}")
+        return {"ok": True, "id": str(getattr(order, "id", "")), "detail": human}
+    except Exception as e:
+        log.warning(f"Alpaca-Options-Order {option_symbol} fehlgeschlagen: {e}")
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def select_option_for_leverage(underlying: str, price: float, target_leverage: float,
+                               budget: float, *, client=None, api_key: str | None = None,
+                               api_secret: str | None = None) -> dict | None:
+    """Wählt einen Long-Call, dessen effektiver Hebel (Omega ≈ |delta|×Kurs/Prämie) am nächsten
+    am Ziel-Hebel liegt und der mind. 1× ins Budget passt (Prämie×100 ≤ Budget).
+
+    Rückgabe: {option_symbol, strike, expiry, premium, delta, omega, qty} oder None
+    (keine Kette/keine Daten/zu teuer). Macht bis zu 25 Snapshot-Abrufe (strikenah zuerst)."""
+    if not price or price <= 0 or not budget or budget <= 0:
+        return None
+    contracts = list_option_contracts(
+        underlying, dte_min=config.OPTION_TARGET_DTE_MIN,
+        dte_max=config.OPTION_TARGET_DTE_MAX, opt_type=config.OPTION_TYPE, client=client)
+    if not contracts:
+        return None
+    contracts.sort(key=lambda c: abs(c["strike"] - price))   # near-the-money zuerst
+    best = None
+    for c in contracts[:25]:
+        snap = get_option_snapshot(c["symbol"], api_key=api_key, api_secret=api_secret)
+        premium, delta = snap.get("premium"), snap.get("delta")
+        if not snap.get("ok") or not premium or premium <= 0 or not delta:
+            continue
+        cost = premium * 100
+        if cost > budget:                      # nicht mal 1 Kontrakt bezahlbar
+            continue
+        omega = abs(delta) * price / premium
+        score = abs(omega - target_leverage)
+        if best is None or score < best["_score"]:
+            best = {"option_symbol": c["symbol"], "strike": c["strike"], "expiry": c["expiry"],
+                    "premium": round(premium, 4), "delta": round(delta, 4),
+                    "omega": round(omega, 2), "qty": int(budget // cost), "_score": score}
+    if best:
+        best.pop("_score", None)
+    return best

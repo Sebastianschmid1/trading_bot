@@ -25,7 +25,7 @@ from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
-from stockbot.core.evaluator import get_current_price, realized_pnl
+from stockbot.core.evaluator import get_current_price, trade_pnl
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -158,13 +158,15 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
     for t in active:
         cur = _current_price(t)
         leverage = (t["signal"].get("leverage") or 1.0)
-        pnl_pct, pnl_eur = realized_pnl(t["entry"], cur, t["direction"], size, leverage)
+        # Optionsbewusst (Omega-Näherung im Web); für Aktien das lineare Hebelmodell.
+        pnl_pct, pnl_eur = trade_pnl(t, cur, size)
         active_view.append({
             "ticker":      t["ticker"],
             "direction":   t["direction"],
             "entry":       t["entry"],
             "current":     cur,
             "leverage":    leverage,
+            "option":      t["signal"].get("option_symbol"),
             "invested":    round(size, 2),                    # eingesetzte Margin (dein Geld)
             "exposure":    round(size * leverage, 2),         # Positionsgröße im Markt (Margin × Hebel)
             "pnl_pct":     round(pnl_pct, 2),                 # reine Kursbewegung
