@@ -146,14 +146,16 @@
         .then(function (r) { return r.json().catch(function () { return { ok: false, msg: "Fehler bei der Antwort." }; }); })
         .then(function (d) {
           if (d.ok) {
+            // Nur DIESE Karte abschließen — die übrigen Signale bleiben unverändert (kein Reload).
             btn.classList.add("green");
             btn.textContent = "✅ Angenommen";
+            others.forEach(function (b) { b.style.display = "none"; });   // Ablehnen/Hebel ausblenden
+            if (card) card.style.opacity = ".6";
             var note = document.createElement("span");
             note.className = "muted";
             note.style.marginLeft = ".5rem";
-            note.textContent = (d.msg || "Gestartet.") + " Aktualisiere…";
+            note.textContent = (d.msg || "Gestartet.") + " — jetzt unter „Aktive Demo-Trades".";
             btn.parentNode.appendChild(note);
-            setTimeout(function () { location.reload(); }, 1000);
           } else {
             btn.classList.add("red");
             btn.textContent = "⚠️ " + (d.msg || "Nicht möglich");
