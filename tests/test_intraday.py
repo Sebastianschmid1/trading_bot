@@ -126,7 +126,7 @@ def test_monitor_promotes_filled_broker_pending_trade():
         "ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 101.5}
     ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
     try:
-        asyncio.run(bot.monitor_trades(ctx))
+        asyncio.run(bot.monitor_broker_pending(ctx.bot))
     finally:
         bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status = orig_ready, orig_client, orig_status
 

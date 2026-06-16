@@ -260,25 +260,47 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     if not user:
         return _redirect("/login")
     pending = []
+    pending_trade_rows = []
     for t in db.get_pending_trades(user["user_id"]):
         sig = t.get("signal", {}) or {}
-        pending.append({
-            "ticker": t["ticker"], "direction": t.get("direction") or sig.get("direction", "long"),
-            "price": sig.get("price") or t.get("entry") or 0.0, "strength": sig.get("strength"),
+        row = {
+            "kind": "signal",
+            "status": "Offen",
+            "ticker": t["ticker"],
+            "direction": t.get("direction") or sig.get("direction", "long"),
+            "price": sig.get("price") or t.get("entry") or 0.0,
             "leverage": sig.get("leverage", 1.0) or 1.0,
+            "broker_status": "",
+        }
+        pending.append({
+            "ticker": row["ticker"], "direction": row["direction"],
+            "price": row["price"], "strength": sig.get("strength"),
+            "leverage": row["leverage"],
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
+        pending_trade_rows.append(row)
     active_trades = build_dashboard_data(user)["active_trades"]
     broker_pending = []
     for t in db.get_broker_pending_trades(user["user_id"]):
         sig = t.get("signal", {}) or {}
-        broker_pending.append({
-            "ticker": t["ticker"], "direction": t.get("direction") or sig.get("direction", "long"),
-            "entry": t.get("entry") or sig.get("price") or 0.0,
+        row = {
+            "kind": "broker_pending",
+            "status": "Broker-Pending",
+            "ticker": t["ticker"],
+            "direction": t.get("direction") or sig.get("direction", "long"),
+            "price": t.get("entry") or sig.get("price") or 0.0,
             "leverage": sig.get("leverage", 1.0) or 1.0,
             "broker_status": t.get("broker_status") or "accepted",
             "broker_order_id": t.get("broker_order_id"),
+        }
+        broker_pending.append({
+            "ticker": row["ticker"], "direction": row["direction"],
+            "entry": row["price"],
+            "leverage": row["leverage"],
+            "broker_status": row["broker_status"],
+            "broker_order_id": row["broker_order_id"],
         })
+        pending_trade_rows.append(row)
     # Anlageklasse je aktivem Trade ableiten + optional filtern (atf = Klassen-Key oder leer = alle)
     label_by_key = {c.key: c.label for c in asset_classes.all_asset_classes()}
     for t in active_trades:
@@ -288,7 +310,8 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
         active_trades = [t for t in active_trades if t["asset_key"] == atf]
     asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
     return _render("app.html", request, user, active="home", msg=msg,
-                   pending=pending, broker_pending=broker_pending, active_trades=active_trades,
+                   pending=pending, pending_trade_rows=pending_trade_rows,
+                   broker_pending=broker_pending, active_trades=active_trades,
                    leverages=config.LEVERAGE_CHOICES,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=_scanned_for(user), trade_filter=atf)

@@ -60,6 +60,52 @@ _SCHEMA = {
 _ctx_cache: dict[tuple, dict] = {}
 
 
+def _rate_limit_wait_seconds(exc) -> float | None:
+    """Versucht aus einer Rate-Limit-Exception ein Retry-Intervall zu ziehen."""
+    for attr in ("retry_after", "retry_after_seconds", "retry_after_s"):
+        val = getattr(exc, attr, None)
+        if isinstance(val, (int, float)) and val > 0:
+            return float(val)
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None) if resp is not None else None
+    if headers:
+        for key in ("retry-after", "Retry-After"):
+            val = headers.get(key)
+            if val is None:
+                continue
+            try:
+                return float(val)
+            except Exception:
+                continue
+    msg = str(exc).lower()
+    if "rate limit" in msg or "rate-limiting" in msg or "429" in msg:
+        return None
+    return None
+
+
+def _is_rate_limit_error(exc) -> bool:
+    text = str(exc).lower()
+    if "rate limit" in text or "rate-limiting" in text or "429" in text:
+        return True
+    code = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    return code == 429
+
+
+def _call_with_retry(label: str, fn, *, attempts: int = 3):
+    last = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            if not _is_rate_limit_error(e) or attempt >= attempts:
+                raise
+            wait = _rate_limit_wait_seconds(e) or min(8.0, 2.0 ** (attempt - 1))
+            log.warning(f"{label}: Rate limit erkannt — retry in {wait:.1f}s (Versuch {attempt}/{attempts})")
+            time.sleep(wait)
+    raise RuntimeError(f"Unexpected retry loop exit in {label}")
+
+
 # ── Zusatzquellen je Aktie (Geschäftsberichte, Analysten, Earnings, News) ────
 
 def _safe(d, key, default=None):
@@ -184,17 +230,20 @@ def rank_signals(signals: list[dict], *, client=None, fetch=gather_context) -> l
         return signals
 
     subset = signals[: config.LLM_MAX_SIGNALS]
+    payload = {
+        "signals": [_signal_brief(s) for s in subset],
+        "fundamentals": {s["ticker"]: fetch(s["ticker"]) for s in subset},
+    }
     try:
-        payload = {
-            "signals": [_signal_brief(s) for s in subset],
-            "fundamentals": {s["ticker"]: fetch(s["ticker"]) for s in subset},
-        }
-        resp = cli.messages.create(
-            model=config.LLM_MODEL,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)}],
-            output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+        resp = _call_with_retry(
+            "LLM-Ranking",
+            lambda: cli.messages.create(
+                model=config.LLM_MODEL,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)}],
+                output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+            ),
         )
         text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
         ranking = json.loads(text).get("ranking", [])
@@ -250,12 +299,15 @@ def suggest_tickers(query: str, *, client=None) -> list[str]:
     if cli is None:
         return []
     try:
-        resp = cli.messages.create(
-            model=config.LLM_MODEL,
-            max_tokens=128,
-            system=_SUGGEST_SYSTEM,
-            messages=[{"role": "user", "content": q}],
-            output_config={"format": {"type": "json_schema", "schema": _SUGGEST_SCHEMA}},
+        resp = _call_with_retry(
+            f"Ticker-Vorschlag für '{q}'",
+            lambda: cli.messages.create(
+                model=config.LLM_MODEL,
+                max_tokens=128,
+                system=_SUGGEST_SYSTEM,
+                messages=[{"role": "user", "content": q}],
+                output_config={"format": {"type": "json_schema", "schema": _SUGGEST_SCHEMA}},
+            ),
         )
         text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
         tickers = json.loads(text).get("tickers", [])
@@ -281,12 +333,15 @@ def health_check(client=None) -> dict:
     }
     t0 = time.time()
     try:
-        resp = client.messages.create(
-            model=config.LLM_MODEL,
-            max_tokens=256,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-            output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+        resp = _call_with_retry(
+            "LLM-Healthcheck",
+            lambda: client.messages.create(
+                model=config.LLM_MODEL,
+                max_tokens=256,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+            ),
         )
         text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
         ranking = json.loads(text).get("ranking", [])

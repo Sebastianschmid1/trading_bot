@@ -99,21 +99,36 @@
 </div>
 {% endfor %}
 
-<h2>Broker-Pending ({{ broker_pending|length }})</h2>
-{% if broker_pending %}
-  {% for t in broker_pending %}
-  <div class="card" style="border-color:#d6a21f">
-    <div class="row">
-      <strong>⏳ {{ t.ticker }}</strong>
-      <span class="muted">{{ t.direction|upper }} · Referenz-Einstieg ${{ '%.2f'|format(t.entry) }} · {{ '%.1f'|format(t.leverage) }}×</span>
-      <span class="spacer"></span>
-      <span class="muted">Status: {{ t.broker_status }}</span>
-    </div>
-    <p class="muted" style="margin:.4rem 0 0">Broker-Order wurde angenommen, aber noch nicht gekauft/filled. Der Trade erscheint erst nach Ausführung unter „Aktive Demo-Trades".</p>
-  </div>
-  {% endfor %}
+<h2>Offene Trades als Tabelle ({{ pending_trade_rows|length }})</h2>
+{% if pending_trade_rows %}
+<div class="card" style="overflow-x:auto">
+  <table style="width:100%; border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left; border-bottom:1px solid #2a3342">
+        <th style="padding:.35rem .5rem">Status</th>
+        <th style="padding:.35rem .5rem">Ticker</th>
+        <th style="padding:.35rem .5rem">Richtung</th>
+        <th style="padding:.35rem .5rem">Preis/Einstieg</th>
+        <th style="padding:.35rem .5rem">Hebel</th>
+        <th style="padding:.35rem .5rem">Broker</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in pending_trade_rows %}
+      <tr style="border-bottom:1px solid #202634">
+        <td style="padding:.35rem .5rem">{{ t.status }}</td>
+        <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
+        <td style="padding:.35rem .5rem">{{ t.direction|upper }}</td>
+        <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.price) }}</td>
+        <td style="padding:.35rem .5rem">{{ '%.1f'|format(t.leverage) }}×</td>
+        <td style="padding:.35rem .5rem">{{ t.broker_status or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
-  <p class="muted">Keine Broker-Orders warten aktuell auf Ausführung.</p>
+<p class="muted">Keine offenen Trades.</p>
 {% endif %}
 
 <h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>

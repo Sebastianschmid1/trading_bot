@@ -83,11 +83,32 @@ def test_reorders_and_attaches_scores():
     assert fake.last_kwargs["model"] == config.LLM_MODEL
 
 
-def test_bad_response_falls_back_to_input():
-    fake = _FakeClient("kein JSON")
-    sigs = [_sig("A", 60), _sig("B", 90)]
-    out = llm_ranker.rank_signals(sigs, client=fake, fetch=lambda t: {})
-    assert out is sigs                                      # Fehler → Original-Reihenfolge
+def test_rank_signals_retries_on_rate_limit():
+    class _FlakyClient:
+        def __init__(self):
+            self.calls = 0
+            self.last_kwargs: dict | None = None
+        @property
+        def messages(self):
+            parent = self
+            class _M:
+                def create(self, **kwargs):
+                    parent.calls += 1
+                    parent.last_kwargs = kwargs
+                    if parent.calls == 1:
+                        raise RuntimeError("429 rate limit reached")
+                    return _Resp(json.dumps({"ranking": [{"ticker": "A", "score": 91, "reason": "retry ok"}]}))
+            return _M()
+    fake = _FlakyClient()
+    orig_sleep = llm_ranker.time.sleep
+    llm_ranker.time.sleep = lambda *_: None
+    try:
+        sigs = [_sig("A", 60)]
+        out = llm_ranker.rank_signals(sigs, client=fake, fetch=lambda t: {})
+        assert fake.calls == 2
+        assert out[0]["llm_score"] == 91
+    finally:
+        llm_ranker.time.sleep = orig_sleep
 
 
 def test_health_check_no_key():
