@@ -360,6 +360,7 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             option_selector=_make_option_selector(user, client, ticker, float(entry)), extended=extended)
 
     if plan["kind"] == "none":
+        db.mark_broker_failed(chat_id, ticker, broker_status="not_submitted")
         await bot.send_message(
             chat_id=chat_id,
             text=(f"ℹ️ Alpaca-{mode}: Budget {budget:.0f}$ reicht nicht für {ticker} "
@@ -387,6 +388,7 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     else:
         # Aktie teurer als Budget → einziger Bruchteil-Fall (Notional). In Extended-Hours nicht möglich.
         if extended:
+            db.mark_broker_failed(chat_id, ticker, broker_status="not_submitted")
             await bot.send_message(
                 chat_id=chat_id,
                 text=(f"ℹ️ Alpaca-{mode}: Eine {ticker}-Aktie (${float(entry):.2f}) ist teurer als das "
@@ -398,9 +400,11 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
         order_label = f"{ticker} ${plan['notional']:.2f} (Bruchteil)"
 
     if not res["ok"]:
+        db.mark_broker_failed(chat_id, ticker, broker_status="submit_failed")
         await bot.send_message(chat_id=chat_id, text=f"⚠️ Alpaca-Order nicht angenommen: {res['detail']}")
         return
 
+    db.mark_broker_pending(chat_id, ticker, order_id=res.get("id", ""), broker_status="accepted")
     await bot.send_message(
         chat_id=chat_id,
         text=f"📨 Alpaca-{mode}-Order angenommen: {res['detail']}. Warte auf Ausführung…")
@@ -410,16 +414,19 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     if status == "filled":
         q = fill.get("filled_qty", 0.0)
         px = fill.get("filled_avg_price", 0.0)
+        db.mark_broker_filled(chat_id, ticker, broker_status=status, filled_qty=q, filled_avg_price=px)
         await bot.send_message(
             chat_id=chat_id,
             text=(f"✅ Alpaca-{mode}-Order ausgeführt: {q:g} × @ ${px:.2f} (≈ ${q * px:.2f}) [{order_label}]\n"
                   f"SL/TP überwacht der Bot und schließt die Position automatisch."))
         await _reconcile_and_alert(bot, user, client, context="nach Kauf")
     elif status in ("rejected", "canceled", "expired"):
+        db.mark_broker_failed(chat_id, ticker, broker_status=status)
         await bot.send_message(
             chat_id=chat_id,
             text=f"⚠️ Alpaca-Order nicht ausgeführt (Status: {status}). Es wurde nichts gekauft.")
     else:
+        db.mark_broker_pending(chat_id, ticker, order_id=res.get("id", ""), broker_status=status)
         # angenommen, aber (noch) nicht gefüllt — z. B. Markt zu / Limit nicht erreicht
         await bot.send_message(
             chat_id=chat_id,
@@ -473,14 +480,17 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
                                      text=_signal_card(sig, trade_size_eur, market_open, expiry_min)[0],
                                      parse_mode="Markdown")
         db.add_pending(chat_id, sig, msg.message_id)
-        trade = db.activate_trade(chat_id, ticker)
+        user = db.get_user(chat_id) or {}
+        broker_will_execute = bool(user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None)
+        trade = db.activate_trade(chat_id, ticker, status="broker_pending" if broker_will_execute else "active")
         if trade:
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"⚡ *{ticker}* automatisch gestartet (Auto-Accept) — Einstieg ${trade['entry']:.2f}, Hebel {leverage:g}×",
+                text=(f"⚡ *{ticker}* automatisch {'zur Broker-Ausführung vorgemerkt' if broker_will_execute else 'gestartet'} "
+                      f"(Auto-Accept) — Einstieg ${trade['entry']:.2f}, Hebel {leverage:g}×"),
                 parse_mode="Markdown",
             )
-            await asyncio.to_thread(_attach_demo_option, db.get_user(chat_id), trade)
+            await asyncio.to_thread(_attach_demo_option, user, trade)
             await _maybe_broker_order(bot, chat_id, trade)
         log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
         return True
@@ -784,9 +794,48 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     return None
 
 
+async def monitor_broker_pending(bot: Bot):
+    """Pollt offene Broker-Orders und macht Trades erst bei tatsächlichem Fill aktiv."""
+    final_fail = {"rejected", "canceled", "expired", "done_for_day"}
+    for user in db.list_active_users():
+        if not user.get("broker_exec") or not _alpaca_ready(user):
+            continue
+        client = _alpaca_client(user)
+        if client is None:
+            continue
+        for trade in db.get_broker_pending_trades(user["user_id"]):
+            order_id = trade.get("broker_order_id")
+            if not order_id:
+                continue
+            st = await asyncio.to_thread(broker.get_order_status, order_id, client)
+            status = st.get("status", "unbekannt")
+            ticker = trade["ticker"]
+            if status == "filled":
+                q = st.get("filled_qty", 0.0)
+                px = st.get("filled_avg_price", 0.0)
+                db.mark_broker_filled(user["user_id"], ticker, broker_status=status,
+                                      filled_qty=q, filled_avg_price=px)
+                await bot.send_message(
+                    chat_id=user["user_id"],
+                    text=(f"✅ Broker-Order jetzt ausgeführt: *{ticker}* {q:g} × @ ${px:.2f}.\n"
+                          f"Der Trade ist nun aktiv und wird überwacht."),
+                    parse_mode="Markdown",
+                )
+            elif status in final_fail:
+                db.mark_broker_failed(user["user_id"], ticker, broker_status=status)
+                await bot.send_message(
+                    chat_id=user["user_id"],
+                    text=f"⚠️ Broker-Order für *{ticker}* wurde nicht ausgeführt (Status: {status}).",
+                    parse_mode="Markdown",
+                )
+            else:
+                db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status=status)
+
+
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
-    """Job (alle 60s): aktive Trades prüfen, Verlauf aufzeichnen, bei SL/TP oder
-    Signal-Verfall automatisch schließen. Läuft nur bei offenem Markt & aktiven Trades."""
+    """Job (alle 60s): Broker-Pending pollt, aktive Trades prüft, Verlauf aufzeichnet,
+    bei SL/TP oder Signal-Verfall automatisch schließt."""
+    await monitor_broker_pending(context.bot)
     if not _us_market_open():
         return
 
@@ -1644,17 +1693,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "accept":
-        result = trade_svc.accept_trade(chat_id, ticker)
+        user = db.get_user(chat_id) or {}
+        broker_will_execute = bool(user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None)
+        result = trade_svc.accept_trade(chat_id, ticker, status="broker_pending" if broker_will_execute else "active")
         if result["ok"]:
             trade = result["trade"]
             lev = trade.get("signal", {}).get("leverage", 1.0) or 1.0
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.edit_message_text(
-                query.message.text + f"\n\n✅ *Demo-Trade gestartet!*\nEinstiegskurs: ${trade['entry']:.2f} · Hebel {lev:g}×",
-                parse_mode="Markdown"
-            )
-            log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×)")
-            await asyncio.to_thread(_attach_demo_option, db.get_user(chat_id), trade)
+            if broker_will_execute:
+                await query.edit_message_text(
+                    query.message.text + f"\n\n⏳ *Broker-Order wird gesendet…*\nDemo-Trade wird erst nach tatsächlicher Ausführung aktiv. Einstieg-Referenz: ${trade['entry']:.2f} · Hebel {lev:g}×",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text(
+                    query.message.text + f"\n\n✅ *Demo-Trade gestartet!*\nEinstiegskurs: ${trade['entry']:.2f} · Hebel {lev:g}×",
+                    parse_mode="Markdown"
+                )
+            log.info(f"[{chat_id}] Trade aktiviert: {ticker} @ ${trade['entry']:.2f} ({lev:g}×, {trade['status']})")
+            await asyncio.to_thread(_attach_demo_option, user, trade)
             await _maybe_broker_order(context.bot, chat_id, trade)
         elif result["reason"] == "expired":
             await query.answer(

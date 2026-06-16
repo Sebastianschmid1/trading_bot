@@ -99,6 +99,23 @@
 </div>
 {% endfor %}
 
+<h2>Broker-Pending ({{ broker_pending|length }})</h2>
+{% if broker_pending %}
+  {% for t in broker_pending %}
+  <div class="card" style="border-color:#d6a21f">
+    <div class="row">
+      <strong>⏳ {{ t.ticker }}</strong>
+      <span class="muted">{{ t.direction|upper }} · Referenz-Einstieg ${{ '%.2f'|format(t.entry) }} · {{ '%.1f'|format(t.leverage) }}×</span>
+      <span class="spacer"></span>
+      <span class="muted">Status: {{ t.broker_status }}</span>
+    </div>
+    <p class="muted" style="margin:.4rem 0 0">Broker-Order wurde angenommen, aber noch nicht gekauft/filled. Der Trade erscheint erst nach Ausführung unter „Aktive Demo-Trades".</p>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="muted">Keine Broker-Orders warten aktuell auf Ausführung.</p>
+{% endif %}
+
 <h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>
 <div class="row" style="margin:.2rem 0 .6rem; gap:.3rem">
   <span class="muted">Filter:</span>
@@ -147,14 +164,16 @@
         .then(function (d) {
           if (d.ok) {
             // Nur DIESE Karte abschließen — die übrigen Signale bleiben unverändert (kein Reload).
+            var pending = d.status === "broker_pending";
+            var filled = d.status === "filled";
             btn.classList.add("green");
-            btn.textContent = "✅ Angenommen";
+            btn.textContent = pending ? "⏳ Broker pending" : (filled ? "✅ Gekauft" : "✅ Angenommen");
             others.forEach(function (b) { b.style.display = "none"; });   // Ablehnen/Hebel ausblenden
-            if (card) card.style.opacity = ".6";
+            if (card) card.style.opacity = pending ? ".85" : ".6";
             var note = document.createElement("span");
             note.className = "muted";
             note.style.marginLeft = ".5rem";
-            note.textContent = (d.msg || "Gestartet.") + " — jetzt unter „Aktive Demo-Trades".";
+            note.textContent = d.msg || (pending ? "Broker-Order wartet auf Ausführung." : "Gestartet.");
             btn.parentNode.appendChild(note);
           } else {
             btn.classList.add("red");

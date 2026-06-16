@@ -64,6 +64,42 @@ def test_accept_and_reject_trade():
     assert trade_svc.reject_trade(CHAT, "AAPL") is False     # schon abgelehnt
 
 
+def test_accept_trade_can_wait_for_broker_fill_before_becoming_active():
+    fresh_db()
+    _pending("NVDA")
+
+    res = trade_svc.accept_trade(CHAT, "NVDA", status="broker_pending")
+
+    assert res["ok"] and res["trade"]["status"] == "broker_pending"
+    assert db.get_active_trades(CHAT) == []
+    db.mark_broker_pending(CHAT, "NVDA", order_id="ord-1", broker_status="accepted")
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["broker_order_id"] == "ord-1"
+    assert trade["broker_status"] == "accepted"
+
+    db.mark_broker_filled(CHAT, "NVDA", broker_status="filled", filled_qty=2, filled_avg_price=101.5)
+
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "active"
+    assert trade["entry"] == 101.5
+    assert trade["broker_status"] == "filled"
+    assert db.get_active_trades(CHAT)[0]["ticker"] == "NVDA"
+
+
+def test_broker_rejected_trade_does_not_remain_active():
+    fresh_db()
+    _pending("AAPL")
+
+    res = trade_svc.accept_trade(CHAT, "AAPL", status="broker_pending")
+    assert res["ok"]
+    db.mark_broker_failed(CHAT, "AAPL", broker_status="rejected")
+
+    trade = db.get_trade(CHAT, "AAPL")
+    assert trade["status"] == "broker_failed"
+    assert trade["broker_status"] == "rejected"
+    assert db.get_active_trades(CHAT) == []
+
+
 def test_set_pending_leverage_only_while_pending():
     fresh_db()
     _pending("NVDA", leverage=1.0)

@@ -24,16 +24,20 @@ def accept_signal(user_id: int, signal: dict) -> dict:
     sig.setdefault("strategy", "standard")
     if not sig.get("ticker") or sig.get("price") is None:
         return {"ok": False, "reason": "unavailable"}
+    status = sig.pop("_accept_status", "active")
     db.add_pending(user_id, sig, message_id=0)
-    return accept_trade(user_id, sig["ticker"])
+    return accept_trade(user_id, sig["ticker"], status=status)
 
 
-def accept_trade(user_id: int, ticker: str) -> dict:
-    """Aktiviert ein ausstehendes Signal (pending → active).
+def accept_trade(user_id: int, ticker: str, *, status: str = "active") -> dict:
+    """Aktiviert ein ausstehendes Signal.
+
+    Standard: pending → active (Demo-Modus). Bei echter Broker-Ausführung nutzt der Aufrufer
+    `status='broker_pending'`; der Trade wird erst nach Alpaca-Fill zu `active`.
 
     Rückgabe: {"ok": True, "trade": …} oder {"ok": False, "reason": "expired"|"unavailable"}.
     """
-    trade = db.activate_trade(user_id, ticker)
+    trade = db.activate_trade(user_id, ticker, status=status)
     if trade:
         return {"ok": True, "trade": trade}
     existing = db.get_trade(user_id, ticker)

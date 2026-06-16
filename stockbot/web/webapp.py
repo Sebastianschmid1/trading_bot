@@ -23,6 +23,7 @@ from stockbot.market import strategies
 from stockbot.market import asset_classes
 from stockbot.market import analyzer
 from stockbot.broker import client as broker
+from stockbot.broker import sizing
 from stockbot import config
 from stockbot.services import trades as trade_svc
 from stockbot.services import settings as settings_svc
@@ -71,7 +72,7 @@ def _attach_demo_option(user: dict, ticker: str) -> None:
     """Wählt bei Hebel>1 für den gerade aktivierten Trade einen Optionskontrakt fürs Budget und
     schreibt ihn ins Signal (Demo-Options-Simulation). Best-effort; nur falls Alpaca-Daten da."""
     trade = db.get_trade(user["user_id"], ticker)
-    if not trade or trade["status"] != "active":
+    if not trade or trade["status"] not in ("active", "broker_pending"):
         return
     entry = trade.get("entry") or (trade.get("signal") or {}).get("price")
     if not entry:
@@ -87,6 +88,72 @@ def _attach_demo_option(user: dict, ticker: str) -> None:
         trade_svc.attach_option_for_trade(user, trade, _selector)
     except Exception as e:
         log.warning(f"[{user['user_id']}] Options-Auswahl (Demo) fehlgeschlagen: {e}")
+
+
+def _broker_will_execute(user: dict) -> bool:
+    return bool(user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None)
+
+
+def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
+    """Synchrone Broker-Ausführung für die Web-App.
+
+    Hält `broker_pending`, bis Alpaca wirklich `filled` meldet; bei nicht ausgeführter
+    Order bleibt der Trade aus der aktiven Demo-Trade-Liste heraus.
+    """
+    if not trade or not _broker_will_execute(user):
+        return {"ok": True, "status": trade.get("status", "active") if trade else "unavailable"}
+    client = _alpaca_client(user)
+    sig = trade.get("signal", {})
+    ticker = trade["ticker"]
+    entry = trade.get("entry") or sig.get("price")
+    if not entry:
+        db.mark_broker_failed(user["user_id"], ticker, broker_status="missing_entry")
+        return {"ok": False, "status": "broker_failed", "msg": "Kein Einstiegskurs verfügbar."}
+
+    leverage = float(sig.get("leverage", 1.0) or 1.0)
+    budget = float(user["trade_size_eur"])
+    extended = bool(config.EXTENDED_HOURS and broker.market_open(client) is False)
+    if sig.get("option_symbol") and not extended:
+        plan = {"kind": "option", "option_symbol": sig["option_symbol"], "qty": int(sig["contracts"]),
+                "premium": float(sig["entry_premium"])}
+    else:
+        plan = sizing.plan_order(float(entry), budget, leverage,
+                                 option_selector=None, extended=extended)
+
+    if plan["kind"] == "none":
+        db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
+        return {"ok": False, "status": "broker_failed", "msg": "Budget reicht nicht für eine Broker-Order."}
+    if plan["kind"] == "option":
+        res = broker.submit_option_buy(plan["option_symbol"], plan["qty"], client)
+    elif plan.get("qty"):
+        if extended:
+            res = broker.submit_buy(ticker, qty=plan["qty"], limit_price=float(entry), extended_hours=True, client=client)
+        else:
+            res = broker.submit_buy(ticker, qty=plan["qty"], client=client)
+    else:
+        if extended:
+            db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
+            return {"ok": False, "status": "broker_failed", "msg": "Bruchteile sind in erweiterten Handelszeiten nicht möglich."}
+        res = broker.submit_buy(ticker, notional=plan["notional"], client=client)
+
+    if not res.get("ok"):
+        db.mark_broker_failed(user["user_id"], ticker, broker_status="submit_failed")
+        return {"ok": False, "status": "broker_failed", "msg": f"Broker-Order nicht angenommen: {res.get('detail')}"}
+
+    order_id = res.get("id", "")
+    db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status="accepted")
+    fill = broker.get_order_status(order_id, client)
+    status = fill.get("status", "unbekannt")
+    if status == "filled":
+        db.mark_broker_filled(user["user_id"], ticker, broker_status=status,
+                              filled_qty=fill.get("filled_qty"),
+                              filled_avg_price=fill.get("filled_avg_price"))
+        return {"ok": True, "status": "filled", "msg": f"{ticker} gekauft."}
+    if status in ("rejected", "canceled", "expired"):
+        db.mark_broker_failed(user["user_id"], ticker, broker_status=status)
+        return {"ok": False, "status": "broker_failed", "msg": f"Broker-Order nicht ausgeführt ({status})."}
+    db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status=status)
+    return {"ok": True, "status": "broker_pending", "msg": f"Broker-Order angenommen, aber noch nicht ausgeführt ({status})."}
 
 
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
@@ -202,6 +269,16 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
     active_trades = build_dashboard_data(user)["active_trades"]
+    broker_pending = []
+    for t in db.get_broker_pending_trades(user["user_id"]):
+        sig = t.get("signal", {}) or {}
+        broker_pending.append({
+            "ticker": t["ticker"], "direction": t.get("direction") or sig.get("direction", "long"),
+            "entry": t.get("entry") or sig.get("price") or 0.0,
+            "leverage": sig.get("leverage", 1.0) or 1.0,
+            "broker_status": t.get("broker_status") or "accepted",
+            "broker_order_id": t.get("broker_order_id"),
+        })
     # Anlageklasse je aktivem Trade ableiten + optional filtern (atf = Klassen-Key oder leer = alle)
     label_by_key = {c.key: c.label for c in asset_classes.all_asset_classes()}
     for t in active_trades:
@@ -211,7 +288,8 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
         active_trades = [t for t in active_trades if t["asset_key"] == atf]
     asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
     return _render("app.html", request, user, active="home", msg=msg,
-                   pending=pending, active_trades=active_trades, leverages=config.LEVERAGE_CHOICES,
+                   pending=pending, broker_pending=broker_pending, active_trades=active_trades,
+                   leverages=config.LEVERAGE_CHOICES,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=_scanned_for(user), trade_filter=atf)
 
@@ -287,10 +365,18 @@ async def app_scan_accept(request: Request, ticker: str = Form(...)):
         if _wants_json(request):
             return JSONResponse({"ok": False, "status": "expired", "msg": msg})
         return _redirect("/app?msg=Signal+abgelaufen+%E2%80%93+bitte+neu+anfordern.")
-    res = await run_in_threadpool(trade_svc.accept_signal, user["user_id"], sig)
+    broker_status = "broker_pending" if _broker_will_execute(user) else "active"
+    res = await run_in_threadpool(trade_svc.accept_signal, user["user_id"], {**sig, "_accept_status": broker_status})
     if res["ok"]:
+        # accept_signal aktiviert standardmäßig active; bei Broker-Ausführung korrigieren wir den Status über accept_trade unten nicht.
+        # Für On-Demand-Signale nutzen wir daher denselben Pfad wie /app/accept: ggf. Status nachträglich vorm Orderversand setzen.
+        if broker_status == "broker_pending":
+            db.mark_broker_pending(user["user_id"], ticker, order_id=None, broker_status="not_submitted")
         await run_in_threadpool(_attach_demo_option, user, ticker)
-        msg, status = f"{ticker} gestartet.", "accepted"
+        trade = db.get_trade(user["user_id"], ticker)
+        broker_res = await run_in_threadpool(_execute_broker_order_for_web, user, trade) if trade else {"status": "unavailable"}
+        msg = broker_res.get("msg") or f"{ticker} gestartet."
+        status = broker_res.get("status") or "accepted"
     else:
         msg, status = f"{ticker} heute bereits gehandelt.", "unavailable"
     if _wants_json(request):
@@ -303,10 +389,13 @@ async def app_accept(request: Request, ticker: str = Form(...)):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
-    res = await run_in_threadpool(trade_svc.accept_trade, user["user_id"], ticker)
+    broker_status = "broker_pending" if _broker_will_execute(user) else "active"
+    res = await run_in_threadpool(trade_svc.accept_trade, user["user_id"], ticker, status=broker_status)
     if res["ok"]:
         await run_in_threadpool(_attach_demo_option, user, ticker)
-        msg, status = f"{ticker} gestartet.", "accepted"
+        broker_res = await run_in_threadpool(_execute_broker_order_for_web, user, res["trade"])
+        msg = broker_res.get("msg") or f"{ticker} gestartet."
+        status = broker_res.get("status") or ("broker_pending" if broker_status == "broker_pending" else "accepted")
     elif res.get("reason") == "expired":
         msg, status = "Zeitfenster abgelaufen.", "expired"
     else:

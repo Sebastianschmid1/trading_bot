@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS trades (
     exit         REAL,
     pnl_eur      REAL,
     pnl_pct      REAL,
+    broker_order_id          TEXT,
+    broker_status            TEXT,
+    broker_filled_qty        REAL,
+    broker_filled_avg_price  REAL,
+    broker_updated_at        TEXT,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, trade_date, ticker)
 );
@@ -162,6 +167,18 @@ def _migrate(conn: sqlite3.Connection):
     if "signal_window" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN signal_window INTEGER NOT NULL DEFAULT 0")
         log.info("Migration: Spalte users.signal_window ergänzt.")
+
+    trade_cols = {row["name"] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
+    for name, ddl in {
+        "broker_order_id": "ALTER TABLE trades ADD COLUMN broker_order_id TEXT",
+        "broker_status": "ALTER TABLE trades ADD COLUMN broker_status TEXT",
+        "broker_filled_qty": "ALTER TABLE trades ADD COLUMN broker_filled_qty REAL",
+        "broker_filled_avg_price": "ALTER TABLE trades ADD COLUMN broker_filled_avg_price REAL",
+        "broker_updated_at": "ALTER TABLE trades ADD COLUMN broker_updated_at TEXT",
+    }.items():
+        if name not in trade_cols:
+            conn.execute(ddl)
+            log.info(f"Migration: Spalte trades.{name} ergänzt.")
 
 
 @contextmanager
@@ -540,7 +557,8 @@ def merge_active_trade_signal(user_id: int, ticker: str, extra: dict) -> None:
         return
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, signal_json FROM trades WHERE user_id = ? AND ticker = ? AND status = 'active' "
+            "SELECT id, signal_json FROM trades WHERE user_id = ? AND ticker = ? "
+            "AND status IN ('active', 'broker_pending') "
             "ORDER BY trade_date DESC, id DESC LIMIT 1",
             (user_id, ticker),
         ).fetchone()
@@ -697,7 +715,7 @@ def mark_notifications_read(user_id: int):
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────
 
 def _trade_to_dict(row: sqlite3.Row) -> dict:
-    return {
+    out = {
         "ticker":     row["ticker"],
         "direction":  row["direction"],
         "signal":     json.loads(row["signal_json"]),
@@ -709,6 +727,11 @@ def _trade_to_dict(row: sqlite3.Row) -> dict:
         "pnl_pct":    row["pnl_pct"],
         "trade_date": row["trade_date"],
     }
+    keys = set(row.keys())
+    for key in ("broker_order_id", "broker_status", "broker_filled_qty",
+                "broker_filled_avg_price", "broker_updated_at"):
+        out[key] = row[key] if key in keys else None
+    return out
 
 
 def has_trade_today(user_id: int, ticker: str) -> bool:
@@ -753,8 +776,14 @@ def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
     return created
 
 
-def activate_trade(user_id: int, ticker: str) -> dict | None:
-    """Aktiviert einen pendenten Trade nach JA-Klick, holt den aktuellen Kurs. Gibt den aktualisierten Trade zurück."""
+def activate_trade(user_id: int, ticker: str, status: str = "active") -> dict | None:
+    """Aktiviert einen pendenten Trade nach JA-Klick, holt den aktuellen Kurs.
+
+    Standard ist `active` (Demo-Modus). Bei echter Broker-Ausführung kann der Aufrufer
+    `status='broker_pending'` setzen; dann wird der Trade erst nach Fill zu `active`.
+    """
+    if status not in ("active", "broker_pending"):
+        raise ValueError(f"Ungültiger Aktivierungsstatus: {status}")
     with _connect() as conn:
         row = conn.execute(
             "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
@@ -771,11 +800,58 @@ def activate_trade(user_id: int, ticker: str) -> dict | None:
             entry_price = float(signal["price"])
 
         conn.execute(
-            "UPDATE trades SET status = 'active', entry = ? WHERE id = ?",
-            (entry_price, row["id"]),
+            "UPDATE trades SET status = ?, entry = ? WHERE id = ?",
+            (status, entry_price, row["id"]),
         )
-    log.info(f"Trade aktiviert: user_id={user_id} {ticker} @ ${entry_price:.2f}")
+    log.info(f"Trade aktiviert: user_id={user_id} {ticker} @ ${entry_price:.2f} ({status})")
     return get_trade(user_id, ticker)
+
+
+def mark_broker_pending(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
+    """Speichert, dass die Broker-Order angenommen, aber noch nicht gefüllt ist."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE trades
+               SET status = 'broker_pending', broker_order_id = ?, broker_status = ?,
+                   broker_updated_at = datetime('now')
+               WHERE user_id = ? AND ticker = ? AND status IN ('broker_pending', 'active')""",
+            (order_id, broker_status, user_id, ticker),
+        )
+        return cur.rowcount > 0
+
+
+def mark_broker_filled(user_id: int, ticker: str, *, broker_status: str = "filled",
+                       filled_qty: float | None = None, filled_avg_price: float | None = None) -> bool:
+    """Macht aus einer broker_pending-Order erst nach tatsächlichem Fill einen aktiven Trade."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, entry FROM trades WHERE user_id = ? AND ticker = ? AND status = 'broker_pending' "
+            "ORDER BY trade_date DESC, id DESC LIMIT 1",
+            (user_id, ticker),
+        ).fetchone()
+        if not row:
+            return False
+        entry = float(filled_avg_price or row["entry"] or 0)
+        cur = conn.execute(
+            """UPDATE trades
+               SET status = 'active', entry = ?, broker_status = ?, broker_filled_qty = ?,
+                   broker_filled_avg_price = ?, broker_updated_at = datetime('now')
+               WHERE id = ?""",
+            (entry, broker_status, filled_qty, filled_avg_price, row["id"]),
+        )
+        return cur.rowcount > 0
+
+
+def mark_broker_failed(user_id: int, ticker: str, *, broker_status: str | None) -> bool:
+    """Markiert eine nicht ausgeführte Broker-Order; sie darf nicht als aktiver Trade erscheinen."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE trades
+               SET status = 'broker_failed', broker_status = ?, broker_updated_at = datetime('now')
+               WHERE user_id = ? AND ticker = ? AND status IN ('broker_pending', 'active')""",
+            (broker_status, user_id, ticker),
+        )
+        return cur.rowcount > 0
 
 
 def reject_trade(user_id: int, ticker: str) -> bool:
@@ -815,6 +891,16 @@ def get_pending_trades(user_id: int) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND status = 'pending'",
             (user_id, _today()),
+        ).fetchall()
+    return [_trade_to_dict(r) for r in rows]
+
+
+def get_broker_pending_trades(user_id: int) -> list[dict]:
+    """Broker-Orders, die angenommen, aber noch nicht tatsächlich gefüllt wurden."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE user_id = ? AND status = 'broker_pending' ORDER BY trade_date ASC, id ASC",
+            (user_id,),
         ).fetchall()
     return [_trade_to_dict(r) for r in rows]
 

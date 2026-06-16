@@ -106,6 +106,37 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert jq.run_daily.call_count == 3                        # Eröffnungs-Signale, Auswertung, Smart-Money
 
 
+def test_monitor_promotes_filled_broker_pending_trade():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 80}, 1)
+    db.activate_trade(CHAT, "NVDA", status="broker_pending")
+    db.mark_broker_pending(CHAT, "NVDA", order_id="ord-1", broker_status="accepted")
+
+    orig_ready, orig_client, orig_status = bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot.broker.get_order_status = lambda order_id, client=None: {
+        "ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 101.5}
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_trades(ctx))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status = orig_ready, orig_client, orig_status
+
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "active"
+    assert trade["entry"] == 101.5
+    assert trade["broker_status"] == "filled"
+    ctx.bot.send_message.assert_awaited()
+
+
 def test_monitor_evaluates_each_trade_with_its_own_strategy():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock

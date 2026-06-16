@@ -104,6 +104,29 @@ def test_accept_and_sell_via_web():
     assert db.get_active_trades(CHAT) == []
 
 
+def test_web_accept_with_broker_exec_tracks_order_fill(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    calls = []
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: calls.append((symbol, kwargs)) or {"ok": True, "id": "ord-web", "detail": "NVDA ×1"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 101.25})
+
+    r = _client().post("/app/accept", data={"ticker": "NVDA"}, headers={"X-Requested-With": "fetch"})
+
+    assert r.json()["status"] == "filled"
+    assert calls and calls[0][0] == "NVDA"
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "active"
+    assert trade["entry"] == 101.25
+    assert trade["broker_order_id"] == "ord-web"
+    assert trade["broker_status"] == "filled"
+
+
 def test_reject_via_web():
     fresh()
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0}, 1)
