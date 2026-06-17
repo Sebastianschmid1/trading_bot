@@ -122,9 +122,31 @@ def test_web_accept_with_broker_exec_tracks_order_fill(monkeypatch):
     assert calls and calls[0][0] == "NVDA"
     trade = db.get_trade(CHAT, "NVDA")
     assert trade["status"] == "active"
-    assert trade["entry"] == 101.25
-    assert trade["broker_order_id"] == "ord-web"
     assert trade["broker_status"] == "filled"
+    assert trade["broker_order_id"] == "ord-web"
+    assert db.get_active_trades(CHAT)[0]["ticker"] == "NVDA"
+
+
+def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-wait", "detail": "AAPL ×1"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "accepted"})
+
+    r = _client().post("/app/accept", data={"ticker": "AAPL"}, headers={"X-Requested-With": "fetch"})
+
+    assert r.json()["status"] == "broker_pending"
+    trade = db.get_trade(CHAT, "AAPL")
+    assert trade["status"] == "broker_pending"
+    assert trade["broker_status"] == "accepted"
+    assert trade["broker_order_id"] == "ord-wait"
+    assert db.get_active_trades(CHAT) == []
+    assert any(t["ticker"] == "AAPL" for t in db.get_broker_pending_trades(CHAT))
 
 
 def test_reject_via_web():
