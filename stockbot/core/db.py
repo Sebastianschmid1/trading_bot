@@ -854,6 +854,31 @@ def mark_broker_failed(user_id: int, ticker: str, *, broker_status: str | None) 
         return cur.rowcount > 0
 
 
+def mark_broker_closing(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
+    """Speichert, dass eine Broker-Schließung angestoßen wurde, die Position aber noch offen ist."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE trades
+               SET status = 'broker_closing', broker_order_id = ?, broker_status = ?,
+                   broker_updated_at = datetime('now')
+               WHERE user_id = ? AND ticker = ? AND status IN ('active', 'broker_closing')""",
+            (order_id, broker_status, user_id, ticker),
+        )
+        return cur.rowcount > 0
+
+
+def mark_broker_close_failed(user_id: int, ticker: str, *, broker_status: str | None) -> bool:
+    """Bringt einen fehlgeschlagenen Sell-Versuch wieder in den aktiven Zustand zurück."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE trades
+               SET status = 'active', broker_status = ?, broker_updated_at = datetime('now')
+               WHERE user_id = ? AND ticker = ? AND status = 'broker_closing'""",
+            (broker_status, user_id, ticker),
+        )
+        return cur.rowcount > 0
+
+
 def reject_trade(user_id: int, ticker: str) -> bool:
     """Markiert den heutigen Trade als abgelehnt. Gibt True zurück, falls ein Datensatz aktualisiert wurde."""
     with _connect() as conn:
@@ -905,6 +930,16 @@ def get_broker_pending_trades(user_id: int) -> list[dict]:
     return [_trade_to_dict(r) for r in rows]
 
 
+def get_broker_closing_trades(user_id: int) -> list[dict]:
+    """Broker-Schließungen, die angestoßen wurden, aber noch nicht final bestätigt sind."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE user_id = ? AND status = 'broker_closing' ORDER BY trade_date ASC, id ASC",
+            (user_id,),
+        ).fetchall()
+    return [_trade_to_dict(r) for r in rows]
+
+
 def get_trade(user_id: int, ticker: str) -> dict | None:
     """Relevantester Trade einer Aktie: aktiver (über Nacht gehaltener) zuerst, sonst der heutige.
     So funktioniert Verkaufen/Hebel auch bei datumsübergreifend offenen Trades."""
@@ -924,7 +959,7 @@ def close_all(user_id: int, results: list[dict]):
         for r in results:
             conn.execute(
                 """UPDATE trades SET status = 'closed', exit = ?, pnl_eur = ?, pnl_pct = ?
-                   WHERE user_id = ? AND ticker = ? AND status = 'active'""",
+                   WHERE user_id = ? AND ticker = ? AND status IN ('active', 'broker_closing')""",
                 (r["exit"], r["pnl_eur"], r["pnl_pct"], user_id, r["ticker"]),
             )
     log.info(f"user_id={user_id}: {len(results)} Trades geschlossen.")

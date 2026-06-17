@@ -86,7 +86,8 @@ def set_pending_leverage(user_id: int, ticker: str, leverage: float) -> dict | N
     return db.get_trade(user_id, ticker)
 
 
-def sell_trade(user_id: int, ticker: str, *, current_premium: float | None = None) -> dict:
+def sell_trade(user_id: int, ticker: str, *, current_premium: float | None = None,
+               broker_close: bool = False) -> dict:
     """Schließt einen aktiven Demo-Trade zum aktuellen Kurs (realisierter, gehebelter P&L).
 
     Rückgabe bei Erfolg: {"ok": True, trade, entry, current, leverage, pnl_pct, pnl_eur,
@@ -94,6 +95,8 @@ def sell_trade(user_id: int, ticker: str, *, current_premium: float | None = Non
     Schließt NUR den Demo-Trade in der DB — eine echte Broker-Position schließt der Aufrufer.
     Bei Options-Trades wird, wenn `current_premium` übergeben wird, nichtlinear bewertet,
     sonst über die Omega-Näherung (siehe evaluator.trade_pnl).
+    Wenn `broker_close=True`, wird der Trade nur auf `broker_closing` gesetzt; das endgültige
+    Schließen übernimmt der Aufrufer nach der Broker-Bestätigung.
     """
     user = db.get_user(user_id)
     trade = db.get_trade(user_id, ticker)
@@ -105,6 +108,25 @@ def sell_trade(user_id: int, ticker: str, *, current_premium: float | None = Non
     current = get_current_price(ticker, entry)
     pnl_pct, pnl_eur = trade_pnl(trade, current, user["trade_size_eur"],
                                  current_premium=current_premium)
+
+    if broker_close:
+        db.mark_broker_closing(user_id, ticker, order_id=None, broker_status="requested")
+        pts = db.get_today_ticks(user_id).get(ticker, [])
+        exit_strength = pts[-1].get("strength") if pts else None
+        return {
+            "ok": True,
+            "trade": trade,
+            "entry": entry,
+            "current": current,
+            "leverage": leverage,
+            "pnl_pct": pnl_pct,
+            "pnl_eur": pnl_eur,
+            "entry_strength": trade.get("signal", {}).get("strength"),
+            "exit_strength": exit_strength,
+            "broker_close": True,
+            "status": "broker_closing",
+        }
+
     db.close_all(user_id, [{"ticker": ticker, "exit": current,
                             "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
 

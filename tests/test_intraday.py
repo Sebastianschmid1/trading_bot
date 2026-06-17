@@ -146,10 +146,9 @@ def test_monitor_marks_canceled_broker_pending_trade_failed():
     db.save_profile(CHAT, trade_size_eur=25.0)
     db.set_broker_exec(CHAT, True)
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
-                          "leverage": 1.0, "strength": 80}, 1)
+                          "leverage": 1.0, "strength": 70.0}, 1)
     db.activate_trade(CHAT, "AAPL", status="broker_pending")
-    db.mark_broker_pending(CHAT, "AAPL", order_id="ord-2", broker_status="accepted")
-
+    db.mark_broker_pending(CHAT, "AAPL", order_id="ord-1", broker_status="accepted")
     orig_ready, orig_client, orig_status = bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status
     bot._alpaca_ready = lambda user: True
     bot._alpaca_client = lambda user: object()
@@ -165,6 +164,65 @@ def test_monitor_marks_canceled_broker_pending_trade_failed():
     assert trade["broker_status"] == "canceled"
     assert db.get_active_trades(CHAT) == []
     ctx.bot.send_message.assert_awaited()
+
+
+def test_monitor_promotes_filled_broker_closing_trade():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "MSFT", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "MSFT")
+    db.mark_broker_closing(CHAT, "MSFT", order_id="ord-sell", broker_status="accepted")
+    orig_ready, orig_client, orig_status = bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot.broker.get_order_status = lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 104.0}
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_broker_closing(ctx.bot))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status = orig_ready, orig_client, orig_status
+
+    trade = db.get_trade(CHAT, "MSFT")
+    assert trade["status"] == "closed"
+    assert db.get_active_trades(CHAT) == []
+    assert ctx.bot.send_message.await_count >= 1
+
+
+def test_monitor_reverts_failed_broker_closing_trade():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "TSLA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "TSLA")
+    db.mark_broker_closing(CHAT, "TSLA", order_id="ord-sell2", broker_status="accepted")
+    orig_ready, orig_client, orig_status = bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot.broker.get_order_status = lambda order_id, client=None: {"ok": True, "status": "canceled"}
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_broker_closing(ctx.bot))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status = orig_ready, orig_client, orig_status
+
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade["status"] == "active"
+    assert trade["broker_status"] == "canceled"
+    assert any(t["ticker"] == "TSLA" for t in db.get_active_trades(CHAT))
+    ctx.bot.send_message.assert_awaited()
+
+
 
 
 def test_monitor_evaluates_each_trade_with_its_own_strategy():

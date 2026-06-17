@@ -149,6 +149,51 @@ def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):
     assert any(t["ticker"] == "AAPL" for t in db.get_broker_pending_trades(CHAT))
 
 
+def test_web_sell_with_broker_exec_sets_broker_closing(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-buy", "detail": "NVDA ×1"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 100.0})
+    _client().post("/app/accept", data={"ticker": "NVDA"}, headers={"X-Requested-With": "fetch"})
+
+    monkeypatch.setattr(webapp.broker, "close_position", lambda symbol, client=None: {"ok": True, "closed": True, "id": "ord-sell"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "accepted"})
+
+    _client().post("/app/sell", data={"ticker": "NVDA"}, follow_redirects=False)
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "broker_closing"
+    assert trade["broker_status"] == "accepted"
+    assert trade["broker_order_id"] == "ord-sell"
+    assert db.get_active_trades(CHAT) == []
+    assert any(t["ticker"] == "NVDA" for t in db.get_broker_closing_trades(CHAT))
+
+
+def test_web_sell_with_broker_exec_closes_after_fill(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "TSLA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-buy2", "detail": "TSLA ×1"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 100.0})
+    _client().post("/app/accept", data={"ticker": "TSLA"}, headers={"X-Requested-With": "fetch"})
+
+    monkeypatch.setattr(webapp.broker, "close_position", lambda symbol, client=None: {"ok": True, "closed": True, "id": "ord-sell2"})
+    monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 105.0})
+
+    _client().post("/app/sell", data={"ticker": "TSLA"}, follow_redirects=False)
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade["status"] == "closed"
+    assert db.get_active_trades(CHAT) == []
+
+
 def test_reject_via_web():
     fresh()
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0}, 1)

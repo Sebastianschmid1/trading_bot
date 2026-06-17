@@ -131,6 +131,38 @@
 <p class="muted">Keine offenen Trades.</p>
 {% endif %}
 
+<h2>Offene Verkäufe / Broker-Close ({{ broker_closing|length }})</h2>
+{% if broker_closing %}
+<div class="card" style="overflow-x:auto">
+  <table style="width:100%; border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left; border-bottom:1px solid #2a3342">
+        <th style="padding:.35rem .5rem">Status</th>
+        <th style="padding:.35rem .5rem">Ticker</th>
+        <th style="padding:.35rem .5rem">Einstieg</th>
+        <th style="padding:.35rem .5rem">Letzter Kurs</th>
+        <th style="padding:.35rem .5rem">Hebel</th>
+        <th style="padding:.35rem .5rem">Broker</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in broker_closing %}
+      <tr style="border-bottom:1px solid #202634">
+        <td style="padding:.35rem .5rem">{{ t.status }}</td>
+        <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
+        <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.entry) }}</td>
+        <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.current) }}</td>
+        <td style="padding:.35rem .5rem">{{ '%.1f'|format(t.leverage) }}×</td>
+        <td style="padding:.35rem .5rem">{{ t.broker_status or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">Keine laufenden Verkaufsorders.</p>
+{% endif %}
+
 <h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>
 <div class="row" style="margin:.2rem 0 .6rem; gap:.3rem">
   <span class="muted">Filter:</span>

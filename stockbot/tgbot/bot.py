@@ -456,6 +456,77 @@ async def _maybe_broker_close(bot: Bot, user: dict, ticker: str, *, broker_symbo
     await _reconcile_and_alert(bot, user, client, context="nach Schließung")
 
 
+async def _maybe_broker_close_trade(bot: Bot, user: dict, trade: dict, *, broker_symbol: str | None = None) -> dict:
+    """Broker-gestützter Sell-Flow: Order senden, Status poll-en und DB erst bei Fill schließen."""
+    if not user or not user.get("broker_exec") or not _alpaca_ready(user):
+        return {"ok": False, "reason": "broker_unavailable"}
+    client = _alpaca_client(user)
+    if client is None:
+        return {"ok": False, "reason": "broker_unavailable"}
+
+    symbol = broker_symbol or trade["ticker"]
+    res = await asyncio.to_thread(broker.close_position, symbol, client=client)
+    mode = "PAPER" if ALPACA_PAPER else "LIVE"
+
+    if not res.get("ok"):
+        db.mark_broker_close_failed(user["user_id"], trade["ticker"], broker_status=res.get("detail"))
+        await bot.send_message(
+            chat_id=user["user_id"],
+            text=f"⚠️ Alpaca-{mode}: Verkauf von *{symbol}* konnte nicht gestartet werden: {res['detail']}",
+            parse_mode="Markdown",
+        )
+        await _reconcile_and_alert(bot, user, client, context="nach Verkaufsfehler")
+        return {"ok": False, "status": "submit_failed", "detail": res.get("detail")}
+
+    order_id = res.get("id")
+    if not order_id:
+        db.mark_broker_close_failed(user["user_id"], trade["ticker"], broker_status="missing_order_id")
+        await bot.send_message(
+            chat_id=user["user_id"],
+            text=f"⚠️ Alpaca-{mode}: Verkauf von *{symbol}* wurde ohne Order-ID angenommen.",
+            parse_mode="Markdown",
+        )
+        await _reconcile_and_alert(bot, user, client, context="nach Verkaufsfehler")
+        return {"ok": False, "status": "missing_order_id"}
+
+    fill = await asyncio.to_thread(broker.get_order_status, order_id, client)
+    status = fill.get("status", "unbekannt")
+    if status == "filled":
+        q = fill.get("filled_qty", 0.0)
+        px = fill.get("filled_avg_price", 0.0) or fill.get("avg_fill_price", 0.0) or trade.get("entry", 0.0)
+        pnl_pct, pnl_eur = trade_pnl(trade, float(px), user["trade_size_eur"])
+        db.close_all(user["user_id"], [{"ticker": trade["ticker"], "exit": float(px),
+                                        "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
+        await bot.send_message(
+            chat_id=user["user_id"],
+            text=(f"✅ Alpaca-{mode}: *{symbol}* verkauft ({q:g} @ ${float(px):.2f}).\n"
+                  f"Der Trade ist jetzt wirklich geschlossen."),
+            parse_mode="Markdown",
+        )
+        await _reconcile_and_alert(bot, user, client, context="nach Verkauf")
+        return {"ok": True, "status": "closed", "filled_qty": q, "filled_avg_price": float(px)}
+
+    final_fail = {"rejected", "canceled", "expired", "done_for_day"}
+    if status in final_fail:
+        db.mark_broker_close_failed(user["user_id"], trade["ticker"], broker_status=status)
+        await bot.send_message(
+            chat_id=user["user_id"],
+            text=f"⚠️ Alpaca-{mode}: Verkauf von *{symbol}* wurde nicht ausgeführt (Status: {status}). Der Trade bleibt aktiv.",
+            parse_mode="Markdown",
+        )
+        await _reconcile_and_alert(bot, user, client, context="nach fehlgeschlagenem Verkauf")
+        return {"ok": False, "status": "failed", "broker_status": status}
+
+    db.mark_broker_closing(user["user_id"], trade["ticker"], order_id=order_id, broker_status=status)
+    await bot.send_message(
+        chat_id=user["user_id"],
+        text=(f"⏳ Alpaca-{mode}: Verkaufsorder für *{symbol}* angenommen (Status: {status}).\n"
+              f"Der Trade bleibt bis zur Fill-Bestätigung offen."),
+        parse_mode="Markdown",
+    )
+    return {"ok": True, "status": "broker_closing", "broker_status": status, "order_id": order_id}
+
+
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
                       job_queue=None, market_open: bool = True,
                       sl_tp_mode: str = DEFAULT_SL_TP_MODE, leverage: float = DEFAULT_LEVERAGE,
@@ -832,10 +903,51 @@ async def monitor_broker_pending(bot: Bot):
                 db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
+async def monitor_broker_closing(bot: Bot):
+    """Pollt offene Broker-Schließungen und schließt Trades erst bei tatsächlichem Fill."""
+    final_fail = {"rejected", "canceled", "expired", "done_for_day"}
+    for user in db.list_active_users():
+        if not user.get("broker_exec") or not _alpaca_ready(user):
+            continue
+        client = _alpaca_client(user)
+        if client is None:
+            continue
+        for trade in db.get_broker_closing_trades(user["user_id"]):
+            order_id = trade.get("broker_order_id")
+            if not order_id:
+                continue
+            st = await asyncio.to_thread(broker.get_order_status, order_id, client)
+            status = st.get("status", "unbekannt")
+            ticker = trade["ticker"]
+            if status == "filled":
+                q = st.get("filled_qty", 0.0)
+                px_raw = st.get("filled_avg_price", 0.0) or st.get("avg_fill_price", 0.0) or trade.get("exit") or trade.get("entry") or 0.0
+                px = float(px_raw)
+                pnl_pct, pnl_eur = trade_pnl(trade, px, user["trade_size_eur"])
+                db.close_all(user["user_id"], [{"ticker": ticker, "exit": px,
+                                                "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
+                await bot.send_message(
+                    chat_id=user["user_id"],
+                    text=(f"✅ Broker-Verkauf jetzt ausgeführt: *{ticker}* {q:g} × @ ${px:.2f}.\n"
+                          f"Der Trade ist jetzt geschlossen."),
+                    parse_mode="Markdown",
+                )
+            elif status in final_fail:
+                db.mark_broker_close_failed(user["user_id"], ticker, broker_status=status)
+                await bot.send_message(
+                    chat_id=user["user_id"],
+                    text=f"⚠️ Broker-Verkauf für *{ticker}* wurde nicht ausgeführt (Status: {status}). Der Trade bleibt aktiv.",
+                    parse_mode="Markdown",
+                )
+            else:
+                db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
+
+
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
     """Job (alle 60s): Broker-Pending pollt, aktive Trades prüft, Verlauf aufzeichnet,
     bei SL/TP oder Signal-Verfall automatisch schließt."""
     await monitor_broker_pending(context.bot)
+    await monitor_broker_closing(context.bot)
     if not _us_market_open():
         return
 
@@ -1734,32 +1846,59 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ Trade bereits bearbeitet oder nicht gefunden.", show_alert=True)
 
     elif action == "sell":
-        result = trade_svc.sell_trade(chat_id, ticker)
-        if not result["ok"]:
-            await query.answer("⚠️ Trade ist nicht mehr aktiv.", show_alert=True)
-            try:
-                await query.edit_message_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-            return
+        user = db.get_user(chat_id) or {}
+        if user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None:
+            result = trade_svc.sell_trade(chat_id, ticker, broker_close=True)
+            if not result["ok"]:
+                await query.answer("⚠️ Trade ist nicht mehr aktiv.", show_alert=True)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+                return
 
-        entry, current, leverage = result["entry"], result["current"], result["leverage"]
-        pnl_pct, pnl_eur = result["pnl_pct"], result["pnl_eur"]
-        sign = "+" if pnl_eur >= 0 else ""
-        emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
-        await query.edit_message_reply_markup(reply_markup=None)
-        await query.edit_message_text(
-            query.message.text +
-            f"\n\n{emoji} *Verkauft* — Einstieg ${entry:.2f} → Ausstieg ${current:.2f} (Hebel {leverage:g}×)\n"
-            f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
-            f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
-            f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
-            parse_mode="Markdown"
-        )
-        # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
-        await _maybe_broker_close(context.bot, db.get_user(chat_id), ticker,
-                                  broker_symbol=reconcile_mod.bot_symbol(result["trade"]))
-        log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
+            entry, current, leverage = result["entry"], result["current"], result["leverage"]
+            pnl_pct, pnl_eur = result["pnl_pct"], result["pnl_eur"]
+            sign = "+" if pnl_eur >= 0 else ""
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.edit_message_text(
+                (query.message.text or "") +
+                f"\n\n⏳ *Verkauf läuft* — Einstieg ${entry:.2f} → angefragt bei Alpaca (Hebel {leverage:g}×)\n"
+                f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
+                f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
+                f"Vorläufig: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
+                parse_mode="Markdown"
+            )
+            await _maybe_broker_close_trade(context.bot, user, result["trade"],
+                                            broker_symbol=reconcile_mod.bot_symbol(result["trade"]))
+            log.info(f"[{chat_id}] Broker-Verkauf angestoßen: {ticker}")
+        else:
+            result = trade_svc.sell_trade(chat_id, ticker)
+            if not result["ok"]:
+                await query.answer("⚠️ Trade ist nicht mehr aktiv.", show_alert=True)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+                return
+
+            entry, current, leverage = result["entry"], result["current"], result["leverage"]
+            pnl_pct, pnl_eur = result["pnl_pct"], result["pnl_eur"]
+            sign = "+" if pnl_eur >= 0 else ""
+            emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.edit_message_text(
+                (query.message.text or "") +
+                f"\n\n{emoji} *Verkauft* — Einstieg ${entry:.2f} → Ausstieg ${current:.2f} (Hebel {leverage:g}×)\n"
+                f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
+                f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
+                f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
+                parse_mode="Markdown"
+            )
+            # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
+            await _maybe_broker_close(context.bot, user, ticker,
+                                      broker_symbol=reconcile_mod.bot_symbol(result["trade"]))
+            log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
 
     elif action in settings_svc.SETTING_ACTIONS:
         # 'ticker' trägt hier den Wert der Aktion (Korb-Key / Zahl / "1"/"0" …)

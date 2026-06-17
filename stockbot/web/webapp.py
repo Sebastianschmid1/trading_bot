@@ -19,11 +19,13 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from stockbot.core import db
+from stockbot.core.evaluator import trade_pnl
 from stockbot.market import strategies
 from stockbot.market import asset_classes
 from stockbot.market import analyzer
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
+from stockbot.broker import reconcile as reconcile_mod
 from stockbot import config
 from stockbot.services import trades as trade_svc
 from stockbot.services import settings as settings_svc
@@ -102,22 +104,25 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
     """
     if not trade or not _broker_will_execute(user):
         return {"ok": True, "status": trade.get("status", "active") if trade else "unavailable"}
+
     client = _alpaca_client(user)
-    sig = trade.get("signal", {})
+    if client is None:
+        db.mark_broker_failed(user["user_id"], trade["ticker"], broker_status="not_submitted")
+        return {"ok": False, "status": "broker_failed", "msg": "Alpaca nicht verfügbar."}
+
     ticker = trade["ticker"]
-    entry = trade.get("entry") or sig.get("price")
-    if not entry:
-        db.mark_broker_failed(user["user_id"], ticker, broker_status="missing_entry")
+    leverage = float((trade.get("signal") or {}).get("leverage") or 1.0)
+    entry = trade.get("entry") or (trade.get("signal") or {}).get("price")
+    if entry is None:
+        db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
         return {"ok": False, "status": "broker_failed", "msg": "Kein Einstiegskurs verfügbar."}
 
-    leverage = float(sig.get("leverage", 1.0) or 1.0)
-    budget = float(user["trade_size_eur"])
     extended = bool(config.EXTENDED_HOURS and broker.market_open(client) is False)
-    if sig.get("option_symbol") and not extended:
-        plan = {"kind": "option", "option_symbol": sig["option_symbol"], "qty": int(sig["contracts"]),
-                "premium": float(sig["entry_premium"])}
+    if leverage > 1.0:
+        plan = sizing.plan_order(float(entry), float(user["trade_size_eur"]), leverage,
+                                 option_selector=None, extended=extended)
     else:
-        plan = sizing.plan_order(float(entry), budget, leverage,
+        plan = sizing.plan_order(float(entry), float(user["trade_size_eur"]), leverage,
                                  option_selector=None, extended=extended)
 
     if plan["kind"] == "none":
@@ -154,6 +159,42 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
         return {"ok": False, "status": "broker_failed", "msg": f"Broker-Order nicht ausgeführt ({status})."}
     db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status=status)
     return {"ok": True, "status": "broker_pending", "msg": f"Broker-Order angenommen, aber noch nicht ausgeführt ({status})."}
+
+
+def _execute_broker_close_for_web(user: dict, trade: dict) -> dict:
+    client = _alpaca_client(user)
+    if client is None:
+        db.mark_broker_close_failed(user["user_id"], trade["ticker"], broker_status="not_submitted")
+        return {"ok": False, "status": "broker_failed_close", "msg": "Alpaca nicht verfügbar."}
+
+    ticker = trade["ticker"]
+    symbol = reconcile_mod.bot_symbol(trade)
+    res = broker.close_position(symbol, client=client)
+    mode = "PAPER" if config.ALPACA_PAPER else "LIVE"
+    if not res.get("ok"):
+        db.mark_broker_close_failed(user["user_id"], ticker, broker_status=res.get("detail") or "submit_failed")
+        return {"ok": False, "status": "broker_failed_close", "msg": f"Alpaca-{mode}: {res.get('detail')}"}
+
+    order_id = res.get("id")
+    if not order_id:
+        db.mark_broker_close_failed(user["user_id"], ticker, broker_status="missing_order_id")
+        return {"ok": False, "status": "broker_failed_close", "msg": f"Alpaca-{mode}: Verkauf ohne Order-ID."}
+
+    fill = broker.get_order_status(order_id, client)
+    status = fill.get("status", "unbekannt")
+    if status == "filled":
+        q = fill.get("filled_qty", 0.0)
+        px = float(fill.get("filled_avg_price") or fill.get("avg_fill_price") or trade.get("exit") or trade.get("entry") or 0.0)
+        pnl_pct, pnl_eur = trade_pnl(trade, px, user["trade_size_eur"])
+        db.close_all(user["user_id"], [{"ticker": ticker, "exit": px, "pnl_eur": pnl_eur, "pnl_pct": pnl_pct}])
+        return {"ok": True, "status": "closed", "msg": f"{ticker} verkauft.", "filled_qty": q, "filled_avg_price": px}
+
+    if status in ("rejected", "canceled", "expired", "done_for_day"):
+        db.mark_broker_close_failed(user["user_id"], ticker, broker_status=status)
+        return {"ok": False, "status": "broker_failed_close", "msg": f"Broker-Verkauf nicht ausgeführt ({status})."}
+
+    db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
+    return {"ok": True, "status": "broker_closing", "msg": f"Broker-Verkauf angenommen ({status})."}
 
 
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
@@ -301,6 +342,28 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
             "broker_order_id": row["broker_order_id"],
         })
         pending_trade_rows.append(row)
+    broker_closing = []
+    for t in db.get_broker_closing_trades(user["user_id"]):
+        sig = t.get("signal", {}) or {}
+        row = {
+            "kind": "broker_closing",
+            "status": "Verkauf läuft",
+            "ticker": t["ticker"],
+            "direction": t.get("direction") or sig.get("direction", "long"),
+            "price": t.get("entry") or sig.get("price") or 0.0,
+            "current": t.get("exit") or t.get("entry") or sig.get("price") or 0.0,
+            "leverage": sig.get("leverage", 1.0) or 1.0,
+            "broker_status": t.get("broker_status") or "requested",
+            "broker_order_id": t.get("broker_order_id"),
+        }
+        broker_closing.append({
+            "ticker": row["ticker"], "direction": row["direction"],
+            "entry": row["price"], "current": row["current"],
+            "leverage": row["leverage"], "broker_status": row["broker_status"],
+            "broker_order_id": row["broker_order_id"],
+        })
+        pending_trade_rows.append(row)
+
     # Anlageklasse je aktivem Trade ableiten + optional filtern (atf = Klassen-Key oder leer = alle)
     label_by_key = {c.key: c.label for c in asset_classes.all_asset_classes()}
     for t in active_trades:
@@ -311,7 +374,7 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
     return _render("app.html", request, user, active="home", msg=msg,
                    pending=pending, pending_trade_rows=pending_trade_rows,
-                   broker_pending=broker_pending, active_trades=active_trades,
+                   broker_pending=broker_pending, broker_closing=broker_closing, active_trades=active_trades,
                    leverages=config.LEVERAGE_CHOICES,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=_scanned_for(user), trade_filter=atf)
@@ -451,6 +514,21 @@ async def app_sell(request: Request, ticker: str = Form(...)):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
+    trade = db.get_trade(user["user_id"], ticker)
+    if not trade or trade.get("status") != "active":
+        return _redirect("/app?msg=Trade+nicht+mehr+aktiv.")
+
+    if _broker_will_execute(user):
+        res = await run_in_threadpool(trade_svc.sell_trade, user["user_id"], ticker, broker_close=True)
+        if not res["ok"]:
+            return _redirect("/app?msg=Trade+nicht+mehr+aktiv.")
+        broker_res = await run_in_threadpool(_execute_broker_close_for_web, user, res["trade"])
+        if broker_res.get("status") == "closed":
+            msg = f"{ticker} verkauft: {broker_res.get('filled_avg_price', 0.0):.2f}$"
+        else:
+            msg = broker_res.get("msg") or "Verkauf läuft weiter bei Alpaca."
+        return _redirect(f"/app?msg={msg}")
+
     res = await run_in_threadpool(trade_svc.sell_trade, user["user_id"], ticker)
     if res["ok"]:
         msg = f"{ticker} verkauft: {res['pnl_eur']:+.2f}€"

@@ -129,6 +129,26 @@ def test_sell_trade_computes_leveraged_pnl_and_closes():
     assert trade_svc.sell_trade(CHAT, "NVDA")["ok"] is False
 
 
+def test_sell_trade_can_wait_for_broker_close_before_becoming_closed():
+    fresh_db(price=100.0)
+    _pending("NVDA", leverage=2.0)
+    trade_svc.accept_trade(CHAT, "NVDA")
+
+    orig = trade_svc.get_current_price
+    trade_svc.get_current_price = lambda ticker, fallback: 108.0
+    try:
+        res = trade_svc.sell_trade(CHAT, "NVDA", broker_close=True)
+    finally:
+        trade_svc.get_current_price = orig
+
+    assert res["ok"] and res["status"] == "broker_closing"
+    assert db.get_active_trades(CHAT) == []
+    assert any(t["ticker"] == "NVDA" for t in db.get_broker_closing_trades(CHAT))
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "broker_closing"
+    assert trade["broker_status"] == "requested"
+
+
 # ── settings-Service ───────────────────────────────────────────────────────────
 
 def test_apply_setting_dispatch_and_validation():
