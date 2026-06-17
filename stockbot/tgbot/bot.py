@@ -69,6 +69,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
+BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 
 # ── Kandidaten-Cache (für das Nachrücken ohne Duplikate) ────────────────────
 
@@ -904,7 +905,10 @@ async def monitor_broker_pending(bot: Bot):
 
 
 async def monitor_broker_closing(bot: Bot):
-    """Pollt offene Broker-Schließungen und schließt Trades erst bei tatsächlichem Fill."""
+    """Pollt offene Broker-Schließungen und schließt Trades erst bei tatsächlichem Fill.
+
+    Wenn eine Schließungsorder länger als BROKER_REPRICE_AFTER_SEC offen bleibt, wird sie
+    storniert und mit einem aggressiveren Limit neu eingestellt (Repricing)."""
     final_fail = {"rejected", "canceled", "expired", "done_for_day"}
     for user in db.list_active_users():
         if not user.get("broker_exec") or not _alpaca_ready(user):
@@ -919,6 +923,14 @@ async def monitor_broker_closing(bot: Bot):
             st = await asyncio.to_thread(broker.get_order_status, order_id, client)
             status = st.get("status", "unbekannt")
             ticker = trade["ticker"]
+            updated_at = trade.get("broker_updated_at") or ""
+            age_sec = 0
+            try:
+                if updated_at:
+                    age_sec = max(0, int((datetime.utcnow() - datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")).total_seconds()))
+            except Exception:
+                age_sec = 0
+
             if status == "filled":
                 q = st.get("filled_qty", 0.0)
                 px_raw = st.get("filled_avg_price", 0.0) or st.get("avg_fill_price", 0.0) or trade.get("exit") or trade.get("entry") or 0.0
@@ -932,15 +944,56 @@ async def monitor_broker_closing(bot: Bot):
                           f"Der Trade ist jetzt geschlossen."),
                     parse_mode="Markdown",
                 )
-            elif status in final_fail:
+                continue
+
+            if status in final_fail:
                 db.mark_broker_close_failed(user["user_id"], ticker, broker_status=status)
                 await bot.send_message(
                     chat_id=user["user_id"],
                     text=f"⚠️ Broker-Verkauf für *{ticker}* wurde nicht ausgeführt (Status: {status}). Der Trade bleibt aktiv.",
                     parse_mode="Markdown",
                 )
-            else:
-                db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
+                continue
+
+            if age_sec >= BROKER_REPRICE_AFTER_SEC:
+                cancel_res = await asyncio.to_thread(broker.cancel_order, order_id, client)
+                pos = await asyncio.to_thread(broker.get_position, trade["ticker"], client)
+                qty = float((pos or {}).get("qty") or trade.get("broker_filled_qty") or 1.0)
+                current = get_current_price(ticker, trade.get("entry") or 0.0)
+                if current is None:
+                    current = float(trade.get("entry") or 0.0)
+                side = "BUY" if str(trade.get("direction") or "long").lower() == "short" else "SELL"
+                limit_price = float(current) * (1.005 if side == "BUY" else 0.995)
+                if not cancel_res.get("ok"):
+                    db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
+                    continue
+                resubmit = await asyncio.to_thread(
+                    broker.submit_exit_order,
+                    trade["ticker"],
+                    side=side,
+                    qty=qty,
+                    limit_price=limit_price,
+                    client=client,
+                )
+                if not resubmit.get("ok"):
+                    db.mark_broker_close_failed(user["user_id"], ticker, broker_status=resubmit.get("detail") or "repriced_submit_failed")
+                    await bot.send_message(
+                        chat_id=user["user_id"],
+                        text=(f"⚠️ Broker-Verkauf für *{ticker}* wurde neu bepreist, aber der neue Auftrag konnte nicht gesendet werden."),
+                        parse_mode="Markdown",
+                    )
+                    continue
+                new_order_id = resubmit.get("id", order_id)
+                db.mark_broker_closing(user["user_id"], ticker, order_id=new_order_id, broker_status="repriced")
+                await bot.send_message(
+                    chat_id=user["user_id"],
+                    text=(f"⏳ Broker-Verkauf für *{ticker}* lief länger als 5 Min.\n"
+                          f"Alte Order storniert und neu eingestellt (Limit ${limit_price:.2f})."),
+                    parse_mode="Markdown",
+                )
+                continue
+
+            db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):

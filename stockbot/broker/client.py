@@ -169,12 +169,85 @@ def list_positions(client=None) -> list[dict]:
     if client is None:
         return []
     try:
-        return [{"symbol": p.symbol, "qty": float(p.qty), "avg_entry": float(p.avg_entry_price),
-                 "unrealized_pl": float(getattr(p, "unrealized_pl", 0) or 0)}
-                for p in client.get_all_positions()]
+        out = []
+        for p in client.get_all_positions():
+            out.append({
+                "symbol": p.symbol,
+                "qty": float(p.qty),
+                "avg_entry": float(p.avg_entry_price),
+                "side": str(getattr(p, "side", "")),
+                "unrealized_pl": float(getattr(p, "unrealized_pl", 0) or 0),
+            })
+        return out
     except Exception as e:
         log.warning(f"Alpaca-Positionen nicht abrufbar: {e}")
         return []
+
+
+def get_position(symbol: str, client=None) -> dict | None:
+    """Einzelne offene Position zu einem Symbol, falls vorhanden."""
+    client = _get_client(client)
+    if client is None:
+        return None
+    try:
+        p = client.get_open_position(symbol)
+        return {
+            "symbol": str(getattr(p, "symbol", symbol)),
+            "qty": float(getattr(p, "qty", 0) or 0),
+            "avg_entry": float(getattr(p, "avg_entry_price", 0) or 0),
+            "side": str(getattr(p, "side", "")),
+            "unrealized_pl": float(getattr(p, "unrealized_pl", 0) or 0),
+        }
+    except Exception as e:
+        msg = str(e).lower()
+        if "position does not exist" in msg or "not found" in msg or "404" in msg:
+            return None
+        log.warning(f"Alpaca-Position {symbol} nicht abrufbar: {e}")
+        return None
+
+
+def cancel_order(order_id: str, client=None) -> dict:
+    """Storniert eine offene Order (Best-effort)."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "canceled": False, "detail": "Alpaca nicht aktiv."}
+    try:
+        client.cancel_order_by_id(order_id)
+        return {"ok": True, "canceled": True, "detail": f"order {order_id} canceled"}
+    except Exception as e:
+        msg = str(e).lower()
+        if "not found" in msg or "404" in msg:
+            return {"ok": True, "canceled": False, "detail": f"order {order_id} nicht gefunden"}
+        return {"ok": False, "canceled": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def submit_exit_order(symbol: str, *, side: str, qty: float, limit_price: float | None = None,
+                      extended_hours: bool = False, client=None) -> dict:
+    """Sendet eine Exit-Order (SELL oder BUY-to-cover) als Market oder Limit."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    try:
+        from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        side_u = str(side).upper()
+        side_enum = OrderSide.SELL if side_u == "SELL" else OrderSide.BUY
+        if limit_price is not None:
+            req = LimitOrderRequest(
+                symbol=symbol, qty=qty, side=side_enum, time_in_force=TimeInForce.DAY,
+                limit_price=round(float(limit_price), 2), extended_hours=extended_hours,
+            )
+            human = f"{symbol} ×{qty:g} {side_u} Limit{'/Ext' if extended_hours else ''}"
+        else:
+            req = MarketOrderRequest(symbol=symbol, qty=qty, side=side_enum, time_in_force=TimeInForce.DAY)
+            human = f"{symbol} ×{qty:g} {side_u} Market"
+        order = client.submit_order(req)
+        log.info(f"Alpaca-ExitOrder {symbol} ({human}) → id={getattr(order, 'id', '?')}")
+        return {"ok": True, "id": str(getattr(order, "id", "")), "detail": human}
+    except Exception as e:
+        log.warning(f"Alpaca-ExitOrder {symbol} fehlgeschlagen: {e}")
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
 
 
 def close_position(symbol: str, client=None) -> dict:

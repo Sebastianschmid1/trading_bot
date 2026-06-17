@@ -223,6 +223,50 @@ def test_monitor_reverts_failed_broker_closing_trade():
     ctx.bot.send_message.assert_awaited()
 
 
+def test_monitor_reprices_stale_broker_closing_trade():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "NVDA")
+    db.mark_broker_closing(CHAT, "NVDA", order_id="ord-old", broker_status="accepted")
+    with db._connect() as conn:
+        conn.execute("UPDATE trades SET broker_updated_at = '2000-01-01 00:00:00' WHERE user_id = ? AND ticker = ?", (CHAT, "NVDA"))
+
+    calls = {}
+    orig_ready, orig_client, orig_status = bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status
+    orig_cancel, orig_pos, orig_submit, orig_price = bot.broker.cancel_order, bot.broker.get_position, bot.broker.submit_exit_order, bot.get_current_price
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot.broker.get_order_status = lambda order_id, client=None: {"ok": True, "status": "accepted"}
+    bot.broker.cancel_order = lambda order_id, client=None: {"ok": True, "canceled": True}
+    bot.broker.get_position = lambda symbol, client=None: {"symbol": symbol, "qty": 2.0}
+    def _submit_exit_order(symbol, **kwargs):
+        calls["symbol"] = symbol
+        calls.update(kwargs)
+        return {"ok": True, "id": "ord-new", "detail": "repriced"}
+    bot.broker.submit_exit_order = _submit_exit_order
+    bot.get_current_price = lambda ticker, fallback: 100.0
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_broker_closing(ctx.bot))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client, bot.broker.get_order_status = orig_ready, orig_client, orig_status
+        bot.broker.cancel_order, bot.broker.get_position, bot.broker.submit_exit_order, bot.get_current_price = orig_cancel, orig_pos, orig_submit, orig_price
+
+    trade = db.get_trade(CHAT, "NVDA")
+    assert trade["status"] == "broker_closing"
+    assert trade["broker_status"] == "repriced"
+    assert trade["broker_order_id"] == "ord-new"
+    assert calls["symbol"] == "NVDA"
+    assert calls["side"] == "SELL"
+    assert round(calls["limit_price"], 2) == 99.5
+    ctx.bot.send_message.assert_awaited()
 
 
 def test_monitor_evaluates_each_trade_with_its_own_strategy():
