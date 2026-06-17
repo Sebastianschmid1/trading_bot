@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS notifications (
     read        INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS strategy_configs (
+    key          TEXT PRIMARY KEY,
+    label        TEXT    NOT NULL,
+    description  TEXT    NOT NULL DEFAULT '',
+    params_json  TEXT    NOT NULL DEFAULT '{}',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_notifications_user
     ON notifications (user_id, read, id);
 """
@@ -167,6 +176,34 @@ def _migrate(conn: sqlite3.Connection):
     if "signal_window" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN signal_window INTEGER NOT NULL DEFAULT 0")
         log.info("Migration: Spalte users.signal_window ergänzt.")
+
+    strategy_cols = {row["name"] for row in conn.execute("PRAGMA table_info(strategy_configs)").fetchall()}
+    if not strategy_cols:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS strategy_configs (
+                   key          TEXT PRIMARY KEY,
+                   label        TEXT    NOT NULL,
+                   description  TEXT    NOT NULL DEFAULT '',
+                   params_json  TEXT    NOT NULL DEFAULT '{}',
+                   enabled      INTEGER NOT NULL DEFAULT 1,
+                   updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+               )"""
+        )
+        strategy_cols = {row["name"] for row in conn.execute("PRAGMA table_info(strategy_configs)").fetchall()}
+        log.info("Migration: Tabelle strategy_configs ergänzt.")
+    for name, ddl in {
+        "label": "ALTER TABLE strategy_configs ADD COLUMN label TEXT NOT NULL DEFAULT ''",
+        "description": "ALTER TABLE strategy_configs ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+        "params_json": "ALTER TABLE strategy_configs ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}'",
+        "enabled": "ALTER TABLE strategy_configs ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+        "updated_at": "ALTER TABLE strategy_configs ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
+    }.items():
+        if name not in strategy_cols:
+            try:
+                conn.execute(ddl)
+                log.info(f"Migration: Spalte strategy_configs.{name} ergänzt.")
+            except Exception:
+                pass
 
     trade_cols = {row["name"] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
     for name, ddl in {
@@ -710,6 +747,76 @@ def unread_count(user_id: int) -> int:
 def mark_notifications_read(user_id: int):
     with _connect() as conn:
         conn.execute("UPDATE notifications SET read = 1 WHERE user_id = ?", (user_id,))
+
+
+# ── Strategie-Konfiguration (Web-Editor + Backtest/Live-Overrides) ────────────
+
+def _strategy_config_to_dict(row: sqlite3.Row) -> dict:
+    params = {}
+    try:
+        params = json.loads(row["params_json"] or "{}") if row and row["params_json"] else {}
+    except Exception:
+        params = {}
+    return {
+        "key": row["key"],
+        "label": row["label"],
+        "description": row["description"],
+        "params": params,
+        "enabled": bool(row["enabled"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_strategy_configs() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT key, label, description, params_json, enabled, updated_at FROM strategy_configs ORDER BY key ASC"
+        ).fetchall()
+    return [_strategy_config_to_dict(r) for r in rows]
+
+
+def get_strategy_config(key: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT key, label, description, params_json, enabled, updated_at FROM strategy_configs WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return _strategy_config_to_dict(row) if row else None
+
+
+def upsert_strategy_config(key: str, label: str, description: str, params: dict | None = None,
+                          enabled: bool = True) -> dict:
+    params = params or {}
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO strategy_configs (key, label, description, params_json, enabled, updated_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET
+                   label = excluded.label,
+                   description = excluded.description,
+                   params_json = excluded.params_json,
+                   enabled = excluded.enabled,
+                   updated_at = datetime('now')""",
+            (key, label, description, json.dumps(params, default=str), 1 if enabled else 0),
+        )
+    row = get_strategy_config(key)
+    return row or {"key": key, "label": label, "description": description, "params": params, "enabled": enabled}
+
+
+def search_strategy_configs(query: str) -> list[dict]:
+    q = (query or "").strip().lower()
+    rows = list_strategy_configs()
+    if not q:
+        return rows
+    out = []
+    for row in rows:
+        blob = " ".join([
+            row["key"], row["label"], row["description"],
+            json.dumps(row.get("params") or {}, sort_keys=True),
+        ]).lower()
+        if q in blob:
+            out.append(row)
+    return out
 
 
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────

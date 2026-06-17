@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from stockbot.market import analyzer
+from stockbot.core import db
 from stockbot.config import RSI_PERIOD, ATR_PERIOD
 
 
@@ -39,6 +40,67 @@ ADX_PARAMS = {
     "ema_regime":  200,    # Regime-Filter (Kurs > EMA200 = bullish)
 }
 
+RSI_PARAMS = {
+    "rsi_buy": 30.0,
+    "ma200": 200,
+    "sl_mult": 1.5,
+    "tp_mult": 2.5,
+}
+
+BREAKOUT_PARAMS = {
+    "lookback": 20,
+    "trend_ma": 50,
+    "vol_window": 20,
+    "sl_mult": 2.0,
+    "tp_mult": 4.0,
+}
+
+MA_TREND_PARAMS = {
+    "ma20": 20,
+    "ma50": 50,
+    "ma200": 200,
+    "sl_mult": 1.5,
+    "tp_mult": 3.0,
+}
+
+HIGH52_PARAMS = {
+    "tol": 0.98,
+    "sl_mult": 2.5,
+    "tp_mult": 5.0,
+}
+
+_STRATEGY_OVERRIDES_CACHE = {"ts": 0.0, "rows": {}}
+_STRATEGY_OVERRIDES_TTL = 20.0
+
+
+def refresh_strategy_overrides_cache():
+    _STRATEGY_OVERRIDES_CACHE["ts"] = 0.0
+
+
+def _strategy_overrides(key: str) -> dict:
+    import time
+    now = time.time()
+    if now - float(_STRATEGY_OVERRIDES_CACHE["ts"]) > _STRATEGY_OVERRIDES_TTL:
+        rows = {r["key"]: r for r in db.list_strategy_configs()}
+        _STRATEGY_OVERRIDES_CACHE["rows"] = rows
+        _STRATEGY_OVERRIDES_CACHE["ts"] = now
+    row = _STRATEGY_OVERRIDES_CACHE["rows"].get(key)
+    return dict(row.get("params") or {}) if row and row.get("enabled", True) else {}
+
+
+def strategy_runtime_params(key: str) -> dict:
+    defaults = {
+        "adx_trend": ADX_PARAMS,
+        "rsi_revert": RSI_PARAMS,
+        "breakout": BREAKOUT_PARAMS,
+        "ma_trend": MA_TREND_PARAMS,
+        "high52": HIGH52_PARAMS,
+        "high52_wide": {**HIGH52_PARAMS, "tol": 0.95},
+    }
+    base = dict(defaults.get(key, {}))
+    base.update(_strategy_overrides(key))
+    return base
+
 
 def _clean_1d(tf_data: dict):
     """Holt das saubere 1d-OHLCV-DataFrame aus tf_data (oder None)."""
@@ -53,7 +115,7 @@ def _clean_1d(tf_data: dict):
 
 def adx_trend_signal(ticker: str, tf_data: dict, p: dict | None = None) -> dict | None:
     """ADX-Trendfolge + Volatilitäts-Expansion (long-only). Entscheidung für die LETZTE Bar."""
-    p = {**ADX_PARAMS, **(p or {})}
+    p = {**strategy_runtime_params("adx_trend"), **(p or {})}
     df = _clean_1d(tf_data)
     need = p["detrend"] + p["env_base"] + 60
     if df is None or len(df) < need:
@@ -204,12 +266,13 @@ def rsi_revert_signal(ticker: str, tf_data: dict) -> dict | None:
         return None
     closes = df["Close"].astype(float).values
     price = float(closes[-1])
+    p = {**strategy_runtime_params("rsi_revert")}
     rsi = analyzer.calc_rsi(closes, RSI_PERIOD)
-    ma200 = float(np.mean(closes[-200:]))
-    if not (rsi < 30 and price > ma200):
+    ma200 = float(np.mean(closes[-int(p["ma200"]):]))
+    if not (rsi < p["rsi_buy"] and price > ma200):
         return None
     strength = 50 + 50 * max(0.0, min(1.0, (35 - rsi) / 25))   # tiefer überverkauft → stärker
-    return _make_signal(ticker, df, "rsi_revert", strength, sl_mult=1.5, tp_mult=2.5)
+    return _make_signal(ticker, df, "rsi_revert", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
 def breakout_signal(ticker: str, tf_data: dict) -> dict | None:
@@ -217,18 +280,22 @@ def breakout_signal(ticker: str, tf_data: dict) -> dict | None:
     df = _clean_1d(tf_data)
     if df is None or len(df) < 210:
         return None
+    p = {**strategy_runtime_params("breakout")}
     closes = df["Close"].astype(float).values
     highs = df["High"].astype(float).values
     vols = df["Volume"].astype(float).values
     price = float(closes[-1])
-    prior_high = float(np.max(highs[-21:-1]))                  # 20-Tage-Hoch ohne heute
-    ma50 = float(np.mean(closes[-50:]))
+    lookback = int(p["lookback"])
+    trend_ma = int(p["trend_ma"])
+    vol_window = int(p["vol_window"])
+    prior_high = float(np.max(highs[-(lookback + 1):-1]))
+    ma50 = float(np.mean(closes[-trend_ma:]))
     if not (price >= prior_high and price > ma50):
         return None
-    avg_vol = float(np.mean(vols[-20:]))
+    avg_vol = float(np.mean(vols[-vol_window:]))
     vol_score = max(0.0, min(1.0, (vols[-1] / avg_vol - 0.8) / 0.7)) if avg_vol > 0 else 0.0
     strength = 60 + 40 * vol_score                             # Ausbruch + Volumen
-    return _make_signal(ticker, df, "breakout", strength, sl_mult=2.0, tp_mult=4.0)
+    return _make_signal(ticker, df, "breakout", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
 def _high52_strength(price: float, hi252: float, tol: float) -> float:
@@ -241,6 +308,7 @@ def _high52_strength(price: float, hi252: float, tol: float) -> float:
 def _high52_signal(ticker: str, tf_data: dict, key: str, tol: float) -> dict | None:
     """52-Wochen-Hoch-Momentum: Kurs ≥ `tol`×(252-Tage-Hoch) UND > MA50 (long, weite ATR-SL/TP).
     Aus der Strategiesuche hervorgegangen — schlägt im Backtest die bisherigen robust."""
+    p = {**strategy_runtime_params(key)}
     df = _clean_1d(tf_data)
     if df is None or len(df) < 260:
         return None
@@ -249,17 +317,19 @@ def _high52_signal(ticker: str, tf_data: dict, key: str, tol: float) -> dict | N
     price = float(c[-1]); hi252 = float(np.max(h[-252:])); ma50 = float(np.mean(c[-50:]))
     if not (price >= tol * hi252 and price > ma50):
         return None
-    return _make_signal(ticker, df, key, _high52_strength(price, hi252, tol), sl_mult=2.5, tp_mult=5.0)
+    return _make_signal(ticker, df, key, _high52_strength(price, hi252, tol), sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
 def high52_signal(ticker: str, tf_data: dict) -> dict | None:
     """Momentum 52W-Hoch (streng): Einstieg ab ≥ 98 % des 52-Wochen-Hochs."""
-    return _high52_signal(ticker, tf_data, "high52", 0.98)
+    tol = float(strategy_runtime_params("high52").get("tol", 0.98))
+    return _high52_signal(ticker, tf_data, "high52", tol)
 
 
 def high52_wide_signal(ticker: str, tf_data: dict) -> dict | None:
     """Momentum 52W-Hoch (aktiv): Einstieg schon ab ≥ 95 % des 52-Wochen-Hochs → mehr Signale."""
-    return _high52_signal(ticker, tf_data, "high52_wide", 0.95)
+    tol = float(strategy_runtime_params("high52_wide").get("tol", 0.95))
+    return _high52_signal(ticker, tf_data, "high52_wide", tol)
 
 
 def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
@@ -267,18 +337,19 @@ def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
     df = _clean_1d(tf_data)
     if df is None or len(df) < 210:
         return None
+    p = {**strategy_runtime_params("ma_trend")}
     closes = df["Close"].astype(float).values
     price = float(closes[-1])
-    ma20 = float(np.mean(closes[-20:]))
-    ma50 = float(np.mean(closes[-50:]))
-    ma200 = float(np.mean(closes[-200:]))
+    ma20 = float(np.mean(closes[-int(p["ma20"]):]))
+    ma50 = float(np.mean(closes[-int(p["ma50"]):]))
+    ma200 = float(np.mean(closes[-int(p["ma200"]):]))
     macd_line, macd_signal, macd_hist = analyzer.calc_macd(closes)
     if not (price > ma20 > ma50 > ma200 and macd_hist > 0 and macd_line > macd_signal):
         return None
     # Stärke aus dem Abstand MA50↔MA200 (Trendkraft), gedeckelt
     spread = (ma50 - ma200) / ma200 * 100 if ma200 > 0 else 0.0
     strength = 60 + 40 * max(0.0, min(1.0, spread / 15))
-    return _make_signal(ticker, df, "ma_trend", strength, sl_mult=1.5, tp_mult=3.0)
+    return _make_signal(ticker, df, "ma_trend", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
 # ── Fortlaufende Live-Scores (für das 60s-Monitoring je aktivem Trade) ───────

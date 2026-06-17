@@ -13,10 +13,14 @@ import hashlib
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
 from starlette.testclient import TestClient
 
 from stockbot.core import db
 from stockbot.market import lookup
+from stockbot.market import strategies
+from stockbot.backtest import engine as backtest_engine
 from stockbot.services import notifications as notify_svc
 from stockbot.web import auth
 from stockbot.web import dashboard as _dashboard   # zuerst importieren: vermeidet Zirkularimport
@@ -35,6 +39,17 @@ class _FakeYF:
                 class _FI: last_price = price
                 return _FI()
         return _T()
+
+
+def _trend_df(start=50.0, end=100.0, n=260):
+    idx = pd.date_range("2024-01-01", periods=n, freq="B")
+    close_vals = [start + (end - start) * i / (n - 1) for i in range(n)]
+    close = pd.Series(close_vals, index=idx)
+    high = close * 1.01
+    low = close * 0.99
+    open_ = close.shift(1).fillna(close.iloc[0])
+    vol = pd.Series([1_000_000] * n, index=idx)
+    return pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close, "Volume": vol})
 
 
 def fresh():
@@ -208,6 +223,118 @@ def test_lev_via_web():
     c = _client()
     c.post("/app/lev", data={"ticker": "NVDA", "leverage": "3"}, follow_redirects=False)
     assert db.get_trade(CHAT, "NVDA")["signal"]["leverage"] == 3.0
+
+
+def test_algorithm_editor_search_and_save_updates_live_params():
+    fresh()
+    c = _client()
+    r = c.get("/app/algorithms?q=high52")
+    assert r.status_code == 200
+    assert "high52_wide" in r.text
+
+    assert strategies.strategy_runtime_params("high52").get("tol") == 0.98
+    r = c.post(
+        "/app/algorithms/save",
+        data={
+            "key": "high52",
+            "label": "Momentum 52W-Hoch (streng)",
+            "description": "Editor-Test",
+            "params_json": '{"tol": 0.5, "sl_mult": 1.0, "tp_mult": 2.0}',
+            "q": "high52",
+            "enabled": "on",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    cfg = db.get_strategy_config("high52")
+    assert cfg and cfg["params"]["tol"] == 0.5
+    assert strategies.strategy_runtime_params("high52")["tol"] == 0.5
+    assert strategies.high52_signal("TEST", {"1d": _trend_df()}) is not None
+
+
+def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):
+    fresh()
+    c = _client()
+    monkeypatch.setattr(backtest_engine, "_download_daily", lambda tickers, years: {"AAPL": _trend_df()})
+
+    single = c.post(
+        "/app/backtest",
+        data={
+            "mode": "single",
+            "strategy": "high52_wide",
+            "tickers": "AAPL",
+            "years": "1",
+            "trade_size": "100.0",
+            "top_n": "10",
+            "leverage": "5.0",
+            "max_concurrent": "10",
+            "max_hold": "20",
+            "q": "high52",
+        },
+        follow_redirects=False,
+    )
+    assert single.status_code == 200
+    assert "Ergebnis" in single.text and "Trades" in single.text
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "compare_strategies",
+        lambda keys, tickers=None, years=2, trade_size=100.0: [
+            {"label": "A", "metrics": {"profit_factor": 1.5, "win_rate": 55.0, "total_pnl_eur": 12.3, "trades": 3}},
+            {"label": "B", "metrics": {"profit_factor": 1.2, "win_rate": 50.0, "total_pnl_eur": 7.1, "trades": 2}},
+        ],
+    )
+    compare = c.post(
+        "/app/backtest",
+        data={
+            "mode": "compare",
+            "strategy": "high52_wide",
+            "compare_keys": "high52_wide, breakout",
+            "tickers": "AAPL",
+            "years": "1",
+            "trade_size": "100.0",
+            "top_n": "10",
+            "leverage": "5.0",
+            "max_concurrent": "10",
+            "max_hold": "20",
+            "q": "",
+        },
+        follow_redirects=False,
+    )
+    assert compare.status_code == 200
+    assert "Compare Results" in compare.text
+    assert "A" in compare.text and "B" in compare.text
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "backtest_portfolio",
+        lambda *args, **kwargs: {
+            "label": "Portfolio",
+            "n_tickers": 1,
+            "years": 1,
+            "metrics": {"trades": 2, "profit_factor": 1.6, "win_rate": 60.0, "total_pnl_eur": 14.5, "max_drawdown_pct": 3.2, "avg_win": 9.0, "avg_loss": -2.0},
+            "trades": [{"ticker": "AAPL", "entry_date": "2024-01-01", "exit_date": "2024-01-03", "pnl_pct": 2.0, "pnl_eur": 9.0, "reason": "Take-Profit"}],
+        },
+    )
+    portfolio = c.post(
+        "/app/backtest",
+        data={
+            "mode": "portfolio",
+            "strategy": "high52_wide",
+            "tickers": "AAPL",
+            "years": "1",
+            "trade_size": "100.0",
+            "top_n": "5",
+            "leverage": "4.0",
+            "max_concurrent": "3",
+            "max_hold": "12",
+            "q": "high52",
+        },
+        follow_redirects=False,
+    )
+    assert portfolio.status_code == 200
+    assert "Ergebnis: Portfolio" in portfolio.text
+    assert "Take-Profit" in portfolio.text
 
 
 # ── Einstellungen & Watchlist ───────────────────────────────────────────────

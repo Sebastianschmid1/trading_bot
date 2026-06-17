@@ -71,6 +71,16 @@ log = logging.getLogger(__name__)
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 
+
+def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
+    """Stufenweise aggressiver: nach 5/10/15 Minuten wird das Limit enger."""
+    step = max(1, min(3, int(age_sec // BROKER_REPRICE_AFTER_SEC)))
+    if side == "BUY":
+        factor = {1: 1.005, 2: 1.0075, 3: 1.01}[step]
+    else:
+        factor = {1: 0.995, 2: 0.9925, 3: 0.99}[step]
+    return float(current) * factor
+
 # ── Kandidaten-Cache (für das Nachrücken ohne Duplikate) ────────────────────
 
 _candidates_cache: dict[str, dict] = {}   # key -> {"date": date, "ranked": [signal, ...]}
@@ -963,7 +973,7 @@ async def monitor_broker_closing(bot: Bot):
                 if current is None:
                     current = float(trade.get("entry") or 0.0)
                 side = "BUY" if str(trade.get("direction") or "long").lower() == "short" else "SELL"
-                limit_price = float(current) * (1.005 if side == "BUY" else 0.995)
+                limit_price = _reprice_limit_price(float(current), side, age_sec)
                 if not cancel_res.get("ok"):
                     db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
                     continue

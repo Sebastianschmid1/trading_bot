@@ -265,7 +265,7 @@ def test_monitor_reprices_stale_broker_closing_trade():
     assert trade["broker_order_id"] == "ord-new"
     assert calls["symbol"] == "NVDA"
     assert calls["side"] == "SELL"
-    assert round(calls["limit_price"], 2) == 99.5
+    assert round(calls["limit_price"], 2) == 99.0
     ctx.bot.send_message.assert_awaited()
 
 

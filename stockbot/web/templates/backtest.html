@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}Backtest · Stock Signal Bot{% endblock %}
+{% block content %}
+<h1>Backtest-Editor</h1>
+<p class="muted">Starte Single-, Compare- oder Portfolio-Backtests direkt im Browser.</p>
+
+<div class="card">
+  <form method="get" action="/app/backtest" class="row">
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="Strategien filtern…" style="min-width:280px; flex:1;">
+    <button type="submit">Filtern</button>
+    {% if q %}<a class="btn" href="/app/backtest">Reset</a>{% endif %}
+    <span class="muted">{{ catalog|length }} Strategien</span>
+  </form>
+</div>
+
+<div class="card">
+  <form method="post" action="/app/backtest">
+    <input type="hidden" name="q" value="{{ q or '' }}">
+    <div class="row">
+      <label>Modus<br>
+        <select name="mode">
+          <option value="single" {% if mode == 'single' %}selected{% endif %}>Single</option>
+          <option value="compare" {% if mode == 'compare' %}selected{% endif %}>Compare</option>
+          <option value="portfolio" {% if mode == 'portfolio' %}selected{% endif %}>Portfolio</option>
+        </select>
+      </label>
+      <label>Strategie<br>
+        <select name="strategy">
+          {% for row in catalog %}
+            <option value="{{ row.key }}" {% if row.key == selected %}selected{% endif %}>{{ row.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Compare Keys<br>
+        <input type="text" name="compare_keys" value="{{ form.compare_keys or '' }}" placeholder="z.B. high52_wide, breakout" style="min-width:260px;">
+      </label>
+    </div>
+    <div class="row" style="margin-top:.6rem;">
+      <label>Ticker (CSV)<br><input type="text" name="tickers" value="{{ form.tickers or '' }}" placeholder="AAPL,MSFT,NVDA" style="min-width:320px;"></label>
+      <label>Jahre<br><input type="number" name="years" value="{{ form.years }}" min="1" max="10" step="1"></label>
+      <label>Trade Size<br><input type="number" name="trade_size" value="{{ form.trade_size }}" step="1" min="1"></label>
+    </div>
+    <div class="row" style="margin-top:.6rem;">
+      <label>Top N<br><input type="number" name="top_n" value="{{ form.top_n }}" min="1" max="100" step="1"></label>
+      <label>Leverage<br><input type="number" name="leverage" value="{{ form.leverage }}" min="1" max="100" step="0.1"></label>
+      <label>Max Concurrent<br><input type="number" name="max_concurrent" value="{{ form.max_concurrent }}" min="1" max="100" step="1"></label>
+      <label>Max Hold Days<br><input type="number" name="max_hold" value="{{ form.max_hold }}" min="1" max="365" step="1"></label>
+    </div>
+    <div class="row" style="margin-top:.7rem;">
+      <button class="green" type="submit">Backtest starten</button>
+      <span class="muted">Compare nutzt die aktuelle Filterauswahl, Portfolio nutzt <code>top_n</code>/<code>leverage</code>.</span>
+    </div>
+  </form>
+</div>
+
+{% if compare_results %}
+  <div class="card">
+    <h2>Compare Results</h2>
+    <table>
+      <thead><tr><th>Strategie</th><th class="r">PF</th><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Trades</th></tr></thead>
+      <tbody>
+      {% for r in compare_results %}
+        <tr>
+          <td>{{ r.label }}</td>
+          <td class="r">{{ '%.2f'|format(r.metrics.profit_factor) if r.metrics.profit_factor is not none else '—' }}</td>
+          <td class="r">{{ '%.1f'|format(r.metrics.win_rate) if r.metrics.win_rate is not none else '—' }}%</td>
+          <td class="r">{{ '%.1f'|format(r.metrics.total_pnl_eur) if r.metrics.total_pnl_eur is not none else '—' }}</td>
+          <td class="r">{{ r.metrics.trades }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if result %}
+  <div class="card">
+    <h2>Ergebnis: {{ result.label }}</h2>
+    <div class="row muted">
+      <span>Zeitraum: {{ result.years }} Jahre</span>
+      <span>·</span><span>Ticker: {{ result.n_tickers }}</span>
+      <span>·</span><span>Trades: {{ result.metrics.trades }}</span>
+      <span>·</span><span>Profit Faktor: {{ '%.2f'|format(result.metrics.profit_factor) if result.metrics.profit_factor is not none else '—' }}</span>
+    </div>
+    <table style="margin-top:.7rem;">
+      <thead>
+        <tr><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Max DD %</th><th class="r">Avg Win</th><th class="r">Avg Loss</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="r">{{ '%.1f'|format(result.metrics.win_rate) if result.metrics.win_rate is not none else '—' }}%</td>
+          <td class="r">{{ '%.1f'|format(result.metrics.total_pnl_eur) if result.metrics.total_pnl_eur is not none else '—' }}</td>
+          <td class="r">{{ '%.1f'|format(result.metrics.max_drawdown_pct) if result.metrics.max_drawdown_pct is not none else '—' }}%</td>
+          <td class="r">{{ '%.2f'|format(result.metrics.avg_win) if result.metrics.avg_win is not none else '—' }}</td>
+          <td class="r">{{ '%.2f'|format(result.metrics.avg_loss) if result.metrics.avg_loss is not none else '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if result.trades %}
+    <div class="card">
+      <h2>Trades</h2>
+      <table>
+        <thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th class="r">PnL %</th><th class="r">PnL €</th><th>Reason</th></tr></thead>
+        <tbody>
+        {% for t in result.trades[:25] %}
+          <tr>
+            <td>{{ t.ticker }}</td>
+            <td>{{ t.entry_date }}</td>
+            <td>{{ t.exit_date }}</td>
+            <td class="r {% if t.pnl_pct >= 0 %}pos{% else %}neg{% endif %}">{{ '%.2f'|format(t.pnl_pct) }}</td>
+            <td class="r {% if t.pnl_eur >= 0 %}pos{% else %}neg{% endif %}">{{ '%.2f'|format(t.pnl_eur) }}</td>
+            <td>{{ t.reason }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

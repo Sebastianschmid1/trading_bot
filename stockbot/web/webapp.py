@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from stockbot.core import db
 from stockbot.core.evaluator import trade_pnl
+from stockbot.backtest import engine as backtest_engine
 from stockbot.market import strategies
 from stockbot.market import asset_classes
 from stockbot.market import analyzer
@@ -68,6 +69,40 @@ def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
         if creds:
             return creds[0], creds[1]
     return config.ALPACA_API_KEY, config.ALPACA_API_SECRET
+
+
+def _strategy_catalog(query: str = "") -> list[dict]:
+    q = (query or "").strip().lower()
+    out = []
+    for s in strategies.all_strategies():
+        cfg = db.get_strategy_config(s.key) or {"key": s.key, "label": s.label, "description": s.description, "params": {}, "enabled": True}
+        blob = " ".join([
+            s.key, s.label, s.description,
+            cfg.get("label", ""), cfg.get("description", ""), json.dumps(cfg.get("params") or {}, sort_keys=True),
+        ]).lower()
+        if q and q not in blob:
+            continue
+        out.append({
+            "key": s.key,
+            "label": cfg.get("label") or s.label,
+            "description": cfg.get("description") or s.description,
+            "params": cfg.get("params") or {},
+            "enabled": cfg.get("enabled", True),
+            "module_label": s.label,
+        })
+    return out
+
+
+def _parse_csv_items(text: str) -> list[str]:
+    return [x.strip().upper() for x in (text or "").replace("\n", ",").split(",") if x.strip()]
+
+
+def _pretty_json(value: dict | None) -> str:
+    try:
+        return json.dumps(value or {}, ensure_ascii=False, indent=2, sort_keys=True)
+    except Exception:
+        return "{}"
+
 
 
 def _attach_demo_option(user: dict, ticker: str) -> None:
@@ -731,10 +766,108 @@ def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str
                          "start": eq.get("start"), "end": eq.get("end")})
 
 
+# ── Strategie-Editor / Suche / Backtest-Editor ───────────────────────────────
+
+@router.get("/app/algorithms", response_class=HTMLResponse)
+def app_algorithms(request: Request, q: str = ""):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    catalog = _strategy_catalog(q)
+    return _render("algorithms.html", request, user, active="algorithms", q=q, catalog=catalog)
+
+
+@router.post("/app/algorithms/save", response_class=HTMLResponse)
+def app_algorithms_save(request: Request,
+                        key: str = Form(...),
+                        label: str = Form(...),
+                        description: str = Form(""),
+                        params_json: str = Form("{}"),
+                        q: str = Form(""),
+                        enabled: str = Form("on")):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    try:
+        params = json.loads(params_json or "{}") if params_json.strip() else {}
+        if not isinstance(params, dict):
+            raise ValueError("params_json must be an object")
+    except Exception as e:
+        return _render("algorithms.html", request, user, active="algorithms", q=q,
+                       catalog=_strategy_catalog(q),
+                       msg=f"Ungültiges JSON für {key}: {e}")
+    cfg = db.upsert_strategy_config(key, label.strip() or key, description.strip(), params=params,
+                                    enabled=(enabled == "on"))
+    strategies.refresh_strategy_overrides_cache()
+    return _render("algorithms.html", request, user, active="algorithms", q=q,
+                   catalog=_strategy_catalog(q),
+                   msg=f"{cfg['label']} gespeichert.")
+
+
+@router.get("/app/backtest", response_class=HTMLResponse)
+def app_backtest(request: Request, q: str = "", mode: str = "single", strategy: str = "high52_wide"):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    catalog = _strategy_catalog(q)
+    selected = strategy if any(r["key"] == strategy for r in catalog) else (catalog[0]["key"] if catalog else strategy)
+    return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
+                   catalog=catalog, selected=selected, result=None, compare_results=None,
+                   form={"tickers": "", "years": 2, "top_n": 10, "leverage": 5.0, "trade_size": 1000.0,
+                         "max_concurrent": 10, "max_hold": 20})
+
+
+@router.post("/app/backtest", response_class=HTMLResponse)
+async def app_backtest_run(request: Request,
+                           mode: str = Form("single"),
+                           strategy: str = Form("high52_wide"),
+                           compare_keys: str = Form(""),
+                           tickers: str = Form(""),
+                           years: int = Form(2),
+                           top_n: int = Form(10),
+                           leverage: float = Form(5.0),
+                           trade_size: float = Form(1000.0),
+                           max_concurrent: int = Form(10),
+                           max_hold: int = Form(20),
+                           q: str = Form("")):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    catalog = _strategy_catalog(q)
+    selected = strategy if any(r["key"] == strategy for r in catalog) else (catalog[0]["key"] if catalog else strategy)
+    ticker_list = _parse_csv_items(tickers)
+    compare_list = [k for k in _parse_csv_items(compare_keys) if any(r["key"] == k for r in catalog)]
+    if not compare_list and selected:
+        compare_list = [selected]
+
+    if mode == "compare":
+        results = await run_in_threadpool(backtest_engine.compare_strategies, compare_list or [selected],
+                                          ticker_list or None, years, trade_size)
+        return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
+                       catalog=catalog, selected=selected, compare_results=results, result=None,
+                       form={"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
+                             "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
+                             "compare_keys": ", ".join(compare_list)})
+
+    if mode == "portfolio":
+        result = await run_in_threadpool(backtest_engine.backtest_portfolio, selected,
+                                         ticker_list or None, years, top_n, leverage,
+                                         trade_size, 10000.0, max_concurrent, max_hold)
+    else:
+        result = await run_in_threadpool(backtest_engine.run_backtest, selected,
+                                         ticker_list or None, years, trade_size)
+    return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
+                   catalog=catalog, selected=selected, compare_results=None, result=result,
+                   form={"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
+                         "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
+                         "compare_keys": ", ".join(compare_list)})
+
+
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────
 
 @router.get("/app/dashboard")
 def app_dashboard(request: Request):
+
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")

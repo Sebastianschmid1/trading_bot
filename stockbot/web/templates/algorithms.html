@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Algorithmen · Stock Signal Bot{% endblock %}
+{% block content %}
+<h1>Algorithmen</h1>
+<p class="muted">Suche, bearbeite und tune die Strategie-Parameter. Änderungen landen in der DB und werden direkt von Live-Scans und Backtests verwendet.</p>
+
+<div class="card">
+  <form method="get" action="/app/algorithms" class="row">
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="Suchen nach Name, Beschreibung, Parametern…" style="min-width:320px; flex:1;">
+    <button type="submit">Suchen</button>
+    {% if q %}<a class="btn" href="/app/algorithms">Reset</a>{% endif %}
+    <span class="muted">{{ catalog|length }} Treffer</span>
+  </form>
+</div>
+
+{% if not catalog %}
+  <div class="card">Keine Algorithmen gefunden.</div>
+{% endif %}
+
+{% for row in catalog %}
+  <div class="card">
+    <div class="row">
+      <div>
+        <h2 style="margin:.1rem 0; border:0; padding:0;">{{ row.label }}</h2>
+        <div class="muted"><code>{{ row.key }}</code> · Vorlage: {{ row.module_label }}</div>
+      </div>
+      <span class="spacer"></span>
+      {% if row.enabled %}<span class="pos">aktiv</span>{% else %}<span class="neg">deaktiviert</span>{% endif %}
+    </div>
+    <p>{{ row.description }}</p>
+
+    <form method="post" action="/app/algorithms/save">
+      <input type="hidden" name="key" value="{{ row.key }}">
+      <input type="hidden" name="q" value="{{ q or '' }}">
+      <div class="row">
+        <label style="flex:1; min-width:240px;">Label<br>
+          <input type="text" name="label" value="{{ row.label }}" style="width:100%;">
+        </label>
+        <label style="flex:1; min-width:240px;">Beschreibung<br>
+          <input type="text" name="description" value="{{ row.description }}" style="width:100%;">
+        </label>
+      </div>
+      <div style="margin-top:.6rem;">
+        <label>Parameter JSON<br>
+          <textarea name="params_json">{{ row.params | tojson(indent=2) }}</textarea>
+        </label>
+      </div>
+      <div class="row" style="margin-top:.5rem;">
+        <label><input type="checkbox" name="enabled" {% if row.enabled %}checked{% endif %}> aktiv</label>
+        <span class="spacer"></span>
+        <button class="green" type="submit">Speichern</button>
+      </div>
+    </form>
+  </div>
+{% endfor %}
+{% endblock %}
