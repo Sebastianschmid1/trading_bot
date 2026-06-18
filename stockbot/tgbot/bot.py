@@ -337,6 +337,38 @@ async def _await_fill(order_id: str, client, tries: int = 6, delay: float = 2.0)
     return st
 
 
+def _planned_order_cost(plan: dict, entry: float) -> float:
+    if not plan or plan.get("kind") == "none":
+        return 0.0
+    if plan.get("kind") == "option":
+        return float(plan.get("premium") or 0.0) * 100.0 * float(plan.get("qty") or 0.0)
+    if plan.get("notional") is not None:
+        return float(plan.get("notional") or 0.0)
+    if plan.get("qty") is not None:
+        return float(plan.get("qty") or 0.0) * float(entry or 0.0)
+    return 0.0
+
+
+async def _ensure_buying_power_for_bot(bot: Bot, chat_id: int, ticker: str, client, plan: dict, entry: float, mode: str) -> bool:
+    needed = _planned_order_cost(plan, entry)
+    if needed <= 0:
+        return True
+    acct = await asyncio.to_thread(broker.account_summary, client)
+    if not acct.get("ok"):
+        return True  # Account-Check nicht verfügbar: Alpaca entscheidet final.
+    buying_power = float(acct.get("buying_power") or 0.0)
+    if buying_power + 1e-9 >= needed:
+        return True
+    db.mark_broker_failed(chat_id, ticker, broker_status="insufficient_buying_power")
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(f"⚠️ Alpaca-{mode}: Buying Power reicht nicht für {ticker}.\n"
+              f"Verfügbar: ${buying_power:.2f} · benötigt ca. ${needed:.2f}.\n"
+              "Keine Order gesendet; der Trade wird als Broker-fehlgeschlagen markiert."),
+    )
+    return False
+
+
 async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     """Sendet (falls für den Nutzer aktiviert) eine echte ALPACA-(Paper-)Order zum gerade
     aktivierten Trade und bestätigt erst nach der tatsächlichen Ausführung (Fill).
@@ -377,6 +409,9 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             chat_id=chat_id,
             text=(f"ℹ️ Alpaca-{mode}: Budget {budget:.0f}$ reicht nicht für {ticker} "
                   f"(${float(entry):.2f}). Keine Order gesendet."))
+        return
+
+    if not await _ensure_buying_power_for_bot(bot, chat_id, ticker, client, plan, float(entry), mode):
         return
 
     if plan["kind"] == "option":

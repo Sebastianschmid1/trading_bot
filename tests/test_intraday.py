@@ -107,6 +107,49 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert jq.run_daily.call_count == 3                        # Eröffnungs-Signale, Auswertung, Smart-Money
 
 
+def test_bot_broker_order_blocks_when_buying_power_is_insufficient():
+    import asyncio
+    from unittest.mock import AsyncMock
+    fresh_db()
+    db.yf = _FakeYF(827.51)
+    db.get_or_create_user(CHAT, "brokerbp")
+    db.save_profile(CHAT, trade_size_eur=1000.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "TSLA", "direction": "long", "price": 827.51,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "TSLA")
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade is not None
+    submitted = {"called": False}
+
+    orig_ready, orig_client = bot._alpaca_ready, bot._alpaca_client
+    orig_market_open = bot._us_market_open
+    orig_plan, orig_summary, orig_submit = bot.sizing.plan_order, bot.broker.account_summary, bot.broker.submit_buy
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot._us_market_open = lambda extended=False: True
+    bot.sizing.plan_order = lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "shares", "qty": 1, "notional": None}
+    bot.broker.account_summary = lambda client=None: {"ok": True, "buying_power": 0.0}
+    def fake_submit(*args, **kwargs):
+        submitted["called"] = True
+        return {"ok": True, "id": "should-not-submit"}
+    bot.broker.submit_buy = fake_submit
+    fake_bot = AsyncMock()
+    try:
+        asyncio.run(bot._maybe_broker_order(fake_bot, CHAT, trade))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client = orig_ready, orig_client
+        bot._us_market_open = orig_market_open
+        bot.sizing.plan_order, bot.broker.account_summary, bot.broker.submit_buy = orig_plan, orig_summary, orig_submit
+
+    assert submitted["called"] is False
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade is not None
+    assert trade["status"] == "broker_failed"
+    assert trade["broker_status"] == "insufficient_buying_power"
+    assert "Buying Power reicht nicht" in fake_bot.send_message.await_args.kwargs["text"]
+
+
 def test_monitor_promotes_filled_broker_pending_trade():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock

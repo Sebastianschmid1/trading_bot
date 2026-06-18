@@ -132,6 +132,39 @@ def _broker_will_execute(user: dict) -> bool:
     return bool(user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None)
 
 
+def _planned_order_cost(plan: dict, entry: float) -> float:
+    """Geschätzte Broker-Kosten vor Absenden der Order."""
+    if not plan or plan.get("kind") == "none":
+        return 0.0
+    if plan.get("kind") == "option":
+        return float(plan.get("premium") or 0.0) * 100.0 * float(plan.get("qty") or 0.0)
+    if plan.get("notional") is not None:
+        return float(plan.get("notional") or 0.0)
+    if plan.get("qty") is not None:
+        return float(plan.get("qty") or 0.0) * float(entry or 0.0)
+    return 0.0
+
+
+def _ensure_buying_power(user: dict, ticker: str, client, plan: dict, entry: float) -> dict | None:
+    """Blockt Orders, die Alpaca wegen fehlender Buying Power sicher ablehnen würde."""
+    needed = _planned_order_cost(plan, entry)
+    if needed <= 0:
+        return None
+    acct = broker.account_summary(client)
+    if not acct.get("ok"):
+        return None  # Account-Check nicht verfügbar: Alpaca darf final entscheiden.
+    buying_power = float(acct.get("buying_power") or 0.0)
+    if buying_power + 1e-9 >= needed:
+        return None
+    db.mark_broker_failed(user["user_id"], ticker, broker_status="insufficient_buying_power")
+    return {
+        "ok": False,
+        "status": "broker_failed",
+        "msg": (f"Alpaca Buying Power reicht nicht: verfügbar ${buying_power:.2f}, "
+                f"benötigt ca. ${needed:.2f}. Keine Order gesendet."),
+    }
+
+
 def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
     """Synchrone Broker-Ausführung für die Web-App.
 
@@ -164,6 +197,11 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
     if plan["kind"] == "none":
         db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
         return {"ok": False, "status": "broker_failed", "msg": "Budget reicht nicht für eine Broker-Order."}
+
+    insufficient = _ensure_buying_power(user, ticker, client, plan, float(entry))
+    if insufficient:
+        return insufficient
+
     if plan["kind"] == "option":
         res = broker.submit_option_buy(plan["option_symbol"], plan["qty"], client)
     elif plan.get("qty"):
@@ -870,6 +908,26 @@ async def app_backtest_run(request: Request,
                    form={"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
                          "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
                          "compare_keys": ", ".join(compare_list)})
+
+
+@router.get("/algorithms")
+def app_algorithms_alias():
+    return _redirect("/app/algorithms")
+
+
+@router.get("/backtest")
+def app_backtest_alias():
+    return _redirect("/app/backtest")
+
+
+@router.get("/reports")
+def app_reports_alias():
+    return _redirect("/app/reports")
+
+
+@router.get("/dashboard")
+def app_dashboard_alias():
+    return _redirect("/app/dashboard")
 
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────

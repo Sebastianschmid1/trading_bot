@@ -56,8 +56,27 @@ def health_check(client=None) -> dict:
         if client is None:
             return {"ok": False, "detail": "Alpaca-Client nicht verfügbar (Keys ungültig oder alpaca-py fehlt)."}
     try:
-        acct = client.get_account()
+        acct = account_summary(client)
+        if not acct.get("ok"):
+            return acct
         clock = client.get_clock()
+        return {
+            **acct,
+            "market_open": bool(getattr(clock, "is_open", False)),
+            "next_open": str(getattr(clock, "next_open", "")),
+            "next_close": str(getattr(clock, "next_close", "")),
+        }
+    except Exception as e:
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def account_summary(client=None) -> dict:
+    """Kompakter Konto-Snapshot ohne Markt-Clock; geeignet für Order-Vorprüfungen."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    try:
+        acct = client.get_account()
         return {
             "ok": True,
             "paper": config.ALPACA_PAPER,
@@ -65,9 +84,6 @@ def health_check(client=None) -> dict:
             "cash": float(getattr(acct, "cash", 0) or 0),
             "buying_power": float(getattr(acct, "buying_power", 0) or 0),
             "currency": str(getattr(acct, "currency", "USD")),
-            "market_open": bool(getattr(clock, "is_open", False)),
-            "next_open": str(getattr(clock, "next_open", "")),
-            "next_close": str(getattr(clock, "next_close", "")),
             "detail": "OK",
         }
     except Exception as e:

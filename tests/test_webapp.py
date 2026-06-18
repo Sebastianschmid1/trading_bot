@@ -100,6 +100,20 @@ def test_app_dashboard_is_integrated_into_site_layout():
     assert "Dashboard" in r.text
 
 
+def test_new_website_element_aliases_redirect_to_app_routes():
+    fresh()
+    c = _client()
+    for plain, app_path in [
+        ("/algorithms", "/app/algorithms"),
+        ("/backtest", "/app/backtest"),
+        ("/reports", "/app/reports"),
+        ("/dashboard", "/app/dashboard"),
+    ]:
+        r = c.get(plain, follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == app_path
+
+
 def test_app_shows_friendly_trade_status_text():
     fresh()
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
@@ -171,6 +185,7 @@ def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):
                           "leverage": 1.0, "strength": 70.0}, 1)
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.broker, "account_summary", lambda client=None: {"ok": True, "buying_power": 1000.0})
     monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
     monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-wait", "detail": "AAPL ×1"})
     monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "accepted"})
@@ -184,6 +199,33 @@ def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):
     assert trade["broker_order_id"] == "ord-wait"
     assert db.get_active_trades(CHAT) == []
     assert any(t["ticker"] == "AAPL" for t in db.get_broker_pending_trades(CHAT))
+
+
+def test_web_accept_does_not_submit_when_buying_power_is_insufficient(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "TSLA", "direction": "long", "price": 827.51,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    submitted = {"called": False}
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(webapp.broker, "account_summary", lambda client=None: {"ok": True, "buying_power": 0.0})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "shares", "qty": 1, "notional": None})
+    def fake_submit(*args, **kwargs):
+        submitted["called"] = True
+        return {"ok": True, "id": "should-not-submit"}
+    monkeypatch.setattr(webapp.broker, "submit_buy", fake_submit)
+
+    r = _client().post("/app/accept", data={"ticker": "TSLA"}, headers={"X-Requested-With": "fetch"})
+
+    assert r.json()["status"] == "broker_failed"
+    assert "Buying Power" in r.json()["msg"]
+    assert submitted["called"] is False
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade is not None
+    assert trade["status"] == "broker_failed"
+    assert trade["broker_status"] == "insufficient_buying_power"
+    assert db.get_active_trades(CHAT) == []
 
 
 def test_web_sell_with_broker_exec_sets_broker_closing(monkeypatch):
