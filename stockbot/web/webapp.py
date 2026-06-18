@@ -9,12 +9,14 @@ Wird als Router in stockbot/web/dashboard.py eingehängt (ein Server für Dashbo
 import os
 import json
 import time
+import csv
+import io
 import asyncio
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
@@ -851,6 +853,40 @@ def app_algorithms_save(request: Request,
                    msg=f"{cfg['label']} gespeichert.")
 
 
+EXPORT_FIELDS = [
+    "ticker", "direction", "status", "trade_date", "created_at",
+    "entry", "exit", "pnl_pct", "pnl_eur",
+    "signal_price", "strength", "leverage", "stop_loss", "take_profit", "strategy",
+    "broker_status", "broker_order_id", "broker_filled_qty", "broker_filled_avg_price", "broker_updated_at",
+]
+
+
+def _export_trade_row(trade: dict) -> dict:
+    sig = trade.get("signal") or {}
+    return {
+        "ticker": trade.get("ticker"),
+        "direction": trade.get("direction"),
+        "status": trade.get("status"),
+        "trade_date": trade.get("trade_date"),
+        "created_at": trade.get("created_at"),
+        "entry": trade.get("entry"),
+        "exit": trade.get("exit"),
+        "pnl_pct": trade.get("pnl_pct"),
+        "pnl_eur": trade.get("pnl_eur"),
+        "signal_price": sig.get("price"),
+        "strength": sig.get("strength"),
+        "leverage": sig.get("leverage"),
+        "stop_loss": sig.get("stop_loss"),
+        "take_profit": sig.get("take_profit"),
+        "strategy": sig.get("strategy") or sig.get("strategy_key"),
+        "broker_status": trade.get("broker_status"),
+        "broker_order_id": trade.get("broker_order_id"),
+        "broker_filled_qty": trade.get("broker_filled_qty"),
+        "broker_filled_avg_price": trade.get("broker_filled_avg_price"),
+        "broker_updated_at": trade.get("broker_updated_at"),
+    }
+
+
 @router.get("/app/backtest", response_class=HTMLResponse)
 def app_backtest(request: Request, q: str = "", mode: str = "single", strategy: str = "high52_wide"):
     user = auth.current_user(request)
@@ -862,6 +898,34 @@ def app_backtest(request: Request, q: str = "", mode: str = "single", strategy: 
                    catalog=catalog, selected=selected, result=None, compare_results=None,
                    form={"tickers": "", "years": 2, "top_n": 10, "leverage": 5.0, "trade_size": 1000.0,
                          "max_concurrent": 10, "max_hold": 20})
+
+
+@router.get("/app/backtest/export")
+def app_backtest_export(request: Request, format: str = "csv"):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    trades = db.get_all_trades(user["user_id"])
+    rows = [_export_trade_row(t) for t in trades]
+    fmt = (format or "csv").strip().lower()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    if fmt == "json":
+        return JSONResponse(
+            {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "count": len(trades), "trades": trades},
+            headers={"Content-Disposition": f'attachment; filename="trading-data-{stamp}.json"'},
+        )
+    if fmt != "csv":
+        return JSONResponse({"error": "unsupported_format", "allowed": ["csv", "json"]}, status_code=400)
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=EXPORT_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="trading-data-{stamp}.csv"'},
+    )
 
 
 @router.post("/app/backtest", response_class=HTMLResponse)

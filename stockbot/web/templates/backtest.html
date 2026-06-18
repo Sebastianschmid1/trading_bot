@@ -14,6 +14,16 @@
 </div>
 
 <div class="card">
+  <h2>Trading-Daten exportieren</h2>
+  <p class="muted">Lade deine echten Bot-Trades für eigene Analysen herunter — inklusive Status, P&L, Signalstärke, Hebel, SL/TP und Broker-Feldern.</p>
+  <div class="row" style="margin-top:.6rem;">
+    <a class="btn green" href="/app/backtest/export?format=csv">CSV herunterladen</a>
+    <a class="btn" href="/app/backtest/export?format=json">JSON herunterladen</a>
+    <span class="muted">CSV ist ideal für Excel/Sheets, JSON für Python/Notebooks.</span>
+  </div>
+</div>
+
+<div class="card">
   <form method="post" action="/app/backtest">
     <input type="hidden" name="q" value="{{ q or '' }}">
     <div class="row">

@@ -823,6 +823,7 @@ def search_strategy_configs(query: str) -> list[dict]:
 
 def _trade_to_dict(row: sqlite3.Row) -> dict:
     out = {
+        "id":         row["id"] if "id" in row.keys() else None,
         "ticker":     row["ticker"],
         "direction":  row["direction"],
         "signal":     json.loads(row["signal_json"]),
@@ -833,6 +834,7 @@ def _trade_to_dict(row: sqlite3.Row) -> dict:
         "pnl_eur":    row["pnl_eur"],
         "pnl_pct":    row["pnl_pct"],
         "trade_date": row["trade_date"],
+        "created_at": row["created_at"] if "created_at" in row.keys() else None,
     }
     keys = set(row.keys())
     for key in ("broker_order_id", "broker_status", "broker_filled_qty",
@@ -1095,6 +1097,18 @@ def get_closed_trades(user_id: int) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM trades
                WHERE user_id = ? AND status = 'closed'
+               ORDER BY trade_date ASC, id ASC""",
+            (user_id,),
+        ).fetchall()
+    return [_trade_to_dict(r) for r in rows]
+
+
+def get_all_trades(user_id: int) -> list[dict]:
+    """Alle Trades des Nutzers für Export/Analyse, älteste zuerst und statusübergreifend."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM trades
+               WHERE user_id = ?
                ORDER BY trade_date ASC, id ASC""",
             (user_id,),
         ).fetchall()

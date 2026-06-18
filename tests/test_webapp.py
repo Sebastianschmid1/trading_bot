@@ -603,6 +603,41 @@ def _write_reports(d):
                                       encoding="utf-8")
 
 
+def test_backtest_tab_offers_trading_data_export():
+    fresh()
+    r = _client().get("/app/backtest")
+    assert r.status_code == 200
+    assert "Trading-Daten exportieren" in r.text
+    assert "/app/backtest/export?format=csv" in r.text
+    assert "/app/backtest/export?format=json" in r.text
+
+
+def test_backtest_export_trading_data_csv_and_json():
+    fresh()
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "strength": 71.5, "leverage": 2.0,
+                          "stop_loss": 95.0, "take_profit": 110.0,
+                          "strategy": "breakout"}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    db.close_all(CHAT, [{"ticker": "AAPL", "exit": 108.0, "pnl_eur": 8.0, "pnl_pct": 8.0}])
+    c = _client()
+
+    csv_res = c.get("/app/backtest/export?format=csv")
+    assert csv_res.status_code == 200
+    assert csv_res.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in csv_res.headers["content-disposition"]
+    assert "ticker,direction,status" in csv_res.text
+    assert "AAPL,long,closed" in csv_res.text
+    assert "breakout" in csv_res.text
+
+    json_res = c.get("/app/backtest/export?format=json")
+    assert json_res.status_code == 200
+    payload = json_res.json()
+    assert payload["count"] == 1
+    assert payload["trades"][0]["ticker"] == "AAPL"
+    assert payload["trades"][0]["signal"]["strength"] == 71.5
+
+
 def test_reports_tab_without_data_shows_hint(tmp_path, monkeypatch):
     fresh()
     from stockbot import paths
