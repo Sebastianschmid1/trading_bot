@@ -1059,15 +1059,20 @@ def get_trade(user_id: int, ticker: str) -> dict | None:
     return _trade_to_dict(row) if row else None
 
 
-def close_all(user_id: int, results: list[dict]):
+def close_all(user_id: int, results: list[dict], *, broker_status: str | None = None):
     """Schließt die ausgewerteten Trades des Nutzers (matcht den AKTIVEN Trade je Aktie,
-    datumsunabhängig — auch über Nacht gehaltene)."""
+    datumsunabhängig — auch über Nacht gehaltene).
+
+    Optional kann ein `broker_status` mitgeschrieben werden, z. B. für Reconcile-Fälle.
+    """
     with _connect() as conn:
         for r in results:
             conn.execute(
-                """UPDATE trades SET status = 'closed', exit = ?, pnl_eur = ?, pnl_pct = ?
+                """UPDATE trades SET status = 'closed', exit = ?, pnl_eur = ?, pnl_pct = ?,
+                                      broker_status = COALESCE(?, broker_status),
+                                      broker_updated_at = CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE broker_updated_at END
                    WHERE user_id = ? AND ticker = ? AND status IN ('active', 'broker_closing')""",
-                (r["exit"], r["pnl_eur"], r["pnl_pct"], user_id, r["ticker"]),
+                (r["exit"], r["pnl_eur"], r["pnl_pct"], broker_status, broker_status, user_id, r["ticker"]),
             )
     log.info(f"user_id={user_id}: {len(results)} Trades geschlossen.")
 

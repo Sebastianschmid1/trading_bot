@@ -70,6 +70,7 @@ log = logging.getLogger(__name__)
 
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
+BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 
 
 def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
@@ -1006,11 +1007,44 @@ async def monitor_broker_closing(bot: Bot):
             db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
+async def monitor_missing_broker_positions(bot: Bot):
+    """Schließt aktive Bot-Trades, deren Broker-Position verschwunden ist.
+
+    Das fängt den Fall ab, dass ein User die Position manuell im Broker verkauft hat.
+    Nach einer kurzen Grace-Phase wird der Trade automatisch als geschlossen markiert.
+    """
+    for user in db.list_active_users():
+        if not user.get("broker_exec") or not _alpaca_ready(user):
+            continue
+        client = _alpaca_client(user)
+        if client is None:
+            continue
+        result = await asyncio.to_thread(
+            reconcile_mod.sweep_missing_positions,
+            user,
+            client,
+            grace_sec=BROKER_POSITION_MISSING_AFTER_SEC,
+        )
+        if not result.get("closed"):
+            continue
+        for closed in result["closed"]:
+            ticker = closed["ticker"]
+            exit_price = float(closed.get("exit") or 0.0)
+            await bot.send_message(
+                chat_id=user["user_id"],
+                text=(f"🔁 *{ticker}* wurde bei Alpaca nicht mehr gefunden und daher als verkauft markiert.\n"
+                      f"Abgleich mit aktuellem Kurs: ${exit_price:.2f}."),
+                parse_mode="Markdown",
+            )
+        await refill_pending(bot, user["user_id"], user, None)
+
+
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
     """Job (alle 60s): Broker-Pending pollt, aktive Trades prüft, Verlauf aufzeichnet,
     bei SL/TP oder Signal-Verfall automatisch schließt."""
     await monitor_broker_pending(context.bot)
     await monitor_broker_closing(context.bot)
+    await monitor_missing_broker_positions(context.bot)
     if not _us_market_open():
         return
 

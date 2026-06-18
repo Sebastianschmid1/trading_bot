@@ -295,9 +295,9 @@ def suggest_tickers(query: str, *, client=None) -> list[str]:
     q = (query or "").strip()
     if not q:
         return []
-    cli = client if client is not None else _get_client()
-    if cli is None:
+    if client is None:
         return []
+    cli = client
     try:
         resp = _call_with_retry(
             f"Ticker-Vorschlag für '{q}'",

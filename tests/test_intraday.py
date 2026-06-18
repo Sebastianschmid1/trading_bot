@@ -17,6 +17,7 @@ from stockbot.core import db
 from stockbot.market import analyzer
 from stockbot.tgbot import bot
 from stockbot.web import dashboard
+from stockbot.broker import reconcile as reconcile_mod
 
 CHAT = 7373
 
@@ -220,6 +221,47 @@ def test_monitor_reverts_failed_broker_closing_trade():
     assert trade["status"] == "active"
     assert trade["broker_status"] == "canceled"
     assert any(t["ticker"] == "TSLA" for t in db.get_active_trades(CHAT))
+    ctx.bot.send_message.assert_awaited()
+
+
+def test_monitor_closes_missing_broker_position_after_grace_period():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "IBM", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 80.0}, 1)
+    db.activate_trade(CHAT, "IBM")
+    with db._connect() as conn:
+        conn.execute(
+            "UPDATE trades SET broker_updated_at = '2026-01-01 00:00:00' WHERE user_id = ? AND ticker = ?",
+            (CHAT, "IBM"),
+        )
+
+    orig_ready, orig_client = bot._alpaca_ready, bot._alpaca_client
+    orig_positions, orig_price = reconcile_mod.broker.list_positions, reconcile_mod.get_current_price
+    orig_market_open = bot._us_market_open
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+    bot._us_market_open = lambda *a, **k: False
+    reconcile_mod.broker.list_positions = lambda client=None: []
+    reconcile_mod.get_current_price = lambda ticker, fallback: 97.5
+    ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
+    try:
+        asyncio.run(bot.monitor_missing_broker_positions(ctx.bot))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client = orig_ready, orig_client
+        bot._us_market_open = orig_market_open
+        reconcile_mod.broker.list_positions = orig_positions
+        reconcile_mod.get_current_price = orig_price
+
+    trade = db.get_trade(CHAT, "IBM")
+    assert trade["status"] == "closed"
+    assert trade["broker_status"] == "reconciled_missing_position"
+    assert trade["exit"] == 97.5
     ctx.bot.send_message.assert_awaited()
 
 
