@@ -49,7 +49,7 @@
     <a href="/app/reports" class="{{ 'active' if active=='reports' }}">Reports</a>
     <a href="/app/algorithms" class="{{ 'active' if active=='algorithms' }}">Algorithmen</a>
     <a href="/app/backtest" class="{{ 'active' if active=='backtest' }}">Backtest</a>
-    <a href="/app/dashboard">Dashboard</a>
+    <a href="/app/dashboard" class="{{ 'active' if active=='dashboard' }}">Dashboard</a>
   </nav>
   <span class="spacer"></span>
   <span class="muted">{{ user.username or user.user_id }}</span>

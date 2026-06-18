@@ -116,12 +116,12 @@
     <tbody>
       {% for t in pending_trade_rows %}
       <tr style="border-bottom:1px solid #202634">
-        <td style="padding:.35rem .5rem">{{ t.status }}</td>
+        <td style="padding:.35rem .5rem">{{ t.status_text or t.status }}</td>
         <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
         <td style="padding:.35rem .5rem">{{ t.direction|upper }}</td>
         <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.price) }}</td>
         <td style="padding:.35rem .5rem">{{ '%.1f'|format(t.leverage) }}×</td>
-        <td style="padding:.35rem .5rem">{{ t.broker_status or '—' }}</td>
+        <td style="padding:.35rem .5rem">{{ t.broker_text or t.broker_status or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -148,12 +148,12 @@
     <tbody>
       {% for t in broker_closing %}
       <tr style="border-bottom:1px solid #202634">
-        <td style="padding:.35rem .5rem">{{ t.status }}</td>
+        <td style="padding:.35rem .5rem">{{ t.status_text or t.status }}</td>
         <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
         <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.entry) }}</td>
         <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.current) }}</td>
         <td style="padding:.35rem .5rem">{{ '%.1f'|format(t.leverage) }}×</td>
-        <td style="padding:.35rem .5rem">{{ t.broker_status or '—' }}</td>
+        <td style="padding:.35rem .5rem">{{ t.broker_text or t.broker_status or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>

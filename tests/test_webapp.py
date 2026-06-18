@@ -90,6 +90,28 @@ def test_token_login_sets_session_and_grants_access():
     assert c.get("/app").status_code == 200
 
 
+def test_app_dashboard_is_integrated_into_site_layout():
+    fresh()
+    c = _client()
+    r = c.get("/app/dashboard")
+    assert r.status_code == 200
+    assert "Trading Dashboard" in r.text
+    assert "Zur Web-App" in r.text
+    assert "Dashboard" in r.text
+
+
+def test_app_shows_friendly_trade_status_text():
+    fresh()
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "AAPL", status="broker_pending")
+    db.mark_broker_pending(CHAT, "AAPL", order_id="ord-1", broker_status="accepted")
+    c = _client()
+    html = c.get("/app").text
+    assert "AAPL" in html
+    assert "Broker wartet" in html
+
+
 def test_invalid_token_redirects_to_login():
     fresh()
     c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)

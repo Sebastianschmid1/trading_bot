@@ -17,8 +17,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from stockbot.core import db
 from stockbot.market import strategies
@@ -33,6 +34,41 @@ if sys.platform == "win32":
 
 log = logging.getLogger(__name__)
 
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+BROKER_STATUS_LABELS = {
+    "accepted": "Broker hat angenommen",
+    "filled": "Ausgeführt",
+    "canceled": "Abgebrochen",
+    "rejected": "Abgelehnt",
+    "expired": "Abgelaufen",
+    "repriced": "Neu bepreist",
+    "not_submitted": "Noch nicht gesendet",
+    "reconciled_missing_position": "Als verkauft erkannt",
+}
+
+TRADE_STATUS_LABELS = {
+    "active": "Aktiv",
+    "broker_pending": "Broker wartet",
+    "broker_closing": "Verkauf läuft",
+    "broker_failed": "Broker fehlgeschlagen",
+    "closed": "Geschlossen",
+}
+
+
+def broker_status_label(broker_status: str | None) -> str:
+    if not broker_status:
+        return "—"
+    return BROKER_STATUS_LABELS.get(broker_status, broker_status.replace("_", " ").title())
+
+
+def trade_status_label(status: str | None, broker_status: str | None = None) -> str:
+    base = TRADE_STATUS_LABELS.get(status or "", (status or "").replace("_", " ").title() or "—")
+    if status == "broker_pending" and broker_status:
+        return f"{base} · {broker_status_label(broker_status)}"
+    if status == "broker_closing" and broker_status:
+        return f"{base} · {broker_status_label(broker_status)}"
+    return base
 
 def _berlin_hhmm(ts: str | None) -> str:
     """SQLite-Zeitstempel (UTC, 'YYYY-MM-DD HH:MM:SS') → 'HH:MM' in Berliner Zeit."""
@@ -163,6 +199,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         active_view.append({
             "ticker":      t["ticker"],
             "direction":   t["direction"],
+            "status_text": trade_status_label("active"),
             "entry":       t["entry"],
             "current":     cur,
             "leverage":    leverage,
@@ -263,6 +300,13 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         "active_trades": active_view,
         "intraday":      intraday,
         "generated_at":  datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "status_texts": {
+            "active": TRADE_STATUS_LABELS["active"],
+            "broker_pending": TRADE_STATUS_LABELS["broker_pending"],
+            "broker_closing": TRADE_STATUS_LABELS["broker_closing"],
+            "broker_failed": TRADE_STATUS_LABELS["broker_failed"],
+            "closed": TRADE_STATUS_LABELS["closed"],
+        },
     }
 
 
@@ -281,10 +325,17 @@ def index():
 
 
 @app.get("/dashboard/{token}", response_class=HTMLResponse)
-def dashboard_page(token: str):
-    if not db.get_user_by_token(token):
+def dashboard_page(token: str, request: Request):
+    user = db.get_user_by_token(token)
+    if not user:
         raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Link.")
-    return FileResponse(STATIC_DIR / "dashboard.html")
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "user": user,
+        "active": "dashboard",
+        "unread": db.unread_count(user["user_id"]),
+        "dashboard_token": token,
+        "dashboard_app_url": f"/auth/token?token={token}",
+    })
 
 
 @app.get("/api/{token}/data")

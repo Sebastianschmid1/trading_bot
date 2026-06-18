@@ -32,7 +32,6 @@ from stockbot.services import trades as trade_svc
 from stockbot.services import settings as settings_svc
 from stockbot.services import watchlist as watchlist_svc
 from stockbot.web import auth
-from stockbot.web.dashboard import build_dashboard_data
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +46,8 @@ async def _csrf_protect(request: Request):
 
 router = APIRouter(dependencies=[Depends(_csrf_protect)])
 
+# Import erst jetzt, damit dashboard.py beim Einhängen des Routers bereits auf `router` zugreifen kann.
+from stockbot.web.dashboard import build_dashboard_data, broker_status_label, trade_status_label
 
 # ── Alpaca-Helfer (leichtgewichtig, ohne Telegram-Abhängigkeit) ──────────────
 
@@ -342,11 +343,13 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
         row = {
             "kind": "signal",
             "status": "Offen",
+            "status_text": trade_status_label("active"),
             "ticker": t["ticker"],
             "direction": t.get("direction") or sig.get("direction", "long"),
             "price": sig.get("price") or t.get("entry") or 0.0,
             "leverage": sig.get("leverage", 1.0) or 1.0,
             "broker_status": "",
+            "broker_text": "—",
         }
         pending.append({
             "ticker": row["ticker"], "direction": row["direction"],
@@ -359,14 +362,17 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     broker_pending = []
     for t in db.get_broker_pending_trades(user["user_id"]):
         sig = t.get("signal", {}) or {}
+        broker_status = t.get("broker_status") or "accepted"
         row = {
             "kind": "broker_pending",
             "status": "Broker-Pending",
+            "status_text": trade_status_label("broker_pending", broker_status),
             "ticker": t["ticker"],
             "direction": t.get("direction") or sig.get("direction", "long"),
             "price": t.get("entry") or sig.get("price") or 0.0,
             "leverage": sig.get("leverage", 1.0) or 1.0,
-            "broker_status": t.get("broker_status") or "accepted",
+            "broker_status": broker_status,
+            "broker_text": broker_status_label(broker_status),
             "broker_order_id": t.get("broker_order_id"),
         }
         broker_pending.append({
@@ -380,15 +386,18 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     broker_closing = []
     for t in db.get_broker_closing_trades(user["user_id"]):
         sig = t.get("signal", {}) or {}
+        broker_status = t.get("broker_status") or "requested"
         row = {
             "kind": "broker_closing",
             "status": "Verkauf läuft",
+            "status_text": trade_status_label("broker_closing", broker_status),
             "ticker": t["ticker"],
             "direction": t.get("direction") or sig.get("direction", "long"),
             "price": t.get("entry") or sig.get("price") or 0.0,
             "current": t.get("exit") or t.get("entry") or sig.get("price") or 0.0,
             "leverage": sig.get("leverage", 1.0) or 1.0,
-            "broker_status": t.get("broker_status") or "requested",
+            "broker_status": broker_status,
+            "broker_text": broker_status_label(broker_status),
             "broker_order_id": t.get("broker_order_id"),
         }
         broker_closing.append({
@@ -865,11 +874,11 @@ async def app_backtest_run(request: Request,
 
 # ── Dashboard-Verknüpfung ─────────────────────────────────────────────────────
 
-@router.get("/app/dashboard")
+@router.get("/app/dashboard", response_class=HTMLResponse)
 def app_dashboard(request: Request):
-
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
     token = db.get_or_create_dashboard_token(user["user_id"])
-    return _redirect(f"/dashboard/{token}")
+    return _render("dashboard.html", request, user, active="dashboard",
+                   dashboard_token=token, dashboard_app_url="/app")
