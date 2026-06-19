@@ -988,6 +988,51 @@ def mark_broker_close_failed(user_id: int, ticker: str, *, broker_status: str | 
         return cur.rowcount > 0
 
 
+def adopt_active_trade(user_id: int, ticker: str, *, entry: float, signal: dict,
+                       filled_qty: float | None = None,
+                       broker_order_id: str | None = None) -> bool:
+    """Übernimmt eine **verwaiste Broker-Position** als aktiven Trade (Selbstheilung).
+
+    Gerät eine Order beim Broker durch, ohne dass der Bot sie als aktiven Trade führt
+    (z. B. mehrdeutiger Sende-Fehler nach dem eigentlichen Fill), legt diese Funktion den
+    Trade nachträglich an, damit der Bot ihn wieder überwacht (SL/TP, Tagesende).
+
+    - Existiert heute schon ein Datensatz dieser Aktie und ist er **nicht-terminal**
+      (`active`/`broker_pending`/`broker_closing`) → nichts tun (schon getrackt), `False`.
+    - Existiert ein terminaler heutiger Datensatz (z. B. `broker_failed`) → reaktivieren.
+    - Sonst → neuen aktiven Trade einfügen.
+    Gibt `True` zurück, wenn übernommen wurde."""
+    direction = signal.get("direction", "long")
+    payload = json.dumps(signal, default=str)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, status FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
+            (user_id, _today(), ticker),
+        ).fetchone()
+        if row and row["status"] in ("active", "broker_pending", "broker_closing"):
+            return False
+        if row:
+            conn.execute(
+                """UPDATE trades
+                   SET status = 'active', direction = ?, entry = ?, signal_json = ?,
+                       exit = NULL, pnl_eur = NULL, pnl_pct = NULL,
+                       broker_order_id = ?, broker_filled_qty = ?,
+                       broker_status = 'adopted_orphan', broker_updated_at = datetime('now')
+                   WHERE id = ?""",
+                (direction, entry, payload, broker_order_id, filled_qty, row["id"]),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json,
+                                       message_id, status, entry, broker_order_id,
+                                       broker_filled_qty, broker_status)
+                   VALUES (?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, 'adopted_orphan')""",
+                (user_id, _today(), ticker, direction, payload, entry, broker_order_id, filled_qty),
+            )
+    log.warning(f"Verwaiste Broker-Position übernommen: user_id={user_id} {ticker} @ ${entry:.2f}")
+    return True
+
+
 def reject_trade(user_id: int, ticker: str) -> bool:
     """Markiert den heutigen Trade als abgelehnt. Gibt True zurück, falls ein Datensatz aktualisiert wurde."""
     with _connect() as conn:

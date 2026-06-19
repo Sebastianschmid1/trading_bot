@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
+from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
 from stockbot.core.evaluator import get_current_price, trade_pnl
@@ -45,6 +46,8 @@ BROKER_STATUS_LABELS = {
     "repriced": "Neu bepreist",
     "not_submitted": "Noch nicht gesendet",
     "reconciled_missing_position": "Als verkauft erkannt",
+    "adopted_orphan": "Aus Broker übernommen",
+    "insufficient_buying_power": "Buying Power zu gering",
 }
 
 TRADE_STATUS_LABELS = {
@@ -130,6 +133,31 @@ def _trade_strategy(t: dict) -> str:
 
 
 RANGE_CHOICES = [0, 1, 7, 14, 30]   # 0 = „Alle"; sonst letzte N Tage
+
+
+def broker_account_snapshot(user: dict) -> dict | None:
+    """Live-Konto-Snapshot (Buying Power, Cash) des Nutzers von Alpaca — oder None.
+
+    Nur für Nutzer mit echter Broker-Ausführung (`broker_exec`). Best-effort: bei fehlenden
+    Keys/Verbindung/Fehler kommt None zurück (das Dashboard blendet die Kachel dann aus).
+    Eigene, schlanke Client-Wahl (keine Webapp-Abhängigkeit → kein Import-Zyklus)."""
+    if not (user and user.get("broker_exec")):
+        return None
+    try:
+        client = None
+        if user.get("broker_platform") == "alpaca":
+            creds = db.get_decrypted_credentials(user["user_id"])
+            if creds:
+                client = broker.make_client(creds[0], creds[1], paper=config.ALPACA_PAPER)
+        if client is None and config.ALPACA_ENABLED:
+            client = broker._get_client()
+        if client is None:
+            return None
+        acct = broker.account_summary(client)
+        return acct if acct.get("ok") else None
+    except Exception as e:
+        log.warning(f"[{user.get('user_id')}] Broker-Account-Snapshot fehlgeschlagen: {e}")
+        return None
 
 
 def build_dashboard_data(user: dict, strategy: str | None = None, days: int | None = None) -> dict:
@@ -280,6 +308,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         "username":        user.get("username") or f"user_{user_id}",
         "trade_size_eur":  user["trade_size_eur"],
         "broker_platform": user.get("broker_platform"),
+        "broker_account":  broker_account_snapshot(user),
         "is_active":       user.get("is_active", True),
         "strategy":        strategy or "",
         "strategies":      strat_tabs,

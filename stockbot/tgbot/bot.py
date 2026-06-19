@@ -1074,12 +1074,41 @@ async def monitor_missing_broker_positions(bot: Bot):
         await refill_pending(bot, user["user_id"], user, None)
 
 
+async def monitor_orphan_broker_positions(bot: Bot):
+    """Übernimmt Broker-Positionen, die der Bot NICHT führt, als aktive Trades.
+
+    Schließt die Lücke „im Broker offen, aber nicht im Bot" (z. B. Order ging beim Broker
+    durch, der Bot verbuchte sie wegen eines Sende-/Antwortfehlers aber als fehlgeschlagen).
+    Danach überwacht der Bot die Position wieder (SL/TP, Tagesende-Auswertung).
+    """
+    for user in db.list_active_users():
+        if not user.get("broker_exec") or not _alpaca_ready(user):
+            continue
+        client = _alpaca_client(user)
+        if client is None:
+            continue
+        result = await asyncio.to_thread(reconcile_mod.adopt_orphan_positions, user, client)
+        for a in result.get("adopted", []):
+            entry = float(a.get("entry") or 0.0)
+            qty = a.get("qty")
+            await bot.send_message(
+                chat_id=user["user_id"],
+                text=(f"♻️ *{a['ticker']}* war bei Alpaca offen, aber nicht im Bot — "
+                      f"jetzt automatisch übernommen ({a['symbol']}"
+                      f"{f', {qty:g}×' if qty is not None else ''} @ ${entry:.2f}).\n"
+                      f"Der Trade wird wieder überwacht. SL/TP sind aus (nachträglich erkannt) — "
+                      f"bei Bedarf manuell verkaufen."),
+                parse_mode="Markdown",
+            )
+
+
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
     """Job (alle 60s): Broker-Pending pollt, aktive Trades prüft, Verlauf aufzeichnet,
     bei SL/TP oder Signal-Verfall automatisch schließt."""
     await monitor_broker_pending(context.bot)
     await monitor_broker_closing(context.bot)
     await monitor_missing_broker_positions(context.bot)
+    await monitor_orphan_broker_positions(context.bot)
     if not _us_market_open():
         return
 

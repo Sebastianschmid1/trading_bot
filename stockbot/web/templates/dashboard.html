@@ -238,7 +238,14 @@
 
       const pf = (s.profit_factor === null || s.profit_factor === undefined)
         ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
-      document.getElementById("cards").innerHTML = `
+      // Broker-Konto (nur bei echter Ausführung vorhanden): Buying Power + Cash live aus Alpaca.
+      const ba = d.broker_account;
+      const usd0 = (n) => "$" + Math.round(n).toLocaleString("de-DE");
+      const brokerCards = ba ? `
+        <div class="card"><div class="label">Buying Power${ba.paper ? " (Paper)" : ""}</div><div class="value">${usd0(ba.buying_power)}</div></div>
+        <div class="card"><div class="label">Cash</div><div class="value">${usd0(ba.cash)}</div></div>
+      ` : "";
+      document.getElementById("cards").innerHTML = brokerCards + `
         <div class="card"><div class="label">Gesamt P&L</div><div class="value ${cls(s.total_pnl)}">${fmt(s.total_pnl)}</div></div>
         <div class="card"><div class="label">Profitfaktor</div><div class="value">${pf}</div></div>
         <div class="card"><div class="label">Trefferquote</div><div class="value">${s.win_rate}%</div></div>

@@ -10,11 +10,19 @@ Der Aufrufer (Telegram-Handler) verschickt daraus das Error-Log.
 verschwunden ist (z. B. manuell im Broker verkauft).
 """
 
+import re
 from datetime import datetime
 
 from stockbot.core.evaluator import get_current_price, trade_pnl
 from stockbot.core import db
 from stockbot.broker import client as broker
+
+# OCC-Optionssymbol, z. B. AAPL260116C00200000 = AAPL · 2026-01-16 · Call · Strike 200.0
+_OCC_RE = re.compile(r"^(?P<root>[A-Z]{1,6})(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})"
+                     r"(?P<cp>[CP])(?P<strike>\d{8})$")
+
+# Trade-Status, die eine Position im Broker erklären (nicht erneut übernehmen).
+_NON_TERMINAL = ("active", "broker_pending", "broker_closing")
 
 
 def bot_symbol(trade: dict) -> str:
@@ -22,6 +30,19 @@ def bot_symbol(trade: dict) -> str:
     Kontrakt (`option_symbol`), sonst der Aktien-Ticker."""
     sig = trade.get("signal") or {}
     return sig.get("option_symbol") or trade["ticker"]
+
+
+def parse_occ_symbol(symbol: str) -> dict | None:
+    """Zerlegt ein OCC-Optionssymbol in {underlying, expiry, type, strike}; None bei Aktien."""
+    m = _OCC_RE.match((symbol or "").strip())
+    if not m:
+        return None
+    return {
+        "underlying": m["root"],
+        "expiry": f"20{m['yy']}-{m['mm']}-{m['dd']}",
+        "type": "call" if m["cp"] == "C" else "put",
+        "strike": int(m["strike"]) / 1000.0,
+    }
 
 
 def diff_positions(bot_syms: set[str], broker_syms: set[str]) -> dict:
@@ -109,3 +130,64 @@ def sweep_missing_positions(user: dict, client, *, grace_sec: int = 300) -> dict
         "Geschlossen: " + ", ".join(f"{c['ticker']}" for c in closed)
     )
     return {"closed": closed, "skipped": skipped, "detail": detail}
+
+
+def tracked_symbols(user_id: int) -> set[str]:
+    """Alle Broker-Symbole, die der Bot aktuell (nicht-terminal) führt — aktive Trades plus
+    Orders, die gerade gefüllt oder geschlossen werden. Damit wird eine Position, die zu einer
+    laufenden Order gehört, NICHT fälschlich als verwaist übernommen."""
+    syms: set[str] = set()
+    for getter in (db.get_active_trades, db.get_broker_pending_trades, db.get_broker_closing_trades):
+        for t in getter(user_id):
+            syms.add(bot_symbol(t))
+    return syms
+
+
+def _signal_for_position(pos: dict) -> tuple[str, dict]:
+    """Baut (ticker, signal) für eine zu übernehmende Broker-Position.
+
+    Aktien → Ticker = Symbol, lineares Modell ohne Hebel. Options → Underlying aus dem
+    OCC-Symbol, Kontraktfelder fürs options-bewusste P&L. SL/TP bewusst 'aus' (der Bot kennt
+    die ursprüngliche Absicht nicht und soll die Position nicht versehentlich schließen)."""
+    sym = pos["symbol"]
+    avg = float(pos.get("avg_entry") or 0.0)
+    qty = abs(float(pos.get("qty") or 0.0))
+    signal = {"strategy": "adopted", "sl_tp_mode": "aus", "leverage": 1.0,
+              "price": avg, "direction": "long", "adopted": True}
+    occ = parse_occ_symbol(sym)
+    if occ:
+        signal.update({
+            "option_symbol": sym, "strike": occ["strike"], "expiry": occ["expiry"],
+            "entry_premium": avg, "contracts": int(qty) or 1, "omega": 1.0, "delta": None,
+        })
+        return occ["underlying"], signal
+    return sym, signal
+
+
+def adopt_orphan_positions(user: dict, client) -> dict:
+    """Übernimmt Broker-Positionen, die der Bot NICHT führt, als aktive Trades (Selbstheilung).
+
+    Das ist der Gegenpart zu `sweep_missing_positions`: schließt die Lücke „im Broker offen,
+    aber nicht im Bot" — etwa wenn eine Order beim Broker durchging, der Bot sie aber wegen
+    eines Sende-/Antwortfehlers als fehlgeschlagen verbucht hat.
+
+    Rückgabe: {"adopted": [...], "skipped": [...], "detail": str}. Robust — wirft nie hart."""
+    tracked = tracked_symbols(user["user_id"])
+    adopted: list[dict] = []
+    skipped: list[str] = []
+    for pos in broker.list_positions(client):
+        sym = pos["symbol"]
+        if sym in tracked:
+            continue
+        ticker, signal = _signal_for_position(pos)
+        ok = db.adopt_active_trade(
+            user["user_id"], ticker, entry=float(pos.get("avg_entry") or 0.0),
+            signal=signal, filled_qty=pos.get("qty"))
+        if ok:
+            adopted.append({"symbol": sym, "ticker": ticker, "qty": pos.get("qty"),
+                            "entry": float(pos.get("avg_entry") or 0.0)})
+        else:
+            skipped.append(sym)   # schon getrackt (z. B. anderer Trade gleicher Aktie heute)
+    detail = ("Übernommen: " + ", ".join(f"{a['ticker']} ({a['symbol']})" for a in adopted)
+              if adopted else "Keine verwaisten Positionen.")
+    return {"adopted": adopted, "skipped": skipped, "detail": detail}

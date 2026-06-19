@@ -192,6 +192,7 @@ def list_positions(client=None) -> list[dict]:
                 "qty": float(p.qty),
                 "avg_entry": float(p.avg_entry_price),
                 "side": str(getattr(p, "side", "")),
+                "asset_class": str(getattr(p, "asset_class", "")),
                 "unrealized_pl": float(getattr(p, "unrealized_pl", 0) or 0),
             })
         return out
