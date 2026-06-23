@@ -321,3 +321,8 @@ ADMIN_CHAT_ID = int(_admin) if _admin.lstrip("-").isdigit() else None
 
 # Pfad der Bot-Logdatei (gemeinsam von bot.py geschrieben und vom Web-Log-Download gelesen).
 LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")
+
+# Sizing: Ist eine Aktie nur etwas teurer als die Trade-Größe (Budget), kauft der Bot 1 GANZE
+# Aktie statt eines Bruchteils — bis zu diesem Faktor des Budgets (1.0 = nie aufrunden).
+# Vorteil: ganze Aktien sind auch außerhalb der regulären Handelszeit als Limit handelbar.
+SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.5"))

@@ -191,12 +191,9 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
         return {"ok": False, "status": "broker_failed", "msg": "Kein Einstiegskurs verfügbar."}
 
     extended = bool(config.EXTENDED_HOURS and broker.market_open(client) is False)
-    if leverage > 1.0:
-        plan = sizing.plan_order(float(entry), float(user["trade_size_eur"]), leverage,
-                                 option_selector=None, extended=extended)
-    else:
-        plan = sizing.plan_order(float(entry), float(user["trade_size_eur"]), leverage,
-                                 option_selector=None, extended=extended)
+    plan = sizing.plan_order(float(entry), float(user["trade_size_eur"]), leverage,
+                             option_selector=None, extended=extended,
+                             roundup_factor=config.SHARE_ROUNDUP_FACTOR)
 
     if plan["kind"] == "none":
         db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
@@ -219,8 +216,11 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
             res = broker.submit_buy(ticker, qty=plan["qty"], client=client)
     else:
         if extended:
-            db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
-            return {"ok": False, "status": "broker_failed", "msg": "Bruchteile sind in erweiterten Handelszeiten nicht möglich."}
+            # Bruchteil außerhalb regulärer Zeit → vormerken; der Bot-Monitor sendet beim nächsten Open.
+            db.mark_broker_pending(user["user_id"], ticker, order_id=None, broker_status="queued_regular")
+            return {"ok": True, "status": "broker_pending",
+                    "msg": ("Order vorgemerkt — Bruchteile gehen nur in der regulären US-Sitzung; "
+                            "wird beim nächsten Börsenstart automatisch gesendet.")}
         res = broker.submit_buy(ticker, notional=plan["notional"], client=client)
 
     if not res.get("ok"):

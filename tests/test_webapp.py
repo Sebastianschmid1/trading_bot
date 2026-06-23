@@ -163,7 +163,7 @@ def test_web_accept_with_broker_exec_tracks_order_fill(monkeypatch):
     calls = []
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
-    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "stock", "qty": 1})
     monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: calls.append((symbol, kwargs)) or {"ok": True, "id": "ord-web", "detail": "NVDA ×1"})
     monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 101.25})
 
@@ -186,7 +186,7 @@ def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
     monkeypatch.setattr(webapp.broker, "account_summary", lambda client=None: {"ok": True, "buying_power": 1000.0})
-    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "stock", "qty": 1})
     monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-wait", "detail": "AAPL ×1"})
     monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "accepted"})
 
@@ -210,7 +210,7 @@ def test_web_accept_does_not_submit_when_buying_power_is_insufficient(monkeypatc
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
     monkeypatch.setattr(webapp.broker, "account_summary", lambda client=None: {"ok": True, "buying_power": 0.0})
-    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "shares", "qty": 1, "notional": None})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "shares", "qty": 1, "notional": None})
     def fake_submit(*args, **kwargs):
         submitted["called"] = True
         return {"ok": True, "id": "should-not-submit"}
@@ -235,7 +235,7 @@ def test_web_sell_with_broker_exec_sets_broker_closing(monkeypatch):
                           "leverage": 1.0, "strength": 70.0}, 1)
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
-    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "stock", "qty": 1})
     monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-buy", "detail": "NVDA ×1"})
     monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 100.0})
     _client().post("/app/accept", data={"ticker": "NVDA"}, headers={"X-Requested-With": "fetch"})
@@ -259,7 +259,7 @@ def test_web_sell_with_broker_exec_closes_after_fill(monkeypatch):
                           "leverage": 1.0, "strength": 70.0}, 1)
     monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
     monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
-    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "stock", "qty": 1})
+    monkeypatch.setattr(webapp.sizing, "plan_order", lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "stock", "qty": 1})
     monkeypatch.setattr(webapp.broker, "submit_buy", lambda symbol, **kwargs: {"ok": True, "id": "ord-buy2", "detail": "TSLA ×1"})
     monkeypatch.setattr(webapp.broker, "get_order_status", lambda order_id, client=None: {"ok": True, "status": "filled", "filled_qty": 1.0, "filled_avg_price": 100.0})
     _client().post("/app/accept", data={"ticker": "TSLA"}, headers={"X-Requested-With": "fetch"})

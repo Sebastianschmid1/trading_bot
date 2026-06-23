@@ -11,6 +11,7 @@ Start (separater Prozess neben bot.py):
 """
 
 import sys
+import math
 import logging
 from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
@@ -48,6 +49,8 @@ BROKER_STATUS_LABELS = {
     "reconciled_missing_position": "Als verkauft erkannt",
     "adopted_orphan": "Aus Broker übernommen",
     "insufficient_buying_power": "Buying Power zu gering",
+    "queued_regular": "Vorgemerkt (wartet auf reguläre Sitzung)",
+    "queue_expired": "Vorgemerkt — verfallen (Signal veraltet)",
 }
 
 TRADE_STATUS_LABELS = {
@@ -133,6 +136,27 @@ def _trade_strategy(t: dict) -> str:
 
 
 RANGE_CHOICES = [0, 1, 7, 14, 30]   # 0 = „Alle"; sonst letzte N Tage
+
+
+def sizing_hint(trade_size: float, trades: list[dict]) -> dict | None:
+    """Empfiehlt eine größere Trade-Größe, wenn die aktuelle (z. B. 25 $) unter den Aktienkursen
+    liegt und deshalb häufig Bruchteile/Vormerkungen nötig sind.
+
+    Rückgabe {frac_rate, recommended, trade_size} oder None (genug ganze Aktien bezahlbar / zu
+    wenig Daten). `recommended` ist so gewählt, dass ~80 % der Signale als ganze Aktie passen."""
+    prices = [float((t.get("signal") or {}).get("price")) for t in trades
+              if (t.get("signal") or {}).get("price")]
+    if len(prices) < 5 or not trade_size:
+        return None
+    over = sum(1 for p in prices if p > trade_size)
+    frac_rate = over / len(prices)
+    if frac_rate < 0.30:                      # meistens ganze Aktien bezahlbar → kein Hinweis
+        return None
+    prices.sort()
+    p80 = prices[min(len(prices) - 1, int(0.8 * len(prices)))]
+    recommended = int(math.ceil(p80 / 50.0) * 50)   # auf nächste 50 aufrunden
+    return {"frac_rate": round(frac_rate * 100), "recommended": recommended,
+            "trade_size": round(trade_size)}
 
 
 def broker_account_snapshot(user: dict) -> dict | None:
@@ -309,6 +333,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         "trade_size_eur":  user["trade_size_eur"],
         "broker_platform": user.get("broker_platform"),
         "broker_account":  broker_account_snapshot(user),
+        "sizing_hint":     sizing_hint(user["trade_size_eur"] or 0.0, closed + active),
         "is_active":       user.get("is_active", True),
         "strategy":        strategy or "",
         "strategies":      strat_tabs,

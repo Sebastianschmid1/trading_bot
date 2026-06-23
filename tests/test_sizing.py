@@ -14,7 +14,7 @@ from stockbot.broker import sizing
 def test_whole_shares_for_budget():
     # 1000$ / 200$ = 5 ganze Aktien, keine Bruchteile
     plan = sizing.plan_share_order(price=200.0, budget=1000.0)
-    assert plan == {"kind": "shares", "qty": 5, "notional": None, "fractional": False}
+    assert plan == {"kind": "shares", "qty": 5, "notional": None, "fractional": False, "rounded_up": False}
 
 
 def test_floor_to_whole_shares():
@@ -26,7 +26,7 @@ def test_floor_to_whole_shares():
 def test_fractional_only_when_share_exceeds_budget():
     # Eine Aktie (1500$) ist teurer als das Budget (1000$) → einziger Bruchteil-Fall
     plan = sizing.plan_share_order(price=1500.0, budget=1000.0)
-    assert plan == {"kind": "shares", "qty": None, "notional": 1000.0, "fractional": True}
+    assert plan == {"kind": "shares", "qty": None, "notional": 1000.0, "fractional": True, "rounded_up": False}
 
 
 def test_invalid_inputs():

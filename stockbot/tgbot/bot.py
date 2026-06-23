@@ -56,7 +56,7 @@ from stockbot.config import (
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
-    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE,
+    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE, SHARE_ROUNDUP_FACTOR,
 )
 
 os.makedirs(os.path.dirname(LOG_FILE) or ".", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -73,6 +73,7 @@ log = logging.getLogger(__name__)
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
+BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
 
 
 def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
@@ -403,7 +404,8 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     else:
         plan = await asyncio.to_thread(
             sizing.plan_order, float(entry), budget, leverage,
-            option_selector=_make_option_selector(user, client, ticker, float(entry)), extended=extended)
+            option_selector=_make_option_selector(user, client, ticker, float(entry)),
+            extended=extended, roundup_factor=SHARE_ROUNDUP_FACTOR)
 
     if plan["kind"] == "none":
         db.mark_broker_failed(chat_id, ticker, broker_status="not_submitted")
@@ -440,14 +442,17 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             res = await asyncio.to_thread(broker.submit_buy, ticker, qty=plan["qty"], client=client)
         order_label = f"{plan['qty']:g} {ticker}"
     else:
-        # Aktie teurer als Budget → einziger Bruchteil-Fall (Notional). In Extended-Hours nicht möglich.
+        # Aktie teurer als Budget → Bruchteil-Fall (Notional). Bruchteile gehen NUR in der regulären
+        # US-Sitzung. Außerhalb → Order vormerken (Queue) und beim nächsten regulären Open senden.
         if extended:
-            db.mark_broker_failed(chat_id, ticker, broker_status="not_submitted")
+            db.mark_broker_pending(chat_id, ticker, order_id=None, broker_status="queued_regular")
             await bot.send_message(
                 chat_id=chat_id,
-                text=(f"ℹ️ Alpaca-{mode}: Eine {ticker}-Aktie (${float(entry):.2f}) ist teurer als das "
-                      f"Budget {budget:.0f}$ — in erweiterten Handelszeiten sind keine Bruchteile möglich. "
-                      f"Keine Order gesendet."))
+                text=(f"🕒 Alpaca-{mode}: {ticker} (${float(entry):.2f}) ist teurer als dein Budget "
+                      f"{budget:.0f}$ → Bruchteil-Order. Bruchteile gehen außerhalb der regulären "
+                      f"US-Sitzung nicht — die Order ist *vorgemerkt* und wird beim nächsten regulären "
+                      f"Börsenstart automatisch gesendet."),
+                parse_mode="Markdown")
             return
         res = await asyncio.to_thread(
             broker.submit_buy, ticker, notional=plan["notional"], client=client)
@@ -599,8 +604,10 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
 
     sig = _personalize_signal(signal, sl_tp_mode, leverage) if market_open else dict(signal)
 
-    # Auto-Accept: sofort starten, keine Buttons
-    if market_open and auto_accept:
+    # Auto-Accept: sofort starten, keine Buttons — aber NUR in der regulären US-Sitzung.
+    # Außerhalb (Pre-/After-Market) wird nicht automatisch angenommen; das Signal kommt mit
+    # JA/NEIN-Buttons, damit dünn gehandelte Randzeiten nicht ungefragt gekauft werden.
+    if market_open and auto_accept and _us_market_open(extended=False):
         msg = await bot.send_message(chat_id=chat_id,
                                      text=_signal_card(sig, trade_size_eur, market_open, expiry_min)[0],
                                      parse_mode="Markdown")
@@ -919,6 +926,29 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     return None
 
 
+async def _process_queued_order(bot: Bot, user: dict, trade: dict):
+    """Behandelt eine vorgemerkte Bruchteil-Order (außerhalb regulärer Zeit aufgelaufen):
+    bei regulärem Börsenstart senden, oder nach 24 h als veraltet verfallen lassen."""
+    chat_id, ticker = user["user_id"], trade["ticker"]
+    queued_at = reconcile_mod._parse_ts(trade.get("broker_updated_at") or trade.get("created_at"))
+    age = (datetime.utcnow() - queued_at).total_seconds() if queued_at else 0.0
+    if age > BROKER_QUEUE_MAX_AGE_SEC:
+        db.mark_broker_failed(chat_id, ticker, broker_status="queue_expired")
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(f"⌛ Vorgemerkte Order für *{ticker}* ist verfallen (älter als 24 h, Signal veraltet). "
+                  f"Es wurde nichts gekauft."),
+            parse_mode="Markdown")
+        return
+    if not _us_market_open(extended=False):
+        return                                  # noch keine reguläre Sitzung → weiter warten
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"🟢 Reguläre US-Sitzung offen — sende jetzt die vorgemerkte Order für *{ticker}*…",
+        parse_mode="Markdown")
+    await _maybe_broker_order(bot, chat_id, trade)   # plant neu (reguläre Zeit) und sendet
+
+
 async def monitor_broker_pending(bot: Bot):
     """Pollt offene Broker-Orders und macht Trades erst bei tatsächlichem Fill aktiv."""
     final_fail = {"rejected", "canceled", "expired", "done_for_day"}
@@ -930,7 +960,11 @@ async def monitor_broker_pending(bot: Bot):
             continue
         for trade in db.get_broker_pending_trades(user["user_id"]):
             order_id = trade.get("broker_order_id")
+            ticker = trade["ticker"]
             if not order_id:
+                # Vorgemerkte Order (Bruchteil, außerhalb regulärer Zeit) → bei regulärem Open senden.
+                if trade.get("broker_status") == "queued_regular":
+                    await _process_queued_order(bot, user, trade)
                 continue
             st = await asyncio.to_thread(broker.get_order_status, order_id, client)
             status = st.get("status", "unbekannt")

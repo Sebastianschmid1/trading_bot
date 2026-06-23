@@ -128,7 +128,7 @@ def test_bot_broker_order_blocks_when_buying_power_is_insufficient():
     bot._alpaca_ready = lambda user: True
     bot._alpaca_client = lambda user: object()
     bot._us_market_open = lambda extended=False: True
-    bot.sizing.plan_order = lambda entry, budget, leverage, option_selector=None, extended=False: {"kind": "shares", "qty": 1, "notional": None}
+    bot.sizing.plan_order = lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs: {"kind": "shares", "qty": 1, "notional": None}
     bot.broker.account_summary = lambda client=None: {"ok": True, "buying_power": 0.0}
     def fake_submit(*args, **kwargs):
         submitted["called"] = True

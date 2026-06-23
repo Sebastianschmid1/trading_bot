@@ -96,6 +96,8 @@
     <div id="ranges" class="tabs"></div>
 
     <div class="cards" id="cards"></div>
+    <div id="sizing-hint" style="display:none; background:#3a2f1f; border:1px solid #5a4a2a;
+         color:#ffd9a0; padding:.8rem 1rem; border-radius:10px; margin-bottom:1.5rem;"></div>
 
     <div class="panel">
       <h2>📈 Equity-Kurve (kumuliertes P&L)</h2>
@@ -254,6 +256,19 @@
         <div class="card"><div class="label">Aktiv</div><div class="value">${s.active_count}</div></div>
         <div class="card"><div class="label">Trade-Größe</div><div class="value">${d.trade_size_eur.toFixed(0)}€</div></div>
       `;
+
+      // Sizing-Hinweis: Trade-Größe zu klein → häufig Bruchteile/Vormerkungen.
+      const sh = d.sizing_hint;
+      const hintEl = document.getElementById("sizing-hint");
+      if (sh) {
+        hintEl.style.display = "";
+        hintEl.innerHTML = `⚠️ <b>Trade-Größe ${sh.trade_size}€ ist klein:</b> ~${sh.frac_rate}% deiner `
+          + `Signale liegen über dem Budget → Bruchteil-Orders (außerhalb der regulären US-Sitzung `
+          + `werden sie vorgemerkt). Für überwiegend <b>ganze Aktien</b> empfiehlt sich eine Trade-Größe `
+          + `von etwa <b>${sh.recommended}€</b> — anpassbar unter Einstellungen.`;
+      } else {
+        hintEl.style.display = "none";
+      }
 
       const noData = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
 
