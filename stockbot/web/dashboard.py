@@ -27,7 +27,7 @@ from stockbot.core import metrics as metrics_mod
 from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
-from stockbot.core.evaluator import get_current_price, trade_pnl
+from stockbot.core.evaluator import get_current_price, trade_pnl, effective_leverage
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -221,7 +221,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
     active_view = []
     for t in active:
         cur = _current_price(t)
-        leverage = (t["signal"].get("leverage") or 1.0)
+        leverage = effective_leverage(t["signal"])   # realisierter Hebel (Aktien-Fallback → 1×)
         # Optionsbewusst (Omega-Näherung im Web); für Aktien das lineare Hebelmodell.
         pnl_pct, pnl_eur = trade_pnl(t, cur, size)
         active_view.append({

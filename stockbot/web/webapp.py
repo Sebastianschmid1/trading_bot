@@ -21,6 +21,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from stockbot.core import db
+from stockbot.core import trade_lifecycle
+from stockbot.core import logfilter
 from stockbot.core.evaluator import trade_pnl
 from stockbot.backtest import engine as backtest_engine
 from stockbot.market import strategies
@@ -204,6 +206,10 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
     if insufficient:
         return insufficient
 
+    # Aktien-Fallback bei Hebel>1 → effektiver Hebel = 1 (P&L = echte Position, nicht überzeichnet).
+    if plan["kind"] == "shares" and leverage > 1.0:
+        db.merge_active_trade_signal(user["user_id"], ticker, {"effective_leverage": 1.0})
+
     if plan["kind"] == "option":
         res = broker.submit_option_buy(plan["option_symbol"], plan["qty"], client)
     elif plan.get("qty"):
@@ -276,6 +282,7 @@ def _execute_broker_close_for_web(user: dict, trade: dict) -> dict:
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
     return templates.TemplateResponse(request, name, {
         "user": user, "active": active, "msg": msg,
+        "is_admin": _is_admin(user),
         "unread": db.unread_count(user["user_id"]) if user else 0, **ctx,
     })
 
@@ -856,13 +863,20 @@ def app_algorithms_save(request: Request,
 EXPORT_FIELDS = [
     "ticker", "direction", "status", "trade_date", "created_at",
     "entry", "exit", "pnl_pct", "pnl_eur",
-    "signal_price", "strength", "leverage", "stop_loss", "take_profit", "strategy",
+    "signal_price", "strength", "leverage", "effective_leverage", "stop_loss", "take_profit", "strategy",
     "broker_status", "broker_order_id", "broker_filled_qty", "broker_filled_avg_price", "broker_updated_at",
+    # Status-Dauern (Sekunden) aus dem Event-Log — wie lange in welchem Status (Teil A).
+    "pending_sec", "time_to_fill_sec", "hold_sec", "total_lifetime_sec",
 ]
 
+# Status-Event-Export: ein Datensatz je Statuswechsel inkl. Dauer im vorherigen Status.
+EVENT_FIELDS = ["ts", "trade_date", "ticker", "from_status", "to_status",
+                "broker_status", "duration_prev_sec", "note"]
 
-def _export_trade_row(trade: dict) -> dict:
+
+def _export_trade_row(trade: dict, durations: dict | None = None) -> dict:
     sig = trade.get("signal") or {}
+    d = durations or {}
     return {
         "ticker": trade.get("ticker"),
         "direction": trade.get("direction"),
@@ -876,6 +890,7 @@ def _export_trade_row(trade: dict) -> dict:
         "signal_price": sig.get("price"),
         "strength": sig.get("strength"),
         "leverage": sig.get("leverage"),
+        "effective_leverage": sig.get("effective_leverage"),
         "stop_loss": sig.get("stop_loss"),
         "take_profit": sig.get("take_profit"),
         "strategy": sig.get("strategy") or sig.get("strategy_key"),
@@ -884,7 +899,49 @@ def _export_trade_row(trade: dict) -> dict:
         "broker_filled_qty": trade.get("broker_filled_qty"),
         "broker_filled_avg_price": trade.get("broker_filled_avg_price"),
         "broker_updated_at": trade.get("broker_updated_at"),
+        "pending_sec": d.get("pending_sec"),
+        "time_to_fill_sec": d.get("time_to_fill_sec"),
+        "hold_sec": d.get("hold_sec"),
+        "total_lifetime_sec": d.get("total_lifetime_sec"),
     }
+
+
+def _event_export_rows(user_id: int, ts_from: str | None, ts_to: str | None) -> list[dict]:
+    """Status-Events des Nutzers als Export-Zeilen, mit Dauer seit dem vorigen Event je Trade."""
+    events = db.get_trade_events_between(user_id, ts_from, ts_to)
+    last_ts: dict[int, str] = {}
+    rows = []
+    for e in events:
+        prev = last_ts.get(e["trade_id"])
+        dur = None
+        if prev:
+            a, b = trade_lifecycle.parse_ts(prev), trade_lifecycle.parse_ts(e["ts"])
+            if a and b:
+                dur = int((b - a).total_seconds())
+        last_ts[e["trade_id"]] = e["ts"]
+        rows.append({
+            "ts": e["ts"], "trade_date": e["trade_date"], "ticker": e["ticker"],
+            "from_status": e["from_status"], "to_status": e["to_status"],
+            "broker_status": e["broker_status"], "duration_prev_sec": dur, "note": e["note"],
+        })
+    return rows
+
+
+def _is_admin(user: dict | None) -> bool:
+    """True, wenn der Nutzer der konfigurierte Admin ist (für Log-Download)."""
+    return bool(config.ADMIN_CHAT_ID and user and user.get("user_id") == config.ADMIN_CHAT_ID)
+
+
+def _csv_response(rows: list[dict], fields: list[str], filename: str) -> Response:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/app/backtest", response_class=HTMLResponse)
@@ -901,30 +958,66 @@ def app_backtest(request: Request, q: str = "", mode: str = "single", strategy: 
 
 
 @router.get("/app/backtest/export")
-def app_backtest_export(request: Request, format: str = "csv"):
+def app_backtest_export(request: Request, format: str = "csv", kind: str = "trades",
+                        date_from: str = Query("", alias="from"),
+                        date_to: str = Query("", alias="to")):
+    """Trade-Daten exportieren. `kind=trades` (Standard, inkl. Status-Dauern) oder `kind=events`
+    (ein Datensatz je Statuswechsel). `from`/`to` = 'YYYY-MM-DD' Zeitraum (inklusiv)."""
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
-    trades = db.get_all_trades(user["user_id"])
-    rows = [_export_trade_row(t) for t in trades]
+    uid = user["user_id"]
+    df = (date_from or "").strip() or None
+    dt = (date_to or "").strip() or None
     fmt = (format or "csv").strip().lower()
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    if fmt == "json":
-        return JSONResponse(
-            {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "count": len(trades), "trades": trades},
-            headers={"Content-Disposition": f'attachment; filename="trading-data-{stamp}.json"'},
-        )
-    if fmt != "csv":
+    if fmt not in ("csv", "json"):
         return JSONResponse({"error": "unsupported_format", "allowed": ["csv", "json"]}, status_code=400)
 
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=EXPORT_FIELDS, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
+    if kind == "events":
+        rows = _event_export_rows(uid, df, dt)
+        if fmt == "json":
+            return JSONResponse(
+                {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "count": len(rows), "events": rows},
+                headers={"Content-Disposition": f'attachment; filename="trade-events-{stamp}.json"'})
+        return _csv_response(rows, EVENT_FIELDS, f"trade-events-{stamp}.csv")
+
+    trades = db.get_all_trades_between(uid, df, dt)
+    events_by_trade = db.get_events_by_trade(uid)
+    rows = [_export_trade_row(t, trade_lifecycle.compute_durations(events_by_trade.get(t["id"], [])))
+            for t in trades]
+    if fmt == "json":
+        enriched = [dict(t, **{k: r[k] for k in ("pending_sec", "time_to_fill_sec", "hold_sec",
+                                                 "total_lifetime_sec")})
+                    for t, r in zip(trades, rows)]
+        return JSONResponse(
+            {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "count": len(trades), "trades": enriched},
+            headers={"Content-Disposition": f'attachment; filename="trading-data-{stamp}.json"'})
+    return _csv_response(rows, EXPORT_FIELDS, f"trading-data-{stamp}.csv")
+
+
+@router.get("/app/export/logs")
+def app_export_logs(request: Request, date_from: str = Query("", alias="from"),
+                    date_to: str = Query("", alias="to"), level: str = ""):
+    """Bot-Logdatei (gefiltert nach Zeitraum/Level) als Download. NUR Admin (logs/bot.log
+    enthält die Aktivität aller Nutzer)."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Log-Download ist dem Admin vorbehalten.")
+    path = config.LOG_FILE
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Keine Logdatei gefunden ({path}).")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    filtered = logfilter.filter_log_lines(lines, (date_from or "").strip() or None,
+                                           (date_to or "").strip() or None, (level or "").strip() or None)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    body = "\n".join(filtered) + ("\n" if filtered else "")
     return Response(
-        content=buf.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="trading-data-{stamp}.csv"'},
+        content=body, media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="bot-log-{stamp}.log"'},
     )
 
 

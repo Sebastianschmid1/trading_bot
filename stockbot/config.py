@@ -318,3 +318,6 @@ OPTION_TYPE           = os.getenv("OPTION_TYPE", "call").strip().lower()   # lon
 # Optionaler Admin-Chat (Telegram-User-ID) für zentrale Fehler-/Abgleich-Logs. Leer = aus.
 _admin = os.getenv("ADMIN_CHAT_ID", "").strip()
 ADMIN_CHAT_ID = int(_admin) if _admin.lstrip("-").isdigit() else None
+
+# Pfad der Bot-Logdatei (gemeinsam von bot.py geschrieben und vom Web-Log-Download gelesen).
+LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")

@@ -607,9 +607,10 @@ def test_backtest_tab_offers_trading_data_export():
     fresh()
     r = _client().get("/app/backtest")
     assert r.status_code == 200
-    assert "Trading-Daten exportieren" in r.text
+    assert "Trading-Daten" in r.text and "exportieren" in r.text
     assert "/app/backtest/export?format=csv" in r.text
     assert "/app/backtest/export?format=json" in r.text
+    assert "kind=events" in r.text                     # Status-Events-Export angeboten
 
 
 def test_backtest_export_trading_data_csv_and_json():

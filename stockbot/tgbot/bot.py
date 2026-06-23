@@ -41,7 +41,9 @@ from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disc
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
 from stockbot.services import notifications as notify_svc
-from stockbot.core.evaluator import evaluate_trades, get_current_price, trade_pnl, liquidation_price
+from stockbot.core.evaluator import (
+    evaluate_trades, get_current_price, trade_pnl, liquidation_price, effective_leverage,
+)
 from stockbot.config import (
     TELEGRAM_TOKEN,
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
@@ -54,15 +56,15 @@ from stockbot.config import (
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
-    ALPACA_API_KEY, ALPACA_API_SECRET,
+    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE,
 )
 
-os.makedirs("logs", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
+os.makedirs(os.path.dirname(LOG_FILE) or ".", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("logs/bot.log", encoding="utf-8"),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
@@ -413,6 +415,11 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
 
     if not await _ensure_buying_power_for_bot(bot, chat_id, ticker, client, plan, float(entry), mode):
         return
+
+    # Hebel>1, aber als Aktien ausgeführt (kein Optionskontrakt bezahlbar) → Hebel NICHT realisiert.
+    # effektiver Hebel = 1 ins Signal schreiben, damit P&L nicht überzeichnet (= echte Position).
+    if plan["kind"] == "shares" and leverage > 1.0:
+        await asyncio.to_thread(db.merge_active_trade_signal, chat_id, ticker, {"effective_leverage": 1.0})
 
     if plan["kind"] == "option":
         await bot.send_message(
@@ -893,7 +900,7 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
     sig = trade.get("signal", {})
     sl, tp = sig.get("stop_loss"), sig.get("take_profit")
-    leverage = sig.get("leverage", 1.0) or 1.0
+    leverage = effective_leverage(sig)   # realisierter Hebel (Aktien-Fallback → keine Liquidation)
     entry = trade.get("entry")
     # SL/TP-Modus "aus": kein automatisches Schließen (weder SL/TP noch Signal-Verfall).
     # Nur eine echte Liquidation (Hebel > 1) ist unvermeidbar; sonst hält der Trade
@@ -1144,7 +1151,7 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             entry = trade.get("entry") or price
-            leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
+            leverage = effective_leverage(trade.get("signal", {}))
             is_option = bool(trade.get("signal", {}).get("option_symbol"))
             # Bei Liquidation zum Liquidationskurs schließen (Totalverlust), sonst zum aktuellen Kurs.
             # Long-Optionen werden nicht liquidiert (Verlust ist auf die Prämie begrenzt).
@@ -1349,7 +1356,7 @@ def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
     """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade.
     `current_strength` = aktuelle Signalstärke (z. B. letzter 60s-Tick); None → unbekannt."""
     ticker = trade["ticker"]
-    leverage = trade.get("signal", {}).get("leverage", 1.0) or 1.0
+    leverage = effective_leverage(trade.get("signal", {}))
     entry_strength = trade.get("signal", {}).get("strength")
     current, pnl_pct, pnl_eur = _unrealized_pnl(trade, trade_size_eur)
     emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")

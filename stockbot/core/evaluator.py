@@ -42,6 +42,19 @@ def liquidation_price(entry: float, leverage: float, direction: str = "long") ->
     return entry * (1 + 1.0 / leverage)   # short
 
 
+def effective_leverage(signal: dict) -> float:
+    """Der TATSÄCHLICH realisierte Hebel eines Trades für P&L/Liquidation.
+
+    Fällt ein gehebelter Trade auf Bruchteil-Aktien zurück (kein Optionskontrakt bezahlbar),
+    wird beim Order-Versand `effective_leverage = 1.0` ins Signal geschrieben — dann darf das P&L
+    NICHT mehr mit dem Wunsch-Hebel gerechnet werden (sonst überzeichnet vs. echter Position).
+    Ohne `effective_leverage` (reine Demo) gilt der gewünschte `leverage`."""
+    eff = signal.get("effective_leverage")
+    if eff is None:
+        eff = signal.get("leverage", 1.0)
+    return float(eff or 1.0)
+
+
 def realized_pnl(entry: float, exit_price: float, direction: str,
                  trade_size_eur: float, leverage: float = 1.0) -> tuple[float, float]:
     """Gibt (pnl_pct, pnl_eur) zurück. pnl_pct = reine Kursbewegung in %,
@@ -88,9 +101,8 @@ def trade_pnl(trade: dict, current_underlying: float, trade_size_eur: float,
     if sig.get("option_symbol"):
         return option_pnl(sig, trade["entry"], current_underlying, trade_size_eur,
                           current_premium=current_premium)
-    leverage = sig.get("leverage", 1.0) or 1.0
     return realized_pnl(trade["entry"], current_underlying, trade["direction"],
-                        trade_size_eur, leverage)
+                        trade_size_eur, effective_leverage(sig))
 
 
 def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[dict]:
@@ -108,7 +120,7 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
         signal = trade.get("signal", {})
         stop_loss   = signal.get("stop_loss")
         take_profit = signal.get("take_profit")
-        leverage    = signal.get("leverage", 1.0) or 1.0
+        leverage    = effective_leverage(signal)   # realisierter Hebel (Aktien-Fallback → 1×)
         is_option   = bool(signal.get("option_symbol"))
 
         close_price = get_current_price(ticker, entry)
