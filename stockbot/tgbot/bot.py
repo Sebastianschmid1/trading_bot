@@ -1141,6 +1141,17 @@ async def monitor_orphan_broker_positions(bot: Bot):
                       f"bei Bedarf manuell verkaufen."),
                 parse_mode="Markdown",
             )
+        # Frühere Fehlübernahmen heilen: Options-Trades, deren Einstieg fälschlich die Prämie war.
+        healed = await asyncio.to_thread(reconcile_mod.heal_adopted_option_entries, user)
+        if healed:
+            await bot.send_message(
+                chat_id=user["user_id"],
+                text=("🔧 Einstieg korrigiert für übernommene Options-Trades: "
+                      f"*{', '.join(healed)}*.\nBei diesen war die Options-Prämie fälschlich als "
+                      f"Aktienkurs hinterlegt (absurde Prozent-/€-Anzeige). Jetzt auf den echten "
+                      f"Aktienkurs gesetzt."),
+                parse_mode="Markdown",
+            )
 
 
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):

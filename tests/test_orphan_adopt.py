@@ -120,6 +120,7 @@ def test_adopt_orphan_option_position(monkeypatch):
     _fresh_db()
     positions = [{"symbol": "AAPL260116C00200000", "qty": 2.0, "avg_entry": 4.5, "side": "long"}]
     monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: positions)
+    monkeypatch.setattr(reconcile, "get_current_price", lambda tkr, fb=0.0: 200.0)  # Underlying
 
     res = reconcile.adopt_orphan_positions(db.get_user(CHAT), client=object())
     assert [a["ticker"] for a in res["adopted"]] == ["AAPL"]
@@ -127,6 +128,36 @@ def test_adopt_orphan_option_position(monkeypatch):
     sig = t["signal"]
     assert sig["option_symbol"] == "AAPL260116C00200000"
     assert sig["entry_premium"] == 4.5 and sig["contracts"] == 2 and sig["strike"] == 200.0
+    # entry ist der UNDERLYING-Kurs (200), NICHT die Prämie (4.5) — sonst absurde P&L-Anzeige.
+    assert t["entry"] == 200.0
+
+
+def test_heal_adopted_option_entry_fixes_premium_as_entry(monkeypatch):
+    _fresh_db()
+    # Fehlerhafter Altdatensatz: entry == Prämie (0.35) statt Underlying-Kurs.
+    sig = {"option_symbol": "BAX260116C00021000", "entry_premium": 0.35, "contracts": 1,
+           "omega": 1.0, "strategy": "adopted", "direction": "long",
+           "sl_tp_mode": "aus", "leverage": 1.0}
+    db.adopt_active_trade(CHAT, "BAX", entry=0.35, signal=sig, filled_qty=1.0)
+    assert db.get_trade(CHAT, "BAX")["entry"] == 0.35
+
+    monkeypatch.setattr(reconcile, "get_current_price", lambda tkr, fb=0.0: 21.0)
+    fixed = reconcile.heal_adopted_option_entries(db.get_user(CHAT))
+    assert fixed == ["BAX"]
+    assert db.get_trade(CHAT, "BAX")["entry"] == 21.0          # auf Underlying korrigiert
+    assert db.get_trade(CHAT, "BAX")["signal"]["entry_premium"] == 0.35   # Prämie bleibt
+
+    # Idempotent: zweiter Lauf ändert nichts mehr (entry ist keine Prämie mehr).
+    assert reconcile.heal_adopted_option_entries(db.get_user(CHAT)) == []
+
+
+def test_heal_ignores_plain_stock_trades(monkeypatch):
+    _fresh_db()
+    db.adopt_active_trade(CHAT, "MSFT", entry=300.0,
+                          signal={"strategy": "adopted", "direction": "long"}, filled_qty=3.0)
+    monkeypatch.setattr(reconcile, "get_current_price", lambda tkr, fb=0.0: 999.0)
+    assert reconcile.heal_adopted_option_entries(db.get_user(CHAT)) == []
+    assert db.get_trade(CHAT, "MSFT")["entry"] == 300.0       # unverändert
 
 
 def test_regression_broker_has_position_bot_does_not(monkeypatch):

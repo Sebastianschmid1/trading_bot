@@ -180,14 +180,42 @@ def adopt_orphan_positions(user: dict, client) -> dict:
         if sym in tracked:
             continue
         ticker, signal = _signal_for_position(pos)
+        # `entry` ist der UNDERLYING-Kurs (Anzeige + P&L). Bei Aktien = avg_entry. Bei Options
+        # ist avg_entry die PRÄMIE (z. B. 0.35) — die gehört in entry_premium, NICHT in entry,
+        # sonst rechnet das Dashboard Prämie→Aktienkurs und zeigt absurde Gewinne. Daher den
+        # echten Underlying-Kurs holen.
+        entry = float(pos.get("avg_entry") or 0.0)
+        if signal.get("option_symbol"):
+            und = get_current_price(ticker, 0.0)
+            if und and und > 0:
+                entry = und
         ok = db.adopt_active_trade(
-            user["user_id"], ticker, entry=float(pos.get("avg_entry") or 0.0),
-            signal=signal, filled_qty=pos.get("qty"))
+            user["user_id"], ticker, entry=entry, signal=signal, filled_qty=pos.get("qty"))
         if ok:
-            adopted.append({"symbol": sym, "ticker": ticker, "qty": pos.get("qty"),
-                            "entry": float(pos.get("avg_entry") or 0.0)})
+            adopted.append({"symbol": sym, "ticker": ticker, "qty": pos.get("qty"), "entry": entry})
         else:
             skipped.append(sym)   # schon getrackt (z. B. anderer Trade gleicher Aktie heute)
     detail = ("Übernommen: " + ", ".join(f"{a['ticker']} ({a['symbol']})" for a in adopted)
               if adopted else "Keine verwaisten Positionen.")
     return {"adopted": adopted, "skipped": skipped, "detail": detail}
+
+
+def heal_adopted_option_entries(user: dict) -> list[str]:
+    """Repariert früher übernommene Options-Trades, deren `entry` fälschlich die Options-Prämie
+    ist (statt des Underlying-Kurses) — das verursachte absurde P&L-Anzeigen (z. B. +5908 %).
+
+    Erkennungssignatur: aktiver Trade mit `option_symbol` und `entry == entry_premium`. Setzt
+    `entry` auf den aktuellen Underlying-Kurs (beste Näherung; `entry_premium` bleibt). Idempotent
+    (nach der Korrektur ist entry ≠ Prämie). Gibt die Liste korrigierter Ticker zurück."""
+    fixed: list[str] = []
+    for t in db.get_active_trades(user["user_id"]):
+        sig = t.get("signal") or {}
+        prem = sig.get("entry_premium")
+        if not sig.get("option_symbol") or not prem or t.get("entry") is None:
+            continue
+        if abs(float(t["entry"]) - float(prem)) > 1e-9:
+            continue   # bereits korrigiert (entry ist kein Prämienwert mehr)
+        und = get_current_price(t["ticker"], 0.0)
+        if und and und > 0 and db.set_active_entry(user["user_id"], t["ticker"], und):
+            fixed.append(t["ticker"])
+    return fixed

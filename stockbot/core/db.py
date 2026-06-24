@@ -994,6 +994,17 @@ def activate_trade(user_id: int, ticker: str, status: str = "active") -> dict | 
     return get_trade(user_id, ticker)
 
 
+def set_active_entry(user_id: int, ticker: str, entry: float) -> bool:
+    """Setzt den Einstiegskurs eines aktiven Trades neu (z. B. Reparatur eines fehlerhaft
+    übernommenen Options-Trades, dessen entry die Prämie statt des Underlying-Kurses war)."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE trades SET entry = ? WHERE user_id = ? AND ticker = ? AND status = 'active'",
+            (float(entry), user_id, ticker),
+        )
+        return cur.rowcount > 0
+
+
 def mark_broker_pending(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
     """Speichert, dass die Broker-Order angenommen, aber noch nicht gefüllt ist."""
     with _connect() as conn:
