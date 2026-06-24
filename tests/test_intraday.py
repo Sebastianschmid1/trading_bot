@@ -521,16 +521,20 @@ def test_dashboard_days_filter():
 
 
 def test_dashboard_trades_curves_history_and_active():
+    """Gemeinsame Zeitachse: x = echter Zeitpunkt (Epoch-ms). Ein geschlossener Trade endet an
+    seinem Ausstiegs-Zeitpunkt (vor 'jetzt'); ein offener läuft bis 'jetzt' (rechter Rand)."""
+    import time
     fresh_db()
     db.yf = _FakeYF(100.0)                        # Einstiegskurs des offenen Trades = 100
     db.get_or_create_user(CHAT, "tester")
     db.save_profile(CHAT, trade_size_eur=25.0)
-    # ein abgeschlossener (historischer) Trade → Linie Einstieg(0%)→Ausstieg(+10%)
+    # ein abgeschlossener (historischer) Trade vor 3 Tagen → Linie Einstieg(0%)→Ausstieg(+10%)
     with db._connect() as conn:
         conn.execute(
             "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, "
-            "entry, exit, pnl_eur, pnl_pct) VALUES (?, date('now','-3 day'), 'MSFT', 'long', "
-            "'{\"strategy\": \"standard\"}', 'closed', 200, 220, 5.0, 10)",
+            "entry, exit, pnl_eur, pnl_pct, broker_status, broker_updated_at, created_at) "
+            "VALUES (?, date('now','-3 day'), 'MSFT', 'long', '{\"strategy\": \"standard\"}', "
+            "'closed', 200, 220, 5.0, 10, 'reconciled', datetime('now','-3 day'), datetime('now','-3 day'))",
             (CHAT,),
         )
     # ein offener (aktueller) Trade mit zwei Intraday-Ticks
@@ -540,17 +544,28 @@ def test_dashboard_trades_curves_history_and_active():
     db.add_tick(CHAT, "AAPL", 105.0, 70.0)       # +5 %
     db.add_tick(CHAT, "AAPL", 110.0, 72.0)       # +10 %
 
-    curves = dashboard.build_dashboard_data(db.get_user(CHAT))["trades_curves"]
+    data = dashboard.build_dashboard_data(db.get_user(CHAT))
+    curves = data["trades_curves"]
     by_ticker = {x["ticker"]: x for x in curves}
+    now_ms = time.time() * 1000.0
 
     msft = by_ticker["MSFT"]
     assert msft["status"] == "closed" and msft["final_pct"] == 10
-    assert msft["points"] == [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 10}]   # Einstieg→Ausstieg
+    assert len(msft["points"]) == 2
+    assert msft["points"][0]["y"] == 0.0 and msft["points"][1]["y"] == 10   # Einstieg→Ausstieg
+    # Ausstieg liegt VOR jetzt (vor ~3 Tagen) und wird nicht bis zum rechten Rand gezeichnet
+    assert 0 <= msft["points"][1]["x"] - msft["points"][0]["x"] <= 2000     # ~gleicher Zeitpunkt (Tagestrade)
+    assert msft["points"][-1]["x"] < now_ms - 2 * 86400_000                 # endet > 2 Tage vor jetzt
 
     aapl = by_ticker["AAPL"]
     assert aapl["status"] == "active"
-    assert aapl["points"][0] == {"x": 0.0, "y": 0.0}        # startet am Einstieg (0 %)
-    assert aapl["points"][-1]["y"] == 10.0                  # letzter Tick = +10 % ab Einstieg
+    assert aapl["points"][0]["y"] == 0.0                    # startet am Einstieg (0 %)
+    assert aapl["points"][-1]["y"] == 10.0                  # zuletzt +10 % ab Einstieg
+    assert aapl["points"][-1]["x"] >= now_ms - 5000         # offener Trade reicht bis ~jetzt
+
+    # x-Domäne: frühester Einstieg (MSFT vor 3 Tagen) → jetzt
+    assert data["trades_curves_x"]["max"] >= now_ms - 5000
+    assert data["trades_curves_x"]["min"] <= now_ms - 2 * 86400_000
     # historische zuerst, offene danach
     assert curves[0]["ticker"] == "MSFT" and curves[-1]["ticker"] == "AAPL"
 

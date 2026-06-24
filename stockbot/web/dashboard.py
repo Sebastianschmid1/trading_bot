@@ -87,6 +87,20 @@ def _berlin_hhmm(ts: str | None) -> str:
         return ts[11:16]
 
 
+def _epoch_ms(ts: str | None) -> float | None:
+    """UTC-SQLite-Zeitstempel ('YYYY-MM-DD[ HH:MM:SS]') → Epoch-Millisekunden (UTC-Instant).
+    Der Browser rendert daraus die lokale (Berliner) Zeit. None bei fehlendem/ungültigem Wert."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp() * 1000.0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
@@ -281,13 +295,33 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             ],
         })
 
-    # Einzel-Trades als Kursverlauf (%-Wertentwicklung ab Einstieg): historische + offene.
-    # Offene Trades = echte Intraday-Kurve (60s-Ticks); abgeschlossene = Einstieg→Ausstieg.
-    # x = normierter Verlauf 0..100 (0 = Einstieg, 100 = jetzt/Ausstieg), y = % ab Einstieg (mit Hebel).
+    # Einzel-Trades als Kursverlauf (%-Wertentwicklung ab Einstieg) auf GEMEINSAMER Zeitachse:
+    # x = echter Zeitpunkt (Epoch-ms, UTC-Instant → der Browser zeigt Berliner Zeit), y = % ab
+    # Einstieg (mit Hebel). Ein geschlossener Trade endet an seinem Ausstiegs-Zeitpunkt und wird
+    # NICHT weiter gezeichnet; ein offener Trade läuft bis "jetzt" (rechter Rand).
     _strat_label = {s.key: s.label for s in strategies.all_strategies()}
+    events_by_trade = db.get_events_by_trade(user_id)
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000.0
+    _TERMINAL = ("closed", "broker_failed", "rejected", "expired")
+
+    def _entry_ms(t: dict) -> float | None:
+        # Einstieg = Anlage-Zeitpunkt (created_at), Fallback Handelstag.
+        return _epoch_ms(t.get("created_at")) or _epoch_ms(t.get("trade_date"))
+
+    def _exit_ms(t: dict, entry_ms: float) -> float:
+        # Ausstieg = präziser Schließ-Event (auch bei Demo-Closes vorhanden), sonst broker_updated_at.
+        # Ohne belastbaren Ausstieg auf den Einstieg zurückfallen (Altdaten → kurzer Punkt).
+        evs = events_by_trade.get(t.get("id")) or []
+        term = [e for e in evs if e.get("to_status") in _TERMINAL]
+        ms = _epoch_ms(term[-1]["ts"]) if term else _epoch_ms(t.get("broker_updated_at"))
+        return ms if (ms is not None and ms >= entry_ms) else entry_ms
+
     trades_curves = []
     for t in closed:
         if not t.get("entry"):
+            continue
+        entry_ms = _entry_ms(t)
+        if entry_ms is None:
             continue
         pct = round(t["pnl_pct"] or 0.0, 2)
         trades_curves.append({
@@ -297,19 +331,27 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "final_pct": pct,
             "final_eur": round(t["pnl_eur"] or 0.0, 2),
             "strategy":  _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
-            "points":    [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": pct}],
+            "points":    [{"x": entry_ms, "y": 0.0}, {"x": _exit_ms(t, entry_ms), "y": pct}],
         })
     for t, v in zip(active, active_view):
         entry = v["entry"]
         lev = v["leverage"] or 1.0
+        entry_ms = _entry_ms(t)
+        if entry_ms is None:
+            continue
         valid = [p for p in ticks.get(t["ticker"], []) if p.get("price") is not None]
-        points = [{"x": 0.0, "y": 0.0}]                          # Einstieg = 0 %
-        nn = len(valid)
-        for i, p in enumerate(valid):
+        points = [{"x": entry_ms, "y": 0.0}]                     # Einstieg = 0 %
+        for p in valid:
+            tms = _epoch_ms(p.get("ts"))
+            if tms is None:
+                continue
             y = (p["price"] / entry - 1.0) * 100.0 * lev if entry else 0.0
-            points.append({"x": round((i + 1) / nn * 100.0, 2), "y": round(y, 2)})
-        if nn == 0:                                             # keine Ticks → Einstieg→aktuell
-            points.append({"x": 100.0, "y": v["pnl_pct"]})
+            points.append({"x": tms, "y": round(y, 2)})
+        # Offener Trade endet "jetzt" (rechter Rand): bis now flach auf den aktuellen Wert verlängern.
+        if points[-1]["x"] < now_ms:
+            cur = v.get("current")
+            y_now = (cur / entry - 1.0) * 100.0 * lev if (entry and cur is not None) else points[-1]["y"]
+            points.append({"x": now_ms, "y": round(y_now, 2)})
         trades_curves.append({
             "ticker":    v["ticker"],
             "date":      t["trade_date"],
@@ -319,6 +361,10 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "strategy":  _strat_label.get(_trade_strategy(t), _trade_strategy(t)),
             "points":    points,
         })
+
+    # X-Domäne der gemeinsamen Zeitachse: frühester Einstieg → jetzt (rechter Rand = "jetzt").
+    _all_x = [p["x"] for c in trades_curves for p in c["points"]]
+    trades_curves_x = {"min": min(_all_x), "max": now_ms} if _all_x else {"min": None, "max": None}
 
     # Strategie-Tabs: „Alle" + die vom Nutzer gewählten Strategien
     user_strat_keys = user.get("strategies") or [
@@ -351,6 +397,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         "equity":        equity,
         "ticker_stats":  ticker_stats,
         "trades_curves": trades_curves,
+        "trades_curves_x": trades_curves_x,
         "active_trades": active_view,
         "intraday":      intraday,
         "generated_at":  datetime.now().strftime("%d.%m.%Y %H:%M"),

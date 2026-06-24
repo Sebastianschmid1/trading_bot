@@ -111,7 +111,7 @@
 
     <div class="panel">
       <h2>📈 Trades einzeln — Wertentwicklung</h2>
-      <div class="meta">Jede Linie = ein Trade, % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen, <b>gestrichelt</b> = abgeschlossen. Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
+      <div class="meta">Jede Linie = ein Trade · X = Zeit, Y = % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen (läuft bis jetzt), <b>gestrichelt</b> = abgeschlossen (endet am Ausstieg). Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
       <canvas id="tradesLogChart" height="110"></canvas>
     </div>
 
@@ -357,7 +357,10 @@
                   label: (item) => {
                     const x = tc[item.datasetIndex];
                     const real = sexp(item.parsed.y);
-                    return `${x.ticker} · ${x.date}${x.status === "active" ? " (offen)" : ""}: `
+                    const dt = new Date(item.parsed.x);
+                    const when = dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })
+                               + " " + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+                    return `${x.ticker} · ${when}${x.status === "active" ? " (offen)" : ""}: `
                          + `${sgn(real)}${real.toFixed(1)}%`
                          + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
                   }
@@ -366,9 +369,15 @@
             },
             onClick: (evt, els) => { if (els.length) openAnalysis(tc[els[0].datasetIndex].ticker); },
             scales: {
-              x: { type: "linear", min: 0, max: 100,
-                   title: { display: true, text: "Verlauf:  0 = Einstieg  →  jetzt / Ausstieg", color: "#8a93a6" },
-                   ticks: { display: false }, grid: { color: "#222a3a" } },
+              x: { type: "linear",
+                   min: (d.trades_curves_x && d.trades_curves_x.min) || undefined,
+                   max: (d.trades_curves_x && d.trades_curves_x.max) || undefined,
+                   title: { display: true, text: "Zeit  →  jetzt  ·  geschlossene Trades enden am Ausstieg", color: "#8a93a6" },
+                   ticks: { color: "#8a93a6", maxTicksLimit: 6, maxRotation: 0, autoSkip: true,
+                            callback: (v) => { const dt = new Date(v);
+                              return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })
+                                   + " " + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } },
+                   grid: { color: "#222a3a" } },
               y: { type: "linear",
                    afterBuildTicks: (axis) => {
                      if (!isFinite(axis.min) || !isFinite(axis.max)) return;
