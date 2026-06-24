@@ -90,9 +90,15 @@
       <label>Max Concurrent<br><input type="number" name="max_concurrent" value="{{ form.max_concurrent }}" min="1" max="100" step="1"></label>
       <label>Max Hold Days<br><input type="number" name="max_hold" value="{{ form.max_hold }}" min="1" max="365" step="1"></label>
     </div>
+    <div class="row" style="margin-top:.6rem;">
+      <label style="display:flex; align-items:center; gap:.4rem;">
+        <input type="checkbox" name="allow_short" value="true" {% if form.allow_short %}checked{% endif %}>
+        Shorts erlauben <span class="muted">(nur Backtest · Single/Compare · Standard-Strategie)</span>
+      </label>
+    </div>
     <div class="row" style="margin-top:.7rem;">
       <button class="green" type="submit">Backtest starten</button>
-      <span class="muted">Compare nutzt die aktuelle Filterauswahl, Portfolio nutzt <code>top_n</code>/<code>leverage</code>.</span>
+      <span class="muted">Compare nutzt die aktuelle Filterauswahl, Portfolio nutzt <code>top_n</code>/<code>leverage</code> (long-only).</span>
     </div>
   </form>
 </div>
@@ -101,7 +107,7 @@
   <div class="card">
     <h2>Compare Results</h2>
     <table>
-      <thead><tr><th>Strategie</th><th class="r">PF</th><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Trades</th></tr></thead>
+      <thead><tr><th>Strategie</th><th class="r">PF</th><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Trades</th><th class="r">Short (n · €)</th></tr></thead>
       <tbody>
       {% for r in compare_results %}
         <tr>
@@ -110,6 +116,7 @@
           <td class="r">{{ '%.1f'|format(r.metrics.win_rate) if r.metrics.win_rate is not none else '—' }}%</td>
           <td class="r">{{ '%.1f'|format(r.metrics.total_pnl_eur) if r.metrics.total_pnl_eur is not none else '—' }}</td>
           <td class="r">{{ r.metrics.trades }}</td>
+          <td class="r">{% if r.direction_split and r.direction_split.n_short %}{{ r.direction_split.n_short }} · {{ '%.0f'|format(r.direction_split.pnl_short) }}€{% else %}—{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -126,6 +133,13 @@
       <span>·</span><span>Trades: {{ result.metrics.trades }}</span>
       <span>·</span><span>Profit Faktor: {{ '%.2f'|format(result.metrics.profit_factor) if result.metrics.profit_factor is not none else '—' }}</span>
     </div>
+    {% if result.allow_short %}
+    <div class="row muted" style="margin-top:.3rem;">
+      <span>📈 Long: {{ result.direction_split.n_long }} Trades ({{ '%.0f'|format(result.direction_split.pnl_long) }}€)</span>
+      <span>·</span>
+      <span>📉 Short: {{ result.direction_split.n_short }} Trades ({{ '%.0f'|format(result.direction_split.pnl_short) }}€)</span>
+    </div>
+    {% endif %}
     <table style="margin-top:.7rem;">
       <thead>
         <tr><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Max DD %</th><th class="r">Avg Win</th><th class="r">Avg Loss</th></tr>

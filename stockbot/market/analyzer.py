@@ -361,13 +361,16 @@ def last_price(tf_data: dict) -> float | None:
 
 # ── Einzelne Aktie analysieren ──────────────────────────────────────────────
 
-def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None) -> dict | None:
+def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None,
+                   allow_short: bool = False) -> dict | None:
     """
     Berechnet ein Signal für eine Aktie aus mehreren Zeiträumen.
     `tf_data` ist ein Dict {interval -> DataFrame} (Batch-Download je Timeframe).
     Kontext (Eintritts-Gate, SL/TP, S/R, Wochentrend, Kommentare) kommt aus dem 1d-TF,
     die Stärke (0–100) aus der gewichteten Multi-Timeframe-Analyse.
     `profile` (asset_classes.Profile) erlaubt klassenspezifische Schwellen; None → Aktien-Defaults.
+    `allow_short` (NUR Backtest!) erlaubt zusätzlich Short-Signale (Spiegel der Long-Logik). Im
+    Live-Betrieb bleibt es False → der Bot ist und bleibt long-only.
     Gibt None zurück, wenn kein klares Signal.
     """
     try:
@@ -415,23 +418,37 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None) -> di
             last_vol, avg_vol = float(volumes[-1]), float(np.mean(volumes[-20:]))
         vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
 
-        # Long-Setup bestimmen (Demo-Modus ist long-only):
-        # bullishes MACD-Momentum ODER überverkaufter Rücksetzer — aber NICHT
-        # in einen überkauften Markt hineinkaufen.
+        # Richtung bestimmen. Long (Default, auch live): bullishes MACD-Momentum ODER
+        # überverkaufter Rücksetzer, aber nicht in einen überkauften Markt hinein.
+        # Short (nur Backtest, allow_short): der Spiegel — bearishes Momentum ODER überkauft,
+        # aber nicht in einen überverkauften Markt hinein.
         bullish_macd = macd_hist > 0 and macd_line > macd_signal
+        bearish_macd = macd_hist < 0 and macd_line < macd_signal
         oversold     = rsi < rsi_oversold
-        if rsi >= rsi_overbought or not (bullish_macd or oversold):
-            return None  # kein klares Long-Signal
-        direction = "long"
+        overbought   = rsi > rsi_overbought
+        long_ok  = (bullish_macd or oversold) and rsi < rsi_overbought
+        short_ok = allow_short and (bearish_macd or overbought) and rsi > rsi_oversold
+        if long_ok:
+            direction = "long"
+        elif short_ok:
+            direction = "short"
+        else:
+            return None  # kein klares Signal
 
-        # Höheres Zeitfenster: keine Longs in einem klaren Wochen-Abwärtstrend
+        # Höheres Zeitfenster: nicht gegen den klaren Wochentrend handeln
+        # (Longs nicht im Abwärtstrend, Shorts nicht im Aufwärtstrend).
         weekly_trend = calc_weekly_trend(df)
-        if block_downtrend and weekly_trend == "down":
-            return None
+        if block_downtrend:
+            if direction == "long" and weekly_trend == "down":
+                return None
+            if direction == "short" and weekly_trend == "up":
+                return None
 
-        # Multi-Timeframe-Stärke (0–100)
+        # Multi-Timeframe-Stärke (0–100). Der Score misst Bullishness; für Shorts ist die
+        # relevante Stärke die Bearishness = 100 − Bullishness.
         tf_scores = _tf_scores(tf_data)
-        strength = compute_strength(tf_scores)
+        bull = compute_strength(tf_scores)
+        strength = bull if direction == "long" else round(100.0 - bull, 1)
 
         if strength < min_strength:
             return None
@@ -472,12 +489,17 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None) -> di
             f"{vol_ratio:.1f}x Durchschnitt — Gering"
         )
 
-        # ATR-basierte Stop-Loss / Take-Profit (nur long im Demo-Modus)
+        # ATR-basierte Stop-Loss / Take-Profit — richtungsabhängig gespiegelt.
+        # Long: SL unter, TP über dem Kurs. Short: SL über, TP unter dem Kurs.
         if atr and atr > 0:
-            stop_loss   = price - ATR_SL_MULT * atr
-            take_profit = price + ATR_TP_MULT * atr
-            sl_pct      = (stop_loss - price) / price * 100   # negativ
-            tp_pct      = (take_profit - price) / price * 100  # positiv
+            if direction == "long":
+                stop_loss   = price - ATR_SL_MULT * atr
+                take_profit = price + ATR_TP_MULT * atr
+            else:
+                stop_loss   = price + ATR_SL_MULT * atr
+                take_profit = price - ATR_TP_MULT * atr
+            sl_pct      = (stop_loss - price) / price * 100
+            tp_pct      = (take_profit - price) / price * 100
             risk_reward = ATR_TP_MULT / ATR_SL_MULT
         else:
             stop_loss = take_profit = sl_pct = tp_pct = risk_reward = None

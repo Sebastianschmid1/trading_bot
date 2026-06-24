@@ -46,42 +46,61 @@ def _download_daily(tickers: list[str], years: int) -> dict:
     return out
 
 
+def _generate(strategy: strat_mod.Strategy, ticker: str, tf_data: dict, allow_short: bool):
+    """Signal-Erzeugung für den Backtest. Mit `allow_short` (nur Backtest) liefert die
+    Standard-Strategie zusätzlich Short-Signale (über `analyzer.analyze_ticker`); alle anderen
+    Strategien sind long-only und ignorieren das Flag."""
+    if allow_short and strategy.key == "standard":
+        sig = analyzer.analyze_ticker(ticker, tf_data, allow_short=True)
+        if sig is not None:
+            sig.setdefault("strategy", "standard")
+        return sig
+    return strategy.generate(ticker, tf_data)
+
+
 def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
                     trade_size: float, max_hold: int = MAX_HOLD_DAYS,
-                    warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None) -> list[dict]:
+                    warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None,
+                    allow_short: bool = False) -> list[dict]:
     """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück.
     `sl_tp_mode` (passiv/normal/aggressiv) überschreibt – falls gesetzt – die SL/TP der Strategie
-    einheitlich per ATR (für die Modus-Vergleichs-Reports)."""
+    einheitlich per ATR (für die Modus-Vergleichs-Reports).
+    `allow_short` (nur Backtest) erlaubt zusätzlich Short-Trades (gespiegeltes SL/TP)."""
     trades = []
     n = len(df)
     i = warmup
     while i < n - 1:
-        sig = strategy.generate(ticker, {"1d": df.iloc[:i + 1]})
+        sig = _generate(strategy, ticker, {"1d": df.iloc[:i + 1]}, allow_short)
         if sl_tp_mode:
             sig = analyzer.apply_sl_tp_mode(sig, sl_tp_mode)
-        if not sig or sig.get("direction") != "long" or not sig.get("stop_loss"):
+        if not sig or sig.get("direction") not in ("long", "short") or not sig.get("stop_loss"):
             i += 1
             continue
 
+        direction = sig["direction"]
         entry = float(df["Close"].iloc[i])
         sl, tp = float(sig["stop_loss"]), float(sig["take_profit"])
         exit_price, reason, j = None, "Zeitlimit", i + 1
         while j < n and (j - i) <= max_hold:
             lo, hi = float(df["Low"].iloc[j]), float(df["High"].iloc[j])
-            if lo <= sl:                         # konservativ: SL vor TP, falls beide am selben Tag
-                exit_price, reason = sl, "Stop-Loss"
-                break
-            if hi >= tp:
-                exit_price, reason = tp, "Take-Profit"
-                break
+            if direction == "long":
+                if lo <= sl:                     # konservativ: SL vor TP, falls beide am selben Tag
+                    exit_price, reason = sl, "Stop-Loss"; break
+                if hi >= tp:
+                    exit_price, reason = tp, "Take-Profit"; break
+            else:                                # short: SL liegt ÜBER, TP UNTER dem Einstieg
+                if hi >= sl:
+                    exit_price, reason = sl, "Stop-Loss"; break
+                if lo <= tp:
+                    exit_price, reason = tp, "Take-Profit"; break
             j += 1
         if exit_price is None:
             j = min(j, n - 1)
             exit_price, reason = float(df["Close"].iloc[j]), "Zeitlimit"
 
-        pnl_pct, pnl_eur = evaluator.realized_pnl(entry, exit_price, "long", trade_size, 1.0)
+        pnl_pct, pnl_eur = evaluator.realized_pnl(entry, exit_price, direction, trade_size, 1.0)
         trades.append({
-            "ticker": ticker, "entry": entry, "exit": exit_price,
+            "ticker": ticker, "direction": direction, "entry": entry, "exit": exit_price,
             "pnl_pct": round(pnl_pct, 2), "pnl_eur": round(pnl_eur, 2),
             "reason": reason, "entry_date": str(df.index[i].date()),
             "exit_date": str(df.index[j].date()),
@@ -90,10 +109,26 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
     return trades
 
 
+def _direction_split(trades: list[dict]) -> dict:
+    """Zählt Long/Short und das jeweilige Gesamt-P&L (zeigt, ob Shorts etwas beitragen)."""
+    out = {"n_long": 0, "n_short": 0, "pnl_long": 0.0, "pnl_short": 0.0}
+    for t in trades:
+        if t.get("direction") == "short":
+            out["n_short"] += 1
+            out["pnl_short"] += t.get("pnl_eur") or 0.0
+        else:
+            out["n_long"] += 1
+            out["pnl_long"] += t.get("pnl_eur") or 0.0
+    out["pnl_long"] = round(out["pnl_long"], 2)
+    out["pnl_short"] = round(out["pnl_short"], 2)
+    return out
+
+
 def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int = 2,
-                 trade_size: float = TRADE_SIZE_EUR) -> dict:
+                 trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
-    Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve."""
+    Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve.
+    `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups."""
     strategy = strat_mod.get(strategy_key)
     if tickers is None:
         tickers = universes.get_tickers(DEFAULT_REGION, auto=False)   # kuratierter Korb
@@ -102,7 +137,7 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
     all_trades = []
     for t, df in data.items():
         try:
-            all_trades.extend(backtest_ticker(strategy, t, df, trade_size))
+            all_trades.extend(backtest_ticker(strategy, t, df, trade_size, allow_short=allow_short))
         except Exception as e:
             log.warning(f"Backtest {t} fehlgeschlagen: {e}")
 
@@ -112,15 +147,18 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
         "label":     strategy.label,
         "n_tickers": len(data),
         "years":     years,
+        "allow_short": allow_short,
+        "direction_split": _direction_split(all_trades),
         "metrics":   metrics_mod.compute_metrics(all_trades, initial_capital=trade_size * 10),
         "trades":    all_trades,
     }
 
 
 def compare_strategies(keys: list[str], tickers: list[str] | None = None, years: int = 2,
-                       trade_size: float = TRADE_SIZE_EUR) -> list[dict]:
+                       trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False) -> list[dict]:
     """Backtestet mehrere Strategien über denselben Korb/Zeitraum (sortiert nach Profitfaktor)."""
-    results = [run_backtest(k, tickers=tickers, years=years, trade_size=trade_size) for k in keys]
+    results = [run_backtest(k, tickers=tickers, years=years, trade_size=trade_size,
+                            allow_short=allow_short) for k in keys]
 
     def pf_key(r):
         pf = r["metrics"]["profit_factor"]

@@ -954,7 +954,7 @@ def app_backtest(request: Request, q: str = "", mode: str = "single", strategy: 
     return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
                    catalog=catalog, selected=selected, result=None, compare_results=None,
                    form={"tickers": "", "years": 2, "top_n": 10, "leverage": 5.0, "trade_size": 1000.0,
-                         "max_concurrent": 10, "max_hold": 20})
+                         "max_concurrent": 10, "max_hold": 20, "allow_short": False})
 
 
 @router.get("/app/backtest/export")
@@ -1033,6 +1033,7 @@ async def app_backtest_run(request: Request,
                            trade_size: float = Form(1000.0),
                            max_concurrent: int = Form(10),
                            max_hold: int = Form(20),
+                           allow_short: bool = Form(False),
                            q: str = Form("")):
     user = auth.current_user(request)
     if not user:
@@ -1043,28 +1044,26 @@ async def app_backtest_run(request: Request,
     compare_list = [k for k in _parse_csv_items(compare_keys) if any(r["key"] == k for r in catalog)]
     if not compare_list and selected:
         compare_list = [selected]
+    form = {"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
+            "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
+            "allow_short": allow_short, "compare_keys": ", ".join(compare_list)}
 
     if mode == "compare":
         results = await run_in_threadpool(backtest_engine.compare_strategies, compare_list or [selected],
-                                          ticker_list or None, years, trade_size)
+                                          ticker_list or None, years, trade_size, allow_short)
         return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
-                       catalog=catalog, selected=selected, compare_results=results, result=None,
-                       form={"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
-                             "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
-                             "compare_keys": ", ".join(compare_list)})
+                       catalog=catalog, selected=selected, compare_results=results, result=None, form=form)
 
     if mode == "portfolio":
+        # Portfolio-/Hebel-Backtest bleibt long-only (Short-Liquidation noch nicht modelliert).
         result = await run_in_threadpool(backtest_engine.backtest_portfolio, selected,
                                          ticker_list or None, years, top_n, leverage,
                                          trade_size, 10000.0, max_concurrent, max_hold)
     else:
         result = await run_in_threadpool(backtest_engine.run_backtest, selected,
-                                         ticker_list or None, years, trade_size)
+                                         ticker_list or None, years, trade_size, allow_short)
     return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
-                   catalog=catalog, selected=selected, compare_results=None, result=result,
-                   form={"tickers": tickers, "years": years, "top_n": top_n, "leverage": leverage,
-                         "trade_size": trade_size, "max_concurrent": max_concurrent, "max_hold": max_hold,
-                         "compare_keys": ", ".join(compare_list)})
+                   catalog=catalog, selected=selected, compare_results=None, result=result, form=form)
 
 
 @router.get("/algorithms")

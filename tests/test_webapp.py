@@ -343,7 +343,7 @@ def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):
     monkeypatch.setattr(
         backtest_engine,
         "compare_strategies",
-        lambda keys, tickers=None, years=2, trade_size=100.0: [
+        lambda keys, tickers=None, years=2, trade_size=100.0, allow_short=False: [
             {"label": "A", "metrics": {"profit_factor": 1.5, "win_rate": 55.0, "total_pnl_eur": 12.3, "trades": 3}},
             {"label": "B", "metrics": {"profit_factor": 1.2, "win_rate": 50.0, "total_pnl_eur": 7.1, "trades": 2}},
         ],
