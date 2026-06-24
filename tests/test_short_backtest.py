@@ -102,3 +102,68 @@ def test_run_backtest_result_has_direction_split(monkeypatch):
     res = engine.run_backtest("standard", tickers=["AAA", "BBB"], years=4, allow_short=True)
     assert res["allow_short"] is True
     assert "direction_split" in res and res["direction_split"]["n_short"] > 0
+
+
+# ── Portfolio-Pfad (Report-Pipeline): gather_fires / simulate_portfolio / backtest_portfolio ──
+
+def _data_and_start(df):
+    """Hilfsfunktion: {ticker: df} + start_after (ab Warmup) für die Portfolio-Funktionen."""
+    start_after = df.index[engine.WARMUP_BARS]
+    return {"AAA": df, "BBB": df}, start_after
+
+
+def test_gather_fires_long_only_has_no_short_fires():
+    df = _mixed_df()
+    data, start_after = _data_and_start(df)
+    by_date = engine.gather_fires(S.get("standard"), data, start_after, allow_short=False)
+    dirs = {f["direction"] for fires in by_date.values() for f in fires}
+    assert dirs and dirs <= {"long"}            # ohne Flag keine Shorts
+
+
+def test_gather_fires_allow_short_collects_short_fires():
+    df = _mixed_df()
+    data, start_after = _data_and_start(df)
+    by_date = engine.gather_fires(S.get("standard"), data, start_after, allow_short=True)
+    dirs = {f["direction"] for fires in by_date.values() for f in fires}
+    assert "short" in dirs                       # mit Flag tauchen Shorts auf
+
+
+def test_walk_exit_short_mirrors_stop_and_target():
+    """Short-Ausstieg: ein über den SL steigender Kurs stoppt aus; ein unter den TP fallender
+    Kurs nimmt Gewinn mit — gespiegelt zum Long."""
+    idx = pd.bdate_range("2020-01-01", periods=10)
+    # Kurs steigt zuerst (löst Short-SL aus): SL über Einstieg muss greifen.
+    up = pd.DataFrame({"Open": 100.0, "High": [100, 101, 109, 109, 109, 109, 109, 109, 109, 109],
+                       "Low": 99.0, "Close": 100.0, "Volume": 1e6}, index=idx)
+    j, price, reason = engine._walk_exit(up, 0, sl=108.0, tp=90.0, leverage=1.0, direction="short")
+    assert reason == "Stop-Loss" and price == 108.0
+
+    down = pd.DataFrame({"Open": 100.0, "High": 101.0,
+                         "Low": [99, 99, 89, 89, 89, 89, 89, 89, 89, 89],
+                         "Close": 100.0, "Volume": 1e6}, index=idx)
+    j, price, reason = engine._walk_exit(down, 0, sl=112.0, tp=90.0, leverage=1.0, direction="short")
+    assert reason == "Take-Profit" and price == 90.0
+
+
+def test_simulate_portfolio_short_pnl_sign():
+    """Über die Feuer-Events der gemischten Reihe entstehen Shorts; deren P&L hat das
+    korrekte Vorzeichen (Ausstieg unter Einstieg = Gewinn)."""
+    df = _mixed_df()
+    data, start_after = _data_and_start(df)
+    by_date = engine.gather_fires(S.get("standard"), data, start_after, allow_short=True)
+    trades = engine.simulate_portfolio(data, by_date, top_n=10, leverage=1.0,
+                                       trade_size=1000.0, max_concurrent=10, max_hold=40)
+    shorts = [t for t in trades if t["direction"] == "short"]
+    assert shorts
+    for t in shorts:
+        if t["exit"] != t["entry"]:
+            assert (t["exit"] < t["entry"]) == (t["pnl_eur"] > 0)
+
+
+def test_backtest_portfolio_direction_split(monkeypatch):
+    df = _mixed_df()
+    monkeypatch.setattr(engine, "_download_daily", lambda tickers, years: {"AAA": df, "BBB": df})
+    res = engine.backtest_portfolio("standard", tickers=["AAA", "BBB"], years=4,
+                                    top_n=5, leverage=1.0, allow_short=True)
+    assert res["allow_short"] is True
+    assert res["direction_split"]["n_short"] > 0

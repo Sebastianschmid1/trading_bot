@@ -1,8 +1,8 @@
 # 📊 Strategie-Report (alle Strategien) — Tiefenanalyse
 
-*Erstellt: 2026-06-14 · Korb: S&P 500 (38 Aktien) · Zeitraum: 2024-06-12 → 2026-06-12 · 2 Jahre · Tages-Timeframe · Portfolio: 10 Signale/Tag, Hebel 1×, Start 10000€*
+*Erstellt: 2026-06-25 · Korb: S&P 500 (38 Aktien) · Zeitraum: 2024-06-24 → 2026-06-24 · 2 Jahre · Tages-Timeframe · long + short · Portfolio: 10 Signale/Tag, Hebel 1×, Start 10000€*
 
-> **Demo-Backtest** — long-only, ATR-SL/TP, ohne Gebühren/Slippage. Alle Kennzahlen basieren auf einer täglichen Mark-to-Market-Equity-Kurve der Portfolio-Simulation.
+> **Demo-Backtest** — **long + short**, ATR-SL/TP (Short gespiegelt), ohne Gebühren/Slippage. Shorts liefert **nur die Standard-Strategie** (Spiegel der Long-Logik); die übrigen Strategien bleiben auch im Backtest long-only. **Der Live-Bot handelt unverändert ausschließlich long** — Shorts sind reine Backtest-Analyse. Alle Kennzahlen basieren auf einer täglichen Mark-to-Market-Equity-Kurve der Portfolio-Simulation.
 
 ## 📐 Methodik — wie Strategien verglichen werden
 
@@ -23,14 +23,14 @@ Verglichen wird wie bei professionellen Backtests **risiko-adjustiert**, nicht n
 
 | # | Strategie | CAGR % | Sharpe | Sortino | Calmar | Max DD % | Vol % | PF | Win % | Trades |
 |---|-----------|------:|------:|------:|------:|--------:|-----:|----|------:|------:|
-| 1 | Donchian-Ausbruch (20T) (`breakout`) | +18.9 | 1.49 | 2.33 | 2.15 | 8.8 | 12.1 | 1.48 | 42.7 | 302 |
-| 2 | Trend-Ausrichtung (MA20>50>200) (`ma_trend`) | +18.6 | 1.48 | 2.24 | 2.82 | 6.6 | 12.1 | 1.47 | 42.4 | 403 |
-| 3 | ADX-Trendfolge (trader-dev Port) (`adx_trend`) | +11.3 | 1.05 | 1.58 | 1.05 | 10.8 | 10.7 | 1.50 | 51.5 | 169 |
-| 4 | Momentum 52W-Hoch (streng) (`high52`) | +12.6 | 1.05 | 1.59 | 1.07 | 11.8 | 11.9 | 1.45 | 45.6 | 193 |
-| 5 | Standard (Multi-Timeframe) (`standard`) | +12.0 | 0.99 | 1.51 | 0.94 | 12.8 | 12.2 | 1.22 | 43.4 | 505 |
-| 6 | Momentum 52W-Hoch (aktiv) (`high52_wide`) | +11.3 | 0.83 | 1.22 | 0.84 | 13.4 | 14.1 | 1.33 | 45.0 | 229 |
-| 7 | Mean-Reversion (RSI-Dip) (`rsi_revert`) | +0.3 | 0.11 | 0.15 | 0.07 | 4.2 | 3.1 | 1.06 | 39.5 | 38 |
-| **S&P 500 (Buy & Hold)** | +17.2 | 1.04 | 1.52 | 0.91 | 18.9 | 16.5 | — | — | — |
+| 1 | Donchian-Ausbruch (20T) (`breakout`) | +19.8 | 1.55 | 2.45 | 2.67 | 7.4 | 12.1 | 1.51 | 43.6 | 298 |
+| 2 | ADX-Trendfolge (trader-dev Port) (`adx_trend`) | +13.2 | 1.22 | 1.86 | 1.23 | 10.7 | 10.6 | 1.61 | 53.8 | 169 |
+| 3 | Trend-Ausrichtung (MA20>50>200) (`ma_trend`) | +15.1 | 1.17 | 1.73 | 2.13 | 7.1 | 12.7 | 1.37 | 40.7 | 403 |
+| 4 | Momentum 52W-Hoch (streng) (`high52`) | +11.8 | 0.97 | 1.46 | 0.98 | 12.1 | 12.3 | 1.41 | 45.2 | 199 |
+| 5 | Momentum 52W-Hoch (aktiv) (`high52_wide`) | +11.5 | 0.84 | 1.23 | 0.85 | 13.6 | 14.3 | 1.34 | 44.1 | 227 |
+| 6 | Mean-Reversion (RSI-Dip) (`rsi_revert`) | +0.2 | 0.08 | 0.11 | 0.05 | 4.2 | 3.1 | 1.04 | 39.5 | 38 |
+| 7 | Standard (Multi-Timeframe) (`standard`) | -8.4 | -0.45 | -0.65 | -0.34 | 24.7 | 16.5 | 0.90 | 36.2 | 566 |
+| **S&P 500 (Buy & Hold)** | +16.3 | 0.99 | 1.45 | 0.86 | 18.9 | 16.6 | — | — | — |
 
 ## 📈 Grafiken
 
@@ -48,99 +48,48 @@ Kauft den Ausbruch über das 20-Tage-Hoch (Trendfilter >MA50, Volumen). Weite AT
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Gesamt-Rendite | +41.1 % |
-| CAGR (annualisiert) | +18.9 % |
+| Gesamt-Rendite | +43.1 % |
+| CAGR (annualisiert) | +19.8 % |
 | Volatilität (annualisiert) | 12.1 % |
-| Max. Drawdown | 8.8 % |
+| Max. Drawdown | 7.4 % |
 | Max. Drawdown-Dauer | 115 Handelstage |
 
 **Risiko-adjustiert & vs. S&P 500**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Sharpe-Ratio | 1.49 |
-| Sortino-Ratio | 2.33 |
-| Calmar-Ratio | 2.15 |
-| Recovery-Factor | 4.67 |
-| Beta (vs. S&P 500) | 0.42 |
-| Alpha annualisiert | +10.8 % |
-| Korrelation (vs. S&P 500) | 0.58 |
+| Sharpe-Ratio | 1.55 |
+| Sortino-Ratio | 2.45 |
+| Calmar-Ratio | 2.67 |
+| Recovery-Factor | 5.83 |
+| Beta (vs. S&P 500) | 0.40 |
+| Alpha annualisiert | +12.1 % |
+| Korrelation (vs. S&P 500) | 0.55 |
 
 **Trade-Qualität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Profitfaktor | 1.48 |
-| Trefferquote (Win) | 42.7 % (129/302) |
-| Verlustquote (Lose) | 57.3 % (173/302) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.98 |
-| Ø Gewinn / Ø Verlust | +98.96€ / -50.00€ |
-| Erwartungswert/Trade | +13.63€ (+1.36 %) |
+| Profitfaktor | 1.51 |
+| Trefferquote (Win) | 43.6 % (130/298) |
+| Verlustquote (Lose) | 56.4 % (168/298) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.95 |
+| Ø Gewinn / Ø Verlust | +98.42€ / -50.50€ |
+| Erwartungswert/Trade | +14.47€ (+1.45 %) |
 | Bester / schlechtester Trade | +22.9 % / -12.6 % |
-| Längste Serie Gewinne / Verluste | 8 / 16 |
-| Kelly-Anteil | 13.8 % |
-| t-Statistik der Edge | 2.90  ✅ signifikant |
+| Längste Serie Gewinne / Verluste | 9 / 9 |
+| Kelly-Anteil | 14.7 % |
+| t-Statistik der Edge | 3.06  ✅ signifikant |
 
 **Aktivität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Trades gesamt / pro Jahr | 302 / 151.1 |
-| Ø Haltedauer | 14.1 Tage |
-| Exposure (Zeit im Markt) | 98.0 % |
-| Ø gleichzeitige Positionen | 8.46 |
+| Trades gesamt / pro Jahr | 298 / 149.1 |
+| Ø Haltedauer | 14.2 Tage |
+| Exposure (Zeit im Markt) | 97.8 % |
+| Ø gleichzeitige Positionen | 8.45 |
 | Ø Signale/Tag | 3.7 (Median 3, Max 25) |
-
-### Trend-Ausrichtung (MA20>50>200)  (`ma_trend`)
-
-Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.
-
-**Rendite & Risiko (Equity-Kurve)**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Gesamt-Rendite | +40.5 % |
-| CAGR (annualisiert) | +18.6 % |
-| Volatilität (annualisiert) | 12.1 % |
-| Max. Drawdown | 6.6 % |
-| Max. Drawdown-Dauer | 114 Handelstage |
-
-**Risiko-adjustiert & vs. S&P 500**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Sharpe-Ratio | 1.48 |
-| Sortino-Ratio | 2.24 |
-| Calmar-Ratio | 2.82 |
-| Recovery-Factor | 6.13 |
-| Beta (vs. S&P 500) | 0.39 |
-| Alpha annualisiert | +11.1 % |
-| Korrelation (vs. S&P 500) | 0.54 |
-
-**Trade-Qualität**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Profitfaktor | 1.47 |
-| Trefferquote (Win) | 42.4 % (171/403) |
-| Verlustquote (Lose) | 57.6 % (232/403) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 2.00 |
-| Ø Gewinn / Ø Verlust | +73.62€ / -36.81€ |
-| Erwartungswert/Trade | +10.05€ (+1.00 %) |
-| Bester / schlechtester Trade | +16.6 % / -10.5 % |
-| Längste Serie Gewinne / Verluste | 8 / 12 |
-| Kelly-Anteil | 13.6 % |
-| t-Statistik der Edge | 3.41  ✅ signifikant |
-
-**Aktivität**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Trades gesamt / pro Jahr | 403 / 201.6 |
-| Ø Haltedauer | 9.8 Tage |
-| Exposure (Zeit im Markt) | 96.8 % |
-| Ø gleichzeitige Positionen | 7.85 |
-| Ø Signale/Tag | 7.3 (Median 7, Max 20) |
 
 ### ADX-Trendfolge (trader-dev Port)  (`adx_trend`)
 
@@ -150,48 +99,99 @@ Trendfolge: Kurs>EMA200 + ADX(14)-Trend + Volatilitäts-Expansion & Velocity. AT
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Gesamt-Rendite | +23.6 % |
-| CAGR (annualisiert) | +11.3 % |
-| Volatilität (annualisiert) | 10.7 % |
-| Max. Drawdown | 10.8 % |
+| Gesamt-Rendite | +27.9 % |
+| CAGR (annualisiert) | +13.2 % |
+| Volatilität (annualisiert) | 10.6 % |
+| Max. Drawdown | 10.7 % |
 | Max. Drawdown-Dauer | 160 Handelstage |
 
 **Risiko-adjustiert & vs. S&P 500**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Sharpe-Ratio | 1.05 |
-| Sortino-Ratio | 1.58 |
-| Calmar-Ratio | 1.05 |
-| Recovery-Factor | 2.19 |
-| Beta (vs. S&P 500) | 0.34 |
-| Alpha annualisiert | +5.4 % |
-| Korrelation (vs. S&P 500) | 0.53 |
+| Sharpe-Ratio | 1.22 |
+| Sortino-Ratio | 1.86 |
+| Calmar-Ratio | 1.23 |
+| Recovery-Factor | 2.61 |
+| Beta (vs. S&P 500) | 0.33 |
+| Alpha annualisiert | +7.5 % |
+| Korrelation (vs. S&P 500) | 0.51 |
 
 **Trade-Qualität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Profitfaktor | 1.50 |
-| Trefferquote (Win) | 51.5 % (87/169) |
-| Verlustquote (Lose) | 48.5 % (82/169) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.42 |
-| Ø Gewinn / Ø Verlust | +81.33€ / -57.46€ |
-| Erwartungswert/Trade | +13.99€ (+1.40 %) |
+| Profitfaktor | 1.61 |
+| Trefferquote (Win) | 53.8 % (91/169) |
+| Verlustquote (Lose) | 46.2 % (78/169) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.38 |
+| Ø Gewinn / Ø Verlust | +81.14€ / -58.96€ |
+| Erwartungswert/Trade | +16.48€ (+1.65 %) |
 | Bester / schlechtester Trade | +20.9 % / -17.5 % |
-| Längste Serie Gewinne / Verluste | 8 / 7 |
-| Kelly-Anteil | 17.2 % |
-| t-Statistik der Edge | 2.35  ✅ signifikant |
+| Längste Serie Gewinne / Verluste | 9 / 7 |
+| Kelly-Anteil | 20.3 % |
+| t-Statistik der Edge | 2.75  ✅ signifikant |
 
 **Aktivität**
 
 | Kennzahl | Wert |
 |----------|-----:|
 | Trades gesamt / pro Jahr | 169 / 84.6 |
-| Ø Haltedauer | 18.7 Tage |
+| Ø Haltedauer | 18.8 Tage |
 | Exposure (Zeit im Markt) | 94.4 % |
-| Ø gleichzeitige Positionen | 6.29 |
+| Ø gleichzeitige Positionen | 6.33 |
 | Ø Signale/Tag | 1.4 (Median 1, Max 4) |
+
+### Trend-Ausrichtung (MA20>50>200)  (`ma_trend`)
+
+Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.
+
+**Rendite & Risiko (Equity-Kurve)**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Gesamt-Rendite | +32.3 % |
+| CAGR (annualisiert) | +15.1 % |
+| Volatilität (annualisiert) | 12.7 % |
+| Max. Drawdown | 7.1 % |
+| Max. Drawdown-Dauer | 114 Handelstage |
+
+**Risiko-adjustiert & vs. S&P 500**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Sharpe-Ratio | 1.17 |
+| Sortino-Ratio | 1.73 |
+| Calmar-Ratio | 2.13 |
+| Recovery-Factor | 4.54 |
+| Beta (vs. S&P 500) | 0.41 |
+| Alpha annualisiert | +8.2 % |
+| Korrelation (vs. S&P 500) | 0.53 |
+
+**Trade-Qualität**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Profitfaktor | 1.37 |
+| Trefferquote (Win) | 40.7 % (164/403) |
+| Verlustquote (Lose) | 59.3 % (239/403) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.99 |
+| Ø Gewinn / Ø Verlust | +73.64€ / -37.01€ |
+| Erwartungswert/Trade | +8.02€ (+0.80 %) |
+| Bester / schlechtester Trade | +16.6 % / -10.5 % |
+| Längste Serie Gewinne / Verluste | 8 / 12 |
+| Kelly-Anteil | 10.9 % |
+| t-Statistik der Edge | 2.73  ✅ signifikant |
+
+**Aktivität**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Trades gesamt / pro Jahr | 403 / 201.6 |
+| Ø Haltedauer | 9.8 Tage |
+| Exposure (Zeit im Markt) | 96.6 % |
+| Ø gleichzeitige Positionen | 7.85 |
+| Ø Signale/Tag | 7.2 (Median 7, Max 20) |
 
 ### Momentum 52W-Hoch (streng)  (`high52`)
 
@@ -201,99 +201,48 @@ Kauft Stärke nahe dem 52-Wochen-Hoch (≥98 %) im Aufwärtstrend (>MA50). Weite
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Gesamt-Rendite | +26.6 % |
-| CAGR (annualisiert) | +12.6 % |
-| Volatilität (annualisiert) | 11.9 % |
-| Max. Drawdown | 11.8 % |
+| Gesamt-Rendite | +24.7 % |
+| CAGR (annualisiert) | +11.8 % |
+| Volatilität (annualisiert) | 12.3 % |
+| Max. Drawdown | 12.1 % |
 | Max. Drawdown-Dauer | 189 Handelstage |
 
 **Risiko-adjustiert & vs. S&P 500**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Sharpe-Ratio | 1.05 |
-| Sortino-Ratio | 1.59 |
-| Calmar-Ratio | 1.07 |
-| Recovery-Factor | 2.26 |
-| Beta (vs. S&P 500) | 0.39 |
-| Alpha annualisiert | +5.9 % |
-| Korrelation (vs. S&P 500) | 0.53 |
+| Sharpe-Ratio | 0.97 |
+| Sortino-Ratio | 1.46 |
+| Calmar-Ratio | 0.98 |
+| Recovery-Factor | 2.05 |
+| Beta (vs. S&P 500) | 0.38 |
+| Alpha annualisiert | +5.6 % |
+| Korrelation (vs. S&P 500) | 0.52 |
 
 **Trade-Qualität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Profitfaktor | 1.45 |
-| Trefferquote (Win) | 45.6 % (88/193) |
-| Verlustquote (Lose) | 54.4 % (105/193) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.73 |
-| Ø Gewinn / Ø Verlust | +97.00€ / -56.01€ |
-| Erwartungswert/Trade | +13.76€ (+1.38 %) |
+| Profitfaktor | 1.41 |
+| Trefferquote (Win) | 45.2 % (90/199) |
+| Verlustquote (Lose) | 54.8 % (109/199) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.71 |
+| Ø Gewinn / Ø Verlust | +94.49€ / -55.33€ |
+| Erwartungswert/Trade | +12.43€ (+1.24 %) |
 | Bester / schlechtester Trade | +26.1 % / -12.8 % |
-| Längste Serie Gewinne / Verluste | 6 / 17 |
-| Kelly-Anteil | 14.2 % |
-| t-Statistik der Edge | 2.24  ✅ signifikant |
+| Längste Serie Gewinne / Verluste | 8 / 17 |
+| Kelly-Anteil | 13.2 % |
+| t-Statistik der Edge | 2.08  ✅ signifikant |
 
 **Aktivität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Trades gesamt / pro Jahr | 193 / 96.6 |
-| Ø Haltedauer | 20.3 Tage |
-| Exposure (Zeit im Markt) | 93.4 % |
-| Ø gleichzeitige Positionen | 7.81 |
+| Trades gesamt / pro Jahr | 199 / 99.6 |
+| Ø Haltedauer | 19.6 Tage |
+| Exposure (Zeit im Markt) | 93.2 % |
+| Ø gleichzeitige Positionen | 7.79 |
 | Ø Signale/Tag | 5.3 (Median 5, Max 14) |
-
-### Standard (Multi-Timeframe)  (`standard`)
-
-Multi-Timeframe-Momentum: RSI/MACD/Trend/Volumen über 5m–1d, Stärke 0–100, ATR-SL/TP.
-
-**Rendite & Risiko (Equity-Kurve)**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Gesamt-Rendite | +25.2 % |
-| CAGR (annualisiert) | +12.0 % |
-| Volatilität (annualisiert) | 12.2 % |
-| Max. Drawdown | 12.8 % |
-| Max. Drawdown-Dauer | 94 Handelstage |
-
-**Risiko-adjustiert & vs. S&P 500**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Sharpe-Ratio | 0.99 |
-| Sortino-Ratio | 1.51 |
-| Calmar-Ratio | 0.94 |
-| Recovery-Factor | 1.98 |
-| Beta (vs. S&P 500) | 0.45 |
-| Alpha annualisiert | +4.3 % |
-| Korrelation (vs. S&P 500) | 0.61 |
-
-**Trade-Qualität**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Profitfaktor | 1.22 |
-| Trefferquote (Win) | 43.4 % (219/505) |
-| Verlustquote (Lose) | 56.6 % (286/505) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.60 |
-| Ø Gewinn / Ø Verlust | +62.93€ / -39.37€ |
-| Erwartungswert/Trade | +4.99€ (+0.50 %) |
-| Bester / schlechtester Trade | +18.4 % / -8.9 % |
-| Längste Serie Gewinne / Verluste | 10 / 17 |
-| Kelly-Anteil | 7.9 % |
-| t-Statistik der Edge | 2.06  ✅ signifikant |
-
-**Aktivität**
-
-| Kennzahl | Wert |
-|----------|-----:|
-| Trades gesamt / pro Jahr | 505 / 252.7 |
-| Ø Haltedauer | 8.4 Tage |
-| Exposure (Zeit im Markt) | 97.2 % |
-| Ø gleichzeitige Positionen | 8.48 |
-| Ø Signale/Tag | 4.7 (Median 4, Max 17) |
 
 ### Momentum 52W-Hoch (aktiv)  (`high52_wide`)
 
@@ -303,47 +252,47 @@ Wie streng, aber schon ab ≥95 % des 52-Wochen-Hochs → mehr Signale, höhere 
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Gesamt-Rendite | +23.6 % |
-| CAGR (annualisiert) | +11.3 % |
-| Volatilität (annualisiert) | 14.1 % |
-| Max. Drawdown | 13.4 % |
+| Gesamt-Rendite | +24.3 % |
+| CAGR (annualisiert) | +11.5 % |
+| Volatilität (annualisiert) | 14.3 % |
+| Max. Drawdown | 13.6 % |
 | Max. Drawdown-Dauer | 118 Handelstage |
 
 **Risiko-adjustiert & vs. S&P 500**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Sharpe-Ratio | 0.83 |
-| Sortino-Ratio | 1.22 |
-| Calmar-Ratio | 0.84 |
-| Recovery-Factor | 1.77 |
-| Beta (vs. S&P 500) | 0.51 |
-| Alpha annualisiert | +2.9 % |
-| Korrelation (vs. S&P 500) | 0.60 |
+| Sharpe-Ratio | 0.84 |
+| Sortino-Ratio | 1.23 |
+| Calmar-Ratio | 0.85 |
+| Recovery-Factor | 1.78 |
+| Beta (vs. S&P 500) | 0.50 |
+| Alpha annualisiert | +3.8 % |
+| Korrelation (vs. S&P 500) | 0.58 |
 
 **Trade-Qualität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Profitfaktor | 1.33 |
-| Trefferquote (Win) | 45.0 % (103/229) |
-| Verlustquote (Lose) | 55.0 % (126/229) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.62 |
-| Ø Gewinn / Ø Verlust | +93.22€ / -57.45€ |
-| Erwartungswert/Trade | +10.32€ (+1.03 %) |
+| Profitfaktor | 1.34 |
+| Trefferquote (Win) | 44.1 % (100/227) |
+| Verlustquote (Lose) | 55.9 % (127/227) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.70 |
+| Ø Gewinn / Ø Verlust | +96.55€ / -56.92€ |
+| Erwartungswert/Trade | +10.69€ (+1.07 %) |
 | Bester / schlechtester Trade | +26.7 % / -17.5 % |
 | Längste Serie Gewinne / Verluste | 10 / 17 |
 | Kelly-Anteil | 11.1 % |
-| t-Statistik der Edge | 1.83  ⚠️ schwach |
+| t-Statistik der Edge | 1.87  ⚠️ schwach |
 
 **Aktivität**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Trades gesamt / pro Jahr | 229 / 114.6 |
-| Ø Haltedauer | 19.4 Tage |
-| Exposure (Zeit im Markt) | 97.4 % |
-| Ø gleichzeitige Positionen | 8.84 |
+| Trades gesamt / pro Jahr | 227 / 113.6 |
+| Ø Haltedauer | 19.5 Tage |
+| Exposure (Zeit im Markt) | 97.2 % |
+| Ø gleichzeitige Positionen | 8.81 |
 | Ø Signale/Tag | 10.6 (Median 11, Max 22) |
 
 ### Mean-Reversion (RSI-Dip)  (`rsi_revert`)
@@ -354,21 +303,21 @@ Kauft Rücksetzer: RSI(14)<30 im langfristigen Aufwärtstrend (Kurs>MA200). ATR-
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Gesamt-Rendite | +0.6 % |
-| CAGR (annualisiert) | +0.3 % |
+| Gesamt-Rendite | +0.4 % |
+| CAGR (annualisiert) | +0.2 % |
 | Volatilität (annualisiert) | 3.1 % |
 | Max. Drawdown | 4.2 % |
-| Max. Drawdown-Dauer | 326 Handelstage |
+| Max. Drawdown-Dauer | 333 Handelstage |
 
 **Risiko-adjustiert & vs. S&P 500**
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Sharpe-Ratio | 0.11 |
-| Sortino-Ratio | 0.15 |
-| Calmar-Ratio | 0.07 |
-| Recovery-Factor | 0.14 |
-| Beta (vs. S&P 500) | 0.10 |
+| Sharpe-Ratio | 0.08 |
+| Sortino-Ratio | 0.11 |
+| Calmar-Ratio | 0.05 |
+| Recovery-Factor | 0.10 |
+| Beta (vs. S&P 500) | 0.09 |
 | Alpha annualisiert | -1.3 % |
 | Korrelation (vs. S&P 500) | 0.50 |
 
@@ -376,24 +325,77 @@ Kauft Rücksetzer: RSI(14)<30 im langfristigen Aufwärtstrend (Kurs>MA200). ATR-
 
 | Kennzahl | Wert |
 |----------|-----:|
-| Profitfaktor | 1.06 |
+| Profitfaktor | 1.04 |
 | Trefferquote (Win) | 39.5 % (15/38) |
 | Verlustquote (Lose) | 60.5 % (23/38) |
-| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.62 |
-| Ø Gewinn / Ø Verlust | +69.16€ / -42.61€ |
-| Erwartungswert/Trade | +1.51€ (+0.15 %) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.60 |
+| Ø Gewinn / Ø Verlust | +67.98€ / -42.61€ |
+| Erwartungswert/Trade | +1.05€ (+0.10 %) |
 | Bester / schlechtester Trade | +10.5 % / -9.7 % |
 | Längste Serie Gewinne / Verluste | 3 / 6 |
-| Kelly-Anteil | 2.2 % |
-| t-Statistik der Edge | 0.16  ⚠️ schwach |
+| Kelly-Anteil | 1.5 % |
+| t-Statistik der Edge | 0.11  ⚠️ schwach |
 
 **Aktivität**
 
 | Kennzahl | Wert |
 |----------|-----:|
 | Trades gesamt / pro Jahr | 38 / 19.0 |
-| Ø Haltedauer | 9.6 Tage |
-| Exposure (Zeit im Markt) | 43.8 % |
-| Ø gleichzeitige Positionen | 0.73 |
+| Ø Haltedauer | 9.8 Tage |
+| Exposure (Zeit im Markt) | 45.2 % |
+| Ø gleichzeitige Positionen | 0.74 |
 | Ø Signale/Tag | 1.3 (Median 1, Max 3) |
+
+### Standard (Multi-Timeframe)  (`standard`)
+
+Multi-Timeframe-Momentum: RSI/MACD/Trend/Volumen über 5m–1d, Stärke 0–100, ATR-SL/TP.
+
+**Rendite & Risiko (Equity-Kurve)**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Gesamt-Rendite | -15.9 % |
+| CAGR (annualisiert) | -8.4 % |
+| Volatilität (annualisiert) | 16.5 % |
+| Max. Drawdown | 24.7 % |
+| Max. Drawdown-Dauer | 476 Handelstage |
+
+**Risiko-adjustiert & vs. S&P 500**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Sharpe-Ratio | -0.45 |
+| Sortino-Ratio | -0.65 |
+| Calmar-Ratio | -0.34 |
+| Recovery-Factor | -0.65 |
+| Beta (vs. S&P 500) | -0.58 |
+| Alpha annualisiert | +2.2 % |
+| Korrelation (vs. S&P 500) | -0.58 |
+
+**Trade-Qualität**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Profitfaktor | 0.90 |
+| Trefferquote (Win) | 36.2 % (205/566) |
+| Verlustquote (Lose) | 63.8 % (361/566) |
+| Payoff-Ratio (Ø Gewinn/Ø Verlust) | 1.58 |
+| Ø Gewinn / Ø Verlust | +67.69€ / -42.86€ |
+| Erwartungswert/Trade | -2.82€ (-0.28 %) |
+| Bester / schlechtester Trade | +17.2 % / -15.4 % |
+| Längste Serie Gewinne / Verluste | 8 / 18 |
+| Kelly-Anteil | -4.2 % |
+| t-Statistik der Edge | -1.17  ⚠️ schwach |
+
+**Aktivität**
+
+| Kennzahl | Wert |
+|----------|-----:|
+| Trades gesamt / pro Jahr | 566 / 283.2 |
+| Ø Haltedauer | 8.6 Tage |
+| Exposure (Zeit im Markt) | 97.8 % |
+| Ø gleichzeitige Positionen | 9.73 |
+| Ø Signale/Tag | 12.2 (Median 12, Max 26) |
+| Richtungs-Split (Long / Short) | 171 / 395 Trades |
+| P&L-Beitrag (Long / Short) | +731.28€ / -2326.48€ |
 

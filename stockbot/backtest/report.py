@@ -52,8 +52,9 @@ def _equity_over_dates(trades, E0, bdates):
 
 def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
                    years=2, top_n=10, leverage=1.0, benchmark="^GSPC",
-                   out="docs/backtest_strategien_vergleich.png"):
-    """Mehrere Strategien (Portfolio) gegen S&P-500-Buy&Hold vergleichen (eine Grafik)."""
+                   out="docs/backtest_strategien_vergleich.png", allow_short=False):
+    """Mehrere Strategien (Portfolio) gegen S&P-500-Buy&Hold vergleichen (eine Grafik).
+    `allow_short` (nur Standard-Strategie, Backtest) nimmt zusätzlich Short-Setups auf."""
     from stockbot.backtest import engine as backtest
     bench = _clean(yf.download(benchmark, period=f"{years}y", interval="1d",
                                progress=False, auto_adjust=True))
@@ -67,7 +68,7 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
     for key in keys:
         print(f"▶ Backtest {key} (Hebel {leverage:g}×, {top_n}/Tag, {years}J) …")
         r = backtest.backtest_portfolio(key, years=years, top_n=top_n, leverage=leverage,
-                                        initial_capital=E0)
+                                        initial_capital=E0, allow_short=allow_short)
         eq = _equity_over_dates(r["trades"], E0, bdates)
         dd = _drawdown_pct(eq)
         runs.append({"key": key, "label": r["label"], "metrics": r["metrics"],
@@ -128,8 +129,9 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
 
 def exit_mode_analysis(keys=("standard", "adx_trend", "rsi_revert", "breakout", "ma_trend"),
                        years=2, top_n=10, leverage=1.0,
-                       out="docs/backtest_tagesende_vs_halten.png"):
-    """Vergleicht je Strategie 'Tagesende schließen (1 Tag)' vs 'Halten bis SL/TP' + Signale/Tag."""
+                       out="docs/backtest_tagesende_vs_halten.png", allow_short=False):
+    """Vergleicht je Strategie 'Tagesende schließen (1 Tag)' vs 'Halten bis SL/TP' + Signale/Tag.
+    `allow_short` (nur Standard-Strategie, Backtest) nimmt zusätzlich Short-Setups auf."""
     E0 = 10000.0
     tickers = backtest.universes.get_tickers(backtest.DEFAULT_REGION, auto=False)
     data = backtest._download_daily(tickers, years)
@@ -140,7 +142,7 @@ def exit_mode_analysis(keys=("standard", "adx_trend", "rsi_revert", "breakout", 
     for key in keys:
         strat = strategies.get(key)
         print(f"▶ Scan {key} …")
-        by_date = backtest.gather_fires(strat, data, start_after)
+        by_date = backtest.gather_fires(strat, data, start_after, allow_short=allow_short)
         spd = backtest.signals_per_day(by_date)
         ts = E0 / top_n
         eod = backtest.simulate_portfolio(data, by_date, top_n, leverage, ts, top_n, max_hold=1)

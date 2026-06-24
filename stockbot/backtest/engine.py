@@ -171,36 +171,48 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
 # ── Portfolio-Backtest: top_n Signale/Tag + Hebel ────────────────────────────
 
 def _walk_exit(df: pd.DataFrame, i: int, sl: float, tp: float, leverage: float,
-               max_hold: int = MAX_HOLD_DAYS):
-    """Ausstieg ab Bar i+1: Liquidation (Hebel) → SL → TP (intrabar via High/Low), sonst Zeitlimit."""
+               max_hold: int = MAX_HOLD_DAYS, direction: str = "long"):
+    """Ausstieg ab Bar i+1: Liquidation (Hebel) → SL → TP (intrabar via High/Low), sonst Zeitlimit.
+    Bei `direction="short"` ist alles gespiegelt: SL liegt ÜBER, TP UNTER dem Einstieg, und
+    liquidiert wird bei steigendem Kurs (Hoch ≥ Liquidationskurs)."""
     n = len(df)
-    liq = evaluator.liquidation_price(float(df["Close"].iloc[i]), leverage, "long")
+    liq = evaluator.liquidation_price(float(df["Close"].iloc[i]), leverage, direction)
     j = i + 1
     while j < n and (j - i) <= max_hold:
         lo, hi = float(df["Low"].iloc[j]), float(df["High"].iloc[j])
-        if liq is not None and lo <= liq:
-            return j, liq, "Liquidation"
-        if lo <= sl:
-            return j, sl, "Stop-Loss"
-        if hi >= tp:
-            return j, tp, "Take-Profit"
+        if direction == "long":
+            if liq is not None and lo <= liq:
+                return j, liq, "Liquidation"
+            if lo <= sl:
+                return j, sl, "Stop-Loss"
+            if hi >= tp:
+                return j, tp, "Take-Profit"
+        else:                                # short: Liquidation/SL oben, TP unten
+            if liq is not None and hi >= liq:
+                return j, liq, "Liquidation"
+            if hi >= sl:
+                return j, sl, "Stop-Loss"
+            if lo <= tp:
+                return j, tp, "Take-Profit"
         j += 1
     j = min(j, n - 1)
     return j, float(df["Close"].iloc[j]), "Zeitlimit"
 
 
-def gather_fires(strategy, data: dict, start_after) -> dict:
+def gather_fires(strategy, data: dict, start_after, allow_short: bool = False) -> dict:
     """Teurer Teil (einmal pro Strategie): je Handelstag die feuernden Signale sammeln.
-    Gibt {date_str: [ {ticker, idx, strength, entry, sl, tp}, ... ]} zurück."""
+    Gibt {date_str: [ {ticker, idx, strength, direction, entry, sl, tp}, ... ]} zurück.
+    `allow_short` (nur Standard-Strategie) sammelt zusätzlich Short-Setups."""
     by_date: dict[str, list] = {}
     for tkr, df in data.items():
         for i in range(WARMUP_BARS, len(df) - 1):
             if df.index[i] < start_after:
                 continue
-            sig = strategy.generate(tkr, {"1d": df.iloc[:i + 1]})
-            if sig and sig.get("direction") == "long" and sig.get("stop_loss"):
+            sig = _generate(strategy, tkr, {"1d": df.iloc[:i + 1]}, allow_short)
+            if sig and sig.get("direction") in ("long", "short") and sig.get("stop_loss"):
                 by_date.setdefault(str(df.index[i].date()), []).append({
                     "ticker": tkr, "idx": i, "strength": sig.get("strength", 0.0),
+                    "direction": sig["direction"],
                     "entry": float(df["Close"].iloc[i]),
                     "sl": float(sig["stop_loss"]), "tp": float(sig["take_profit"]),
                 })
@@ -211,7 +223,8 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
                        trade_size: float, max_concurrent: int,
                        max_hold: int = MAX_HOLD_DAYS) -> list[dict]:
     """Billiger Teil: aus den Feuer-Events die Trades simulieren (Hold = max_hold Tage).
-    `max_hold=1` ≈ „am Tagesende schließen", großes max_hold = „halten bis SL/TP"."""
+    `max_hold=1` ≈ „am Tagesende schließen", großes max_hold = „halten bis SL/TP".
+    Die Richtung (long/short) wird je Feuer-Event übernommen (Default long)."""
     trades = []
     open_pos: dict[str, pd.Timestamp] = {}            # ticker -> Ausstiegsdatum (blockiert Re-Entry)
     for d in sorted(by_date):
@@ -224,13 +237,17 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
                        key=lambda s: s["strength"], reverse=True)
         for s in cands[:min(top_n, free)]:
             df = data[s["ticker"]]
-            ej, ex_price, reason = _walk_exit(df, s["idx"], s["sl"], s["tp"], leverage, max_hold)
-            pnl_pct, pnl_eur = evaluator.realized_pnl(s["entry"], ex_price, "long", trade_size, leverage)
+            direction = s.get("direction", "long")
+            ej, ex_price, reason = _walk_exit(df, s["idx"], s["sl"], s["tp"], leverage,
+                                              max_hold, direction)
+            pnl_pct, pnl_eur = evaluator.realized_pnl(s["entry"], ex_price, direction,
+                                                      trade_size, leverage)
             open_pos[s["ticker"]] = df.index[ej]
             trades.append({
                 "ticker": s["ticker"], "entry_date": d, "exit_date": str(df.index[ej].date()),
                 "entry": s["entry"], "exit": ex_price, "pnl_pct": round(pnl_pct, 2),
                 "pnl_eur": round(pnl_eur, 2), "reason": reason, "hold_days": (ej - s["idx"]),
+                "direction": direction,
             })
     trades.sort(key=lambda x: x["exit_date"])
     return trades
@@ -249,7 +266,8 @@ def signals_per_day(by_date: dict) -> dict:
 def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, years: int = 2,
                        top_n: int = 10, leverage: float = 5.0,
                        trade_size: float | None = None, initial_capital: float = 10000.0,
-                       max_concurrent: int | None = None, max_hold: int = MAX_HOLD_DAYS) -> dict:
+                       max_concurrent: int | None = None, max_hold: int = MAX_HOLD_DAYS,
+                       allow_short: bool = False) -> dict:
     """
     Portfolio-Simulation: pro Handelstag die besten `top_n` Signale (für noch nicht offene Ticker)
     eröffnen — mit `leverage`. Ausstieg via Liquidation/SL/TP/Zeitlimit (`max_hold`). Kein Look-ahead.
@@ -257,6 +275,7 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
     Voll investiert: `max_concurrent` (Default top_n) begrenzt gleichzeitige Positionen,
     `trade_size` (Default initial_capital/top_n) ist die Margin je Position.
     `max_hold=1` ≈ „am Tagesende schließen".
+    `allow_short` (nur Standard-Strategie, Backtest) nimmt zusätzlich Short-Setups auf.
     """
     strategy = strat_mod.get(strategy_key)
     if tickers is None:
@@ -272,13 +291,14 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
-    by_date = gather_fires(strategy, data, start_after)
+    by_date = gather_fires(strategy, data, start_after, allow_short=allow_short)
     trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold)
 
     return {
         "strategy": strategy.key, "label": strategy.label,
         "trades": trades, "metrics": metrics_mod.compute_metrics(trades, initial_capital),
         "leverage": leverage, "top_n": top_n, "years": years, "max_hold": max_hold,
+        "allow_short": allow_short, "direction_split": _direction_split(trades),
         "n_tickers": len(data), "trade_size": trade_size, "initial_capital": initial_capital,
         "liquidations": sum(1 for t in trades if t["reason"] == "Liquidation"),
         "signals_per_day": signals_per_day(by_date),

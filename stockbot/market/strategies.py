@@ -81,7 +81,12 @@ def _strategy_overrides(key: str) -> dict:
     import time
     now = time.time()
     if now - float(_STRATEGY_OVERRIDES_CACHE["ts"]) > _STRATEGY_OVERRIDES_TTL:
-        rows = {r["key"]: r for r in db.list_strategy_configs()}
+        try:
+            rows = {r["key"]: r for r in db.list_strategy_configs()}
+        except Exception:
+            # DB nicht initialisiert (z. B. Tool-/Backtest-Lauf außerhalb der App) → keine
+            # Overrides, Strategie nutzt ihre Default-Parameter. Crasht den Backtest nicht.
+            rows = {}
         _STRATEGY_OVERRIDES_CACHE["rows"] = rows
         _STRATEGY_OVERRIDES_CACHE["ts"] = now
     row = _STRATEGY_OVERRIDES_CACHE["rows"].get(key)

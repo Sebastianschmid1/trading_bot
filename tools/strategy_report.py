@@ -40,6 +40,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import yfinance as yf                                      # noqa: E402
+from stockbot.core import db                                 # noqa: E402
 from stockbot.market import universes, strategies          # noqa: E402
 from stockbot.backtest import engine                        # noqa: E402
 from stockbot.backtest import report as report_charts       # noqa: E402
@@ -93,7 +94,7 @@ def _mtm(trades: list[dict], data: dict, dates: list, init_cap: float,
                 for t, df in data.items()}
     tr = [{"tkr": t["ticker"], "e": pd.Timestamp(t["entry_date"]),
            "x": pd.Timestamp(t["exit_date"]), "entry": float(t["entry"]),
-           "pnl": float(t["pnl_eur"])} for t in trades]
+           "dir": t.get("direction", "long"), "pnl": float(t["pnl_eur"])} for t in trades]
     tr.sort(key=lambda z: z["x"])
 
     equity, realized, k = [], 0.0, 0
@@ -108,7 +109,7 @@ def _mtm(trades: list[dict], data: dict, dates: list, init_cap: float,
                 price = None if ser is None else ser.get(d)
                 if price is None or price != price:     # NaN-Schutz
                     continue
-                unreal += realized_pnl(z["entry"], float(price), "long", trade_size, leverage)[1]
+                unreal += realized_pnl(z["entry"], float(price), z["dir"], trade_size, leverage)[1]
                 open_n += 1
         equity.append(init_cap + realized + unreal)
         concurrent_sum += open_n
@@ -138,8 +139,10 @@ def _bench_equity(dates: list, years: int, init_cap: float):
 
 # ── Datenerhebung (Netz) ─────────────────────────────────────────────────────
 
-def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None) -> dict:
-    """Backtestet alle Registry-Strategien (Portfolio + MTM-Equity) auf einem Download."""
+def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None,
+            allow_short=False) -> dict:
+    """Backtestet alle Registry-Strategien (Portfolio + MTM-Equity) auf einem Download.
+    `allow_short` (nur Standard-Strategie, Backtest) nimmt zusätzlich Short-Setups auf."""
     tickers = universes.get_tickers(region, auto=False)
     if limit:
         tickers = tickers[:limit]
@@ -152,7 +155,7 @@ def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None) -> dict
                            "years": years, "top_n": top_n, "leverage": leverage,
                            "n_tickers": 0, "start": None, "end": None,
                            "generated": str(date.today()), "init_cap": E0,
-                           "benchmark": None}, "rows": []}
+                           "allow_short": allow_short, "benchmark": None}, "rows": []}
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
@@ -164,7 +167,7 @@ def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None) -> dict
 
     rows = []
     for strat in strategies.all_strategies():
-        by_date = engine.gather_fires(strat, data, start_after)
+        by_date = engine.gather_fires(strat, data, start_after, allow_short=allow_short)
         trades = engine.simulate_portfolio(data, by_date, top_n, leverage, trade_size, top_n, max_hold=40)
         m = M.compute_metrics(trades, E0)
         eq, exposure, avg_conc = _mtm(trades, data, dates, E0, trade_size, leverage)
@@ -174,7 +177,7 @@ def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None) -> dict
         years_actual = max((last - start_after).days / 365.25, 1e-9)
         rows.append({
             "key": strat.key, "label": strat.label, "description": strat.description,
-            "trade": m, "equity": em,
+            "trade": m, "equity": em, "direction_split": engine._direction_split(trades),
             "extra": {"exposure": exposure, "avg_concurrent": avg_conc,
                       "trades_per_year": round(m["trades"] / years_actual, 1),
                       "avg_hold": avg_hold, "spd": spd},
@@ -186,7 +189,7 @@ def collect(region="sp500", years=2, top_n=10, leverage=1.0, limit=None) -> dict
                    "years": years, "top_n": top_n, "leverage": leverage,
                    "n_tickers": len(data), "start": str(start_after.date()),
                    "end": str(last.date()), "generated": str(date.today()),
-                   "init_cap": E0, "benchmark": bench_em},
+                   "init_cap": E0, "allow_short": allow_short, "benchmark": bench_em},
         "rows": rows,
     }
 
@@ -225,18 +228,30 @@ def build_markdown(data: dict, charts: bool = True) -> str:
     c = data["config"]
     rows = sorted(data["rows"], key=_sharpe_sort_key, reverse=True)
     zeitraum = f"{c['start']} → {c['end']}" if c.get("start") else "—"
+    allow_short = bool(c.get("allow_short"))
+    richtung = "long + short" if allow_short else "long-only"
 
     o = []
     o.append("# 📊 Strategie-Report (alle Strategien) — Tiefenanalyse\n")
     o.append(
         f"*Erstellt: {c['generated']} · Korb: {c['region_label']} ({c['n_tickers']} Aktien) · "
-        f"Zeitraum: {zeitraum} · {c['years']} Jahre · Tages-Timeframe · "
+        f"Zeitraum: {zeitraum} · {c['years']} Jahre · Tages-Timeframe · {richtung} · "
         f"Portfolio: {c['top_n']} Signale/Tag, Hebel {c['leverage']:g}×, Start {c['init_cap']:.0f}€*\n"
     )
-    o.append(
-        "> **Demo-Backtest** — long-only, ATR-SL/TP, ohne Gebühren/Slippage. Alle Kennzahlen "
-        "basieren auf einer täglichen Mark-to-Market-Equity-Kurve der Portfolio-Simulation.\n"
-    )
+    if allow_short:
+        o.append(
+            "> **Demo-Backtest** — **long + short**, ATR-SL/TP (Short gespiegelt), ohne "
+            "Gebühren/Slippage. Shorts liefert **nur die Standard-Strategie** (Spiegel der "
+            "Long-Logik); die übrigen Strategien bleiben auch im Backtest long-only. "
+            "**Der Live-Bot handelt unverändert ausschließlich long** — Shorts sind reine "
+            "Backtest-Analyse. Alle Kennzahlen basieren auf einer täglichen "
+            "Mark-to-Market-Equity-Kurve der Portfolio-Simulation.\n"
+        )
+    else:
+        o.append(
+            "> **Demo-Backtest** — long-only, ATR-SL/TP, ohne Gebühren/Slippage. Alle Kennzahlen "
+            "basieren auf einer täglichen Mark-to-Market-Equity-Kurve der Portfolio-Simulation.\n"
+        )
     o.append(_METHODIK)
 
     # ── Rangliste (nach Sharpe) ──
@@ -264,6 +279,7 @@ def build_markdown(data: dict, charts: bool = True) -> str:
     o.append("## 🔍 Strategien im Detail\n")
     for r in rows:
         e, m, x = r["equity"], r["trade"], r["extra"]
+        ds = r.get("direction_split") or {}
         o.append(f"### {r['label']}  (`{r['key']}`)\n")
         if r["description"]:
             o.append(f"{r['description']}\n")
@@ -314,6 +330,9 @@ def build_markdown(data: dict, charts: bool = True) -> str:
         o.append(f"| Exposure (Zeit im Markt) | {x['exposure']} % |")
         o.append(f"| Ø gleichzeitige Positionen | {x['avg_concurrent']} |")
         o.append(f"| Ø Signale/Tag | {x['spd']['avg']} (Median {x['spd']['median']}, Max {x['spd']['max']}) |")
+        if allow_short and ds.get("n_short"):
+            o.append(f"| Richtungs-Split (Long / Short) | {ds.get('n_long', 0)} / {ds['n_short']} Trades |")
+            o.append(f"| P&L-Beitrag (Long / Short) | {ds.get('pnl_long', 0.0):+.2f}€ / {ds['pnl_short']:+.2f}€ |")
         o.append("")
 
     return "\n".join(o) + "\n"
@@ -328,12 +347,16 @@ def main():
     ap.add_argument("--top-n", type=int, default=10, help="Signale/Tag (Portfolio-Simulation)")
     ap.add_argument("--leverage", type=float, default=1.0, help="Hebel der Portfolio-Simulation")
     ap.add_argument("--limit", type=int, default=None, help="nur die ersten N Ticker (Schnelltest)")
+    ap.add_argument("--shorts", action="store_true",
+                    help="zusätzlich Short-Setups der Standard-Strategie (nur Backtest; Live bleibt long-only)")
     ap.add_argument("--no-charts", action="store_true", help="keine PNG-Grafiken erzeugen")
     ap.add_argument("--out", default=DEFAULT_OUT, help=f"Ziel-Markdown (Default {DEFAULT_OUT})")
     a = ap.parse_args()
 
+    db.init_db()   # Tabellen (u. a. strategy_configs für Parameter-Overrides) sicherstellen
+
     data = collect(region=a.region, years=a.years, top_n=a.top_n,
-                   leverage=a.leverage, limit=a.limit)
+                   leverage=a.leverage, limit=a.limit, allow_short=a.shorts)
 
     charts = not a.no_charts
     if charts and data["rows"]:
@@ -341,10 +364,12 @@ def main():
         try:
             print("\n▶ Erzeuge Equity-Vergleichsgrafik …", flush=True)
             report_charts.compare_report(keys=keys, years=a.years, top_n=a.top_n,
-                                         leverage=a.leverage, out=CHART_COMPARE)
+                                         leverage=a.leverage, out=CHART_COMPARE,
+                                         allow_short=a.shorts)
             print("▶ Erzeuge Tagesende-vs-Halten-Grafik …", flush=True)
             report_charts.exit_mode_analysis(keys=keys, years=a.years, top_n=a.top_n,
-                                             leverage=a.leverage, out=CHART_EXIT)
+                                             leverage=a.leverage, out=CHART_EXIT,
+                                             allow_short=a.shorts)
         except Exception as e:
             print(f"⚠️  Grafik-Erzeugung fehlgeschlagen ({e}) — schreibe Paper ohne Charts.", flush=True)
             charts = False
