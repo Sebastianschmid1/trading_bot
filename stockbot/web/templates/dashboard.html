@@ -107,6 +107,11 @@
     select.dd { background:var(--card2); color:var(--text); border:1px solid var(--border);
                 border-radius:8px; padding:.4rem .6rem; font-size:.85rem; }
     select.dd:focus { outline:none; border-color:var(--accent); }
+    .chip-toggle { display:inline-flex; align-items:center; gap:.35rem; font-size:.76rem; color:var(--muted);
+                   cursor:pointer; user-select:none; padding:.22rem .55rem; border:1px solid var(--border);
+                   border-radius:999px; background:var(--card2); white-space:nowrap; }
+    .chip-toggle:hover { color:var(--text); }
+    .chip-toggle input { accent-color:var(--accent); margin:0; }
 
     /* ── Modal (Detail-Analyse) ─────────────────────────────────────────── */
     .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:60;
@@ -170,11 +175,13 @@
       </section>
 
       <section class="panel tall" data-panel="trades">
-        <div class="panel-head"><h2>📈 Trades einzeln — Wertentwicklung</h2><span class="caret">▾</span></div>
+        <div class="panel-head"><h2>📈 Trades einzeln — Wertentwicklung</h2>
+          <label class="chip-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="openOnly"> nur offene</label>
+          <span class="caret">▾</span></div>
         <div class="panel-body">
-          <div class="desc">Jede Linie = ein Trade · X = Zeit, Y = % ab Einstieg (mit Hebel).
-            <b>Durchgezogen</b> = offen (läuft bis jetzt), <b>gestrichelt</b> = abgeschlossen (endet am Ausstieg).
-            Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
+          <div class="desc"><b>Linie</b> = offener Trade (echter Verlauf bis jetzt) · <b>Punkt</b> = abgeschlossener
+            Trade an seinem Ergebnis (Punktgröße ≈ €-Betrag). Y = % ab Einstieg (mit Hebel), Skala stauchend
+            für Ausreißer. <b>Grün/rot</b> = Gewinn/Verlust. <b>Zeiger über Linie/Punkt</b> hebt hervor &amp; zeigt Details.</div>
           <canvas id="tradesLogChart"></canvas>
         </div>
       </section>
@@ -240,6 +247,45 @@
       }
     });
 
+    // Trades-Chart-Deko: Break-even-Linie (0%) + Endpunkt-Ticker-Label für offene Trades.
+    // Respektiert den Spotlight-Zustand (chart._spot = [datasetIndex, pointIndex] | null).
+    Chart.register({
+      id: "tradesDecor",
+      beforeDatasetsDraw(chart) {
+        if (!(chart.config.options.plugins && chart.config.options.plugins.tradesDecor)) return;
+        const y = chart.scales.y, a = chart.chartArea, ctx = chart.ctx;
+        if (!y || !a) return;
+        const py = y.getPixelForValue(0);
+        ctx.save();
+        ctx.strokeStyle = "rgba(230,233,239,.32)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(230,233,239,.45)"; ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
+        ctx.fillText("Break-even", a.left + 5, py - 3);
+        ctx.restore();
+      },
+      afterDatasetsDraw(chart) {
+        if (!(chart.config.options.plugins && chart.config.options.plugins.tradesDecor)) return;
+        const ctx = chart.ctx, a = chart.chartArea, spot = chart._spot || null;
+        chart.data.datasets.forEach((ds, i) => {
+          if (ds._kind !== "active") return;
+          const meta = chart.getDatasetMeta(i);
+          if (meta.hidden || !meta.data || !meta.data.length) return;
+          const on = !spot || spot[0] < 0 || spot[0] === i;
+          if (!on) return;                                   // beim Spotlight nur die aktive Linie beschriften
+          const last = meta.data[meta.data.length - 1];
+          ctx.save();
+          ctx.fillStyle = ds._col;
+          ctx.font = (spot && spot[0] === i) ? "600 12px system-ui" : "600 11px system-ui";
+          ctx.textBaseline = "middle";
+          const tx = Math.min(last.x + 6, a.right - 2);
+          ctx.textAlign = (tx > a.right - 34) ? "right" : "left";
+          ctx.fillText(ds._label, ctx.textAlign === "right" ? last.x - 6 : tx, last.y);
+          ctx.restore();
+        });
+      }
+    });
+
     const token = {{ dashboard_token|tojson }};
     document.getElementById("appLink").href = {{ dashboard_app_url|tojson }};
     const REFRESH_SEC = 30;
@@ -257,6 +303,7 @@
       collapsed:   JSON.parse(lsGet("collapsed", "{}")),
       sort:        { key: "pnl_eur", dir: -1 },
       filter:      "",
+      openOnly:    lsGet("openOnly", "0") === "1",   // Trades-Chart: nur offene Trades zeigen
       lastKpis:    {},
       intraday:    [],
       data:        null,
@@ -492,36 +539,108 @@
     const slog = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v));
     const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
     const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
+    // Farben + Spotlight-Helfer für den Trades-Chart
+    const C_GREEN = "#2ecc71", C_RED = "#e74c3c";
+    const dimRGBA = (up) => up ? "rgba(46,204,113,.14)" : "rgba(231,76,60,.14)";
+    const fmtWhen = (ms) => { const dt = new Date(ms);
+      return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
+           + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); };
+    // Punktradius eines geschlossenen Trades ≈ Wurzel des €-Betrags (sanft skaliert, 3.5–10 px)
+    const dotR = (m) => Math.max(3.5, Math.min(10, 3.5 + Math.sqrt(Math.abs(m.final_eur || 0))));
+
+    function applySpotlight(chart, hi, hp) {
+      const any = hi >= 0;
+      chart.data.datasets.forEach((ds, i) => {
+        if (ds._kind === "active") {
+          const on = !any || i === hi;
+          ds.borderColor = on ? ds._col : dimRGBA(ds._up);
+          ds.borderWidth = (any && i === hi) ? 3.2 : 2.2;
+        } else if (ds._kind === "closed") {
+          ds.pointBackgroundColor = ds._meta.map((m, j) =>
+            (!any || (i === hi && j === hp)) ? (m.final_pct >= 0 ? C_GREEN : C_RED) : dimRGBA(m.final_pct >= 0));
+          ds.pointRadius = ds._meta.map((m, j) => ds._r[j] + ((any && i === hi && j === hp) ? 3 : 0));
+        }
+      });
+      chart.update("none");
+    }
+
     function renderTradesCurves(d, noData) {
-      const tc = d.trades_curves || [];
-      if (!tc.length) return replaceCanvas("tradesLogChart", noData);
+      let tc = d.trades_curves || [];
+      if (state.openOnly) tc = tc.filter(x => x.status === "active");
+      if (!tc.length) return replaceCanvas("tradesLogChart",
+        state.openOnly ? "Keine offenen Trades." : noData);
+
+      const closed = tc.filter(x => x.status !== "active");
+      const active = tc.filter(x => x.status === "active");
+      const datasets = [];
+
+      if (closed.length) {                                   // geschlossene Trades = Ergebnis-Punkte am Ausstieg
+        const r = closed.map(dotR);
+        datasets.push({
+          type: "scatter", _kind: "closed", _meta: closed, _r: r,
+          data: closed.map(m => ({ x: m.points[m.points.length - 1].x, y: slog(m.final_pct) })),
+          pointBackgroundColor: closed.map(m => m.final_pct >= 0 ? C_GREEN : C_RED),
+          pointBorderColor: "rgba(15,20,32,.85)", pointBorderWidth: 1,
+          pointRadius: r, pointHoverRadius: r.map(v => v + 3), showLine: false,
+        });
+      }
+      active.forEach(m => {                                  // offene Trades = echte Verlaufslinien
+        const up = m.final_pct >= 0;
+        datasets.push({
+          type: "line", _kind: "active", _meta: m, _label: m.ticker, _up: up, _col: up ? C_GREEN : C_RED,
+          label: m.ticker, data: m.points.map(p => ({ x: p.x, y: slog(p.y) })),
+          borderColor: up ? C_GREEN : C_RED, backgroundColor: "transparent", tension: 0.25,
+          borderWidth: 2.2, pointHoverRadius: 5,
+          pointRadius: m.points.map((p, idx) => idx === m.points.length - 1 ? 4 : 0),
+          pointBackgroundColor: up ? C_GREEN : C_RED,
+        });
+      });
+
+      // Strukturwechsel (Linie↔Punkt-Mix ändert sich) → sauber neu bauen; sonst smooth in-place updaten.
+      const sig = datasets.map(x => x._kind).join(",");
+      const existing = charts["tradesLogChart"];
+      if (existing && existing._sig !== sig) { existing.destroy(); delete charts["tradesLogChart"]; }
+
       const sgn = (v) => (v >= 0 ? "+" : "");
-      upsertChart("tradesLogChart", {
+      const xmin = (d.trades_curves_x && d.trades_curves_x.min) || undefined;
+      const xmax = (d.trades_curves_x && d.trades_curves_x.max) || undefined;
+      const ch = upsertChart("tradesLogChart", {
         type: "line",
-        data: { datasets: tc.map(x => ({
-          label: x.ticker, data: x.points.map(p => ({ x: p.x, y: slog(p.y) })),
-          borderColor: x.final_pct >= 0 ? "#2ecc71" : "#e74c3c", backgroundColor: "transparent",
-          borderDash: x.status === "active" ? [] : [5, 4], tension: 0.25,
-          pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.6, hoverBorderWidth: 3 })) },
+        data: { datasets },
         options: {
           parsing: false, interaction: { mode: "nearest", intersect: false },
-          plugins: { legend: { display: false }, tooltip: { callbacks: {
-            title: () => "",
-            label: (item) => {
-              const x = tc[item.datasetIndex], real = sexp(item.parsed.y), dt = new Date(item.parsed.x);
-              const when = dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
-                         + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-              return `${x.ticker} · ${when}${x.status === "active" ? " (offen)" : ""}: ${sgn(real)}${real.toFixed(1)}%`
-                   + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
-            } } } },
-          onClick: (evt, els) => { if (els.length) openAnalysis(tc[els[0].datasetIndex].ticker); },
+          onHover: (evt, els, chart) => {
+            const dsi = els.length ? els[0].datasetIndex : -1, pti = els.length ? els[0].index : -1;
+            const s = chart._spot || [-1, -1];
+            if (s[0] === dsi && s[1] === pti) return;
+            chart._spot = [dsi, pti];
+            applySpotlight(chart, dsi, pti);
+          },
+          plugins: {
+            legend: { display: false }, crosshair: false, tradesDecor: true,
+            tooltip: { callbacks: {
+              title: () => "",
+              label: (item) => {
+                const ds = item.dataset;
+                if (ds._kind === "closed") {
+                  const m = ds._meta[item.dataIndex];
+                  return `${m.ticker} · ${fmtWhen(item.parsed.x)} (geschlossen): `
+                       + `${sgn(m.final_pct)}${m.final_pct}% (${sgn(m.final_eur)}${m.final_eur}€) · ${m.strategy}`;
+                }
+                const m = ds._meta, real = sexp(item.parsed.y);
+                return `${m.ticker} · ${fmtWhen(item.parsed.x)} (offen): ${sgn(real)}${real.toFixed(1)}% · `
+                     + `Stand ${sgn(m.final_pct)}${m.final_pct}% (${sgn(m.final_eur)}${m.final_eur}€) · ${m.strategy}`;
+              } } },
+          },
+          onClick: (evt, els) => {
+            if (!els.length) return;
+            const ds = ch.data.datasets[els[0].datasetIndex];
+            openAnalysis(ds._kind === "closed" ? ds._meta[els[0].index].ticker : ds._meta.ticker);
+          },
           scales: {
-            x: { type: "linear", min: (d.trades_curves_x && d.trades_curves_x.min) || undefined,
-                 max: (d.trades_curves_x && d.trades_curves_x.max) || undefined,
-                 title: { display: true, text: "Zeit  →  jetzt  ·  geschlossene Trades enden am Ausstieg", color: "#8a93a6" },
-                 ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => {
-                   const dt = new Date(v); return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
-                     + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } },
+            x: { type: "linear", min: xmin, max: xmax,
+                 title: { display: true, text: "Zeit  →  jetzt  ·  Punkt = abgeschlossen, Linie = offen", color: "#8a93a6" },
+                 ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => fmtWhen(v) },
                  grid: { color: "#222a3a" } },
             y: { type: "linear",
                  afterBuildTicks: (axis) => {
@@ -533,6 +652,7 @@
           }
         }
       });
+      if (ch) { ch._spot = null; ch._sig = sig; }
     }
 
     // ── Aktive Trades: sortier-/filterbar (kein Refetch nötig) ──────────────
@@ -598,6 +718,19 @@
     }
     document.getElementById("tradeFilter").addEventListener("input", (e) => {
       state.filter = e.target.value.trim(); renderActive();
+    });
+
+    // Trades-Chart: „nur offene"-Umschalter (ohne Refetch) + Spotlight zurücksetzen beim Verlassen
+    const NO_TRADES = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
+    const openOnlyEl = document.getElementById("openOnly");
+    openOnlyEl.checked = state.openOnly;
+    openOnlyEl.addEventListener("change", (e) => {
+      state.openOnly = e.target.checked; lsSet("openOnly", state.openOnly ? "1" : "0");
+      if (state.data) renderTradesCurves(state.data, NO_TRADES);
+    });
+    document.getElementById("tradesLogChart").addEventListener("mouseleave", () => {
+      const c = charts["tradesLogChart"];
+      if (c && c._spot && c._spot[0] >= 0) { c._spot = [-1, -1]; applySpotlight(c, -1, -1); }
     });
 
     // ── Intraday: Stärke (alle) + Kursverlauf (Dropdown) ────────────────────
