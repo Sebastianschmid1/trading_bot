@@ -9,3 +9,6 @@ logs/*.log
 # Backtest-Reports (JSON) bewusst versionieren (Ausnahme von *.json)
 !data/reports/
 !data/reports/*.json
+# Konversations-Exporte (persoenliche Transkript-Dumps) lokal lassen
+docs/context_export*.md
+docs/context_export*.json
