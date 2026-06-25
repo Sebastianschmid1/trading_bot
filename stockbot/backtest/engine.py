@@ -11,7 +11,10 @@ Bewusste v1-Vereinfachungen (dokumentiert in docs/STRATEGIE_ROADMAP.md):
 - feste €-Tradegröße; Profitfaktor ist davon unabhängig (Verhältnis).
 """
 
+import os
 import logging
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
 import yfinance as yf
@@ -21,12 +24,86 @@ from stockbot.core import metrics as metrics_mod
 from stockbot.market import strategies as strat_mod
 from stockbot.market import analyzer
 from stockbot.market import universes
-from stockbot.config import TRADE_SIZE_EUR, DEFAULT_REGION
+from stockbot.config import TRADE_SIZE_EUR, DEFAULT_REGION, BACKTEST_JOBS
 
 log = logging.getLogger(__name__)
 
 WARMUP_BARS = 260      # genug für EMA200 + ADX + Hüllkurven-Z-Scores (env_base=150)
 MAX_HOLD_DAYS = 40     # ~2 Handelsmonate Obergrenze je Trade
+PARALLEL_MIN = 8       # ab so vielen Tickern lohnt der Prozess-Pool (darunter: seriell, kein Spawn)
+
+
+# ── Parallelisierung (Ticker sind unabhängig → über Prozesse verteilen) ──────
+#
+# CPU-gebunden: pro Bar wird ein Signal erzeugt. Threads brächten wegen des GIL wenig,
+# daher Prozesse (wie tools/sweep_report.py). Ergebnisse bleiben bitidentisch zum seriellen
+# Lauf — nur die Ticker-Arbeit wird verteilt; Reihenfolge/Sortierung bleiben erhalten.
+
+def _resolve_jobs(jobs: int | None) -> int:
+    """Effektive Worker-Zahl: explizit > Config BACKTEST_JOBS > alle Kerne. Minimum 1."""
+    j = jobs if jobs else BACKTEST_JOBS
+    if not j:
+        j = os.cpu_count() or 1
+    return max(1, int(j))
+
+
+def _pmap(fn, items: list, jobs: int | None) -> list:
+    """Wendet `fn` auf jedes Element an — parallel über Prozesse, wenn es sich lohnt, sonst
+    seriell. Reihenfolge bleibt erhalten (deterministisch, gleiche Ergebnisse wie seriell).
+    Unter PARALLEL_MIN Elementen oder bei jobs≤1 wird kein Pool gestartet (kein Spawn-Overhead;
+    hält auch Tests/Monkeypatches auf dem seriellen Pfad)."""
+    j = _resolve_jobs(jobs)
+    if j <= 1 or len(items) < PARALLEL_MIN:
+        return [fn(it) for it in items]
+    workers = min(j, len(items))
+    chunk = max(1, len(items) // (workers * 4))
+    # "spawn" erzwingen: Der Bot-Prozess ist multithreaded (Scheduler/Telegram/Dashboard) —
+    # ein fork() daraus könnte geerbte Locks verklemmen. spawn ist thread-sicher und plattform-
+    # gleich (Windows nutzt es ohnehin). Fällt bei Pool-Fehlern auf den seriellen Pfad zurück.
+    try:
+        ctx = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+            return list(ex.map(fn, items, chunksize=chunk))
+    except Exception as e:
+        log.warning(f"Parallel-Backtest fehlgeschlagen ({e}) — seriell ausgeführt.")
+        return [fn(it) for it in items]
+
+
+def _bt_one(args):
+    """Backtestet EINEN Ticker (Worker für den Prozess-Pool). Alle Argumente sind picklebar;
+    die Strategie wird im Kindprozess aus ihrem Schlüssel rekonstruiert."""
+    strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short = args
+    try:
+        return backtest_ticker(strat_mod.get(strategy_key), ticker, df, trade_size,
+                               max_hold=max_hold, warmup=warmup, sl_tp_mode=sl_tp_mode,
+                               allow_short=allow_short)
+    except Exception as e:
+        log.warning(f"Backtest {ticker} fehlgeschlagen: {e}")
+        return []
+
+
+def _fires_one(args):
+    """Sammelt die feuernden Signale EINES Tickers (Worker, Portfolio-Pfad). Gibt
+    (ticker, [event,...]) zurück; jedes Event trägt sein Datum mit, damit der Elternprozess
+    daraus `by_date` zusammenführen kann."""
+    strategy_key, ticker, df, start_after, allow_short = args
+    strategy = strat_mod.get(strategy_key)
+    events = []
+    try:
+        for i in range(WARMUP_BARS, len(df) - 1):
+            if df.index[i] < start_after:
+                continue
+            sig = _generate(strategy, ticker, {"1d": df.iloc[:i + 1]}, allow_short)
+            if sig and sig.get("direction") in ("long", "short") and sig.get("stop_loss"):
+                events.append({
+                    "ticker": ticker, "idx": i, "strength": sig.get("strength", 0.0),
+                    "direction": sig["direction"], "entry": float(df["Close"].iloc[i]),
+                    "sl": float(sig["stop_loss"]), "tp": float(sig["take_profit"]),
+                    "date": str(df.index[i].date()),
+                })
+    except Exception as e:
+        log.warning(f"gather_fires {ticker} fehlgeschlagen: {e}")
+    return ticker, events
 
 
 def _download_daily(tickers: list[str], years: int) -> dict:
@@ -125,40 +202,67 @@ def _direction_split(trades: list[dict]) -> dict:
 
 
 def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int = 2,
-                 trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False) -> dict:
+                 trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
+                 data: dict | None = None, jobs: int | None = None) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
     Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve.
-    `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups."""
+    `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups.
+    `data` (vorab geladen) überspringt den Download — so teilen sich mehrere Strategien einen
+    Download. `jobs` parallelisiert über Ticker (None → Config/alle Kerne)."""
     strategy = strat_mod.get(strategy_key)
     if tickers is None:
         tickers = universes.get_tickers(DEFAULT_REGION, auto=False)   # kuratierter Korb
+    if data is None:
+        data = _download_daily(tickers, years)
 
-    data = _download_daily(tickers, years)
+    args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short)
+            for t, df in data.items()]
     all_trades = []
-    for t, df in data.items():
-        try:
-            all_trades.extend(backtest_ticker(strategy, t, df, trade_size, allow_short=allow_short))
-        except Exception as e:
-            log.warning(f"Backtest {t} fehlgeschlagen: {e}")
+    for trades in _pmap(_bt_one, args, jobs):
+        all_trades.extend(trades)
+    return _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades)
 
-    all_trades.sort(key=lambda x: x["exit_date"])
+
+def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
+                     trade_size: float, trades: list[dict]) -> dict:
+    """Baut das Backtest-Ergebnis-Dict (Trades chronologisch nach Ausstiegsdatum)."""
+    trades = sorted(trades, key=lambda x: x["exit_date"])
     return {
         "strategy":  strategy.key,
         "label":     strategy.label,
-        "n_tickers": len(data),
+        "n_tickers": n_tickers,
         "years":     years,
         "allow_short": allow_short,
-        "direction_split": _direction_split(all_trades),
-        "metrics":   metrics_mod.compute_metrics(all_trades, initial_capital=trade_size * 10),
-        "trades":    all_trades,
+        "direction_split": _direction_split(trades),
+        "metrics":   metrics_mod.compute_metrics(trades, initial_capital=trade_size * 10),
+        "trades":    trades,
     }
 
 
 def compare_strategies(keys: list[str], tickers: list[str] | None = None, years: int = 2,
-                       trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False) -> list[dict]:
-    """Backtestet mehrere Strategien über denselben Korb/Zeitraum (sortiert nach Profitfaktor)."""
-    results = [run_backtest(k, tickers=tickers, years=years, trade_size=trade_size,
-                            allow_short=allow_short) for k in keys]
+                       trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
+                       data: dict | None = None, jobs: int | None = None) -> list[dict]:
+    """Backtestet mehrere Strategien über denselben Korb/Zeitraum (sortiert nach Profitfaktor).
+    Lädt die Kurse **einmal** (statt K× neu) und verteilt **alle (Strategie × Ticker)-Aufgaben
+    über EINEN gemeinsamen Prozess-Pool** — so wird der Worker-Start-/Import-Overhead nur einmal
+    bezahlt und alle Kerne bleiben über alle Strategien hinweg ausgelastet."""
+    if tickers is None:
+        tickers = universes.get_tickers(DEFAULT_REGION, auto=False)
+    if data is None:
+        data = _download_daily(tickers, years)
+
+    items = list(data.items())
+    T = len(items)
+    args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short)
+            for k in keys for t, df in items]
+    flat = _pmap(_bt_one, args, jobs)            # ein Pool für ALLE Strategien×Ticker
+
+    results = []
+    for ki, k in enumerate(keys):                # Ergebnisse je Strategie zurückgruppieren
+        trades = []
+        for r in flat[ki * T:(ki + 1) * T]:
+            trades.extend(r)
+        results.append(_assemble_result(strat_mod.get(k), T, years, allow_short, trade_size, trades))
 
     def pf_key(r):
         pf = r["metrics"]["profit_factor"]
@@ -199,23 +303,18 @@ def _walk_exit(df: pd.DataFrame, i: int, sl: float, tp: float, leverage: float,
     return j, float(df["Close"].iloc[j]), "Zeitlimit"
 
 
-def gather_fires(strategy, data: dict, start_after, allow_short: bool = False) -> dict:
+def gather_fires(strategy, data: dict, start_after, allow_short: bool = False,
+                 jobs: int | None = None) -> dict:
     """Teurer Teil (einmal pro Strategie): je Handelstag die feuernden Signale sammeln.
-    Gibt {date_str: [ {ticker, idx, strength, direction, entry, sl, tp}, ... ]} zurück.
+    Gibt {date_str: [ {ticker, idx, strength, direction, entry, sl, tp, date}, ... ]} zurück.
+    Parallelisiert über Ticker (`jobs`); die Reihenfolge je Datum bleibt wie seriell
+    (Ticker-Reihenfolge erhalten → gleiche Top-N-Auswahl).
     `allow_short` (nur Standard-Strategie) sammelt zusätzlich Short-Setups."""
+    args = [(strategy.key, tkr, df, start_after, allow_short) for tkr, df in data.items()]
     by_date: dict[str, list] = {}
-    for tkr, df in data.items():
-        for i in range(WARMUP_BARS, len(df) - 1):
-            if df.index[i] < start_after:
-                continue
-            sig = _generate(strategy, tkr, {"1d": df.iloc[:i + 1]}, allow_short)
-            if sig and sig.get("direction") in ("long", "short") and sig.get("stop_loss"):
-                by_date.setdefault(str(df.index[i].date()), []).append({
-                    "ticker": tkr, "idx": i, "strength": sig.get("strength", 0.0),
-                    "direction": sig["direction"],
-                    "entry": float(df["Close"].iloc[i]),
-                    "sl": float(sig["stop_loss"]), "tp": float(sig["take_profit"]),
-                })
+    for _tkr, events in _pmap(_fires_one, args, jobs):
+        for ev in events:
+            by_date.setdefault(ev["date"], []).append(ev)
     return by_date
 
 
@@ -267,7 +366,8 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
                        top_n: int = 10, leverage: float = 5.0,
                        trade_size: float | None = None, initial_capital: float = 10000.0,
                        max_concurrent: int | None = None, max_hold: int = MAX_HOLD_DAYS,
-                       allow_short: bool = False) -> dict:
+                       allow_short: bool = False, data: dict | None = None,
+                       jobs: int | None = None) -> dict:
     """
     Portfolio-Simulation: pro Handelstag die besten `top_n` Signale (für noch nicht offene Ticker)
     eröffnen — mit `leverage`. Ausstieg via Liquidation/SL/TP/Zeitlimit (`max_hold`). Kein Look-ahead.
@@ -285,13 +385,14 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
     if trade_size is None:
         trade_size = initial_capital / max(top_n, 1)
 
-    data = _download_daily(tickers, years)
+    if data is None:
+        data = _download_daily(tickers, years)
     if not data:
         return {"trades": [], "metrics": metrics_mod.compute_metrics([], initial_capital)}
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
-    by_date = gather_fires(strategy, data, start_after, allow_short=allow_short)
+    by_date = gather_fires(strategy, data, start_after, allow_short=allow_short, jobs=jobs)
     trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold)
 
     return {

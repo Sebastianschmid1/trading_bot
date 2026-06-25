@@ -206,6 +206,12 @@ TOP_N_SIGNALS    = 5       # Standard-Anzahl Signale pro Tag
 SIGNAL_COUNT_CHOICES = [1, 3, 5, 8, 10]   # Auswahlmöglichkeiten im /settings-Menü
 MAX_SIGNALS      = 20      # harte Obergrenze
 
+# ── Backtest-Parameter ─────────────────────────────────────────────────────
+# Parallelität des Backtests (Ticker werden über Prozesse verteilt). 0 = auto (alle Kerne).
+# Auf dem VPS bei Bedarf in der .env deckeln (z. B. BACKTEST_JOBS=2), damit der Live-Bot
+# während eines großen Backtests responsiv bleibt.
+BACKTEST_JOBS    = int(os.getenv("BACKTEST_JOBS", "0") or 0)
+
 # ── Analyse-Parameter ──────────────────────────────────────────────────────
 RSI_PERIOD       = 14
 RSI_OVERSOLD     = 35      # Unter diesem Wert = bullish Signal
