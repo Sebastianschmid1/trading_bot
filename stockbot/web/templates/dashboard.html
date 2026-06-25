@@ -1,516 +1,680 @@
 {% extends "base.html" %}
-{% block title %}📊 Trading Dashboard — Stock Signal Bot{% endblock %}
+{% block title %}📊 Trading Cockpit — Stock Signal Bot{% endblock %}
 {% block content %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
+    /* — Cockpit gibt sich mehr Breite als die Standard-880px der base.html — */
+    main { max-width: 1280px !important; padding: 1rem 1.1rem !important; }
+
     :root {
-      --bg: #0f1420; --card: #1a2030; --border: #2a3245;
-      --text: #e6e9ef; --muted: #8a93a6; --green: #2ecc71; --red: #e74c3c; --accent: #4f8cff;
+      --bg:#0f1420; --card:#1a2030; --card2:#131a29; --border:#2a3245;
+      --text:#e6e9ef; --muted:#8a93a6; --green:#2ecc71; --red:#e74c3c; --accent:#4f8cff;
+      --amber:#e0a44b;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, sans-serif; padding: 1.5rem; }
-    .wrap { max-width: 1100px; margin: 0 auto; }
-    header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
-    h1 { font-size: 1.4rem; } h1 small { color: var(--muted); font-weight: 400; font-size: .9rem; }
-    .meta { color: var(--muted); font-size: .85rem; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.2rem; }
-    .card .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
-    .card .value { font-size: 1.7rem; font-weight: 700; margin-top: .35rem; }
     .green { color: var(--green); } .red { color: var(--red); }
-    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; }
-    .panel h2 { font-size: 1rem; margin-bottom: 1rem; color: var(--text); }
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    th, td { text-align: left; padding: .55rem .5rem; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .badge { font-size: .75rem; padding: .15rem .5rem; border-radius: 6px; background: #243; color: var(--green); }
-    .empty { color: var(--muted); text-align: center; padding: 1.5rem; }
-    #error { display: none; background: #3a1f24; border: 1px solid #5a2a30; color: #ffb3bd; padding: 1rem; border-radius: 10px; }
-    /* Mindesthöhe für lesbare Charts */
-    .panel canvas { height: 280px !important; }
-    /* Strategie-Umschalter */
-    .tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
-    .tab { background: var(--card); border: 1px solid var(--border); color: var(--muted);
-           padding: .4rem .9rem; border-radius: 999px; cursor: pointer; font-size: .85rem; }
-    .tab:hover { color: var(--text); }
-    .tab.active { color: var(--text); border-color: var(--accent); background: #1d2740; }
-    /* Klickbare Trade-Zeilen → Detail-Analyse */
-    tr.clickable { cursor: pointer; }
-    tr.clickable:hover { background: #1d2740; }
-    /* Detail-Analyse-Modal */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
-                     z-index: 50; align-items: flex-start; justify-content: center; padding: 2rem 1rem; overflow: auto; }
-    .modal-overlay.open { display: flex; }
-    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-             padding: 1.2rem 1.4rem; max-width: 760px; width: 100%; }
-    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-    .modal-x { cursor: pointer; color: var(--muted); font-size: 1.3rem; line-height: 1; }
-    .modal-x:hover { color: var(--text); }
-    .modal canvas { height: 340px !important; margin-top: .4rem; }
-    .factor-table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }
-    .factor-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); }
-    .factor-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    /* — Feinschliff & Responsive — */
-    .card, .panel { box-shadow: 0 1px 3px rgba(0,0,0,.25); }
-    .panel h2 { display: flex; align-items: center; gap: .5rem; }
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .table-scroll table { min-width: 540px; }                /* erzwingt horiz. Scroll statt Quetschen */
-    tbody tr:hover { background: #1d2740; }
-    td .sub { color: var(--muted); font-size: .72rem; }
-    .row-head { display: flex; justify-content: space-between; align-items: center;
-                gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
-    .row-head h2 { margin-bottom: 0; }
-    select.dd { background: #131a29; color: var(--text); border: 1px solid var(--border);
-                border-radius: 8px; padding: .45rem .7rem; font-size: .88rem; max-width: 60%; }
-    select.dd:focus { outline: none; border-color: var(--accent); }
-    .chip { font-size: .72rem; color: var(--muted); }
+    /* ── Topbar / Statuszeile ───────────────────────────────────────────── */
+    .topbar { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap;
+              background:var(--card); border:1px solid var(--border); border-radius:14px;
+              padding:.7rem 1rem; margin-bottom:1.1rem; position:sticky; top:54px; z-index:20;
+              box-shadow:0 2px 10px rgba(0,0,0,.25); }
+    .topbar .title { font-size:1.15rem; font-weight:700; }
+    .topbar .title small { color:var(--muted); font-weight:400; font-size:.85rem; margin-left:.35rem; }
+    .topbar .meta { color:var(--muted); font-size:.8rem; }
+    .grow { flex:1 1 auto; }
+    .pill { display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; font-weight:600;
+            padding:.32rem .7rem; border-radius:999px; border:1px solid var(--border);
+            background:var(--card2); white-space:nowrap; }
+    .pill .dot { width:.55rem; height:.55rem; border-radius:50%; background:var(--green);
+                 box-shadow:0 0 0 0 rgba(46,204,113,.6); }
+    .pill.live .dot { animation:pulse 2s infinite; }
+    .pill.paused .dot { background:var(--muted); animation:none; }
+    .pill.offline { color:#ffb3bd; border-color:#5a2a30; }
+    .pill.offline .dot { background:var(--red); animation:none; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(46,204,113,.5)} 70%{box-shadow:0 0 0 .45rem rgba(46,204,113,0)} 100%{box-shadow:0 0 0 0 rgba(46,204,113,0)} }
+    .iconbtn { cursor:pointer; border:1px solid var(--border); background:var(--card2); color:var(--text);
+               border-radius:9px; padding:.35rem .55rem; font-size:.95rem; line-height:1; }
+    .iconbtn:hover { border-color:var(--accent); color:#fff; }
+    .iconbtn.spin { animation:spin .6s linear; }
+    @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+    .applink { display:inline-block; padding:.4rem .8rem; border-radius:9px; background:var(--accent);
+               color:#04122e; font-weight:600; text-decoration:none; font-size:.85rem; white-space:nowrap; }
 
+    #error { display:none; background:#3a1f24; border:1px solid #5a2a30; color:#ffb3bd;
+             padding:.9rem 1rem; border-radius:10px; margin-bottom:1rem; }
+
+    /* ── KPI-Hero-Strip ─────────────────────────────────────────────────── */
+    .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:.8rem; margin-bottom:1.1rem; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:.9rem 1rem;
+            box-shadow:0 1px 3px rgba(0,0,0,.25); transition:box-shadow .2s, border-color .2s; }
+    .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
+    .card .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums; }
+    .card-hero { grid-column:span 2; background:linear-gradient(135deg,#1d2740,#1a2030); }
+    .card-hero .value { font-size:2.2rem; }
+    .card.flash-up { animation:flashUp .9s ease-out; }
+    .card.flash-down { animation:flashDown .9s ease-out; }
+    @keyframes flashUp { 0%{box-shadow:0 0 0 2px var(--green); border-color:var(--green)} 100%{box-shadow:0 1px 3px rgba(0,0,0,.25)} }
+    @keyframes flashDown { 0%{box-shadow:0 0 0 2px var(--red); border-color:var(--red)} 100%{box-shadow:0 1px 3px rgba(0,0,0,.25)} }
+
+    #sizing-hint { display:none; background:#3a2f1f; border:1px solid #5a4a2a; color:#ffd9a0;
+                   padding:.8rem 1rem; border-radius:10px; margin-bottom:1.1rem; }
+
+    /* ── Steuerleiste (Tabs / Zeitraum) ─────────────────────────────────── */
+    .controls { display:flex; gap:1.2rem; flex-wrap:wrap; align-items:center; margin-bottom:1.1rem; }
+    .tabs { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    .tabs .lbl { color:var(--muted); font-size:.78rem; }
+    .tab { background:var(--card); border:1px solid var(--border); color:var(--muted);
+           padding:.38rem .85rem; border-radius:999px; cursor:pointer; font-size:.83rem; transition:.15s; }
+    .tab:hover { color:var(--text); }
+    .tab.active { color:#fff; border-color:var(--accent); background:#1d2740; }
+
+    /* ── Content-Grid + Panels ──────────────────────────────────────────── */
+    .grid { display:grid; grid-template-columns:1.45fr 1fr; gap:1.1rem; align-items:start; }
+    .col { display:flex; flex-direction:column; gap:1.1rem; min-width:0; }
+    .span-2 { grid-column:1 / -1; }
+    .panel { background:var(--card); border:1px solid var(--border); border-radius:12px;
+             box-shadow:0 1px 3px rgba(0,0,0,.25); overflow:hidden; }
+    .panel-head { display:flex; align-items:center; gap:.6rem; padding:.85rem 1rem; cursor:pointer;
+                  user-select:none; }
+    .panel-head h2 { font-size:.95rem; margin:0; display:flex; align-items:center; gap:.45rem; flex:1; }
+    .panel-head .caret { color:var(--muted); transition:transform .2s; font-size:.8rem; }
+    .panel.collapsed .caret { transform:rotate(-90deg); }
+    .panel-body { padding:0 1rem 1rem; }
+    .panel.collapsed .panel-body { display:none; }
+    .panel .desc { color:var(--muted); font-size:.78rem; line-height:1.45; margin-bottom:.6rem; }
+    .panel canvas { height:260px !important; }
+    .span-2 .panel canvas, .panel.tall canvas { height:300px !important; }
+
+    /* ── Tabellen ───────────────────────────────────────────────────────── */
+    table { width:100%; border-collapse:collapse; font-size:.88rem; }
+    th, td { text-align:left; padding:.5rem .5rem; border-bottom:1px solid var(--border); }
+    th { color:var(--muted); font-weight:600; font-size:.74rem; text-transform:uppercase; }
+    th.sortable { cursor:pointer; white-space:nowrap; }
+    th.sortable:hover { color:var(--text); }
+    th .arr { opacity:.5; font-size:.7rem; }
+    th.sorted .arr { opacity:1; color:var(--accent); }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .badge { font-size:.72rem; padding:.15rem .5rem; border-radius:6px; background:#1f3a2c; color:var(--green); }
+    .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .table-scroll table { min-width:560px; }
+    tr.clickable { cursor:pointer; }
+    tbody tr:hover { background:#1d2740; }
+    td .sub { color:var(--muted); font-size:.72rem; }
+    .empty { color:var(--muted); text-align:center; padding:1.4rem; }
+    .searchbox { background:var(--card2); color:var(--text); border:1px solid var(--border);
+                 border-radius:8px; padding:.4rem .6rem; font-size:.85rem; min-width:160px; }
+    .searchbox:focus { outline:none; border-color:var(--accent); }
+    select.dd { background:var(--card2); color:var(--text); border:1px solid var(--border);
+                border-radius:8px; padding:.4rem .6rem; font-size:.85rem; }
+    select.dd:focus { outline:none; border-color:var(--accent); }
+
+    /* ── Modal (Detail-Analyse) ─────────────────────────────────────────── */
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:60;
+                     align-items:flex-start; justify-content:center; padding:2rem 1rem; overflow:auto; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--card); border:1px solid var(--border); border-radius:14px;
+             padding:1.2rem 1.4rem; max-width:760px; width:100%; }
+    .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
+    .modal-x { cursor:pointer; color:var(--muted); font-size:1.3rem; line-height:1; }
+    .modal-x:hover { color:var(--text); }
+    .modal canvas { height:340px !important; margin-top:.4rem; }
+    .factor-table { width:100%; border-collapse:collapse; margin:.5rem 0 1rem; font-size:.9rem; }
+    .factor-table td { padding:.45rem .5rem; border-bottom:1px solid var(--border); }
+    .factor-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns:1fr; }
+      .card-hero { grid-column:span 2; }
+    }
     @media (max-width: 640px) {
-      body { padding: .8rem; }
-      h1 { font-size: 1.2rem; }
-      .cards { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; margin-bottom: 1rem; }
-      .card { padding: .8rem .9rem; border-radius: 10px; }
-      .card .value { font-size: 1.3rem; }
-      .panel { padding: .9rem; margin-bottom: 1rem; border-radius: 10px; }
-      .panel canvas { height: 240px !important; }
-      .modal canvas { height: 260px !important; }
-      table { font-size: .82rem; }
-      th, td { padding: .45rem .4rem; }
-      select.dd { max-width: 100%; }
+      main { padding:.7rem !important; }
+      .topbar { top:0; padding:.6rem .7rem; }
+      .cards { grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:.55rem; }
+      .card .value { font-size:1.25rem; } .card-hero .value { font-size:1.7rem; }
+      .panel canvas, .span-2 .panel canvas { height:230px !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pill .dot, .iconbtn.spin, .card.flash-up, .card.flash-down { animation:none !important; }
     }
   </style>
-<div class="wrap">
-    <div id="error"></div>
-    <header>
-      <h1>📊 Trading Dashboard <small id="user"></small></h1>
-      <div class="meta" id="generated"></div>
-      <a id="appLink" href="#" style="display:inline-block;margin-top:.4rem;padding:.35rem .7rem;
-         border-radius:.5rem;background:#4f8cff;color:#04122e;font-weight:600;text-decoration:none">
-        ➡ Zur Web-App (Signale annehmen, Einstellungen)</a>
-      <div class="meta" style="margin-top:.35rem">In die Website integriert — dieselben Daten, gleiche Navigation.</div>
-    </header>
 
+  <div id="error"></div>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="title">📊 Cockpit <small id="user"></small></div>
+    <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
+    <button id="btnPause" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen">⏸</button>
+    <button id="btnRefresh" class="iconbtn" title="Jetzt aktualisieren">⟳</button>
+    <span class="grow"></span>
+    <span class="meta" id="generated"></span>
+    <a id="appLink" class="applink" href="#">➡ Web-App</a>
+  </div>
+
+  <!-- KPI-Hero -->
+  <div class="cards" id="cards"></div>
+  <div id="sizing-hint"></div>
+
+  <!-- Steuerleiste -->
+  <div class="controls">
     <div id="tabs" class="tabs"></div>
     <div id="ranges" class="tabs"></div>
+  </div>
 
-    <div class="cards" id="cards"></div>
-    <div id="sizing-hint" style="display:none; background:#3a2f1f; border:1px solid #5a4a2a;
-         color:#ffd9a0; padding:.8rem 1rem; border-radius:10px; margin-bottom:1.5rem;"></div>
+  <!-- Content-Grid -->
+  <div class="grid">
+    <div class="col">
+      <section class="panel" data-panel="equity">
+        <div class="panel-head"><h2>📈 Equity-Kurve <span class="desc" style="margin:0;font-weight:400">kumuliertes P&L</span></h2><span class="caret">▾</span></div>
+        <div class="panel-body"><canvas id="equityChart"></canvas></div>
+      </section>
 
-    <div class="panel">
-      <h2>📈 Equity-Kurve (kumuliertes P&L)</h2>
-      <canvas id="equityChart" height="90"></canvas>
+      <section class="panel tall" data-panel="trades">
+        <div class="panel-head"><h2>📈 Trades einzeln — Wertentwicklung</h2><span class="caret">▾</span></div>
+        <div class="panel-body">
+          <div class="desc">Jede Linie = ein Trade · X = Zeit, Y = % ab Einstieg (mit Hebel).
+            <b>Durchgezogen</b> = offen (läuft bis jetzt), <b>gestrichelt</b> = abgeschlossen (endet am Ausstieg).
+            Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
+          <canvas id="tradesLogChart"></canvas>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="price">
+        <div class="panel-head"><h2>🕯 Kursverlauf heute</h2>
+          <select id="priceTicker" class="dd" aria-label="Trade wählen" onclick="event.stopPropagation()"></select>
+          <span class="caret">▾</span></div>
+        <div class="panel-body"><canvas id="priceChartSingle"></canvas></div>
+      </section>
     </div>
 
-    <div class="panel">
-      <h2>🎯 P&L pro Ticker</h2>
-      <canvas id="tickerChart" height="90"></canvas>
+    <div class="col">
+      <section class="panel" data-panel="ticker">
+        <div class="panel-head"><h2>🎯 P&L pro Ticker</h2><span class="caret">▾</span></div>
+        <div class="panel-body"><canvas id="tickerChart"></canvas></div>
+      </section>
+
+      <section class="panel" data-panel="strength">
+        <div class="panel-head"><h2>📶 Signal-Stärke heute</h2><span class="caret">▾</span></div>
+        <div class="panel-body">
+          <div class="desc">Klick auf einen Ticker in der Legende blendet ihn aus/ein.</div>
+          <canvas id="strengthChart"></canvas>
+        </div>
+      </section>
     </div>
 
-    <div class="panel">
-      <h2>📈 Trades einzeln — Wertentwicklung</h2>
-      <div class="meta">Jede Linie = ein Trade · X = Zeit, Y = % ab Einstieg (mit Hebel). <b>Durchgezogen</b> = offen (läuft bis jetzt), <b>gestrichelt</b> = abgeschlossen (endet am Ausstieg). Grün/rot = Endergebnis. Skala stauchend (log-artig) für Ausreißer. <b>Fahr über eine Linie</b> für Ticker &amp; Wert.</div>
-      <canvas id="tradesLogChart" height="110"></canvas>
-    </div>
-
-    <div class="panel">
-      <h2>🔵 Aktive Demo-Trades</h2>
-      <div id="active"></div>
-    </div>
-
-    <div class="panel">
-      <h2>📶 Signal-Stärke heute (aktive Trades)</h2>
-      <canvas id="strengthChart" height="90"></canvas>
-    </div>
-
-    <div class="panel">
-      <div class="row-head">
-        <h2>🕯 Kursverlauf heute</h2>
-        <select id="priceTicker" class="dd" aria-label="Trade wählen"></select>
-      </div>
-      <canvas id="priceChartSingle" height="90"></canvas>
+    <div class="col span-2">
+      <section class="panel" data-panel="active">
+        <div class="panel-head"><h2>🔵 Aktive Demo-Trades</h2>
+          <input id="tradeFilter" class="searchbox" type="text" placeholder="🔍 Ticker filtern…"
+                 onclick="event.stopPropagation()" autocomplete="off">
+          <span class="caret">▾</span></div>
+        <div class="panel-body"><div id="active"></div></div>
+      </section>
     </div>
   </div>
 
+  <!-- Detail-Analyse-Modal -->
   <div id="modal" class="modal-overlay">
     <div class="modal">
-      <div class="modal-head">
-        <h2 id="modalTitle"></h2>
-        <span class="modal-x" id="modalClose">✕</span>
-      </div>
+      <div class="modal-head"><h2 id="modalTitle"></h2><span class="modal-x" id="modalClose">✕</span></div>
       <div id="modalBody"></div>
       <canvas id="factorChart" height="120"></canvas>
     </div>
   </div>
 
   <script>
-    Chart.defaults.maintainAspectRatio = false;   // Charts füllen die CSS-Höhe → lesbar
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.color = "#8a93a6";
+    Chart.defaults.font.family = "system-ui, -apple-system, Segoe UI, sans-serif";
+
+    // Crosshair: vertikale Linie am aktiven Punkt (leichtgewichtiges Inline-Plugin)
+    Chart.register({
+      id: "crosshair",
+      afterDraw(chart) {
+        if (chart.config.options.plugins && chart.config.options.plugins.crosshair === false) return;
+        const act = chart.getActiveElements ? chart.getActiveElements() : [];
+        if (!act.length || !chart.chartArea) return;
+        const x = act[0].element.x, a = chart.chartArea, ctx = chart.ctx;
+        ctx.save(); ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom);
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(230,233,239,.18)"; ctx.stroke(); ctx.restore();
+      }
+    });
+
     const token = {{ dashboard_token|tojson }};
     document.getElementById("appLink").href = {{ dashboard_app_url|tojson }};
-    const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
-    const cls = (n) => n >= 0 ? "green" : "red";
-    let currentStrategy = "";   // "" = Alle
-    let currentDays = 0;        // 0 = Alle; sonst letzte N Tage
-    let currentPriceTicker = null;   // im „Kursverlauf heute"-Dropdown gewählter Trade
-    let intradaySeries = [];         // zuletzt geladene Intraday-Serien (für das Dropdown)
+    const REFRESH_SEC = 30;
+    const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const LS = (k) => `dash:${token}:${k}`;
+    const lsGet = (k, d) => { try { const v = localStorage.getItem(LS(k)); return v === null ? d : v; } catch (e) { return d; } };
+    const lsSet = (k, v) => { try { localStorage.setItem(LS(k), v); } catch (e) {} };
+
+    const state = {
+      strategy:    lsGet("strategy", ""),
+      days:        parseInt(lsGet("days", "0"), 10) || 0,
+      autoRefresh: lsGet("auto", "1") !== "0",          // default an
+      priceTicker: lsGet("priceTicker", null),
+      collapsed:   JSON.parse(lsGet("collapsed", "{}")),
+      sort:        { key: "pnl_eur", dir: -1 },
+      filter:      "",
+      lastKpis:    {},
+      intraday:    [],
+      data:        null,
+    };
+
+    const fmt  = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
+    const cls  = (n) => n >= 0 ? "green" : "red";
+    const usd0 = (n) => "$" + Math.round(n).toLocaleString("de-DE");
+    const eur0 = (n) => Math.round(n).toLocaleString("de-DE") + "€";
     const rangeLabel = (n) => n === 0 ? "Alle" : (n === 1 ? "1 Tag" : n + " Tage");
 
-    // Zerstört einen evtl. schon auf dem Canvas vorhandenen Chart und erzeugt einen neuen.
-    // Verhindert „Canvas is already in use" beim erneuten Laden (Zeitraum/Strategie/Refresh).
-    function makeChart(id, config) {
-      const c = document.getElementById(id);
-      if (!c) return null;
-      const existing = Chart.getChart(c);
-      if (existing) existing.destroy();
+    // ── Chart-Registry: erstellt einmal, danach in-place aktualisiert (smooth) ──
+    const charts = {};
+    function showCanvas(id) {
+      const c = document.getElementById(id); if (!c) return;
       c.style.display = "";
-      const m = document.getElementById(id + "_msg");
-      if (m) m.style.display = "none";
-      return new Chart(c, config);
+      const m = document.getElementById(id + "_msg"); if (m) m.style.display = "none";
     }
-
-    // Zeigt statt eines Charts eine Hinweismeldung — Canvas bleibt im DOM (id erhalten),
-    // damit ein späteres Laden den Chart wieder erzeugen kann.
+    function upsertChart(id, config) {
+      const c = document.getElementById(id); if (!c) return null;
+      showCanvas(id);
+      let ch = charts[id];
+      if (ch) {
+        ch.data = config.data;
+        if (config.options) ch.options = config.options;
+        ch.update();
+      } else {
+        ch = new Chart(c, config);
+        charts[id] = ch;
+      }
+      return ch;
+    }
     function replaceCanvas(id, msg) {
-      const c = document.getElementById(id);
-      if (!c) return;
-      const existing = Chart.getChart(c);
-      if (existing) existing.destroy();
+      const c = document.getElementById(id); if (!c) return;
+      if (charts[id]) { charts[id].destroy(); delete charts[id]; }
       c.style.display = "none";
       let m = document.getElementById(id + "_msg");
-      if (!m) {
-        m = document.createElement("div");
-        m.id = id + "_msg";
-        m.className = "empty";
-        c.parentNode.insertBefore(m, c.nextSibling);
-      }
-      m.textContent = msg;
-      m.style.display = "";
+      if (!m) { m = document.createElement("div"); m.id = id + "_msg"; m.className = "empty";
+                c.parentNode.insertBefore(m, c.nextSibling); }
+      m.textContent = msg; m.style.display = "";
     }
 
-    async function load() {
+    // ── Auto-Refresh / Live-Pille ───────────────────────────────────────────
+    let countdown = REFRESH_SEC;
+    let online = true;
+    function updatePill() {
+      const pill = document.getElementById("pill"), txt = document.getElementById("pillText");
+      pill.classList.remove("live", "paused", "offline");
+      if (!online)            { pill.classList.add("offline"); txt.textContent = "Offline — neuer Versuch…"; }
+      else if (!state.autoRefresh) { pill.classList.add("paused"); txt.textContent = "Pausiert"; }
+      else                    { pill.classList.add("live"); txt.textContent = `Live · in ${countdown}s`; }
+      document.getElementById("btnPause").textContent = state.autoRefresh ? "⏸" : "▶";
+    }
+    setInterval(() => {
+      if (!state.autoRefresh || document.hidden) return;
+      countdown -= 1;
+      if (countdown <= 0) { countdown = REFRESH_SEC; refresh(); }
+      updatePill();
+    }, 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.autoRefresh) { countdown = REFRESH_SEC; refresh(); }
+    });
+    document.getElementById("btnPause").addEventListener("click", () => {
+      state.autoRefresh = !state.autoRefresh; lsSet("auto", state.autoRefresh ? "1" : "0");
+      countdown = REFRESH_SEC; updatePill();
+    });
+    document.getElementById("btnRefresh").addEventListener("click", (e) => {
+      const b = e.currentTarget; b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin");
+      countdown = REFRESH_SEC; refresh();
+    });
+
+    async function load(initial) {
       try {
         const p = new URLSearchParams();
-        if (currentStrategy) p.set("strategy", currentStrategy);
-        if (currentDays) p.set("days", currentDays);
+        if (state.strategy) p.set("strategy", state.strategy);
+        if (state.days)     p.set("days", state.days);
         const q = p.toString() ? "?" + p.toString() : "";
         const res = await fetch(`/api/${token}/data${q}`);
         if (!res.ok) throw new Error("Daten konnten nicht geladen werden (Token ungültig?).");
+        online = true;
+        document.getElementById("error").style.display = "none";
         render(await res.json());
       } catch (e) {
-        const el = document.getElementById("error");
-        el.style.display = "block";
-        el.textContent = "⚠️ " + e.message;
+        online = false;
+        if (initial) {
+          const el = document.getElementById("error");
+          el.style.display = "block"; el.textContent = "⚠️ " + e.message;
+        }
       }
+      updatePill();
     }
+    const refresh = () => load(false);
 
-    function renderTabs(d) {
-      const tabs = d.strategies || [];
-      const el = document.getElementById("tabs");
-      if (tabs.length <= 2) { el.innerHTML = ""; return; }   // nur „Alle" + 1 Strategie → kein Umschalter nötig
-      el.innerHTML = tabs.map(t =>
-        `<div class="tab ${t.key === currentStrategy ? "active" : ""}" data-key="${t.key}">${t.label}</div>`
-      ).join("");
-      el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
-        currentStrategy = b.dataset.key;
-        load();
-      }));
+    // ── KPI-Hero: Count-up + Flash bei Änderung ─────────────────────────────
+    function animateValue(el, from, to, fmtFn) {
+      if (REDUCED || from === to) { el.textContent = fmtFn(to); return; }
+      const dur = 500, t0 = performance.now();
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 3);                 // ease-out cubic
+        el.textContent = fmtFn(from + (to - from) * e);
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
     }
+    function flashCard(card, up) {
+      const klass = up === false ? "flash-down" : "flash-up";
+      card.classList.remove("flash-up", "flash-down"); void card.offsetWidth; card.classList.add(klass);
+    }
+    function renderKpis(d) {
+      const s = d.summary, ba = d.broker_account;
+      const pf = (s.profit_factor === null || s.profit_factor === undefined)
+        ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
+      const kpis = [];
+      if (ba) {
+        kpis.push({ key: "bp", label: "Buying Power" + (ba.paper ? " (Paper)" : ""), num: ba.buying_power, fmt: usd0 });
+        kpis.push({ key: "cash", label: "Cash", num: ba.cash, fmt: usd0 });
+      }
+      kpis.push({ key: "pnl", label: "Gesamt P&L", num: s.total_pnl, fmt: fmt, cls: cls(s.total_pnl), big: true });
+      kpis.push({ key: "pf", label: "Profitfaktor", text: pf });
+      kpis.push({ key: "wr", label: "Trefferquote", num: s.win_rate, fmt: (v) => v.toFixed(1) + "%" });
+      kpis.push({ key: "wl", label: "Gewinner / Verlierer", html: `<span class="green">${s.wins}</span> / <span class="red">${s.losses}</span>` });
+      kpis.push({ key: "closed", label: "Abgeschlossen", num: s.total_closed, fmt: (v) => "" + Math.round(v) });
+      kpis.push({ key: "active", label: "Aktiv", num: s.active_count, fmt: (v) => "" + Math.round(v) });
+      kpis.push({ key: "size", label: "Trade-Größe", num: d.trade_size_eur, fmt: (v) => Math.round(v) + "€" });
 
-    function renderRanges(d) {
-      const ranges = d.ranges || [0, 1, 7, 14, 30];
-      const el = document.getElementById("ranges");
-      el.innerHTML = `<span style="color:var(--muted);font-size:.8rem;align-self:center">Zeitraum:</span>` +
-        ranges.map(n =>
-          `<div class="tab ${n === currentDays ? "active" : ""}" data-days="${n}">${rangeLabel(n)}</div>`
+      const host = document.getElementById("cards");
+      const keys = kpis.map(k => k.key).join(",");
+      if (host.dataset.keys !== keys) {                  // Kachelsatz geändert (z. B. Broker an/aus) → neu aufbauen
+        host.dataset.keys = keys;
+        host.innerHTML = kpis.map(k =>
+          `<div class="card${k.big ? " card-hero" : ""}" data-key="${k.key}"><div class="label">${k.label}</div><div class="value"></div></div>`
         ).join("");
+        state.lastKpis = {};
+      }
+      kpis.forEach(k => {
+        const card = host.querySelector(`.card[data-key="${k.key}"]`);
+        const valEl = card.querySelector(".value");
+        valEl.className = "value " + (k.cls || "");
+        const prev = state.lastKpis[k.key];
+        if (k.html !== undefined || k.text !== undefined) {
+          const v = k.html !== undefined ? k.html : k.text;
+          if (prev !== undefined && prev !== v) flashCard(card, null);
+          valEl.innerHTML = v; state.lastKpis[k.key] = v;
+        } else {
+          const to = k.num || 0;
+          if (prev === undefined) animateValue(valEl, 0, to, k.fmt);
+          else if (prev !== to) { flashCard(card, to > prev); animateValue(valEl, prev, to, k.fmt); }
+          else valEl.textContent = k.fmt(to);
+          state.lastKpis[k.key] = to;
+        }
+      });
+    }
+
+    // ── Steuerleiste ────────────────────────────────────────────────────────
+    function renderTabs(d) {
+      const tabs = d.strategies || [], el = document.getElementById("tabs");
+      if (tabs.length <= 2) { el.innerHTML = ""; return; }
+      el.innerHTML = `<span class="lbl">Strategie:</span>` + tabs.map(t =>
+        `<div class="tab ${t.key === state.strategy ? "active" : ""}" data-key="${t.key}">${t.label}</div>`).join("");
       el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
-        currentDays = parseInt(b.dataset.days, 10);
-        load();
+        state.strategy = b.dataset.key; lsSet("strategy", state.strategy); countdown = REFRESH_SEC; load(false);
+      }));
+    }
+    function renderRanges(d) {
+      const ranges = d.ranges || [0, 1, 7, 14, 30], el = document.getElementById("ranges");
+      el.innerHTML = `<span class="lbl">Zeitraum:</span>` + ranges.map(n =>
+        `<div class="tab ${n === state.days ? "active" : ""}" data-days="${n}">${rangeLabel(n)}</div>`).join("");
+      el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+        state.days = parseInt(b.dataset.days, 10); lsSet("days", state.days); countdown = REFRESH_SEC; load(false);
       }));
     }
 
+    // ── Haupt-Render ────────────────────────────────────────────────────────
     function render(d) {
-      const s = d.summary;
+      state.data = d;
       document.getElementById("user").textContent = "· @" + d.username;
       document.getElementById("generated").textContent = "Stand: " + d.generated_at;
+      renderKpis(d);
       renderTabs(d);
       renderRanges(d);
 
-      const pf = (s.profit_factor === null || s.profit_factor === undefined)
-        ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
-      // Broker-Konto (nur bei echter Ausführung vorhanden): Buying Power + Cash live aus Alpaca.
-      const ba = d.broker_account;
-      const usd0 = (n) => "$" + Math.round(n).toLocaleString("de-DE");
-      const brokerCards = ba ? `
-        <div class="card"><div class="label">Buying Power${ba.paper ? " (Paper)" : ""}</div><div class="value">${usd0(ba.buying_power)}</div></div>
-        <div class="card"><div class="label">Cash</div><div class="value">${usd0(ba.cash)}</div></div>
-      ` : "";
-      document.getElementById("cards").innerHTML = brokerCards + `
-        <div class="card"><div class="label">Gesamt P&L</div><div class="value ${cls(s.total_pnl)}">${fmt(s.total_pnl)}</div></div>
-        <div class="card"><div class="label">Profitfaktor</div><div class="value">${pf}</div></div>
-        <div class="card"><div class="label">Trefferquote</div><div class="value">${s.win_rate}%</div></div>
-        <div class="card"><div class="label">Gewinner / Verlierer</div><div class="value"><span class="green">${s.wins}</span> / <span class="red">${s.losses}</span></div></div>
-        <div class="card"><div class="label">Abgeschlossen</div><div class="value">${s.total_closed}</div></div>
-        <div class="card"><div class="label">Aktiv</div><div class="value">${s.active_count}</div></div>
-        <div class="card"><div class="label">Trade-Größe</div><div class="value">${d.trade_size_eur.toFixed(0)}€</div></div>
-      `;
-
-      // Sizing-Hinweis: Trade-Größe zu klein → häufig Bruchteile/Vormerkungen.
-      const sh = d.sizing_hint;
-      const hintEl = document.getElementById("sizing-hint");
+      const sh = d.sizing_hint, hintEl = document.getElementById("sizing-hint");
       if (sh) {
         hintEl.style.display = "";
         hintEl.innerHTML = `⚠️ <b>Trade-Größe ${sh.trade_size}€ ist klein:</b> ~${sh.frac_rate}% deiner `
           + `Signale liegen über dem Budget → Bruchteil-Orders (außerhalb der regulären US-Sitzung `
           + `werden sie vorgemerkt). Für überwiegend <b>ganze Aktien</b> empfiehlt sich eine Trade-Größe `
           + `von etwa <b>${sh.recommended}€</b> — anpassbar unter Einstellungen.`;
-      } else {
-        hintEl.style.display = "none";
-      }
+      } else { hintEl.style.display = "none"; }
 
       const noData = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
-
-      // Equity-Kurve
-      const eq = d.equity;
-      if (!eq.length) {
-        replaceCanvas("equityChart", noData);
-      } else {
-        makeChart("equityChart", {
-          type: "line",
-          data: {
-            labels: eq.map(p => p.date),
-            datasets: [{
-              data: eq.map(p => p.cumulative),
-              borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.12)",
-              fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3,
-            }]
-          },
-          options: {
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
-            }
-          }
-        });
-      }
-
-      // P&L pro Ticker
-      const ts = d.ticker_stats;
-      if (!ts.length) {
-        replaceCanvas("tickerChart", noData);
-      } else {
-        makeChart("tickerChart", {
-          type: "bar",
-          data: {
-            labels: ts.map(t => t.ticker),
-            datasets: [{
-              data: ts.map(t => t.pnl),
-              backgroundColor: ts.map(t => t.pnl >= 0 ? "#2ecc71" : "#e74c3c"),
-              borderRadius: 4,
-            }]
-          },
-          options: {
-            plugins: { legend: { display: false } },
-            onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
-            scales: {
-              x: { ticks: { color: "#8a93a6" }, grid: { display: false } },
-              y: { ticks: { color: "#8a93a6", callback: v => v + "€" }, grid: { color: "#222a3a" } }
-            }
-          }
-        });
-      }
-
-      // Einzel-Trades — Wertentwicklung je Trade (% ab Einstieg), stauchende (signed-log) y-Achse
-      const tc = d.trades_curves || [];
-      if (!tc.length) {
-        replaceCanvas("tradesLogChart", noData);
-      } else {
-        const sgn = (v) => (v >= 0 ? "+" : "");
-        // signed-log: komprimiert Ausreißer, behält Vorzeichen (log geht nicht mit Minuswerten)
-        const slog = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v));
-        const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
-        const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
-        makeChart("tradesLogChart", {
-          type: "line",
-          data: {
-            datasets: tc.map(x => ({
-              label: x.ticker,
-              data: x.points.map(p => ({ x: p.x, y: slog(p.y) })),
-              borderColor: x.final_pct >= 0 ? "#2ecc71" : "#e74c3c",
-              backgroundColor: "transparent",
-              borderDash: x.status === "active" ? [] : [5, 4],   // offen = durchgezogen, Historie = gestrichelt
-              tension: 0.25, pointRadius: 0, pointHoverRadius: 4,
-              borderWidth: 1.6, hoverBorderWidth: 3,
-            }))
-          },
-          options: {
-            parsing: false,
-            interaction: { mode: "nearest", intersect: false },
-            plugins: {
-              legend: { display: false },               // Ticker erscheint beim Hovern im Tooltip
-              tooltip: {
-                callbacks: {
-                  title: () => "",
-                  label: (item) => {
-                    const x = tc[item.datasetIndex];
-                    const real = sexp(item.parsed.y);
-                    const dt = new Date(item.parsed.x);
-                    const when = dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })
-                               + " " + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-                    return `${x.ticker} · ${when}${x.status === "active" ? " (offen)" : ""}: `
-                         + `${sgn(real)}${real.toFixed(1)}%`
-                         + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
-                  }
-                }
-              }
-            },
-            onClick: (evt, els) => { if (els.length) openAnalysis(tc[els[0].datasetIndex].ticker); },
-            scales: {
-              x: { type: "linear",
-                   min: (d.trades_curves_x && d.trades_curves_x.min) || undefined,
-                   max: (d.trades_curves_x && d.trades_curves_x.max) || undefined,
-                   title: { display: true, text: "Zeit  →  jetzt  ·  geschlossene Trades enden am Ausstieg", color: "#8a93a6" },
-                   ticks: { color: "#8a93a6", maxTicksLimit: 6, maxRotation: 0, autoSkip: true,
-                            callback: (v) => { const dt = new Date(v);
-                              return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })
-                                   + " " + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } },
-                   grid: { color: "#222a3a" } },
-              y: { type: "linear",
-                   afterBuildTicks: (axis) => {
-                     if (!isFinite(axis.min) || !isFinite(axis.max)) return;
-                     const t = NICE.filter(p => slog(p) >= axis.min && slog(p) <= axis.max)
-                                   .map(p => ({ value: slog(p) }));
-                     if (t.length) axis.ticks = t;
-                   },
-                   ticks: { color: "#8a93a6", callback: (v) => { const r = sexp(v); return (r >= 0 ? "+" : "") + r.toFixed(0) + "%"; } },
-                   grid: { color: "#222a3a" } }
-            }
-          }
-        });
-      }
-
-      // Aktive Trades
-      const act = d.active_trades;
-      const eur0 = (n) => Math.round(n).toLocaleString("de-DE") + "€";
-      if (!act.length) {
-        document.getElementById("active").innerHTML = `<div class="empty">Keine aktiven Trades.</div>`;
-      } else {
-        document.getElementById("active").innerHTML = `
-          <div class="table-scroll"><table>
-            <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einsatz</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
-            <tbody>${act.map(t => `
-              <tr class="clickable" data-ticker="${t.ticker}">
-                <td><b>${t.ticker}</b><div class="sub">${t.status_text || "Aktiv"}</div></td>
-                <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
-                <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
-                <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
-                <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
-                <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
-                <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
-                <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
-              </tr>`).join("")}
-            </tbody>
-          </table></div>`;
-      }
-
-      // Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker
-      const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
-      const palette = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c"];
-
-      // #5 Signal-Stärke heute — eine Linie je Ticker, y 0-100
-      if (!intraday.length) {
-        replaceCanvas("strengthChart", "Noch keine aktiven Trades / Verlaufsdaten heute.");
-      } else {
-        const labels = intraday[0].points.map(p => p.t);
-        makeChart("strengthChart", {
-          type: "line",
-          data: {
-            labels,
-            datasets: intraday.map((s, i) => ({
-              label: s.ticker,
-              data: s.points.map(p => p.strength),
-              borderColor: palette[i % palette.length],
-              backgroundColor: "transparent", tension: .25, pointRadius: 0,
-            })),
-          },
-          options: {
-            plugins: { legend: { labels: { color: "#e6e9ef" } } },
-            scales: {
-              x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-              y: { min: 0, max: 100, ticks: { color: "#8a93a6" }, grid: { color: "#222a3a" } }
-            }
-          }
-        });
-      }
-
-      // #6 Kursverlauf heute — EIN Chart, per Dropdown wählbar
-      intradaySeries = intraday;
-      const sel = document.getElementById("priceTicker");
-      if (!intraday.length) {
-        sel.style.display = "none";
-        replaceCanvas("priceChartSingle", "Keine aktiven Trades.");
-      } else {
-        sel.style.display = "";
-        if (!currentPriceTicker || !intraday.some(s => s.ticker === currentPriceTicker)) {
-          currentPriceTicker = intraday[0].ticker;
-        }
-        sel.innerHTML = intraday.map(s =>
-          `<option value="${s.ticker}"${s.ticker === currentPriceTicker ? " selected" : ""}>${s.ticker}</option>`).join("");
-        renderPriceChart(intraday.find(s => s.ticker === currentPriceTicker));
-      }
+      renderEquity(d.equity, noData);
+      renderTickerBars(d.ticker_stats, noData);
+      renderTradesCurves(d, noData);
+      renderActive();                                    // nutzt state.data + Sort/Filter
+      renderIntraday(d);
     }
 
-    // Einzelner Kursverlauf-Chart (für den im Dropdown gewählten Trade), mit SL/TP/Einstieg-Linien
-    function renderPriceChart(s) {
-      if (!s || !s.points || !s.points.length) { replaceCanvas("priceChartSingle", "Keine Daten."); return; }
-      const labels = s.points.map(p => p.t);
-      const refLine = (val, color, label) => val == null ? null : ({
-        label, data: labels.map(() => val), borderColor: color,
-        borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false,
-      });
-      const datasets = [{
-        label: s.ticker, data: s.points.map(p => p.price),
-        borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.10)",
-        tension: .25, pointRadius: 0, fill: true,
-      }];
-      [refLine(s.take_profit, "#2ecc71", "Take-Profit"),
-       refLine(s.stop_loss, "#e74c3c", "Stop-Loss"),
-       refLine(s.entry, "#8a93a6", "Einstieg")].forEach(r => r && datasets.push(r));
-      makeChart("priceChartSingle", {
+    function renderEquity(eq, noData) {
+      if (!eq || !eq.length) return replaceCanvas("equityChart", noData);
+      upsertChart("equityChart", {
         type: "line",
-        data: { labels, datasets },
+        data: { labels: eq.map(p => p.date), datasets: [{
+          data: eq.map(p => p.cumulative), borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.12)",
+          fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3 }] },
         options: {
-          interaction: { mode: "nearest", intersect: false },
-          plugins: {
-            legend: { display: false },
-            tooltip: { callbacks: { label: (i) => `${i.dataset.label}: $${(+i.parsed.y).toFixed(2)}` } }
-          },
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#222a3a" } } }
+        }
+      });
+    }
+
+    function renderTickerBars(ts, noData) {
+      if (!ts || !ts.length) return replaceCanvas("tickerChart", noData);
+      upsertChart("tickerChart", {
+        type: "bar",
+        data: { labels: ts.map(t => t.ticker), datasets: [{
+          data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? "#2ecc71" : "#e74c3c"), borderRadius: 4 }] },
+        options: {
+          plugins: { legend: { display: false }, crosshair: false,
+                     tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
+          onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
+          scales: { x: { ticks: {}, grid: { display: false } },
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#222a3a" } } }
+        }
+      });
+    }
+
+    // signed-log: komprimiert Ausreißer, behält Vorzeichen
+    const slog = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v));
+    const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
+    const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
+    function renderTradesCurves(d, noData) {
+      const tc = d.trades_curves || [];
+      if (!tc.length) return replaceCanvas("tradesLogChart", noData);
+      const sgn = (v) => (v >= 0 ? "+" : "");
+      upsertChart("tradesLogChart", {
+        type: "line",
+        data: { datasets: tc.map(x => ({
+          label: x.ticker, data: x.points.map(p => ({ x: p.x, y: slog(p.y) })),
+          borderColor: x.final_pct >= 0 ? "#2ecc71" : "#e74c3c", backgroundColor: "transparent",
+          borderDash: x.status === "active" ? [] : [5, 4], tension: 0.25,
+          pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.6, hoverBorderWidth: 3 })) },
+        options: {
+          parsing: false, interaction: { mode: "nearest", intersect: false },
+          plugins: { legend: { display: false }, tooltip: { callbacks: {
+            title: () => "",
+            label: (item) => {
+              const x = tc[item.datasetIndex], real = sexp(item.parsed.y), dt = new Date(item.parsed.x);
+              const when = dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
+                         + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+              return `${x.ticker} · ${when}${x.status === "active" ? " (offen)" : ""}: ${sgn(real)}${real.toFixed(1)}%`
+                   + `  · Ende ${sgn(x.final_pct)}${x.final_pct}% (${sgn(x.final_eur)}${x.final_eur}€) · ${x.strategy}`;
+            } } } },
+          onClick: (evt, els) => { if (els.length) openAnalysis(tc[els[0].datasetIndex].ticker); },
           scales: {
-            x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-            y: { ticks: { color: "#8a93a6", callback: v => "$" + v }, grid: { color: "#222a3a" } }
+            x: { type: "linear", min: (d.trades_curves_x && d.trades_curves_x.min) || undefined,
+                 max: (d.trades_curves_x && d.trades_curves_x.max) || undefined,
+                 title: { display: true, text: "Zeit  →  jetzt  ·  geschlossene Trades enden am Ausstieg", color: "#8a93a6" },
+                 ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => {
+                   const dt = new Date(v); return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
+                     + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } },
+                 grid: { color: "#222a3a" } },
+            y: { type: "linear",
+                 afterBuildTicks: (axis) => {
+                   if (!isFinite(axis.min) || !isFinite(axis.max)) return;
+                   const t = NICE.filter(p => slog(p) >= axis.min && slog(p) <= axis.max).map(p => ({ value: slog(p) }));
+                   if (t.length) axis.ticks = t; },
+                 ticks: { callback: (v) => { const r = sexp(v); return (r >= 0 ? "+" : "") + r.toFixed(0) + "%"; } },
+                 grid: { color: "#222a3a" } }
           }
         }
       });
     }
 
-    // ── Detail-Analyse einer Aktie (Klick auf Trade / Ticker-Balken) ──────────
-    let factorChartObj = null;
-
-    const mkds = (label, data, color, width = 2) => ({
-      label, data, borderColor: color, backgroundColor: "transparent",
-      // monotone Interpolation: glatt, aber ohne Über-/Unterschwingen über die echten Werte (0–100)
-      cubicInterpolationMode: "monotone", tension: 0,
-      pointRadius: 2, pointHoverRadius: 4, borderWidth: width,
+    // ── Aktive Trades: sortier-/filterbar (kein Refetch nötig) ──────────────
+    const SORTERS = {
+      ticker:      (t) => t.ticker,
+      direction:   (t) => t.direction,
+      invested:    (t) => t.invested != null ? t.invested : -Infinity,
+      entry:       (t) => t.entry != null ? t.entry : -Infinity,
+      current:     (t) => t.current != null ? t.current : -Infinity,
+      pnl_eur:     (t) => t.pnl_eur != null ? t.pnl_eur : -Infinity,
+      stop_loss:   (t) => t.stop_loss != null ? t.stop_loss : -Infinity,
+      take_profit: (t) => t.take_profit != null ? t.take_profit : -Infinity,
+    };
+    const COLS = [
+      { key: "ticker", label: "Ticker", num: false },
+      { key: "direction", label: "Richtung", num: false },
+      { key: "invested", label: "Einsatz", num: true },
+      { key: "entry", label: "Einstieg", num: true },
+      { key: "current", label: "Aktuell", num: true },
+      { key: "pnl_eur", label: "P&L", num: true },
+      { key: "stop_loss", label: "Stop-Loss", num: true },
+      { key: "take_profit", label: "Take-Profit", num: true },
+    ];
+    function renderActive() {
+      const host = document.getElementById("active");
+      let act = (state.data && state.data.active_trades) || [];
+      if (state.filter) {
+        const f = state.filter.toLowerCase();
+        act = act.filter(t => t.ticker.toLowerCase().includes(f));
+      }
+      if (!act.length) {
+        host.innerHTML = `<div class="empty">${state.filter ? "Kein Treffer für „" + state.filter + "“." : "Keine aktiven Trades."}</div>`;
+        return;
+      }
+      const get = SORTERS[state.sort.key] || SORTERS.pnl_eur;
+      act = act.slice().sort((a, b) => {
+        const va = get(a), vb = get(b);
+        if (typeof va === "string") return state.sort.dir * va.localeCompare(vb);
+        return state.sort.dir * (va - vb);
+      });
+      const arrow = (k) => state.sort.key === k ? (state.sort.dir < 0 ? "▼" : "▲") : "↕";
+      const ths = COLS.map(c =>
+        `<th class="sortable ${c.num ? "num" : ""} ${state.sort.key === c.key ? "sorted" : ""}" data-sort="${c.key}">${c.label} <span class="arr">${arrow(c.key)}</span></th>`).join("");
+      host.innerHTML = `<div class="table-scroll"><table>
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${act.map(t => `
+          <tr class="clickable" data-ticker="${t.ticker}">
+            <td><b>${t.ticker}</b><div class="sub">${t.status_text || "Aktiv"}</div></td>
+            <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
+            <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
+            <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
+            <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
+            <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
+            <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
+            <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
+          </tr>`).join("")}</tbody></table></div>`;
+      host.querySelectorAll("th.sortable").forEach(th => th.addEventListener("click", () => {
+        const k = th.dataset.sort;
+        if (state.sort.key === k) state.sort.dir *= -1;
+        else state.sort = { key: k, dir: COLS.find(c => c.key === k).num ? -1 : 1 };
+        renderActive();
+      }));
+    }
+    document.getElementById("tradeFilter").addEventListener("input", (e) => {
+      state.filter = e.target.value.trim(); renderActive();
     });
 
+    // ── Intraday: Stärke (alle) + Kursverlauf (Dropdown) ────────────────────
+    const palette = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c"];
+    function renderIntraday(d) {
+      const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
+      state.intraday = intraday;
+
+      if (!intraday.length) { replaceCanvas("strengthChart", "Noch keine aktiven Trades / Verlaufsdaten heute."); }
+      else {
+        upsertChart("strengthChart", {
+          type: "line",
+          data: { labels: intraday[0].points.map(p => p.t), datasets: intraday.map((s, i) => ({
+            label: s.ticker, data: s.points.map(p => p.strength),
+            borderColor: palette[i % palette.length], backgroundColor: "transparent", tension: .25, pointRadius: 0 })) },
+          options: {
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { labels: { color: "#e6e9ef", boxWidth: 14 } } },   // Klick blendet Linie aus/ein
+            scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+                      y: { min: 0, max: 100, grid: { color: "#222a3a" } } }
+          }
+        });
+      }
+
+      const sel = document.getElementById("priceTicker");
+      if (!intraday.length) { sel.style.display = "none"; replaceCanvas("priceChartSingle", "Keine aktiven Trades."); return; }
+      sel.style.display = "";
+      if (!state.priceTicker || !intraday.some(s => s.ticker === state.priceTicker)) state.priceTicker = intraday[0].ticker;
+      sel.innerHTML = intraday.map(s => `<option value="${s.ticker}"${s.ticker === state.priceTicker ? " selected" : ""}>${s.ticker}</option>`).join("");
+      renderPriceChart(intraday.find(s => s.ticker === state.priceTicker));
+    }
+    function renderPriceChart(s) {
+      if (!s || !s.points || !s.points.length) return replaceCanvas("priceChartSingle", "Keine Daten.");
+      const labels = s.points.map(p => p.t);
+      const refLine = (val, color, label) => val == null ? null : ({
+        label, data: labels.map(() => val), borderColor: color, borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false });
+      const datasets = [{ label: s.ticker, data: s.points.map(p => p.price),
+        borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.10)", tension: .25, pointRadius: 0, fill: true }];
+      [refLine(s.take_profit, "#2ecc71", "Take-Profit"), refLine(s.stop_loss, "#e74c3c", "Stop-Loss"),
+       refLine(s.entry, "#8a93a6", "Einstieg")].forEach(r => r && datasets.push(r));
+      upsertChart("priceChartSingle", {
+        type: "line", data: { labels, datasets },
+        options: {
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => `${i.dataset.label}: $${(+i.parsed.y).toFixed(2)}` } } },
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+                    y: { ticks: { callback: v => "$" + v }, grid: { color: "#222a3a" } } }
+        }
+      });
+    }
+    document.getElementById("priceTicker").addEventListener("change", (e) => {
+      state.priceTicker = e.target.value; lsSet("priceTicker", state.priceTicker);
+      const s = state.intraday.find(x => x.ticker === state.priceTicker); if (s) renderPriceChart(s);
+    });
+
+    // ── Einklappbare Panels (Zustand in localStorage) ───────────────────────
+    document.querySelectorAll(".panel[data-panel]").forEach(panel => {
+      const key = panel.dataset.panel;
+      if (state.collapsed[key]) panel.classList.add("collapsed");
+      panel.querySelector(".panel-head").addEventListener("click", () => {
+        panel.classList.toggle("collapsed");
+        state.collapsed[key] = panel.classList.contains("collapsed");
+        lsSet("collapsed", JSON.stringify(state.collapsed));
+        // Beim Aufklappen Chart neu vermessen (war auf 0-Höhe)
+        if (!state.collapsed[key]) Object.values(charts).forEach(c => c.resize());
+      });
+    });
+
+    // ── Detail-Analyse-Modal ────────────────────────────────────────────────
+    let factorChartObj = null;
+    const mkds = (label, data, color, width = 2) => ({
+      label, data, borderColor: color, backgroundColor: "transparent",
+      cubicInterpolationMode: "monotone", tension: 0, pointRadius: 2, pointHoverRadius: 4, borderWidth: width });
     function closeModal() {
       document.getElementById("modal").classList.remove("open");
       if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
     }
-
     async function openAnalysis(ticker) {
       const m = document.getElementById("modal");
       document.getElementById("modalTitle").textContent = "🔬 " + ticker + " — Modell-Faktoren (7 Tage)";
@@ -521,21 +685,15 @@
         const res = await fetch(`/api/${token}/analyze/${encodeURIComponent(ticker)}`);
         if (!res.ok) throw new Error("Analyse fehlgeschlagen.");
         renderAnalysis(await res.json());
-      } catch (e) {
-        document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${e.message}</div>`;
-      }
+      } catch (e) { document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${e.message}</div>`; }
     }
-
     function renderAnalysis(d) {
       const pts = d.points || [];
-      if (!pts.length) {
-        document.getElementById("modalBody").innerHTML =
-          `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + d.error + ")" : ""}.</div>`;
-        return;
-      }
+      if (!pts.length) { document.getElementById("modalBody").innerHTML =
+        `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + d.error + ")" : ""}.</div>`; return; }
       const last = pts[pts.length - 1];
       document.getElementById("modalBody").innerHTML = `
-        <div class="meta">Stand ${last.date} · Kurs $${last.price.toFixed(2)} · dieselben Faktoren wie im Signal-Modell</div>
+        <div class="desc">Stand ${last.date} · Kurs $${last.price.toFixed(2)} · dieselben Faktoren wie im Signal-Modell</div>
         <table class="factor-table">
           <tr><td>📉 RSI</td><td class="num">${last.rsi}</td><td class="num">Score ${last.rsi_score}/100</td></tr>
           <tr><td>📈 MACD-Histogramm</td><td class="num">${last.macd_hist}</td><td class="num">Score ${last.macd_score}/100</td></tr>
@@ -543,49 +701,35 @@
           <tr><td>🔊 Volumen (RVOL)</td><td class="num">${last.vol_ratio}×</td><td class="num">Score ${last.vol_score}/100</td></tr>
           <tr><td><b>⭐ Gesamt-Score (Tag)</b></td><td></td><td class="num"><b>${last.score}/100</b></td></tr>
         </table>
-        <div class="meta">Verlauf der Faktor-Scores (0–100) über die letzten ${pts.length} Handelstage:</div>`;
-      const labels = pts.map(p => p.date.slice(5));   // MM-DD
-      factorChartObj = makeChart("factorChart", {
+        <div class="desc">Verlauf der Faktor-Scores (0–100) über die letzten ${pts.length} Handelstage:</div>`;
+      const labels = pts.map(p => p.date.slice(5));
+      if (factorChartObj) factorChartObj.destroy();
+      factorChartObj = new Chart(document.getElementById("factorChart"), {
         type: "line",
-        data: {
-          labels,
-          datasets: [
-            mkds("RSI", pts.map(p => p.rsi_score), "#4f8cff"),
-            mkds("MACD", pts.map(p => p.macd_score), "#2ecc71"),
-            mkds("Trend", pts.map(p => p.trend_score), "#e67e22"),
-            mkds("Volumen", pts.map(p => p.vol_score), "#9b59b6"),
-            mkds("Gesamt", pts.map(p => p.score), "#e6e9ef", 3),
-          ],
-        },
+        data: { labels, datasets: [
+          mkds("RSI", pts.map(p => p.rsi_score), "#4f8cff"),
+          mkds("MACD", pts.map(p => p.macd_score), "#2ecc71"),
+          mkds("Trend", pts.map(p => p.trend_score), "#e67e22"),
+          mkds("Volumen", pts.map(p => p.vol_score), "#9b59b6"),
+          mkds("Gesamt", pts.map(p => p.score), "#e6e9ef", 3) ] },
         options: {
           layout: { padding: { top: 8, right: 8, bottom: 2, left: 2 } },
           plugins: { legend: { labels: { color: "#e6e9ef", boxWidth: 14, padding: 12 } } },
-          scales: {
-            x: { ticks: { color: "#8a93a6", maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-            y: { min: 0, max: 100, ticks: { color: "#8a93a6", stepSize: 20 }, grid: { color: "#222a3a" } }
-          }
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
+                    y: { min: 0, max: 100, ticks: { stepSize: 20 }, grid: { color: "#222a3a" } } }
         }
       });
     }
-
-    // Klick auf eine aktive Trade-Zeile → Detail-Analyse (Event-Delegation)
     document.addEventListener("click", (e) => {
       const row = e.target.closest("tr.clickable[data-ticker]");
       if (row) openAnalysis(row.dataset.ticker);
     });
     document.getElementById("modalClose").addEventListener("click", closeModal);
-    document.getElementById("modal").addEventListener("click", (e) => {
-      if (e.target.id === "modal") closeModal();
-    });
+    document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
-    // „Kursverlauf heute"-Dropdown: gewählten Trade anzeigen
-    document.getElementById("priceTicker").addEventListener("change", (e) => {
-      currentPriceTicker = e.target.value;
-      const s = intradaySeries.find(x => x.ticker === currentPriceTicker);
-      if (s) renderPriceChart(s);
-    });
-
-    load();
+    // ── Start ───────────────────────────────────────────────────────────────
+    updatePill();
+    load(true);
   </script>
 {% endblock %}
