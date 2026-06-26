@@ -68,11 +68,10 @@ def _user_regions(user: dict) -> list[str]:
 
 def _stock_tickers(user: dict) -> list[str]:
     """Aktien-Universum des Nutzers: alle gewählten Regionen, dedupliziert.
-    Respektiert den Voll-Universum-Schalter (auto_universe)."""
-    auto = (user or {}).get("auto_universe", config.DEFAULT_AUTO_UNIVERSE)
+    Es wird immer das volle Universum genutzt — der kleine Pool wurde abgeschafft."""
     seen: dict[str, None] = {}
     for region in _user_regions(user):
-        for t in universes.get_tickers(region, auto=auto):
+        for t in universes.get_tickers(region, auto=True):
             seen.setdefault(t, None)
     return list(seen)
 
