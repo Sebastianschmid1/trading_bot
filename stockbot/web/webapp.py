@@ -280,9 +280,13 @@ def _execute_broker_close_for_web(user: dict, trade: dict) -> dict:
 
 
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
+    if user and user.get("broker_exec"):
+        trade_mode = "paper" if config.ALPACA_PAPER else "live"
+    else:
+        trade_mode = "demo"
     return templates.TemplateResponse(request, name, {
         "user": user, "active": active, "msg": msg,
-        "is_admin": _is_admin(user),
+        "is_admin": _is_admin(user), "trade_mode": trade_mode,
         "unread": db.unread_count(user["user_id"]) if user else 0, **ctx,
     })
 

@@ -19,8 +19,9 @@
               letter-spacing:.05em; padding:.34rem .8rem; border-radius:.55rem; border:1px solid;
               box-shadow: inset 0 2px 6px rgba(0,0,0,.5); }
   .modepill .dot { width:.5rem; height:.5rem; border-radius:50%; background:currentColor; box-shadow:0 0 7px currentColor; }
-  .modepill.demo { background:#3a2a08; color:#ffc24d; border-color:#7a5a16; }
-  .modepill.live { background:#0c2f1c; color:#46e08a; border-color:#1c6b41; }
+  .modepill.demo  { background:#3a2a08; color:#ffc24d; border-color:#7a5a16; }
+  .modepill.paper { background:#0c2236; color:#5cc0ff; border-color:#1c4a6b; }
+  .modepill.live  { background:#3a0c0c; color:#ff6b6b; border-color:#7a1c1c; }
   .dir { font-size:.72rem; font-weight:700; padding:.12rem .45rem; border-radius:.4rem; letter-spacing:.03em; }
   .dir.long { background:rgba(46,204,113,.16); color:var(--green); }
   .dir.short { background:rgba(231,76,60,.16); color:var(--red); }
@@ -61,8 +62,10 @@
     <a href="/app/dashboard" class="{{ 'active' if active=='dashboard' }}">Dashboard</a>
   </nav>
   <span class="spacer"></span>
-  {% if user.broker_exec %}
-  <span class="modepill live" title="Echte Broker-Order aktiv — Trades werden an Alpaca übermittelt"><span class="dot"></span>AKTIV</span>
+  {% if trade_mode == 'live' %}
+  <span class="modepill live" title="Echtgeld — Orders werden mit echtem Kapital an Alpaca übermittelt"><span class="dot"></span>LIVE</span>
+  {% elif trade_mode == 'paper' %}
+  <span class="modepill paper" title="Broker-Order an Alpaca, aber im Papermodus (kein echtes Geld)"><span class="dot"></span>PAPER</span>
   {% else %}
   <span class="modepill demo" title="Demo-Modus — Trades werden nur simuliert"><span class="dot"></span>DEMO</span>
   {% endif %}
