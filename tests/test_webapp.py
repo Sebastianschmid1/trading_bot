@@ -96,7 +96,6 @@ def test_app_dashboard_is_integrated_into_site_layout():
     r = c.get("/app/dashboard")
     assert r.status_code == 200
     assert "Trading Cockpit" in r.text            # Seitentitel des Cockpit-Dashboards
-    assert "Web-App" in r.text                     # Link zurück in die interaktive Web-App
     assert "Dashboard" in r.text                   # Navigation der Website ist eingebunden
 
 

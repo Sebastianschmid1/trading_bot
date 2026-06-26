@@ -15,9 +15,15 @@
   nav a { color:var(--fg); text-decoration:none; padding:.35rem .6rem; border-radius:.5rem; font-size:.92rem; }
   nav a:hover, nav a.active { background:var(--panel2); }
   .badge { background:var(--red); color:#fff; border-radius:1rem; padding:0 .4rem; font-size:.72rem; margin-left:.2rem; }
-  .demo-badge { background:linear-gradient(135deg,#ffb020,#ff8a00); color:#1a1200; font-weight:700;
-                font-size:.78rem; letter-spacing:.04em; padding:.3rem .7rem; border-radius:.5rem;
-                border:1px solid #ffd27a; box-shadow:0 0 0 1px rgba(255,178,32,.25); }
+  .modepill { display:inline-flex; align-items:center; gap:.4rem; font-weight:700; font-size:.78rem;
+              letter-spacing:.05em; padding:.34rem .8rem; border-radius:.55rem; border:1px solid;
+              box-shadow: inset 0 2px 6px rgba(0,0,0,.5); }
+  .modepill .dot { width:.5rem; height:.5rem; border-radius:50%; background:currentColor; box-shadow:0 0 7px currentColor; }
+  .modepill.demo { background:#3a2a08; color:#ffc24d; border-color:#7a5a16; }
+  .modepill.live { background:#0c2f1c; color:#46e08a; border-color:#1c6b41; }
+  .dir { font-size:.72rem; font-weight:700; padding:.12rem .45rem; border-radius:.4rem; letter-spacing:.03em; }
+  .dir.long { background:rgba(46,204,113,.16); color:var(--green); }
+  .dir.short { background:rgba(231,76,60,.16); color:var(--red); }
   main { max-width:880px; margin:0 auto; padding:1rem; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:.8rem; padding:1rem; margin:.7rem 0; }
   .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
@@ -55,7 +61,11 @@
     <a href="/app/dashboard" class="{{ 'active' if active=='dashboard' }}">Dashboard</a>
   </nav>
   <span class="spacer"></span>
-  {% if not user.broker_exec %}<span class="demo-badge" title="Echte Broker-Order ist deaktiviert — Trades sind nur simuliert">DEMO</span>{% endif %}
+  {% if user.broker_exec %}
+  <span class="modepill live" title="Echte Broker-Order aktiv — Trades werden an Alpaca übermittelt"><span class="dot"></span>AKTIV</span>
+  {% else %}
+  <span class="modepill demo" title="Demo-Modus — Trades werden nur simuliert"><span class="dot"></span>DEMO</span>
+  {% endif %}
   <span class="muted">{{ user.username or user.user_id }}</span>
   <form class="inline" method="post" action="/logout"><button>Logout</button></form>
 </header>
