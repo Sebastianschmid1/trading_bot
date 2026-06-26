@@ -153,7 +153,6 @@
     <button id="btnRefresh" class="iconbtn" title="Jetzt aktualisieren">⟳</button>
     <span class="grow"></span>
     <span class="meta" id="generated"></span>
-    <a id="appLink" class="applink" href="#">➡ Web-App</a>
   </div>
 
   <!-- KPI-Hero -->
@@ -287,7 +286,6 @@
     });
 
     const token = {{ dashboard_token|tojson }};
-    document.getElementById("appLink").href = {{ dashboard_app_url|tojson }};
     const REFRESH_SEC = 30;
     const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
