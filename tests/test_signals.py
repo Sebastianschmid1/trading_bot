@@ -301,6 +301,41 @@ def test_merge_ranked_ignores_none_lists_and_tickerless_entries():
     assert [s["ticker"] for s in merged] == ["T"]
 
 
+# ── Auto-Accept: still kaufen + EIN Tagesreport nach Börsenschluss ───────────
+
+def test_auto_accept_is_silent_and_sends_one_daily_report():
+    fresh_db()
+    db.get_or_create_user(CHAT, "u")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_auto_accept(CHAT, True)
+
+    o_open, o_eval = bot._us_market_open, bot.evaluate_trades
+    bot._us_market_open = lambda extended=None: True
+    try:
+        # 1) Auto-Accept-Kauf: KEINE Einzelmeldung, Trade wird aber aktiv angelegt
+        b = fake_bot()
+        sent = asyncio.run(bot.send_signal(b, CHAT, make_signal("NVDA", 100.0), 25.0,
+                                           market_open=True, auto_accept=True))
+        assert sent is True
+        assert b.send_message.await_count == 0
+        assert db.get_trade(CHAT, "NVDA")["status"] == "active"
+
+        # 2) Börsenschluss: GENAU eine gebündelte Report-Nachricht (gekauft + verkauft)
+        bot.evaluate_trades = lambda trades, size: [
+            {"ticker": t["ticker"], "entry": t["entry"], "exit": 105.0,
+             "pnl_eur": 1.25, "pnl_pct": 5.0, "exit_reason": "Schlusskurs"} for t in trades]
+        ctx = MagicMock()
+        ctx.bot = fake_bot()
+        asyncio.run(bot.close_and_evaluate(ctx))
+        assert ctx.bot.send_message.await_count == 1
+        text = ctx.bot.send_message.await_args.kwargs["text"]
+        assert "Tagesreport" in text
+        assert "Gekauft (1)" in text and "Verkauft (1)" in text
+        assert "NVDA" in text
+    finally:
+        bot._us_market_open, bot.evaluate_trades = o_open, o_eval
+
+
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────
 
 if __name__ == "__main__":
