@@ -103,7 +103,6 @@ def test_new_website_element_aliases_redirect_to_app_routes():
     fresh()
     c = _client()
     for plain, app_path in [
-        ("/algorithms", "/app/algorithms"),
         ("/backtest", "/app/backtest"),
         ("/reports", "/app/reports"),
         ("/dashboard", "/app/dashboard"),
@@ -286,33 +285,6 @@ def test_lev_via_web():
     c = _client()
     c.post("/app/lev", data={"ticker": "NVDA", "leverage": "3"}, follow_redirects=False)
     assert db.get_trade(CHAT, "NVDA")["signal"]["leverage"] == 3.0
-
-
-def test_algorithm_editor_search_and_save_updates_live_params():
-    fresh()
-    c = _client()
-    r = c.get("/app/algorithms?q=high52")
-    assert r.status_code == 200
-    assert "high52_wide" in r.text
-
-    assert strategies.strategy_runtime_params("high52").get("tol") == 0.98
-    r = c.post(
-        "/app/algorithms/save",
-        data={
-            "key": "high52",
-            "label": "Momentum 52W-Hoch (streng)",
-            "description": "Editor-Test",
-            "params_json": '{"tol": 0.5, "sl_mult": 1.0, "tp_mult": 2.0}',
-            "q": "high52",
-            "enabled": "on",
-        },
-        follow_redirects=False,
-    )
-    assert r.status_code == 200
-    cfg = db.get_strategy_config("high52")
-    assert cfg and cfg["params"]["tol"] == 0.5
-    assert strategies.strategy_runtime_params("high52")["tol"] == 0.5
-    assert strategies.high52_signal("TEST", {"1d": _trend_df()}) is not None
 
 
 def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):
@@ -602,9 +574,9 @@ def _write_reports(d):
                                       encoding="utf-8")
 
 
-def test_backtest_tab_offers_trading_data_export():
+def test_reports_tab_offers_trading_data_export():
     fresh()
-    r = _client().get("/app/backtest")
+    r = _client().get("/app/reports")
     assert r.status_code == 200
     assert "Trading-Daten" in r.text and "exportieren" in r.text
     assert "/app/backtest/export?format=csv" in r.text
@@ -727,16 +699,6 @@ def test_signal_card_window_is_optional():
 
 
 # ── Mitteilungen ────────────────────────────────────────────────────────────
-
-def test_notifications_page_and_mark_read():
-    fresh()
-    db.add_notification(CHAT, "Neues Signal", "NVDA", "signal")
-    assert db.unread_count(CHAT) == 1
-    c = _client()
-    r = c.get("/app/notifications")
-    assert r.status_code == 200 and "Neues Signal" in r.text
-    assert db.unread_count(CHAT) == 0          # Aufruf markiert als gelesen
-
 
 def test_notify_service_respects_channel():
     fresh()

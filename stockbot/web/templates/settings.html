@@ -96,6 +96,29 @@
 </div>
 
 <div class="card">
+  <h2>Alpaca-Verbindung (Broker)</h2>
+  <p class="muted">
+    {% if has_alpaca %}✅ API-Zugangsdaten hinterlegt. Damit lässt sich oben „Echte Broker-Order" aktivieren.
+    {% else %}Noch keine Zugangsdaten. Trag deinen Alpaca API-Key &amp; Secret ein, um echte Orders zu ermöglichen.
+    {% endif %}
+    Die Daten werden verschlüsselt gespeichert. Paper/Live richtet sich nach der Server-Einstellung <code>ALPACA_PAPER</code>.
+  </p>
+  <form method="post" action="/app/settings/alpaca" autocomplete="off">
+    <div class="row" style="margin:.3rem 0">
+      <input type="text" name="api_key" placeholder="API-Key" style="min-width:240px" autocomplete="off">
+      <input type="password" name="api_secret" placeholder="API-Secret" style="min-width:240px" autocomplete="new-password">
+      <button class="green">Speichern</button>
+    </div>
+  </form>
+  {% if has_alpaca %}
+  <form class="inline" method="post" action="/app/settings/alpaca/clear"
+        onsubmit="return confirm('Alpaca-Verbindung wirklich entfernen? Echte Broker-Order wird dabei deaktiviert.');">
+    <button class="red">Verbindung entfernen</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Sicherheit</h2>
   <p class="muted">Meldet dich auf allen Geräten/Browsern ab (beendet alle aktiven Sitzungen).</p>
   <form class="inline" method="post" action="/logout/all">

@@ -1,7 +1,7 @@
 """
 Interaktive Website (Phase 1–2): Login, Signal-Feed (Annehmen/Ablehnen/Hebel), Einstellungen,
-Watchlist, In-App-Mitteilungen (mit SSE-Live-Feed). Läuft parallel zum Telegram-Bot — beide
-nutzen dieselbe DB und dieselbe Service-Schicht (stockbot/services/*).
+Watchlist, Reports/Backtest. Läuft parallel zum Telegram-Bot — beide nutzen dieselbe DB und
+dieselbe Service-Schicht (stockbot/services/*).
 
 Wird als Router in stockbot/web/dashboard.py eingehängt (ein Server für Dashboard + App).
 """
@@ -11,12 +11,11 @@ import json
 import time
 import csv
 import io
-import asyncio
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
@@ -286,8 +285,7 @@ def _render(name: str, request: Request, user: dict, active: str = "", msg: str 
         trade_mode = "demo"
     return templates.TemplateResponse(request, name, {
         "user": user, "active": active, "msg": msg,
-        "is_admin": _is_admin(user), "trade_mode": trade_mode,
-        "unread": db.unread_count(user["user_id"]) if user else 0, **ctx,
+        "is_admin": _is_admin(user), "trade_mode": trade_mode, **ctx,
     })
 
 
@@ -609,16 +607,13 @@ def app_settings(request: Request, msg: str = ""):
         return _redirect("/login")
     toggles = [
         ("set_auto", "Auto-Accept (Signale automatisch starten)", user["auto_accept"]),
-        ("set_uni", "Voll-Universum (große Aktienliste)", user["auto_universe"]),
-        ("set_llm", "KI-Ranking (Claude Haiku)", user["llm_rank"]),
         ("set_eod", "Tagesende-Schließung", user["eod_close"]),
-        ("set_window", "15-Min-Annahmefenster (aus = dauerhaft annehmbar)", user.get("signal_window")),
     ]
     if _alpaca_ready(user):
         toggles.append(("set_broker", "Echte Broker-Order (Alpaca)", user["broker_exec"]))
     return _render("settings.html", request, user, active="settings", msg=msg,
                    universes=config.REGION_LABELS, sl_tp_modes=list(config.SL_TP_MODES),
-                   leverages=config.LEVERAGE_CHOICES,
+                   leverages=config.LEVERAGE_CHOICES, has_alpaca=db.has_alpaca_credentials(user["user_id"]),
                    strategies=strategies.all_strategies(), toggles=toggles)
 
 
@@ -639,6 +634,28 @@ def app_settings_notify(request: Request, value: str = Form(...)):
         return _redirect("/login")
     db.set_notify_channel(user["user_id"], value)
     return _redirect("/app/settings?msg=Benachrichtigungen+aktualisiert.")
+
+
+@router.post("/app/settings/alpaca")
+def app_settings_alpaca(request: Request, api_key: str = Form(""), api_secret: str = Form("")):
+    """Speichert oder löscht die Alpaca-API-Zugangsdaten des Nutzers (verschlüsselt in der DB)."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    key, secret = api_key.strip(), api_secret.strip()
+    if not key or not secret:
+        return _redirect("/app/settings?msg=Bitte+API-Key+und+Secret+angeben.")
+    db.set_alpaca_credentials(user["user_id"], key, secret)
+    return _redirect("/app/settings?msg=Alpaca-Zugangsdaten+gespeichert.")
+
+
+@router.post("/app/settings/alpaca/clear")
+def app_settings_alpaca_clear(request: Request):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    db.clear_alpaca_credentials(user["user_id"])
+    return _redirect("/app/settings?msg=Alpaca-Verbindung+entfernt.")
 
 
 @router.post("/app/reset")
@@ -704,37 +721,6 @@ def app_watchlist_remove(request: Request, symbol: str = Form(...)):
 
 # ── Mitteilungen (In-App + SSE-Live-Feed) ────────────────────────────────────
 
-@router.get("/app/notifications", response_class=HTMLResponse)
-def app_notifications(request: Request):
-    user = auth.current_user(request)
-    if not user:
-        return _redirect("/login")
-    items = db.get_notifications(user["user_id"], limit=50)
-    db.mark_notifications_read(user["user_id"])
-    return _render("notifications.html", request, user, active="notifications", items=items)
-
-
-@router.get("/app/stream")
-async def app_stream(request: Request):
-    """Server-Sent-Events: schickt neu hinzukommende Mitteilungen live an den Browser."""
-    user = auth.current_user(request)
-    if not user:
-        return _redirect("/login")
-    uid = user["user_id"]
-
-    async def gen():
-        last = db.get_notifications(uid, limit=1)
-        last_id = last[0]["id"] if last else 0
-        while not await request.is_disconnected():
-            items = [n for n in db.get_notifications(uid, limit=20) if n["id"] > last_id]
-            for n in reversed(items):                       # älteste zuerst senden
-                last_id = max(last_id, n["id"])
-                yield f"data: {json.dumps(n, ensure_ascii=False)}\n\n"
-            await asyncio.sleep(3)
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
-
-
 # ── Reports (Backtest-Sweeps: Strategie / SL-TP-Modus / Hebel) ───────────────
 
 def _load_report(name: str) -> dict | None:
@@ -794,43 +780,7 @@ def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str
                          "start": eq.get("start"), "end": eq.get("end")})
 
 
-# ── Strategie-Editor / Suche / Backtest-Editor ───────────────────────────────
-
-@router.get("/app/algorithms", response_class=HTMLResponse)
-def app_algorithms(request: Request, q: str = ""):
-    user = auth.current_user(request)
-    if not user:
-        return _redirect("/login")
-    catalog = _strategy_catalog(q)
-    return _render("algorithms.html", request, user, active="algorithms", q=q, catalog=catalog)
-
-
-@router.post("/app/algorithms/save", response_class=HTMLResponse)
-def app_algorithms_save(request: Request,
-                        key: str = Form(...),
-                        label: str = Form(...),
-                        description: str = Form(""),
-                        params_json: str = Form("{}"),
-                        q: str = Form(""),
-                        enabled: str = Form("on")):
-    user = auth.current_user(request)
-    if not user:
-        return _redirect("/login")
-    try:
-        params = json.loads(params_json or "{}") if params_json.strip() else {}
-        if not isinstance(params, dict):
-            raise ValueError("params_json must be an object")
-    except Exception as e:
-        return _render("algorithms.html", request, user, active="algorithms", q=q,
-                       catalog=_strategy_catalog(q),
-                       msg=f"Ungültiges JSON für {key}: {e}")
-    cfg = db.upsert_strategy_config(key, label.strip() or key, description.strip(), params=params,
-                                    enabled=(enabled == "on"))
-    strategies.refresh_strategy_overrides_cache()
-    return _render("algorithms.html", request, user, active="algorithms", q=q,
-                   catalog=_strategy_catalog(q),
-                   msg=f"{cfg['label']} gespeichert.")
-
+# ── Trade-Daten-Export ────────────────────────────────────────────────────────
 
 EXPORT_FIELDS = [
     "ticker", "direction", "status", "trade_date", "created_at",
@@ -1036,11 +986,6 @@ async def app_backtest_run(request: Request,
                                          ticker_list or None, years, trade_size, allow_short)
     return _render("backtest.html", request, user, active="backtest", q=q, mode=mode,
                    catalog=catalog, selected=selected, compare_results=None, result=result, form=form)
-
-
-@router.get("/algorithms")
-def app_algorithms_alias():
-    return _redirect("/app/algorithms")
 
 
 @router.get("/backtest")

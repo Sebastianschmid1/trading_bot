@@ -300,7 +300,10 @@ SMARTMONEY_W_SMART = 0.5           # Gewicht des Smart-Money-Scores beim /signal
 # API-Key NUR aus .env (gitignored) — niemals committen/loggen.
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 LLM_MODEL         = "claude-haiku-4-5"      # exakt — kein Datum-Suffix
-LLM_RANK_ENABLED  = bool(ANTHROPIC_API_KEY)  # global aktiv, sobald ein Key vorhanden ist
+# KI-Signal-Ranking standardmäßig AUS — im Dauerbetrieb zu teuer. Bei Bedarf per
+# LLM_RANK_SIGNALS=true (in .env) reaktivierbar; benötigt zusätzlich einen ANTHROPIC_API_KEY.
+LLM_RANK_ENABLED  = bool(ANTHROPIC_API_KEY) and \
+    os.getenv("LLM_RANK_SIGNALS", "false").strip().lower() in ("1", "true", "yes")
 LLM_MAX_SIGNALS   = 8                        # Obergrenze Signale pro LLM-Anfrage (Kosten)
 
 # ── Alpaca (Trading API — eigenes Konto) ─────────────────────────────────────

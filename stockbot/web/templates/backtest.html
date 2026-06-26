@@ -14,50 +14,6 @@
 </div>
 
 <div class="card">
-  <h2>Trading-Daten &amp; Logs exportieren</h2>
-  <p class="muted">Lade deine echten Bot-Trades für eigene Analysen herunter — inkl. Status, P&L,
-    Signalstärke, Hebel, SL/TP, Broker-Feldern und <b>Status-Dauern</b> (wie lange jeder Trade
-    pending/aktiv war, Zeit bis zum Fill, Haltedauer). „Status-Events" listet jeden einzelnen
-    Statuswechsel mit Dauer.</p>
-
-  <div class="row" style="margin-top:.6rem; gap:.6rem; align-items:flex-end;">
-    <label>Von<br><input type="date" id="exp-from"></label>
-    <label>Bis<br><input type="date" id="exp-to"></label>
-    <span class="muted">Leer = gesamter Zeitraum.</span>
-  </div>
-
-  <div class="row" style="margin-top:.7rem; gap:.5rem; flex-wrap:wrap;">
-    <a class="btn green" id="dl-trades-csv" href="/app/backtest/export?format=csv">Trades CSV</a>
-    <a class="btn" id="dl-trades-json" href="/app/backtest/export?format=json">Trades JSON</a>
-    <a class="btn" id="dl-events-csv" href="/app/backtest/export?kind=events&format=csv">Status-Events CSV</a>
-    {% if is_admin %}
-    <a class="btn" id="dl-logs" href="/app/export/logs" title="Nur Admin — enthält Aktivität aller Nutzer">Logs herunterladen</a>
-    {% endif %}
-  </div>
-
-  <script>
-    // Datumsfelder an die Download-Links hängen (?from=&to=), ohne Server-Roundtrip.
-    (function () {
-      var f = document.getElementById("exp-from"), t = document.getElementById("exp-to");
-      var links = ["dl-trades-csv", "dl-trades-json", "dl-events-csv", "dl-logs"]
-        .map(function (id) { return document.getElementById(id); }).filter(Boolean);
-      var base = {};
-      links.forEach(function (a) { base[a.id] = a.getAttribute("href"); });
-      function sync() {
-        links.forEach(function (a) {
-          var url = base[a.id];
-          if (f.value) url += (url.indexOf("?") < 0 ? "?" : "&") + "from=" + f.value;
-          if (t.value) url += (url.indexOf("?") < 0 ? "?" : "&") + "to=" + t.value;
-          a.setAttribute("href", url);
-        });
-      }
-      f.addEventListener("change", sync);
-      t.addEventListener("change", sync);
-    })();
-  </script>
-</div>
-
-<div class="card">
   <form method="post" action="/app/backtest">
     <input type="hidden" name="q" value="{{ q or '' }}">
     <div class="row">
