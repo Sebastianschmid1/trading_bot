@@ -15,6 +15,9 @@
   nav a { color:var(--fg); text-decoration:none; padding:.35rem .6rem; border-radius:.5rem; font-size:.92rem; }
   nav a:hover, nav a.active { background:var(--panel2); }
   .badge { background:var(--red); color:#fff; border-radius:1rem; padding:0 .4rem; font-size:.72rem; margin-left:.2rem; }
+  .demo-badge { background:linear-gradient(135deg,#ffb020,#ff8a00); color:#1a1200; font-weight:700;
+                font-size:.78rem; letter-spacing:.04em; padding:.3rem .7rem; border-radius:.5rem;
+                border:1px solid #ffd27a; box-shadow:0 0 0 1px rgba(255,178,32,.25); }
   main { max-width:880px; margin:0 auto; padding:1rem; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:.8rem; padding:1rem; margin:.7rem 0; }
   .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
@@ -52,6 +55,7 @@
     <a href="/app/dashboard" class="{{ 'active' if active=='dashboard' }}">Dashboard</a>
   </nav>
   <span class="spacer"></span>
+  {% if not user.broker_exec %}<span class="demo-badge" title="Echte Broker-Order ist deaktiviert — Trades sind nur simuliert">DEMO</span>{% endif %}
   <span class="muted">{{ user.username or user.user_id }}</span>
   <form class="inline" method="post" action="/logout"><button>Logout</button></form>
 </header>

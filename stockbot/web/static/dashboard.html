@@ -91,9 +91,6 @@
     <header>
       <h1>📊 Trading Dashboard <small id="user"></small></h1>
       <div class="meta" id="generated"></div>
-      <a id="appLink" href="#" style="display:inline-block;margin-top:.4rem;padding:.35rem .7rem;
-         border-radius:.5rem;background:#4f8cff;color:#04122e;font-weight:600;text-decoration:none">
-        ➡ Zur Web-App (Signale annehmen, Einstellungen)</a>
     </header>
 
     <div id="tabs" class="tabs"></div>
@@ -150,7 +147,6 @@
   <script>
     Chart.defaults.maintainAspectRatio = false;   // Charts füllen die CSS-Höhe → lesbar
     const token = window.location.pathname.split("/").filter(Boolean).pop();
-    document.getElementById("appLink").href = "/auth/token?token=" + encodeURIComponent(token);
     const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
     const cls = (n) => n >= 0 ? "green" : "red";
     let currentStrategy = "";   // "" = Alle
