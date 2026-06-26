@@ -70,7 +70,8 @@
 <div class="card">
   <div class="row">
     <strong>{{ s.ticker }}</strong>
-    <span class="muted">{{ s.direction|upper }} · Stärke {{ '%.0f'|format(s.strength or 0) }}/100 · {{ '%.1f'|format(s.leverage) }}×</span>
+    <span class="dir {{ 'long' if s.direction == 'long' else 'short' }}">{{ s.direction|upper }}</span>
+    <span class="muted">Stärke {{ '%.0f'|format(s.strength or 0) }}/100 · {{ '%.1f'|format(s.leverage) }}×</span>
     <span class="spacer"></span>
     <span class="muted">${{ '%.2f'|format(s.price) }}</span>
   </div>
@@ -99,36 +100,19 @@
 </div>
 {% endfor %}
 
-<h2>Offene Trades als Tabelle ({{ pending_trade_rows|length }})</h2>
-{% if pending_trade_rows %}
-<div class="card" style="overflow-x:auto">
-  <table style="width:100%; border-collapse:collapse">
-    <thead>
-      <tr style="text-align:left; border-bottom:1px solid #2a3342">
-        <th style="padding:.35rem .5rem">Status</th>
-        <th style="padding:.35rem .5rem">Ticker</th>
-        <th style="padding:.35rem .5rem">Richtung</th>
-        <th style="padding:.35rem .5rem">Preis/Einstieg</th>
-        <th style="padding:.35rem .5rem">Hebel</th>
-        <th style="padding:.35rem .5rem">Broker</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in pending_trade_rows %}
-      <tr style="border-bottom:1px solid #202634">
-        <td style="padding:.35rem .5rem">{{ t.status_text or t.status }}</td>
-        <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
-        <td style="padding:.35rem .5rem">{{ t.direction|upper }}</td>
-        <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.price) }}</td>
-        <td style="padding:.35rem .5rem">{{ '%.1f'|format(t.leverage) }}×</td>
-        <td style="padding:.35rem .5rem">{{ t.broker_text or t.broker_status or '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if broker_pending %}
+<h2>Broker-Order wartet ({{ broker_pending|length }})</h2>
+{% for t in broker_pending %}
+<div class="card">
+  <div class="row">
+    <strong>{{ t.ticker }}</strong>
+    <span class="dir {{ 'long' if t.direction == 'long' else 'short' }}">{{ t.direction|upper }}</span>
+    <span class="muted">Einstieg ${{ '%.2f'|format(t.entry) }} · {{ '%.1f'|format(t.leverage) }}×</span>
+    <span class="spacer"></span>
+    <span class="muted">⏳ {{ t.status_text }}</span>
+  </div>
 </div>
-{% else %}
-<p class="muted">Keine offenen Trades.</p>
+{% endfor %}
 {% endif %}
 
 <h2>Offene Verkäufe / Broker-Close ({{ broker_closing|length }})</h2>
@@ -163,7 +147,7 @@
 <p class="muted">Keine laufenden Verkaufsorders.</p>
 {% endif %}
 
-<h2>Aktive Demo-Trades ({{ active_trades|length }})</h2>
+<h2>Aktive Trades ({{ active_trades|length }})</h2>
 <div class="row" style="margin:.2rem 0 .6rem; gap:.3rem">
   <span class="muted">Filter:</span>
   <a class="btn {{ 'on' if not trade_filter }}" href="/app">Alle</a>
@@ -176,6 +160,7 @@
 <div class="card">
   <div class="row">
     <strong>{{ t.ticker }}</strong>
+    <span class="dir {{ 'long' if t.direction == 'long' else 'short' }}">{{ t.direction|upper }}</span>
     <span class="muted">{{ t.asset_label }} · Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell ${{ '%.2f'|format(t.current) }} · {{ '%.1f'|format(t.leverage) }}×</span>
     <span class="spacer"></span>
     <span class="{{ 'pos' if t.pnl_eur >= 0 else 'neg' }}">
