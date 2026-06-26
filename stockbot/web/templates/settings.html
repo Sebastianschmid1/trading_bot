@@ -5,7 +5,7 @@
 <p class="muted">Änderungen gelten sofort — auch im Telegram-Bot (gemeinsamer Account).</p>
 
 <div class="card">
-  <h2>Demo-Trade-Größe</h2>
+  <h2>Trade-Größe</h2>
   <form class="row" method="post" action="/app/settings/set">
     <input type="hidden" name="action" value="set_size">
     <input type="number" name="value" min="1" step="1" value="{{ '%.0f'|format(user.trade_size_eur) }}">
