@@ -75,8 +75,22 @@
   à {{ '{:,.0f}'.format(matrix.trade_size_usd) }} USD; ist das Budget belegt, werden neue Signale übersprungen.
   Rendite = P&amp;L ÷ {{ '{:,.0f}'.format(matrix.start_capital_usd) }} USD. Demo, Tages-Timeframe, ohne Gebühren/Slippage. „∞" = kein Verlust.</p>
 
+{% if report_years %}
+<div class="filters" style="margin:.4rem 0 1rem">
+  <fieldset>
+    <legend>Zeitraum</legend>
+    {% for y in report_years %}
+    <a class="chip {{ 'on' if y == sel_years }}" href="/app/reports?years={{ y }}"
+       style="text-decoration:none; {{ 'background:var(--blue); color:#04122e; font-weight:600; border-color:var(--blue);' if y == sel_years }}">
+      {{ y }} {{ 'Jahr' if y == 1 else 'Jahre' }}</a>
+    {% endfor %}
+    <span class="muted" style="margin-left:.4rem">Backtest-Fenster für alle Tabellen unten.</span>
+  </fieldset>
+</div>
+{% endif %}
+
 {% if strategies %}
-<h2>Overall View <span class="muted">(Kapitalpool {{ '{:,.0f}'.format(strategies.start_capital_usd) }}$, native SL/TP, Hebel 1)</span></h2>
+<h2>Overall View <span class="muted">(Kapitalpool {{ '{:,.0f}'.format(strategies.start_capital_usd) }}$, native SL/TP, Hebel 1, {{ sel_years }} Jahre)</span></h2>
 <div class="scroll">
 <table>
   <tr>
@@ -104,6 +118,7 @@
 
 <h2>Matrix — Strategie × Hebel × SL/TP-Modus</h2>
 <form class="card filters" method="get" action="/app/reports">
+  <input type="hidden" name="years" value="{{ sel_years }}">
   <fieldset>
     <legend>Strategien</legend>
     {% for o in strat_options %}
@@ -246,7 +261,7 @@
         'Depotentwicklung: ' + tr.cells[0].textContent.trim() + ' · ' + l + '× · ' + m;
       panel.style.display = 'block';
       document.getElementById('equitySvg').innerHTML = '';
-      fetch('/app/reports/equity?key=' + encodeURIComponent(k) + '&lev=' + encodeURIComponent(l) + '&mode=' + encodeURIComponent(m))
+      fetch('/app/reports/equity?years={{ sel_years }}&key=' + encodeURIComponent(k) + '&lev=' + encodeURIComponent(l) + '&mode=' + encodeURIComponent(m))
         .then(function (r) { return r.json(); })
         .then(function (d) { drawEquity(d); panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); })
         .catch(function () { document.getElementById('equitySvg').innerHTML = '<text x="12" y="20" fill="#e74c3c" font-size="12">Fehler beim Laden.</text>'; });

@@ -723,25 +723,41 @@ def app_watchlist_remove(request: Request, symbol: str = Form(...)):
 
 # ── Reports (Backtest-Sweeps: Strategie / SL-TP-Modus / Hebel) ───────────────
 
-def _load_report(name: str) -> dict | None:
+# Verfügbare Report-Zeiträume (je eigener Backtest-Sweep, Dateien data/reports/<name>_<Y>y.json).
+# 15 Jahre folgt später (Sweep dauert ~3–4 h) → dann hier 15 ergänzen.
+REPORT_YEARS = [1, 3, 5, 8]
+DEFAULT_REPORT_YEARS = 5
+
+
+def _load_report(name: str, years: int | None = None) -> dict | None:
+    """Lädt einen Report — bevorzugt die Jahres-Variante (<name>_<Y>y.json),
+    sonst die Legacy-Datei ohne Jahr-Suffix (<name>.json)."""
     from stockbot.paths import REPORTS_DIR
-    path = REPORTS_DIR / f"{name}.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    candidates = []
+    if years is not None:
+        candidates.append(REPORTS_DIR / f"{name}_{years}y.json")
+    candidates.append(REPORTS_DIR / f"{name}.json")
+    for path in candidates:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return None
 
 
 @router.get("/app/reports", response_class=HTMLResponse)
 def app_reports(request: Request,
+                years: int = Query(default=DEFAULT_REPORT_YEARS),
                 strat: list[str] = Query(default=[]),
                 lev: list[str] = Query(default=[]),
                 mode: list[str] = Query(default=[])):
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
-    strategies = _load_report("strategies")
-    matrix = _load_report("matrix")
+    if years not in REPORT_YEARS:
+        years = DEFAULT_REPORT_YEARS
+    strategies = _load_report("strategies", years)
+    matrix = _load_report("matrix", years)
 
     strat_options = (matrix or {}).get("strategies") or \
         [{"key": r["key"], "label": r["label"]} for r in (strategies or {}).get("rows", [])]
@@ -762,16 +778,18 @@ def app_reports(request: Request,
     return _render("reports.html", request, user, active="reports",
                    strategies=strategies, matrix=matrix, rows=rows,
                    strat_options=strat_options, lev_options=lev_options, mode_options=mode_options,
-                   sel_strat=sel_strat, sel_lev=sel_lev, sel_mode=sel_mode)
+                   sel_strat=sel_strat, sel_lev=sel_lev, sel_mode=sel_mode,
+                   report_years=REPORT_YEARS, sel_years=years)
 
 
 @router.get("/app/reports/equity")
-def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str = ""):
+def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str = "",
+                       years: int = DEFAULT_REPORT_YEARS):
     """Depot-Equity-Kurve einer Matrix-Kombination (für den Klick-auf-Zeile-Chart)."""
     user = auth.current_user(request)
     if not user:
         return JSONResponse({"error": "auth"}, status_code=401)
-    eq = _load_report("equity") or {}
+    eq = _load_report("equity", years if years in REPORT_YEARS else DEFAULT_REPORT_YEARS) or {}
     curve = (eq.get("curves") or {}).get(f"{key}|{lev}|{mode}")
     if curve is None:
         return JSONResponse({"error": "not_found", "points": []}, status_code=404)

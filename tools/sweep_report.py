@@ -281,7 +281,7 @@ def main():
     reports = collect(args.region, args.years, args.limit, full=not args.curated, jobs=jobs)
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in reports.items():
-        path = out_dir / f"{name}.json"
+        path = out_dir / f"{name}_{args.years}y.json"   # je Zeitraum eigene Datei (1/3/5/8/15y)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         count = len(payload["rows"]) if "rows" in payload else len(payload.get("curves", {}))
         print(f"✓ {path}  ({count} Einträge)")
