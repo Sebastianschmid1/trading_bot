@@ -724,8 +724,7 @@ def app_watchlist_remove(request: Request, symbol: str = Form(...)):
 # ── Reports (Backtest-Sweeps: Strategie / SL-TP-Modus / Hebel) ───────────────
 
 # Verfügbare Report-Zeiträume (je eigener Backtest-Sweep, Dateien data/reports/<name>_<Y>y.json).
-# 15 Jahre folgt später (Sweep dauert ~3–4 h) → dann hier 15 ergänzen.
-REPORT_YEARS = [1, 3, 5, 8]
+REPORT_YEARS = [1, 3, 5, 8, 15]
 DEFAULT_REPORT_YEARS = 5
 
 
