@@ -6,8 +6,12 @@
   .filters fieldset { border:1px solid var(--line); border-radius:.6rem; margin:.5rem 0; padding:.4rem .7rem .6rem; }
   .filters legend { padding:0 .4rem; color:var(--muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; }
   .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.3rem .65rem; margin:.18rem;
-          border:1px solid var(--line); border-radius:1rem; cursor:pointer; font-size:.88rem; user-select:none; }
-  .chip:hover { background:var(--panel2); }
+          border:1px solid var(--line); border-radius:1rem; cursor:pointer; font-size:.88rem; user-select:none;
+          color:var(--fg); text-decoration:none; }   /* a.chip soll NICHT wie ein Link aussehen */
+  .chip:hover { background:var(--panel2); color:var(--fg); }
+  .chip:visited { color:var(--fg); }                 /* sonst „besuchte" Jahr-Links lila */
+  .chip.on { background:var(--blue); border-color:var(--blue); color:#04122e; font-weight:600; }
+  .chip.on:hover { background:var(--blue); color:#04122e; }
   .chip input { accent-color:var(--blue); margin:0; width:1rem; height:1rem; }
   .filters .actions { margin-top:.5rem; display:flex; gap:.5rem; align-items:center; }
   .scroll { overflow-x:auto; }
@@ -80,9 +84,7 @@
   <fieldset>
     <legend>Zeitraum</legend>
     {% for y in report_years %}
-    <a class="chip {{ 'on' if y == sel_years }}" href="/app/reports?years={{ y }}"
-       style="text-decoration:none; {{ 'background:var(--blue); color:#04122e; font-weight:600; border-color:var(--blue);' if y == sel_years }}">
-      {{ y }} {{ 'Jahr' if y == 1 else 'Jahre' }}</a>
+    <a class="chip {{ 'on' if y == sel_years }}" href="/app/reports?years={{ y }}">{{ y }} {{ 'Jahr' if y == 1 else 'Jahre' }}</a>
     {% endfor %}
     <span class="muted" style="margin-left:.4rem">Backtest-Fenster für alle Tabellen unten.</span>
   </fieldset>
