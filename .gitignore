@@ -12,3 +12,4 @@ logs/*.log
 # Konversations-Exporte (persoenliche Transkript-Dumps) lokal lassen
 docs/context_export*.md
 docs/context_export*.json
+*csv
