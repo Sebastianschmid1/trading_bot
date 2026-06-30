@@ -1039,7 +1039,21 @@ def mark_broker_filled(user_id: int, ticker: str, *, broker_status: str = "fille
         ).fetchone()
         if not row:
             return False
-        entry = float(filled_avg_price or row["entry"] or 0)
+        # Fill-Preis nur dann als Einstieg übernehmen, wenn er plausibel ist. Ein absurder
+        # Broker-Fill (z. B. KHC @ 0,26 statt Signalkurs 23,95) überschrieb sonst den korrekten
+        # Einstieg und erzeugte gigantische Fake-P&L (+53.810 €). Außerhalb des 0,5–2,0-Bands
+        # um den erwarteten Einstieg (Signalkurs) behalten wir diesen und protokollieren den Fill.
+        expected = float(row["entry"] or 0)
+        fp = float(filled_avg_price or 0)
+        if fp > 0 and (expected <= 0 or 0.5 <= fp / expected <= 2.0):
+            entry = fp
+        else:
+            entry = expected or fp or 0.0
+            if fp > 0 and expected > 0:
+                log.warning(
+                    f"[{user_id}] {ticker}: unplausibler Fill-Preis {fp:g} (erwartet ~{expected:g}) "
+                    f"— Signalkurs als Einstieg behalten, um Fake-P&L zu vermeiden."
+                )
         cur = conn.execute(
             """UPDATE trades
                SET status = 'active', entry = ?, broker_status = ?, broker_filled_qty = ?,

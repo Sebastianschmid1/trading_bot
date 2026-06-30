@@ -86,6 +86,23 @@ def test_accept_trade_can_wait_for_broker_fill_before_becoming_active():
     assert db.get_active_trades(CHAT)[0]["ticker"] == "NVDA"
 
 
+def test_broker_fill_with_absurd_price_keeps_signal_entry():
+    """Guard gegen Glitch-Fills: ein Fill-Preis weit außerhalb des Plausibilitäts-Bands
+    (z. B. 0,26 statt Signalkurs 23,95) darf den Einstieg NICHT überschreiben — sonst
+    entsteht gigantische Fake-P&L (der reale +53.810-€-Bug). Roh-Fill bleibt fürs Audit."""
+    fresh_db(price=23.95)
+    _pending("KHC", price=23.95)
+    trade_svc.accept_trade(CHAT, "KHC", status="broker_pending")
+    db.mark_broker_pending(CHAT, "KHC", order_id="ord-x", broker_status="accepted")
+
+    db.mark_broker_filled(CHAT, "KHC", broker_status="filled", filled_qty=1, filled_avg_price=0.26)
+
+    trade = db.get_trade(CHAT, "KHC")
+    assert trade["status"] == "active"
+    assert trade["entry"] == 23.95                    # Signalkurs behalten, NICHT 0,26
+    assert trade["broker_filled_avg_price"] == 0.26   # roher Broker-Fill bleibt erhalten
+
+
 def test_broker_rejected_trade_does_not_remain_active():
     fresh_db()
     _pending("AAPL")
