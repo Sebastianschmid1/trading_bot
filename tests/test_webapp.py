@@ -99,6 +99,29 @@ def test_app_dashboard_is_integrated_into_site_layout():
     assert "Dashboard" in r.text                   # Navigation der Website ist eingebunden
 
 
+def test_history_page_lists_closed_trades():
+    from stockbot.services import trades as trade_svc
+    fresh()
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    trade_svc.accept_trade(CHAT, "NVDA")
+    db.close_all(CHAT, [{"ticker": "NVDA", "exit": 110.0, "pnl_eur": 10.0, "pnl_pct": 10.0}])
+
+    c = _client()
+    r = c.get("/app/history")
+    assert r.status_code == 200
+    assert "Verlauf" in r.text                     # Seiten-/Nav-Titel
+    assert "NVDA" in r.text                         # abgeschlossener Trade gelistet
+    assert "fonts.googleapis" in r.text            # Instrument-Identität (Cockpit-Partial) eingebunden
+
+
+def test_history_empty_state_renders():
+    fresh()
+    c = _client()
+    r = c.get("/app/history")
+    assert r.status_code == 200 and "Noch keine abgeschlossenen Trades" in r.text
+
+
 def test_new_website_element_aliases_redirect_to_app_routes():
     fresh()
     c = _client()

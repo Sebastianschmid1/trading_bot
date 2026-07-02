@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Verlauf — Stock Signal Bot{% endblock %}
+{% block content %}
+{% include "_cockpit.html" %}
+<style>
+  main { max-width: 1100px !important; }
+  .hstat { display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0 1.1rem; }
+  .hstat .cell { background:var(--bezel); border:1px solid var(--edge); border-radius:11px; padding:.6rem .95rem; min-width:130px;
+                 box-shadow:inset 0 1px 0 rgba(255,255,255,.03); }
+  .hstat .v { font-family:var(--font-mono); font-size:1.35rem; font-weight:700; margin-top:.18rem; font-variant-numeric:tabular-nums; }
+
+  .toolbar { display:flex; gap:.6rem; align-items:center; margin-bottom:.6rem; flex-wrap:wrap; }
+  .searchbox { background:var(--inset); color:var(--marking); border:1px solid var(--edge); border-radius:8px;
+               padding:.45rem .7rem; font-size:.9rem; min-width:200px; }
+  .searchbox:focus { outline:none; border-color:var(--trace); }
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+  table.hist { width:100%; border-collapse:collapse; font-size:.9rem; }
+  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid var(--edge); text-align:left; white-space:nowrap; }
+  table.hist th { cursor:pointer; user-select:none; color:var(--dim); font-size:.68rem;
+                  text-transform:uppercase; letter-spacing:.06em; font-family:var(--font-display); }
+  table.hist th:hover { color:var(--marking); }
+  table.hist th.r, table.hist td.r { text-align:right; }
+  table.hist td.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  table.hist tbody tr:hover { background:var(--bezel); }
+  .arrow { color:var(--trace); }
+  .dir { font-size:.7rem; font-weight:700; padding:.1rem .4rem; border-radius:.35rem; letter-spacing:.03em; }
+  .dir.long { background:rgba(62,207,142,.16); color:var(--go); }
+  .dir.short { background:rgba(232,92,74,.16); color:var(--warn); }
+  .empty { color:var(--dim); text-align:center; padding:2.2rem; border:1px dashed var(--edge); border-radius:12px; }
+</style>
+
+<h1>Verlauf <small class="marklabel" style="margin-left:.5rem">{{ summary.n }} abgeschlossene Trades</small></h1>
+
+<div class="hstat">
+  <div class="cell"><div class="marklabel">Gesamt P&amp;L</div>
+    <div class="v {{ 'pos' if summary.total_pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(summary.total_pnl) }}€</div></div>
+  <div class="cell"><div class="marklabel">Trefferquote</div><div class="v">{{ summary.win_rate }}%</div></div>
+  <div class="cell"><div class="marklabel">Gewinner / Verlierer</div>
+    <div class="v"><span class="pos">{{ summary.wins }}</span> / <span class="neg">{{ summary.losses }}</span></div></div>
+  <div class="cell"><div class="marklabel">Abgeschlossen</div><div class="v">{{ summary.n }}</div></div>
+</div>
+
+{% if not rows %}
+  <div class="empty">Noch keine abgeschlossenen Trades — sie erscheinen hier, sobald der erste Trade geschlossen wurde.</div>
+{% else %}
+<div class="toolbar">
+  <input id="hfilter" class="searchbox" type="text" placeholder="🔍 Ticker filtern…" autocomplete="off">
+  <span class="marklabel" id="hcount"></span>
+  <span style="flex:1"></span>
+  <a class="btn" href="/app/backtest/export?format=csv" title="Alle Trades als CSV">CSV-Export</a>
+</div>
+<div class="scroll">
+<table class="hist" id="histTable">
+  <thead><tr>
+    <th data-sort="date">Datum</th>
+    <th data-sort="ticker">Ticker</th>
+    <th data-sort="dir">Richtung</th>
+    <th class="r" data-sort="entry">Einstieg</th>
+    <th class="r" data-sort="exit">Ausstieg</th>
+    <th class="r" data-sort="lev">Hebel</th>
+    <th class="r" data-sort="pnl">P&amp;L</th>
+    <th class="r" data-sort="pct">Rendite%</th>
+    <th data-sort="strat">Strategie</th>
+    <th data-sort="broker">Broker</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr data-ticker="{{ r.ticker|lower }}">
+    <td data-sort="{{ r.date }}">{{ r.date }}</td>
+    <td data-sort="{{ r.ticker }}"><b>{{ r.ticker }}</b></td>
+    <td data-sort="{{ r.direction }}"><span class="dir {{ r.direction }}">{{ r.direction|upper }}</span></td>
+    <td class="r" data-sort="{{ r.entry if r.entry is not none else -1 }}">{{ '$%.2f'|format(r.entry) if r.entry is not none else '—' }}</td>
+    <td class="r" data-sort="{{ r.exit if r.exit is not none else -1 }}">{{ '$%.2f'|format(r.exit) if r.exit is not none else '—' }}</td>
+    <td class="r" data-sort="{{ r.leverage }}">{{ '%g'|format(r.leverage) }}×</td>
+    <td class="r {{ 'pos' if r.pnl_eur >= 0 else 'neg' }}" data-sort="{{ r.pnl_eur }}">{{ '%+.2f'|format(r.pnl_eur) }}€</td>
+    <td class="r {{ 'pos' if r.pnl_pct >= 0 else 'neg' }}" data-sort="{{ r.pnl_pct }}">{{ '%+.1f'|format(r.pnl_pct) }}%</td>
+    <td data-sort="{{ r.strategy }}">{{ r.strategy }}</td>
+    <td data-sort="{{ r.broker }}"><span class="muted">{{ r.broker }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<script>
+(function () {
+  var table = document.getElementById("histTable");
+  var ths = table.tHead.rows[0].cells, tbody = table.tBodies[0];
+  Array.prototype.forEach.call(ths, function (th, i) {
+    th.addEventListener("click", function () {
+      var asc = th.getAttribute("data-dir") !== "asc";
+      Array.prototype.forEach.call(ths, function (h) {
+        h.removeAttribute("data-dir"); var a = h.querySelector(".arrow"); if (a) a.remove();
+      });
+      th.setAttribute("data-dir", asc ? "asc" : "desc");
+      var rows = Array.prototype.slice.call(tbody.rows);
+      rows.sort(function (ra, rb) {
+        var x = ra.cells[i].getAttribute("data-sort") || "", y = rb.cells[i].getAttribute("data-sort") || "";
+        var nx = parseFloat(x), ny = parseFloat(y), cmp;
+        if (!isNaN(nx) && !isNaN(ny)) cmp = nx - ny; else cmp = String(x).localeCompare(String(y));
+        return asc ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      var s = document.createElement("span"); s.className = "arrow"; s.textContent = asc ? " ▲" : " ▼"; th.appendChild(s);
+    });
+  });
+  var f = document.getElementById("hfilter"), cnt = document.getElementById("hcount");
+  function apply() {
+    var q = (f.value || "").trim().toLowerCase(), shown = 0;
+    Array.prototype.forEach.call(tbody.rows, function (tr) {
+      var hit = !q || tr.getAttribute("data-ticker").indexOf(q) >= 0;
+      tr.style.display = hit ? "" : "none"; if (hit) shown++;
+    });
+    cnt.textContent = shown + " von " + tbody.rows.length;
+  }
+  f.addEventListener("input", apply); apply();
+})();
+</script>
+{% endif %}
+{% endblock %}

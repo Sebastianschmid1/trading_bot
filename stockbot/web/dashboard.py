@@ -131,7 +131,8 @@ async def security_headers(request, call_next):
     # CSP: eigene Quelle; Inline-Styles (base.html nutzt <style>) erlaubt, sonst restriktiv.
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data:; "
         "script-src 'self' https://telegram.org https://cdn.jsdelivr.net 'unsafe-inline'; "
         "frame-src https://oauth.telegram.org; base-uri 'self'; form-action 'self'",

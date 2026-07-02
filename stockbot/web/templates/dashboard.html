@@ -2,16 +2,17 @@
 {% block title %}📊 Trading Cockpit — Stock Signal Bot{% endblock %}
 {% block content %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  {% include "_cockpit.html" %}
   <style>
     /* — Cockpit gibt sich mehr Breite als die Standard-880px der base.html — */
     main { max-width: 1280px !important; padding: 1rem 1.1rem !important; }
-
-    :root {
-      --bg:#0f1420; --card:#1a2030; --card2:#131a29; --border:#2a3245;
-      --text:#e6e9ef; --muted:#8a93a6; --green:#2ecc71; --red:#e74c3c; --accent:#4f8cff;
-      --amber:#e0a44b;
-    }
     .green { color: var(--green); } .red { color: var(--red); }
+
+    /* Signatur-Hero: Signal-Stärke-Instrument neben den Kennzahlen */
+    .hero { display:flex; gap:1.1rem; align-items:stretch; margin-bottom:1.1rem; }
+    .hero .cards { flex:1; margin-bottom:0; }
+    .hero .gauge-wrap { flex:0 0 210px; }
+    @media (max-width:640px){ .hero{flex-direction:column} .hero .gauge-wrap{flex:none} }
 
     /* ── Topbar / Statuszeile ───────────────────────────────────────────── */
     .topbar { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap;
@@ -26,21 +27,21 @@
             padding:.32rem .7rem; border-radius:999px; border:1px solid var(--border);
             background:var(--card2); white-space:nowrap; }
     .pill .dot { width:.55rem; height:.55rem; border-radius:50%; background:var(--green);
-                 box-shadow:0 0 0 0 rgba(46,204,113,.6); }
+                 box-shadow:0 0 0 0 rgba(62,207,142,.6); }
     .pill.live .dot { animation:pulse 2s infinite; }
     .pill.paused .dot { background:var(--muted); animation:none; }
-    .pill.offline { color:#ffb3bd; border-color:#5a2a30; }
+    .pill.offline { color:#F0A79E; border-color:#5A2E2A; }
     .pill.offline .dot { background:var(--red); animation:none; }
-    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(46,204,113,.5)} 70%{box-shadow:0 0 0 .45rem rgba(46,204,113,0)} 100%{box-shadow:0 0 0 0 rgba(46,204,113,0)} }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(62,207,142,.5)} 70%{box-shadow:0 0 0 .45rem rgba(62,207,142,0)} 100%{box-shadow:0 0 0 0 rgba(62,207,142,0)} }
     .iconbtn { cursor:pointer; border:1px solid var(--border); background:var(--card2); color:var(--text);
                border-radius:9px; padding:.35rem .55rem; font-size:.95rem; line-height:1; }
-    .iconbtn:hover { border-color:var(--accent); color:#fff; }
+    .iconbtn:hover { border-color:var(--accent); color:var(--marking); }
     .iconbtn.spin { animation:spin .6s linear; }
     @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
     .applink { display:inline-block; padding:.4rem .8rem; border-radius:9px; background:var(--accent);
-               color:#04122e; font-weight:600; text-decoration:none; font-size:.85rem; white-space:nowrap; }
+               color:var(--on); font-weight:600; text-decoration:none; font-size:.85rem; white-space:nowrap; }
 
-    #error { display:none; background:#3a1f24; border:1px solid #5a2a30; color:#ffb3bd;
+    #error { display:none; background:#241618; border:1px solid #5A2E2A; color:#F0A79E;
              padding:.9rem 1rem; border-radius:10px; margin-bottom:1rem; }
 
     /* ── KPI-Hero-Strip ─────────────────────────────────────────────────── */
@@ -49,14 +50,14 @@
             box-shadow:0 1px 3px rgba(0,0,0,.25); transition:box-shadow .2s, border-color .2s; }
     .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
     .card .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums; }
-    .card-hero { grid-column:span 2; background:linear-gradient(135deg,#1d2740,#1a2030); }
+    .card-hero { grid-column:span 2; background:linear-gradient(135deg,#20272F,#151B22); }
     .card-hero .value { font-size:2.2rem; }
     .card.flash-up { animation:flashUp .9s ease-out; }
     .card.flash-down { animation:flashDown .9s ease-out; }
     @keyframes flashUp { 0%{box-shadow:0 0 0 2px var(--green); border-color:var(--green)} 100%{box-shadow:0 1px 3px rgba(0,0,0,.25)} }
     @keyframes flashDown { 0%{box-shadow:0 0 0 2px var(--red); border-color:var(--red)} 100%{box-shadow:0 1px 3px rgba(0,0,0,.25)} }
 
-    #sizing-hint { display:none; background:#3a2f1f; border:1px solid #5a4a2a; color:#ffd9a0;
+    #sizing-hint { display:none; background:#241E12; border:1px solid #4A3B1E; color:#F0C778;
                    padding:.8rem 1rem; border-radius:10px; margin-bottom:1.1rem; }
 
     /* ── Steuerleiste (Tabs / Zeitraum) ─────────────────────────────────── */
@@ -66,7 +67,7 @@
     .tab { background:var(--card); border:1px solid var(--border); color:var(--muted);
            padding:.38rem .85rem; border-radius:999px; cursor:pointer; font-size:.83rem; transition:.15s; }
     .tab:hover { color:var(--text); }
-    .tab.active { color:#fff; border-color:var(--accent); background:#1d2740; }
+    .tab.active { color:var(--marking); border-color:var(--accent); background:#20272F; }
 
     /* ── Content-Grid + Panels ──────────────────────────────────────────── */
     .grid { display:grid; grid-template-columns:1.45fr 1fr; gap:1.1rem; align-items:start; }
@@ -94,11 +95,11 @@
     th .arr { opacity:.5; font-size:.7rem; }
     th.sorted .arr { opacity:1; color:var(--accent); }
     td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .badge { font-size:.72rem; padding:.15rem .5rem; border-radius:6px; background:#1f3a2c; color:var(--green); }
+    .badge { font-size:.72rem; padding:.15rem .5rem; border-radius:6px; background:#163026; color:var(--green); }
     .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .table-scroll table { min-width:560px; }
     tr.clickable { cursor:pointer; }
-    tbody tr:hover { background:#1d2740; }
+    tbody tr:hover { background:#20272F; }
     td .sub { color:var(--muted); font-size:.72rem; }
     .empty { color:var(--muted); text-align:center; padding:1.4rem; }
     .searchbox { background:var(--card2); color:var(--text); border:1px solid var(--border);
@@ -155,8 +156,15 @@
     <span class="meta" id="generated"></span>
   </div>
 
-  <!-- KPI-Hero -->
-  <div class="cards" id="cards"></div>
+  <!-- KPI-Hero: Signal-Stärke-Instrument (Signatur) + Kennzahlen -->
+  <div class="hero">
+    <div class="gauge-wrap">
+      <canvas id="signalGauge" width="200" height="132" aria-label="Signal-Stärke"></canvas>
+      <div class="gauge-cap"><span class="v" id="gaugeVal">—</span>
+        <div class="marklabel" id="gaugeCap">Signal-Stärke Ø</div></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
   <div id="sizing-hint"></div>
 
   <!-- Steuerleiste -->
@@ -231,8 +239,8 @@
 
   <script>
     Chart.defaults.maintainAspectRatio = false;
-    Chart.defaults.color = "#8a93a6";
-    Chart.defaults.font.family = "system-ui, -apple-system, Segoe UI, sans-serif";
+    Chart.defaults.color = "#808C97";
+    Chart.defaults.font.family = "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace";
 
     // Crosshair: vertikale Linie am aktiven Punkt (leichtgewichtiges Inline-Plugin)
     Chart.register({
@@ -243,7 +251,7 @@
         if (!act.length || !chart.chartArea) return;
         const x = act[0].element.x, a = chart.chartArea, ctx = chart.ctx;
         ctx.save(); ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom);
-        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(230,233,239,.18)"; ctx.stroke(); ctx.restore();
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(233,230,221,.18)"; ctx.stroke(); ctx.restore();
       }
     });
 
@@ -256,10 +264,10 @@
         if (!y || !a) return;
         const py = y.getPixelForValue(0);
         ctx.save();
-        ctx.strokeStyle = "rgba(230,233,239,.32)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.strokeStyle = "rgba(233,230,221,.32)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
         ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(230,233,239,.45)"; ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
+        ctx.fillStyle = "rgba(233,230,221,.45)"; ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
         ctx.fillText("Break-even", a.left + 5, py - 3);
         ctx.restore();
       }
@@ -456,11 +464,53 @@
     }
 
     // ── Haupt-Render ────────────────────────────────────────────────────────
+    // ── Signatur: Signal-Stärke als Rundinstrument (Nadel + Zonenbogen, Phosphor-Glow) ──
+    const GAUGE_A0 = Math.PI * 0.75, GAUGE_A1 = Math.PI * 2.25;   // 135°→405°, 270°-Sweep über oben
+    function drawSignalGauge(value) {
+      const c = document.getElementById("signalGauge"); if (!c) return;
+      const dpr = window.devicePixelRatio || 1, W = 200, H = 132;
+      if (c._dpr !== dpr) { c._dpr = dpr; c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
+      const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      const cx = W / 2, cy = 82, R = 58, sweep = GAUGE_A1 - GAUGE_A0;
+      const col = (t) => t >= 0.70 ? "#3ECF8E" : t >= 0.40 ? "#E7B24C" : "#E85C4A";  // warn→caution→go
+      // Zonenbogen (Anzeigelampen-Logik: schwach=warn, stark=go)
+      ctx.lineWidth = 9; ctx.lineCap = "butt";
+      [[0, .40, "#E85C4A"], [.40, .70, "#E7B24C"], [.70, 1, "#3ECF8E"]].forEach(([a, b, c2]) => {
+        ctx.beginPath(); ctx.strokeStyle = c2; ctx.arc(cx, cy, R, GAUGE_A0 + sweep * a, GAUGE_A0 + sweep * b); ctx.stroke();
+      });
+      // Skalenstriche
+      ctx.strokeStyle = "rgba(233,230,221,.35)"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 10; i++) { const a = GAUGE_A0 + sweep * (i / 10), r2 = R + (i % 5 === 0 ? 8 : 4);
+        ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * (R - 8), cy + Math.sin(a) * (R - 8));
+        ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); ctx.stroke(); }
+      // Nadel + Nabe
+      const v = Math.max(0, Math.min(100, value == null ? 0 : value)) / 100, na = GAUGE_A0 + sweep * v, cc = col(v);
+      if (value != null) {
+        ctx.save(); ctx.shadowColor = cc; ctx.shadowBlur = 10; ctx.strokeStyle = cc; ctx.lineWidth = 2.6; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * (R - 5), cy + Math.sin(na) * (R - 5)); ctx.stroke(); ctx.restore();
+      }
+      ctx.beginPath(); ctx.fillStyle = "#E9E6DD"; ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill();
+    }
+    function renderSignalGauge(d) {
+      // Wert = Ø aktuelle Signal-Stärke der offenen Trades; ohne offene Trades → Trefferquote.
+      const series = (d.intraday || []).filter(s => s.points && s.points.length);
+      let gv = null, cap = "Signal-Stärke Ø";
+      if (series.length) {
+        const last = series.map(s => s.points[s.points.length - 1].strength).filter(x => x != null);
+        if (last.length) gv = last.reduce((a, b) => a + b, 0) / last.length;
+      }
+      if (gv == null && d.summary) { gv = d.summary.win_rate; cap = "Trefferquote"; }
+      drawSignalGauge(gv);
+      document.getElementById("gaugeVal").textContent = gv == null ? "—" : Math.round(gv);
+      document.getElementById("gaugeCap").textContent = cap;
+    }
+
     function render(d) {
       state.data = d;
       document.getElementById("user").textContent = "· @" + d.username;
       document.getElementById("generated").textContent = "Stand: " + d.generated_at;
       renderKpis(d);
+      renderSignalGauge(d);
       renderTabs(d);
       renderRanges(d);
 
@@ -486,13 +536,13 @@
       upsertChart("equityChart", {
         type: "line",
         data: { labels: eq.map(p => p.date), datasets: [{
-          data: eq.map(p => p.cumulative), borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.12)",
+          data: eq.map(p => p.cumulative), borderColor: "#74C7FF", backgroundColor: "rgba(116,199,255,.12)",
           fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3 }] },
         options: {
           interaction: { mode: "index", intersect: false },
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#222a3a" } } }
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#232C36" } },
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#232C36" } } }
         }
       });
     }
@@ -502,13 +552,13 @@
       upsertChart("tickerChart", {
         type: "bar",
         data: { labels: ts.map(t => t.ticker), datasets: [{
-          data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? "#2ecc71" : "#e74c3c"), borderRadius: 4 }] },
+          data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? "#3ECF8E" : "#E85C4A"), borderRadius: 4 }] },
         options: {
           plugins: { legend: { display: false }, crosshair: false,
                      tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
           onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
           scales: { x: { ticks: {}, grid: { display: false } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#222a3a" } } }
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: "#232C36" } } }
         }
       });
     }
@@ -518,7 +568,7 @@
     const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
     const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
     // Farben + Punktgröße für den Trades-Scatter
-    const C_GREEN = "#2ecc71", C_RED = "#e74c3c";
+    const C_GREEN = "#3ECF8E", C_RED = "#E85C4A";
     const fmtWhen = (ms) => { const dt = new Date(ms);
       return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
            + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); };
@@ -544,7 +594,7 @@
           _kind: "closed", _meta: closed,
           data: closed.map(m => ({ x: m.points[m.points.length - 1].x, y: slog(m.final_pct) })),
           pointBackgroundColor: closed.map(m => m.final_pct >= 0 ? C_GREEN : C_RED),
-          pointBorderColor: "rgba(15,20,32,.85)", pointBorderWidth: 1,
+          pointBorderColor: "rgba(15,20,26,.85)", pointBorderWidth: 1,
           pointRadius: r, pointHoverRadius: r.map(v => v + 3),
         });
       }
@@ -553,7 +603,7 @@
         datasets.push({
           _kind: "active", _meta: active,
           data: active.map(m => ({ x: now, y: slog(m.final_pct) })),
-          pointBackgroundColor: active.map(m => m.final_pct >= 0 ? "rgba(46,204,113,.16)" : "rgba(231,76,60,.16)"),
+          pointBackgroundColor: active.map(m => m.final_pct >= 0 ? "rgba(62,207,142,.16)" : "rgba(232,92,74,.16)"),
           pointBorderColor: active.map(m => m.final_pct >= 0 ? C_GREEN : C_RED),
           pointBorderWidth: 2, pointRadius: r, pointHoverRadius: r.map(v => v + 3),
         });
@@ -589,16 +639,16 @@
           },
           scales: {
             x: { type: "linear", min: xmin, max: now,
-                 title: { display: true, text: "Ausstiegszeit  →  jetzt  ·  hohl = offener Trade", color: "#8a93a6" },
+                 title: { display: true, text: "Ausstiegszeit  →  jetzt  ·  hohl = offener Trade", color: "#808C97" },
                  ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => fmtWhen(v) },
-                 grid: { color: "#222a3a" } },
+                 grid: { color: "#232C36" } },
             y: { type: "linear",
                  afterBuildTicks: (axis) => {
                    if (!isFinite(axis.min) || !isFinite(axis.max)) return;
                    const t = NICE.filter(p => slog(p) >= axis.min && slog(p) <= axis.max).map(p => ({ value: slog(p) }));
                    if (t.length) axis.ticks = t; },
                  ticks: { callback: (v) => { const r = sexp(v); return (r >= 0 ? "+" : "") + r.toFixed(0) + "%"; } },
-                 grid: { color: "#222a3a" } }
+                 grid: { color: "#232C36" } }
           }
         }
       });
@@ -680,7 +730,7 @@
     });
 
     // ── Intraday: Stärke (alle) + Kursverlauf (Dropdown) ────────────────────
-    const palette = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c"];
+    const palette = ["#74C7FF", "#3ECF8E", "#E7B24C", "#B98CFF", "#E85C4A", "#4FD0C0"];
     function renderIntraday(d) {
       const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
       state.intraday = intraday;
@@ -694,9 +744,9 @@
             borderColor: palette[i % palette.length], backgroundColor: "transparent", tension: .25, pointRadius: 0 })) },
           options: {
             interaction: { mode: "index", intersect: false },
-            plugins: { legend: { labels: { color: "#e6e9ef", boxWidth: 14 } } },   // Klick blendet Linie aus/ein
-            scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-                      y: { min: 0, max: 100, grid: { color: "#222a3a" } } }
+            plugins: { legend: { labels: { color: "#E9E6DD", boxWidth: 14 } } },   // Klick blendet Linie aus/ein
+            scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#232C36" } },
+                      y: { min: 0, max: 100, grid: { color: "#232C36" } } }
           }
         });
       }
@@ -714,16 +764,16 @@
       const refLine = (val, color, label) => val == null ? null : ({
         label, data: labels.map(() => val), borderColor: color, borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false });
       const datasets = [{ label: s.ticker, data: s.points.map(p => p.price),
-        borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.10)", tension: .25, pointRadius: 0, fill: true }];
-      [refLine(s.take_profit, "#2ecc71", "Take-Profit"), refLine(s.stop_loss, "#e74c3c", "Stop-Loss"),
-       refLine(s.entry, "#8a93a6", "Einstieg")].forEach(r => r && datasets.push(r));
+        borderColor: "#74C7FF", backgroundColor: "rgba(116,199,255,.10)", tension: .25, pointRadius: 0, fill: true }];
+      [refLine(s.take_profit, "#3ECF8E", "Take-Profit"), refLine(s.stop_loss, "#E85C4A", "Stop-Loss"),
+       refLine(s.entry, "#808C97", "Einstieg")].forEach(r => r && datasets.push(r));
       upsertChart("priceChartSingle", {
         type: "line", data: { labels, datasets },
         options: {
           interaction: { mode: "index", intersect: false },
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => `${i.dataset.label}: $${(+i.parsed.y).toFixed(2)}` } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-                    y: { ticks: { callback: v => "$" + v }, grid: { color: "#222a3a" } } }
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#232C36" } },
+                    y: { ticks: { callback: v => "$" + v }, grid: { color: "#232C36" } } }
         }
       });
     }
@@ -786,16 +836,16 @@
       factorChartObj = new Chart(document.getElementById("factorChart"), {
         type: "line",
         data: { labels, datasets: [
-          mkds("RSI", pts.map(p => p.rsi_score), "#4f8cff"),
-          mkds("MACD", pts.map(p => p.macd_score), "#2ecc71"),
-          mkds("Trend", pts.map(p => p.trend_score), "#e67e22"),
-          mkds("Volumen", pts.map(p => p.vol_score), "#9b59b6"),
-          mkds("Gesamt", pts.map(p => p.score), "#e6e9ef", 3) ] },
+          mkds("RSI", pts.map(p => p.rsi_score), "#74C7FF"),
+          mkds("MACD", pts.map(p => p.macd_score), "#3ECF8E"),
+          mkds("Trend", pts.map(p => p.trend_score), "#E7B24C"),
+          mkds("Volumen", pts.map(p => p.vol_score), "#B98CFF"),
+          mkds("Gesamt", pts.map(p => p.score), "#E9E6DD", 3) ] },
         options: {
           layout: { padding: { top: 8, right: 8, bottom: 2, left: 2 } },
-          plugins: { legend: { labels: { color: "#e6e9ef", boxWidth: 14, padding: 12 } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#222a3a" } },
-                    y: { min: 0, max: 100, ticks: { stepSize: 20 }, grid: { color: "#222a3a" } } }
+          plugins: { legend: { labels: { color: "#E9E6DD", boxWidth: 14, padding: 12 } } },
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "#232C36" } },
+                    y: { min: 0, max: 100, ticks: { stepSize: 20 }, grid: { color: "#232C36" } } }
         }
       });
     }

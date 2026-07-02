@@ -1,0 +1,54 @@
+{# Gemeinsame „Instrument Cockpit"-Identität für Dashboard, Reports & Verlauf.
+   Wird IM Content-Block inkludiert (nach base.html-<style>) → überschreibt dessen Palette
+   nur auf diesen Seiten. Fonts self-hostbar; hier via Google Fonts (CSP in dashboard.py). #}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Instrument-Palette: warmes Creme auf Gunmetal, Go/Caution/Warn-Anzeigen, Phosphor-Trace */
+    --instrument:#0F141A; --bezel:#1A2028; --inset:#12181F; --edge:#2A333D;
+    --marking:#E9E6DD; --dim:#808C97; --go:#3ECF8E; --caution:#E7B24C; --warn:#E85C4A;
+    --trace:#74C7FF; --on:#05131C; --grid:#232C36;
+    --font-display:"Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    /* base.html-Variablen auf die Instrument-Palette umbiegen (Shell/Reports/Verlauf) */
+    --bg:#0F141A; --panel:#1A2028; --panel2:#12181F; --fg:#E9E6DD; --line:#2A333D;
+    --muted:#808C97; --green:#3ECF8E; --red:#E85C4A; --blue:#74C7FF;
+    /* dashboard.html-Variablen (eigener Satz) ebenfalls hier zentral */
+    --card:#1A2028; --card2:#12181F; --border:#2A333D; --text:#E9E6DD; --accent:#74C7FF; --amber:#E7B24C;
+  }
+  body { background:var(--instrument); color:var(--marking);
+         font-family:var(--font-display); letter-spacing:.01em; }
+  h1, h2, h3 { font-family:var(--font-display); letter-spacing:.005em; }
+
+  /* Shell-Header im Instrument-Look (nur auf inkludierenden Seiten) */
+  header { background:var(--inset); border-bottom:1px solid var(--edge); }
+  header .brand { letter-spacing:.06em; text-transform:uppercase; font-size:.95rem; }
+  nav a { color:var(--dim); }
+  nav a:hover, nav a.active { background:var(--bezel); color:var(--marking); }
+
+  /* Digitale Readouts: alle Zahlen tabellarisch in JetBrains Mono */
+  .mono, .readout, td.num, .card .value { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* „Eingravierte" Kleinlabels (Instrumenten-Beschriftung) */
+  .marklabel { text-transform:uppercase; letter-spacing:.12em; font-size:.66rem; color:var(--dim);
+               font-family:var(--font-display); font-weight:600; }
+
+  /* Annunciator-Punkt (Zustandsleuchte) */
+  .ann { width:.5rem; height:.5rem; border-radius:50%; display:inline-block; background:var(--dim); }
+  .ann.go { background:var(--go); box-shadow:0 0 7px var(--go); }
+  .ann.caution { background:var(--caution); box-shadow:0 0 7px var(--caution); }
+  .ann.warn { background:var(--warn); box-shadow:0 0 7px var(--warn); }
+
+  /* Signatur: Signal-Stärke-Rundinstrument */
+  .gauge-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                background:radial-gradient(120% 120% at 50% 15%, #1E262F 0%, var(--bezel) 60%);
+                border:1px solid var(--edge); border-radius:14px; padding:.7rem 1rem .8rem;
+                box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 2px 10px rgba(0,0,0,.35); }
+  .gauge-wrap canvas { display:block; }
+  .gauge-cap { margin-top:.1rem; text-align:center; }
+  .gauge-cap .v { font-family:var(--font-mono); font-weight:700; font-size:1.15rem; color:var(--marking); }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto; } }
+</style>

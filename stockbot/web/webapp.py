@@ -797,6 +797,51 @@ def app_reports_equity(request: Request, key: str = "", lev: str = "", mode: str
                          "start": eq.get("start"), "end": eq.get("end")})
 
 
+# ── Trade-Verlauf (abgeschlossene Trades, neueste zuerst) ─────────────────────
+
+@router.get("/app/history", response_class=HTMLResponse)
+def app_history(request: Request):
+    """Vollständiger Trade-Verlauf des Nutzers: alle abgeschlossenen Trades als sortier-/
+    filterbare Tabelle mit Kennzahlen-Kopf. Reiner Lesezugriff."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    closed = db.get_closed_trades(user["user_id"])
+    rows = []
+    for t in reversed(closed):                       # neueste zuerst
+        sig = t.get("signal") or {}
+        pnl = t.get("pnl_eur") or 0.0
+        lev = sig.get("effective_leverage")
+        if lev is None:
+            lev = sig.get("leverage")
+        rows.append({
+            "date":      t.get("trade_date") or (t.get("created_at") or "")[:10],
+            "ticker":    t.get("ticker"),
+            "direction": t.get("direction") or "long",
+            "entry":     t.get("entry"),
+            "exit":      t.get("exit"),
+            "pnl_eur":   round(pnl, 2),
+            "pnl_pct":   round(t.get("pnl_pct") or 0.0, 2),
+            "leverage":  float(lev) if lev else 1.0,
+            "strategy":  sig.get("strategy") or "standard",
+            "broker":    broker_status_label(t.get("broker_status")),
+        })
+    n = len(rows)
+    wins = sum(1 for r in rows if r["pnl_eur"] > 0)
+    losses = sum(1 for r in rows if r["pnl_eur"] < 0)
+    summary = {
+        "n": n, "wins": wins, "losses": losses,
+        "win_rate": round(wins / n * 100, 1) if n else 0.0,
+        "total_pnl": round(sum(r["pnl_eur"] for r in rows), 2),
+    }
+    return _render("history.html", request, user, active="history", rows=rows, summary=summary)
+
+
+@router.get("/history")
+def app_history_alias():
+    return _redirect("/app/history")
+
+
 # ── Trade-Daten-Export ────────────────────────────────────────────────────────
 
 EXPORT_FIELDS = [
