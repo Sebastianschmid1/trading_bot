@@ -69,6 +69,18 @@ HIGH52_PARAMS = {
     "tp_mult": 5.0,
 }
 
+# ── Akademische Faktor-Strategien (Parameter) ────────────────────────────────
+# Direkt aus veröffentlichten Studien; frei per DB-Override anpassbar.
+TSMOM_PARAMS = {"lookback": 252, "skip": 21, "ma_regime": 200,   # Moskowitz-Ooi-Pedersen 2012
+                "min_mom": 0.0, "sl_mult": 3.0, "tp_mult": 6.0}
+LOWVOL_PARAMS = {"vol_window": 126, "ma_regime": 100,            # Baker et al. 2011 / Frazzini-Pedersen 2014
+                 "vol_cap": 0.45, "sl_mult": 2.5, "tp_mult": 4.0}
+FABER_PARAMS = {"sma": 200, "sl_mult": 3.0, "tp_mult": 6.0}      # Faber 2007 (10-Monats-SMA)
+STREV_PARAMS = {"lookback": 21, "ma_regime": 200, "drop": 0.08,  # Jegadeesh 1990 / Lehmann 1990
+                "sl_mult": 1.5, "tp_mult": 2.5}
+FROG_PARAMS = {"lookback": 126, "skip": 21, "ma_regime": 200,    # Da-Gurun-Warachka 2014
+               "up_min": 0.52, "sl_mult": 2.5, "tp_mult": 5.0}
+
 _STRATEGY_OVERRIDES_CACHE = {"ts": 0.0, "rows": {}}
 _STRATEGY_OVERRIDES_TTL = 20.0
 
@@ -102,6 +114,10 @@ def strategy_runtime_params(key: str) -> dict:
         "high52": HIGH52_PARAMS,
         "high52_wide": {**HIGH52_PARAMS, "tol": 0.95},
     }
+    defaults.update({
+        "tsmom": TSMOM_PARAMS, "lowvol": LOWVOL_PARAMS, "faber": FABER_PARAMS,
+        "streversal": STREV_PARAMS, "frog": FROG_PARAMS,
+    })
     base = dict(defaults.get(key, {}))
     base.update(_strategy_overrides(key))
     return base
@@ -357,6 +373,112 @@ def ma_trend_signal(ticker: str, tf_data: dict) -> dict | None:
     return _make_signal(ticker, df, "ma_trend", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
+# ── Akademische Faktor-Strategien (aus der Finanzmarktforschung) ─────────────
+# Fünf long-only-Strategien, direkt aus veröffentlichten Studien portiert; jede aus der
+# 1d-Historie eines Tickers berechenbar. Die Stärke 0–100 steuert die Top-N-Auswahl im
+# Portfolio (das cross-sektionale Element: die Rangfolge wählt die besten N Werte).
+
+def tsmom_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Time-Series-Momentum (Moskowitz, Ooi & Pedersen 2012, JFE): long, wenn die 12-Monats-Rendite
+    unter Auslassung des jüngsten Monats („12-1") positiv ist und der Kurs über der MA200 liegt."""
+    p = {**strategy_runtime_params("tsmom")}
+    df = _clean_1d(tf_data)
+    lb, skip = int(p["lookback"]), int(p["skip"])
+    if df is None or len(df) < lb + skip + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    p_now, p_then = float(c[-1 - skip]), float(c[-1 - skip - lb])   # jüngsten Monat auslassen
+    mom = (p_now / p_then - 1.0) if p_then > 0 else 0.0
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    if not (mom > p["min_mom"] and price > ma):
+        return None
+    strength = 50 + 50 * max(0.0, min(1.0, mom / 0.60))            # +60 % 12-1-Momentum → 100
+    return _make_signal(ticker, df, "tsmom", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def lowvol_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Low-Volatility-Anomalie / Betting-Against-Beta (Baker–Bradley–Wurgler 2011; Frazzini–Pedersen
+    2014): bevorzugt ruhige Aufwärtstrend-Aktien. Feuert im Trend (Kurs>MA100) bei niedriger
+    realisierter Vola; die Stärke ist invers zur Vola → Top-N nimmt die ruhigsten Werte."""
+    p = {**strategy_runtime_params("lowvol")}
+    df = _clean_1d(tf_data)
+    w = int(p["vol_window"])
+    if df is None or len(df) < max(w, int(p["ma_regime"])) + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    seg = c[-(w + 1):]
+    rets = np.diff(seg) / seg[:-1]
+    vol_ann = float(np.std(rets)) * np.sqrt(252.0)
+    if not (price > ma and 0.0 < vol_ann < p["vol_cap"]):
+        return None
+    strength = 50 + 50 * max(0.0, min(1.0, (p["vol_cap"] - vol_ann) / p["vol_cap"]))  # ruhiger → stärker
+    return _make_signal(ticker, df, "lowvol", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def faber_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Faber-Tactical (Faber 2007, „A Quantitative Approach to Tactical Asset Allocation"): long beim
+    Überkreuzen des 10-Monats- (≈200-Tage-)SMA von unten. Trendtreu, historisch geringe Drawdowns."""
+    p = {**strategy_runtime_params("faber")}
+    df = _clean_1d(tf_data)
+    n = int(p["sma"])
+    if df is None or len(df) < n + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price, prev = float(c[-1]), float(c[-2])
+    sma_now = float(np.mean(c[-n:]))
+    sma_prev = float(np.mean(c[-n - 1:-1]))
+    if not (prev <= sma_prev and price > sma_now):                # frischer Aufwärts-Cross
+        return None
+    strength = 55 + 45 * max(0.0, min(1.0, (price / sma_now - 1.0) / 0.10))
+    return _make_signal(ticker, df, "faber", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def streversal_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Short-Term-Reversal (Jegadeesh 1990; Lehmann 1990): kauft kurzfristige Verlierer im
+    langfristigen Aufwärtstrend. Feuert, wenn die 1-Monats-Rendite stark negativ ist, der Kurs
+    aber über der MA200 bleibt (Qualitäts-Rücksetzer) — Wette auf die Gegenbewegung."""
+    p = {**strategy_runtime_params("streversal")}
+    df = _clean_1d(tf_data)
+    lb = int(p["lookback"])
+    if df is None or len(df) < int(p["ma_regime"]) + lb + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    r1m = (price / float(c[-1 - lb]) - 1.0) if c[-1 - lb] > 0 else 0.0
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    if not (r1m < -p["drop"] and price > ma):
+        return None
+    strength = 50 + 50 * max(0.0, min(1.0, (-r1m - p["drop"]) / 0.15))   # tieferer Rücksetzer → stärker
+    return _make_signal(ticker, df, "streversal", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def frog_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Frog-in-the-Pan-Momentum (Da, Gurun & Warachka 2014, RFS): Momentum-Aktien mit
+    *kontinuierlicher* Information (viele kleine Aufwärtstage statt weniger Sprünge) laufen stärker
+    weiter. Feuert bei positivem 6-Monats-Momentum über MA200 und hohem Anteil positiver Tage."""
+    p = {**strategy_runtime_params("frog")}
+    df = _clean_1d(tf_data)
+    lb, skip = int(p["lookback"]), int(p["skip"])
+    if df is None or len(df) < lb + skip + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    seg = c[-(lb + skip):-skip] if skip else c[-lb:]
+    mom = (float(seg[-1]) / float(seg[0]) - 1.0) if seg[0] > 0 else 0.0
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    rets = np.diff(seg)
+    up = float(np.mean(rets > 0)) if len(rets) else 0.0           # Anteil positiver Tage (Kontinuität)
+    if not (mom > 0.0 and price > ma and up > p["up_min"]):
+        return None
+    mom_s = max(0.0, min(1.0, mom / 0.50))
+    cont_s = max(0.0, min(1.0, (up - 0.50) / 0.15))               # mehr Aufwärtstage → kontinuierlicher
+    strength = 40 + 60 * (0.5 * mom_s + 0.5 * cont_s)
+    return _make_signal(ticker, df, "frog", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
 # ── Fortlaufende Live-Scores (für das 60s-Monitoring je aktivem Trade) ───────
 #
 # Anders als generate() (das nur im Einstiegsmoment feuert) liefern diese einen
@@ -507,6 +629,36 @@ REGISTRY: dict[str, Strategy] = {
         "high52_wide", "Momentum 52W-Hoch (aktiv)",
         high52_wide_signal, high52_score,
         "Wie streng, aber schon ab ≥95 % des 52-Wochen-Hochs → mehr Signale, höhere Gesamtrendite.",
+    ),
+    # ── Akademische Faktor-Strategien (aus der Finanzmarktforschung) ──────────
+    "tsmom": Strategy(
+        "tsmom", "Time-Series-Momentum (12-1)",
+        tsmom_signal, None,
+        "Moskowitz–Ooi–Pedersen (2012): long bei positiver 12-Monats-Rendite (jüngsten Monat "
+        "ausgelassen) über der MA200. ATR-SL/TP.",
+    ),
+    "lowvol": Strategy(
+        "lowvol", "Low-Volatility-Anomalie (BAB)",
+        lowvol_signal, None,
+        "Baker et al. (2011) / Frazzini–Pedersen (2014): ruhige Aufwärtstrend-Aktien, Stärke invers "
+        "zur realisierten Vola (Top-N = ruhigste Werte). ATR-SL/TP.",
+    ),
+    "faber": Strategy(
+        "faber", "Faber-Tactical (10-Monats-SMA)",
+        faber_signal, None,
+        "Faber (2007): long beim Überkreuzen des ≈200-Tage-SMA von unten. Trendtreu, geringe DDs.",
+    ),
+    "streversal": Strategy(
+        "streversal", "Short-Term-Reversal (1M)",
+        streversal_signal, None,
+        "Jegadeesh (1990) / Lehmann (1990): kauft kurzfristige Verlierer (1-Monats-Rücksetzer) im "
+        "Aufwärtstrend (>MA200). ATR-SL/TP.",
+    ),
+    "frog": Strategy(
+        "frog", "Frog-in-the-Pan-Momentum",
+        frog_signal, None,
+        "Da–Gurun–Warachka (2014): Momentum mit kontinuierlicher Information (viele kleine "
+        "Aufwärtstage) läuft stärker weiter. 6-Monats-Momentum + hoher Aufwärtstage-Anteil.",
     ),
 }
 
