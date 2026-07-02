@@ -2305,6 +2305,14 @@ def main():
     # Globaler Error-Handler (saubere Logs statt Tracebacks)
     app.add_error_handler(error_handler)
 
+    # Einmalige Datenreparatur beim Start: abgeschlossene Trades mit unplausiblem Einstieg
+    # (Glitch-Fills wie KHC @ 0,26 → +53.810 € Fake-P&L) korrigieren. Idempotent.
+    for _u in db.list_active_users():
+        try:
+            db.heal_absurd_closed_pnl(_u["user_id"])
+        except Exception as _e:
+            log.warning(f"heal_absurd_closed_pnl fehlgeschlagen für {_u.get('user_id')}: {_e}")
+
     # Jobs planen (täglich zur fixen Uhrzeit + laufender Trade-Monitor)
     _register_jobs(app)
 

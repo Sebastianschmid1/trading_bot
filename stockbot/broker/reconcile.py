@@ -11,11 +11,14 @@ verschwunden ist (z. B. manuell im Broker verkauft).
 """
 
 import re
+import logging
 from datetime import datetime
 
 from stockbot.core.evaluator import get_current_price, trade_pnl
 from stockbot.core import db
 from stockbot.broker import client as broker
+
+log = logging.getLogger(__name__)
 
 # OCC-Optionssymbol, z. B. AAPL260116C00200000 = AAPL · 2026-01-16 · Call · Strike 200.0
 _OCC_RE = re.compile(r"^(?P<root>[A-Z]{1,6})(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})"
@@ -100,15 +103,32 @@ def sweep_missing_positions(user: dict, client, *, grace_sec: int = 300) -> dict
     """
     active = db.get_active_trades(user["user_id"])
     broker_positions = {p["symbol"]: p for p in broker.list_positions(client)}
+    missing = [t for t in active if bot_symbol(t) not in broker_positions]
+
+    # Schutz gegen Massen-Fehlschließung durch transiente Broker-Fehler:
+    # `broker.list_positions` liefert bei jeder Ausnahme (Timeout/Rate-Limit, z. B. um US-Open) []
+    # zurück. Ohne Guard schlösse der Sweep dann ALLE aktiven Trades fälschlich als „verkauft"
+    # (reconciled_missing) — und `adopt_orphan_positions` übernähme sie 2–3 Min später wieder, sobald
+    # die API sich erholt: ein Ping-Pong-Loop (real beobachtet: 33 Ticker, 12–15 Closes/Sekunde um
+    # 13:30 UTC). Fehlen also auffällig VIELE Positionen GLEICHZEITIG (> Hälfte bzw. mehr als 3), ist
+    # das ein API-Glitch, kein echter Verkauf → Sweep überspringen. Einzelne (1–3) fehlende Positionen
+    # werden regulär geschlossen (echter Verkauf am Broker), abgesichert durch die Grace-Phase.
+    if active and len(missing) > max(3, len(active) // 2):
+        log.warning(
+            "[%s] Positions-Sweep übersprungen: %d/%d aktive Positionen fehlen gleichzeitig "
+            "(Broker lieferte %d Positionen) — vermutlich transienter API-Fehler, kein echter Verkauf.",
+            user["user_id"], len(missing), len(active), len(broker_positions),
+        )
+        return {"closed": [], "detail": "Sweep übersprungen (Broker-Positionsliste unplausibel leer/unvollständig).",
+                "skipped": [{"ticker": t["ticker"], "symbol": bot_symbol(t),
+                             "reason": "broker_list_unreliable"} for t in missing]}
+
     now = datetime.utcnow()
     closed: list[dict] = []
     skipped: list[dict] = []
 
-    for trade in active:
+    for trade in missing:
         sym = bot_symbol(trade)
-        if sym in broker_positions:
-            continue
-
         updated = _parse_ts(trade.get("broker_updated_at")) or _parse_ts(trade.get("created_at"))
         age_sec = int((now - updated).total_seconds()) if updated else grace_sec
         if age_sec < grace_sec:

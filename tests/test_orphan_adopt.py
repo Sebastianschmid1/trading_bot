@@ -184,6 +184,41 @@ def test_regression_broker_has_position_bot_does_not(monkeypatch):
     assert db.get_trade(CHAT, "TSLA")["status"] == "active"
 
 
+# ── Sweep-Guard gegen Massen-Fehlschließung (transiente Broker-Fehler) ────────
+
+def _seed_active(tickers):
+    sig = {"strategy": "standard", "sl_tp_mode": "aus", "leverage": 1.0, "direction": "long", "price": 100.0}
+    for tk in tickers:
+        db.adopt_active_trade(CHAT, tk, entry=100.0, signal=sig, filled_qty=1)
+
+
+def test_sweep_skips_when_broker_list_empty(monkeypatch):
+    """Liefert der Broker (transient) KEINE Positionen, obwohl der Bot aktive Trades hält, darf
+    der Sweep NICHTS schließen — sonst Massen-Fehlschließung + Adopt-Ping-Pong (der reale Bug)."""
+    _fresh_db()
+    _seed_active(["AAA", "BBB", "CCC", "DDD"])
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: [])   # API-Glitch → []
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=object(), grace_sec=0)
+    assert res["closed"] == []
+    assert len(db.get_active_trades(CHAT)) == 4                    # alle bleiben aktiv
+    assert all(s["reason"] == "broker_list_unreliable" for s in res["skipped"])
+
+
+def test_sweep_still_closes_single_genuine_missing(monkeypatch):
+    """Einzeln fehlende Position (Broker liefert die übrigen) wird weiterhin normal geschlossen —
+    der Guard blockiert nur die unplausible Massen-Fehlschließung."""
+    _fresh_db()
+    _seed_active(["AAA", "BBB", "CCC", "DDD"])
+    present = [{"symbol": s, "qty": 1.0, "avg_entry": 100.0, "side": "long"} for s in ("AAA", "BBB", "CCC")]
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: present)  # DDD fehlt echt
+    monkeypatch.setattr(reconcile, "get_current_price", lambda tk, fb=0.0: 100.0)
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=object(), grace_sec=0)
+    assert [c["ticker"] for c in res["closed"]] == ["DDD"]
+    assert {t["ticker"] for t in db.get_active_trades(CHAT)} == {"AAA", "BBB", "CCC"}
+
+
 # ── Dashboard Buying Power ───────────────────────────────────────────────────
 
 def test_broker_account_snapshot_none_without_broker_exec():

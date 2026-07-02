@@ -1005,6 +1005,57 @@ def set_active_entry(user_id: int, ticker: str, entry: float) -> bool:
         return cur.rowcount > 0
 
 
+def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
+    """Korrigiert abgeschlossene AKTIEN-Trades mit unplausiblem Einstieg (Glitch-Fill).
+
+    Signatur: geschlossener Trade, dessen `entry` außerhalb 0,5–2,0× des Signalkurses liegt
+    (z. B. KHC @ 0,26 statt Signalkurs 23,95 → +9.182 % / +53.810 € Fake-P&L). Setzt
+    `entry` = Signalkurs und rechnet pnl_pct/pnl_eur konsistent neu — die Geld-Skala des
+    Trades bleibt erhalten (K = pnl_eur/pnl_pct, unabhängig von der aktuellen Trade-Größe).
+
+    Options-/übernommene Trades werden übersprungen (dort ist entry≠Signalkurs legitim).
+    Idempotent: nach der Korrektur liegt entry im Band → wird nicht erneut angefasst.
+    Gibt die Liste der Korrekturen zurück (für Logging). Gegenstück zum Fill-Guard in
+    `mark_broker_filled` (verhindert neue Fälle)."""
+    fixed: list[dict] = []
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, ticker, direction, signal_json, entry, exit, pnl_pct, pnl_eur "
+            "FROM trades WHERE user_id = ? AND status = 'closed'",
+            (user_id,),
+        ).fetchall()
+        for r in rows:
+            try:
+                sig = json.loads(r["signal_json"]) or {}
+            except Exception:
+                continue
+            if sig.get("option_symbol") or sig.get("adopted"):
+                continue                              # dort ist entry (Underlying) ≠ Signal (Prämie) ok
+            sp, e, ex = sig.get("price"), r["entry"], r["exit"]
+            if not sp or not e or float(sp) <= 0 or float(e) <= 0 or ex is None:
+                continue
+            if 0.5 <= float(e) / float(sp) <= 2.0:
+                continue                              # Einstieg plausibel → nichts zu tun
+            new_entry = float(sp)
+            if r["direction"] == "short":
+                new_pct = (new_entry - float(ex)) / new_entry * 100
+            else:
+                new_pct = (float(ex) - new_entry) / new_entry * 100
+            # Geld-Skala (trade_size×Hebel/100) aus dem Altwert ableiten → konsistente Neuberechnung.
+            k = (r["pnl_eur"] / r["pnl_pct"]) if r["pnl_pct"] else 0.0
+            new_eur = round(k * new_pct, 2)
+            conn.execute(
+                "UPDATE trades SET entry = ?, pnl_pct = ?, pnl_eur = ? WHERE id = ?",
+                (round(new_entry, 6), round(new_pct, 4), new_eur, r["id"]),
+            )
+            fixed.append({"ticker": r["ticker"], "old_entry": float(e), "new_entry": new_entry,
+                          "old_eur": r["pnl_eur"], "new_eur": new_eur})
+    if fixed:
+        log.warning("[%s] %d absurde(r) geschlossene(r) Trade(s) korrigiert: %s", user_id, len(fixed),
+                    ", ".join(f"{x['ticker']} {x['old_eur']:+.0f}€→{x['new_eur']:+.2f}€" for x in fixed))
+    return fixed
+
+
 def mark_broker_pending(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
     """Speichert, dass die Broker-Order angenommen, aber noch nicht gefüllt ist."""
     with _connect() as conn:

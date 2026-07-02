@@ -103,6 +103,27 @@ def test_broker_fill_with_absurd_price_keeps_signal_entry():
     assert trade["broker_filled_avg_price"] == 0.26   # roher Broker-Fill bleibt erhalten
 
 
+def test_heal_absurd_closed_pnl_fixes_corrupt_entry_idempotently():
+    """Selbstheilung bereits korrupter Datensätze: ein geschlossener KHC-Trade mit entry 0,26
+    (statt Signalkurs 23,95) und +53.810 € wird auf den Signalkurs korrigiert; P&L skaliert
+    konsistent mit (~+4,5 €). Zweiter Lauf ändert nichts mehr (idempotent)."""
+    fresh_db(price=23.95)
+    _pending("KHC", price=23.95)
+    trade_svc.accept_trade(CHAT, "KHC")
+    with db._connect() as conn:                        # Korruption wie im Live-Log herstellen
+        conn.execute("UPDATE trades SET status='closed', entry=0.26, exit=24.135, "
+                     "pnl_pct=9182.6924, pnl_eur=53810.58 WHERE user_id=? AND ticker='KHC'", (CHAT,))
+
+    fixed = db.heal_absurd_closed_pnl(CHAT)
+    assert [f["ticker"] for f in fixed] == ["KHC"]
+    t = db.get_closed_trades(CHAT)[0]
+    assert abs(t["entry"] - 23.95) < 1e-6              # Einstieg = Signalkurs
+    assert abs(t["pnl_pct"] - 0.7724) < 0.01           # (24.135-23.95)/23.95*100
+    assert 0 < t["pnl_eur"] < 20                        # keine Fake-53.810 € mehr (K-skaliert ~4,5)
+
+    assert db.heal_absurd_closed_pnl(CHAT) == []        # idempotent
+
+
 def test_broker_rejected_trade_does_not_remain_active():
     fresh_db()
     _pending("AAPL")
