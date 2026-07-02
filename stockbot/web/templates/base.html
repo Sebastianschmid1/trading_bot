@@ -4,27 +4,44 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Stock Signal Bot{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f1420; --panel:#1a2030; --panel2:#222a3d; --fg:#e6e9ef; --muted:#8a93a6;
-          --green:#2ecc71; --red:#e74c3c; --blue:#4f8cff; --line:#2a3346; }
+  /* „Instrument Cockpit"-Identität — global für alle Reiter (Avionik-Look:
+     warmes Creme auf Gunmetal, Go/Caution/Warn-Anzeigen, Phosphor-Trace). */
+  :root {
+    --instrument:#0F141A; --bezel:#1A2028; --inset:#12181F; --edge:#2A333D;
+    --marking:#E9E6DD; --dim:#808C97; --go:#3ECF8E; --caution:#E7B24C; --warn:#E85C4A;
+    --trace:#74C7FF; --on:#05131C; --grid:#232C36;
+    --font-display:"Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    /* Aliase, damit bestehende Seiten/Klassen unverändert weiterlaufen */
+    --bg:#0F141A; --panel:#1A2028; --panel2:#12181F; --fg:#E9E6DD; --muted:#808C97;
+    --green:#3ECF8E; --red:#E85C4A; --blue:#74C7FF; --line:#2A333D;
+    --card:#1A2028; --card2:#12181F; --border:#2A333D; --text:#E9E6DD; --accent:#74C7FF; --amber:#E7B24C;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); }
-  header { background:var(--panel); border-bottom:1px solid var(--line); padding:.6rem 1rem;
-           display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; position:sticky; top:0; }
-  header .brand { font-weight:700; margin-right:.6rem; }
-  nav a { color:var(--fg); text-decoration:none; padding:.35rem .6rem; border-radius:.5rem; font-size:.92rem; }
-  nav a:hover, nav a.active { background:var(--panel2); }
-  .badge { background:var(--red); color:#fff; border-radius:1rem; padding:0 .4rem; font-size:.72rem; margin-left:.2rem; }
+  body { margin:0; font-family:var(--font-display); letter-spacing:.01em;
+         background:var(--instrument); color:var(--marking); }
+  a { color:var(--trace); }
+  h1, h2, h3 { font-family:var(--font-display); letter-spacing:.005em; }
+  header { background:var(--inset); border-bottom:1px solid var(--edge); padding:.6rem 1rem;
+           display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; position:sticky; top:0; z-index:30; }
+  header .brand { font-weight:700; margin-right:.6rem; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem; }
+  nav a { color:var(--dim); text-decoration:none; padding:.35rem .6rem; border-radius:.5rem; font-size:.92rem; }
+  nav a:hover, nav a.active { background:var(--bezel); color:var(--marking); }
+  .badge { background:var(--warn); color:#fff; border-radius:1rem; padding:0 .4rem; font-size:.72rem; margin-left:.2rem; }
   .modepill { display:inline-flex; align-items:center; gap:.4rem; font-weight:700; font-size:.78rem;
               letter-spacing:.05em; padding:.34rem .8rem; border-radius:.55rem; border:1px solid;
-              box-shadow: inset 0 2px 6px rgba(0,0,0,.5); }
+              box-shadow: inset 0 2px 6px rgba(0,0,0,.5); font-family:var(--font-mono); }
   .modepill .dot { width:.5rem; height:.5rem; border-radius:50%; background:currentColor; box-shadow:0 0 7px currentColor; }
   .modepill.demo  { background:#3a2a08; color:#ffc24d; border-color:#7a5a16; }
   .modepill.paper { background:#0c2236; color:#5cc0ff; border-color:#1c4a6b; }
   .modepill.live  { background:#3a0c0c; color:#ff6b6b; border-color:#7a1c1c; }
   .dir { font-size:.72rem; font-weight:700; padding:.12rem .45rem; border-radius:.4rem; letter-spacing:.03em; }
-  .dir.long { background:rgba(46,204,113,.16); color:var(--green); }
-  .dir.short { background:rgba(231,76,60,.16); color:var(--red); }
+  .dir.long { background:rgba(62,207,142,.16); color:var(--green); }
+  .dir.short { background:rgba(232,92,74,.16); color:var(--red); }
   main { max-width:880px; margin:0 auto; padding:1rem; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:.8rem; padding:1rem; margin:.7rem 0; }
   .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
@@ -32,19 +49,38 @@
   .muted { color:var(--muted); font-size:.86rem; }
   .pos { color:var(--green); } .neg { color:var(--red); }
   button, .btn { cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--fg);
-                 border-radius:.5rem; padding:.45rem .7rem; font-size:.9rem; }
+                 border-radius:.5rem; padding:.45rem .7rem; font-size:.9rem; font-family:inherit; text-decoration:none; }
   button.green { background:var(--green); border-color:var(--green); color:#06231a; font-weight:600; }
   button.red { background:transparent; border-color:var(--red); color:var(--red); }
-  button.on { background:var(--blue); border-color:var(--blue); color:#04122e; font-weight:600; }
-  select, input[type=text], input[type=number], textarea { background:var(--panel2); color:var(--fg);
-                 border:1px solid var(--line); border-radius:.5rem; padding:.4rem; }
-  textarea { width:100%; min-height:7rem; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+  button.on { background:var(--blue); border-color:var(--blue); color:var(--on); font-weight:600; }
+  select, input[type=text], input[type=number], input[type=date], textarea { background:var(--panel2); color:var(--fg);
+                 border:1px solid var(--line); border-radius:.5rem; padding:.4rem; font-family:inherit; }
+  textarea { width:100%; min-height:7rem; font-family:var(--font-mono); }
   form.inline { display:inline; }
   .flash { background:var(--panel2); border-left:3px solid var(--blue); padding:.6rem .8rem; border-radius:.4rem; margin:.6rem 0; }
   h1 { font-size:1.3rem; } h2 { font-size:1.05rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
   td, th { padding:.4rem .3rem; border-bottom:1px solid var(--line); text-align:left; }
   td.r, th.r { text-align:right; }
+  /* Digitale Readouts: rechtsbündige/numerische Zellen tabellarisch in JetBrains Mono */
+  td.r, td.num, .mono, .readout, .card .value { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  /* „Eingravierte" Kleinlabels (Instrumenten-Beschriftung) */
+  .marklabel { text-transform:uppercase; letter-spacing:.12em; font-size:.66rem; color:var(--dim);
+               font-family:var(--font-display); font-weight:600; }
+  /* Annunciator-Punkt (Zustandsleuchte) — Farbe nur für Zustand, nie als Deko */
+  .ann { width:.5rem; height:.5rem; border-radius:50%; display:inline-block; background:var(--dim); }
+  .ann.go { background:var(--go); box-shadow:0 0 7px var(--go); }
+  .ann.caution { background:var(--caution); box-shadow:0 0 7px var(--caution); }
+  .ann.warn { background:var(--warn); box-shadow:0 0 7px var(--warn); }
+  /* Signatur: Signal-Stärke-Rundinstrument (Dashboard-Hero) */
+  .gauge-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                background:radial-gradient(120% 120% at 50% 15%, #1E262F 0%, var(--bezel) 60%);
+                border:1px solid var(--edge); border-radius:14px; padding:.6rem .9rem .7rem;
+                box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 2px 10px rgba(0,0,0,.35); }
+  .gauge-wrap canvas { display:block; }
+  .gauge-cap { margin-top:.1rem; text-align:center; }
+  .gauge-cap .v { font-family:var(--font-mono); font-weight:700; font-size:1rem; color:var(--marking); }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto; } }
 </style>
 </head>
 <body>

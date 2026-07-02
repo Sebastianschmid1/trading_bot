@@ -2,7 +2,6 @@
 {% block title %}📊 Trading Cockpit — Stock Signal Bot{% endblock %}
 {% block content %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  {% include "_cockpit.html" %}
   <style>
     /* — Cockpit gibt sich mehr Breite als die Standard-880px der base.html — */
     main { max-width: 1280px !important; padding: 1rem 1.1rem !important; }
@@ -11,7 +10,7 @@
     /* Signatur-Hero: Signal-Stärke-Instrument neben den Kennzahlen */
     .hero { display:flex; gap:1.1rem; align-items:stretch; margin-bottom:1.1rem; }
     .hero .cards { flex:1; margin-bottom:0; }
-    .hero .gauge-wrap { flex:0 0 210px; }
+    .hero .gauge-wrap { flex:0 0 178px; }
     @media (max-width:640px){ .hero{flex-direction:column} .hero .gauge-wrap{flex:none} }
 
     /* ── Topbar / Statuszeile ───────────────────────────────────────────── */
@@ -159,7 +158,7 @@
   <!-- KPI-Hero: Signal-Stärke-Instrument (Signatur) + Kennzahlen -->
   <div class="hero">
     <div class="gauge-wrap">
-      <canvas id="signalGauge" width="200" height="132" aria-label="Signal-Stärke"></canvas>
+      <canvas id="signalGauge" width="168" height="112" aria-label="Signal-Stärke"></canvas>
       <div class="gauge-cap"><span class="v" id="gaugeVal">—</span>
         <div class="marklabel" id="gaugeCap">Signal-Stärke Ø</div></div>
     </div>
@@ -468,10 +467,10 @@
     const GAUGE_A0 = Math.PI * 0.75, GAUGE_A1 = Math.PI * 2.25;   // 135°→405°, 270°-Sweep über oben
     function drawSignalGauge(value) {
       const c = document.getElementById("signalGauge"); if (!c) return;
-      const dpr = window.devicePixelRatio || 1, W = 200, H = 132;
+      const dpr = window.devicePixelRatio || 1, W = 168, H = 112;
       if (c._dpr !== dpr) { c._dpr = dpr; c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
       const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-      const cx = W / 2, cy = 82, R = 58, sweep = GAUGE_A1 - GAUGE_A0;
+      const cx = W / 2, cy = 68, R = 48, sweep = GAUGE_A1 - GAUGE_A0;
       const col = (t) => t >= 0.70 ? "#3ECF8E" : t >= 0.40 ? "#E7B24C" : "#E85C4A";  // warn→caution→go
       // Zonenbogen (Anzeigelampen-Logik: schwach=warn, stark=go)
       ctx.lineWidth = 9; ctx.lineCap = "butt";
