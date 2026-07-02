@@ -7,11 +7,17 @@
     main { max-width: 1280px !important; padding: 1rem 1.1rem !important; }
     .green { color: var(--green); } .red { color: var(--red); }
 
-    /* Signatur-Hero: Signal-Stärke-Instrument neben den Kennzahlen */
-    .hero { display:flex; gap:1.1rem; align-items:stretch; margin-bottom:1.1rem; }
-    .hero .cards { flex:1; margin-bottom:0; }
-    .hero .gauge-wrap { flex:0 0 178px; }
-    @media (max-width:640px){ .hero{flex-direction:column} .hero .gauge-wrap{flex:none} }
+    /* Signatur-Hero: Instrument (Gauge, 2:1) + quadratische Kennzahl-Kacheln (1:1) in EINEM Raster.
+       #cards nutzt display:contents → seine Karten werden direkte Zellen des .hero-Rasters. */
+    .hero { display:grid; grid-template-columns:repeat(auto-fill, minmax(155px, 1fr));
+            gap:.8rem; margin-bottom:1.1rem; align-items:start; }
+    .hero .cards { display:contents; }
+    .hero .card { aspect-ratio:1 / 1; display:flex; flex-direction:column; justify-content:center; margin:0; }
+    .hero .gauge-wrap { grid-column:span 2; aspect-ratio:2 / 1; flex-direction:row;
+                        gap:.7rem; align-items:center; justify-content:center; padding:.5rem .9rem; }
+    .hero .gauge-cap { margin-top:0; text-align:left; }
+    .hero .gauge-cap .v { font-size:2rem; line-height:1.05; }
+    @media (max-width:640px){ .hero .gauge-wrap { grid-column:1 / -1; aspect-ratio:auto; } }
 
     /* ── Topbar / Statuszeile ───────────────────────────────────────────── */
     .topbar { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap;
@@ -49,8 +55,8 @@
             box-shadow:0 1px 3px rgba(0,0,0,.25); transition:box-shadow .2s, border-color .2s; }
     .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
     .card .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums; }
-    .card-hero { grid-column:span 2; background:linear-gradient(135deg,#20272F,#151B22); }
-    .card-hero .value { font-size:2.2rem; }
+    .card-hero { background:linear-gradient(135deg,#20272F,#151B22); }
+    .card-hero .value { font-size:1.85rem; }
     .card.flash-up { animation:flashUp .9s ease-out; }
     .card.flash-down { animation:flashDown .9s ease-out; }
     @keyframes flashUp { 0%{box-shadow:0 0 0 2px var(--green); border-color:var(--green)} 100%{box-shadow:0 1px 3px rgba(0,0,0,.25)} }
@@ -129,13 +135,12 @@
 
     @media (max-width: 900px) {
       .grid { grid-template-columns:1fr; }
-      .card-hero { grid-column:span 2; }
     }
     @media (max-width: 640px) {
       main { padding:.7rem !important; }
       .topbar { top:0; padding:.6rem .7rem; }
-      .cards { grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:.55rem; }
-      .card .value { font-size:1.25rem; } .card-hero .value { font-size:1.7rem; }
+      .hero { grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:.55rem; }
+      .card .value { font-size:1.25rem; } .card-hero .value { font-size:1.55rem; }
       .panel canvas, .span-2 .panel canvas { height:230px !important; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -158,7 +163,7 @@
   <!-- KPI-Hero: Signal-Stärke-Instrument (Signatur) + Kennzahlen -->
   <div class="hero">
     <div class="gauge-wrap">
-      <canvas id="signalGauge" width="168" height="112" aria-label="Signal-Stärke"></canvas>
+      <canvas id="signalGauge" width="150" height="108" aria-label="Signal-Stärke"></canvas>
       <div class="gauge-cap"><span class="v" id="gaugeVal">—</span>
         <div class="marklabel" id="gaugeCap">Signal-Stärke Ø</div></div>
     </div>
@@ -181,14 +186,14 @@
       </section>
 
       <section class="panel tall" data-panel="trades">
-        <div class="panel-head"><h2>📈 Trades einzeln — Wertentwicklung</h2>
-          <label class="chip-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="openOnly"> nur offene</label>
+        <div class="panel-head"><h2>📈 Kontowert über Zeit <span class="desc" style="margin:0;font-weight:400">realisiert + offen</span></h2>
+          <label class="chip-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="inclOpen"> inkl. offene</label>
           <span class="caret">▾</span></div>
         <div class="panel-body">
-          <div class="desc"><b>Jeder Punkt = ein Trade</b> an seinem Ergebnis · X = Ausstiegszeit,
-            Y = Rendite % ab Einstieg (mit Hebel). <b>Gefüllt</b> = abgeschlossen · <b>hohl</b> = offen
-            (aktueller Stand, rechts bei „jetzt"). Punktgröße ≈ €-Betrag, <b>grün/rot</b> = Gewinn/Verlust.
-            Skala stauchend für Ausreißer. <b>Zeiger über einen Punkt</b> zeigt Details.</div>
+          <div class="desc"><b>Laufender Kontowert</b> aus deinen Trades über die Zeit: jede abgeschlossene
+            Position summiert ihr Ergebnis an ihrem <b>Ausstiegszeitpunkt</b> zur kumulierten P&L.
+            <b>Offene Trades</b> steuern ihre aktuelle (unrealisierte) P&L bis „jetzt" bei (Häkchen
+            „inkl. offene"). <b>Grün/rot</b> = Gesamt im Plus/Minus · Nulllinie = Break-even.</div>
           <canvas id="tradesLogChart"></canvas>
         </div>
       </section>
@@ -288,7 +293,7 @@
       collapsed:   JSON.parse(lsGet("collapsed", "{}")),
       sort:        { key: "pnl_eur", dir: -1 },
       filter:      "",
-      openOnly:    lsGet("openOnly", "0") === "1",   // Trades-Chart: nur offene Trades zeigen
+      includeOpen: lsGet("includeOpen", "1") !== "0",  // Kontowert-Chart: offene (unrealisierte) P&L mitzeichnen
       lastKpis:    {},
       intraday:    [],
       data:        null,
@@ -467,10 +472,10 @@
     const GAUGE_A0 = Math.PI * 0.75, GAUGE_A1 = Math.PI * 2.25;   // 135°→405°, 270°-Sweep über oben
     function drawSignalGauge(value) {
       const c = document.getElementById("signalGauge"); if (!c) return;
-      const dpr = window.devicePixelRatio || 1, W = 168, H = 112;
+      const dpr = window.devicePixelRatio || 1, W = 150, H = 108;
       if (c._dpr !== dpr) { c._dpr = dpr; c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
       const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-      const cx = W / 2, cy = 68, R = 48, sweep = GAUGE_A1 - GAUGE_A0;
+      const cx = W / 2, cy = 64, R = 46, sweep = GAUGE_A1 - GAUGE_A0;
       const col = (t) => t >= 0.70 ? "#3ECF8E" : t >= 0.40 ? "#E7B24C" : "#E85C4A";  // warn→caution→go
       // Zonenbogen (Anzeigelampen-Logik: schwach=warn, stark=go)
       ctx.lineWidth = 9; ctx.lineCap = "butt";
@@ -562,96 +567,81 @@
       });
     }
 
-    // signed-log: komprimiert Ausreißer, behält Vorzeichen
-    const slog = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v));
-    const sexp = (v) => Math.sign(v) * (Math.pow(10, Math.abs(v)) - 1);
-    const NICE = [-500,-200,-100,-50,-20,-10,-5,-2,0,2,5,10,20,50,100,200,500];
-    // Farben + Punktgröße für den Trades-Scatter
-    const C_GREEN = "#3ECF8E", C_RED = "#E85C4A";
     const fmtWhen = (ms) => { const dt = new Date(ms);
       return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " "
            + dt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); };
-    // Punktradius ≈ Wurzel des €-Betrags (sanft skaliert, 4–11 px) → größerer Trade = größerer Punkt
-    const dotR = (m) => Math.max(4, Math.min(11, 4 + Math.sqrt(Math.abs(m.final_eur || 0))));
 
-    // „Trades einzeln" = sauberer Zeit-Scatter: ein Punkt je Trade an seinem Ergebnis.
-    // Geschlossen = gefüllt am Ausstiegszeitpunkt; offen = hohl am rechten Rand ("jetzt", aktueller Stand).
+    // „Kontowert über Zeit" = laufende, kumulierte P&L über echte Zeit. Jede abgeschlossene Position
+    // summiert ihr Ergebnis an ihrem Ausstiegszeitpunkt; offene Trades steuern ihre aktuelle
+    // (unrealisierte) P&L bis „jetzt" bei (Häkchen „inkl. offene"). Nulllinie = Break-even.
     function renderTradesCurves(d, noData) {
-      let tc = d.trades_curves || [];
-      if (state.openOnly) tc = tc.filter(x => x.status === "active");
-      if (!tc.length) return replaceCanvas("tradesLogChart",
-        state.openOnly ? "Keine offenen Trades." : noData);
+      const tc = d.trades_curves || [];
+      const closedAll = tc.filter(x => x.status !== "active");
+      const active = tc.filter(x => x.status === "active");
+      if (!closedAll.length && !(state.includeOpen && active.length))
+        return replaceCanvas("tradesLogChart", noData);
 
       const now = (d.trades_curves_x && d.trades_curves_x.max) || Date.now();
-      const closed = tc.filter(x => x.status !== "active");
-      const active = tc.filter(x => x.status === "active");
-      const datasets = [];
+      // Endzeitpunkt je Trade: geschlossen = Ausstieg (letzter Kurvenpunkt), offen = „jetzt".
+      const items = closedAll.map(m => ({ x: m.points[m.points.length - 1].x, eur: m.final_eur || 0, open: false, m }));
+      if (state.includeOpen)
+        active.forEach(m => items.push({ x: now, eur: m.final_eur || 0, open: true, m }));
+      items.sort((a, b) => a.x - b.x);
 
-      if (closed.length) {                                   // gefüllte Punkte am Ausstiegszeitpunkt
-        const r = closed.map(dotR);
-        datasets.push({
-          _kind: "closed", _meta: closed,
-          data: closed.map(m => ({ x: m.points[m.points.length - 1].x, y: slog(m.final_pct) })),
-          pointBackgroundColor: closed.map(m => m.final_pct >= 0 ? C_GREEN : C_RED),
-          pointBorderColor: "rgba(15,20,26,.85)", pointBorderWidth: 1,
-          pointRadius: r, pointHoverRadius: r.map(v => v + 3),
-        });
-      }
-      if (active.length) {                                   // hohle Punkte am rechten Rand ("jetzt")
-        const r = active.map(dotR);
-        datasets.push({
-          _kind: "active", _meta: active,
-          data: active.map(m => ({ x: now, y: slog(m.final_pct) })),
-          pointBackgroundColor: active.map(m => m.final_pct >= 0 ? "rgba(62,207,142,.16)" : "rgba(232,92,74,.16)"),
-          pointBorderColor: active.map(m => m.final_pct >= 0 ? C_GREEN : C_RED),
-          pointBorderWidth: 2, pointRadius: r, pointHoverRadius: r.map(v => v + 3),
-        });
-      }
+      // Laufende Summe → Kontowert-Kurve; Startanker bei 0 € am linken Rand.
+      let cum = 0;
+      const pts = items.map(it => { cum += it.eur; return { x: it.x, y: +cum.toFixed(2), it }; });
+      const xmin = (d.trades_curves_x && d.trades_curves_x.min) || (pts.length ? pts[0].x : now);
+      const meta = [null].concat(pts.map(p => p.it));           // Index 0 = Startanker (kein Trade)
+      const data = [{ x: xmin, y: 0 }].concat(pts.map(p => ({ x: p.x, y: p.y })));
 
-      // Strukturwechsel (z. B. „nur offene" umgeschaltet) → sauber neu bauen; sonst smooth in-place.
-      const sig = datasets.map(x => x._kind).join(",");
+      const up = cum >= 0;
+      const line = up ? "#3ECF8E" : "#E85C4A";
+      const fillc = up ? "rgba(62,207,142,.12)" : "rgba(232,92,74,.12)";
+
+      // Diagrammtyp wechselte ggf. vom früheren Scatter → einmal sauber neu bauen.
       const existing = charts["tradesLogChart"];
-      if (existing && existing._sig !== sig) { existing.destroy(); delete charts["tradesLogChart"]; }
+      if (existing && existing._sig !== "cumline") { existing.destroy(); delete charts["tradesLogChart"]; }
 
-      const sgn = (v) => (v >= 0 ? "+" : "");
-      const xmin = (d.trades_curves_x && d.trades_curves_x.min) || undefined;
       const ch = upsertChart("tradesLogChart", {
-        type: "scatter",
-        data: { datasets },
+        type: "line",
+        data: { datasets: [{
+          _meta: meta, data, label: "Kontowert",
+          borderColor: line, backgroundColor: fillc, fill: true, tension: 0,
+          borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, pointHitRadius: 8,
+          pointBackgroundColor: line,
+        }] },
         options: {
-          parsing: false, interaction: { mode: "nearest", intersect: false },
+          parsing: false, interaction: { mode: "index", intersect: false },
           plugins: {
-            legend: { display: false }, crosshair: false, tradesDecor: true,
+            legend: { display: false }, crosshair: true, tradesDecor: true,
             tooltip: { callbacks: {
-              title: () => "",
+              title: (its) => fmtWhen(its[0].parsed.x),
               label: (item) => {
                 const m = item.dataset._meta[item.dataIndex];
-                const open = item.dataset._kind === "active";
-                return `${m.ticker} · ${fmtWhen(item.parsed.x)} (${open ? "offen" : "geschlossen"}): `
-                     + `${sgn(m.final_pct)}${m.final_pct}% (${sgn(m.final_eur)}${m.final_eur}€) · ${m.strategy}`;
+                const base = "Kontowert: " + (item.parsed.y >= 0 ? "+" : "") + item.parsed.y.toFixed(2) + "€";
+                if (!m) return base;
+                const s = (v) => (v >= 0 ? "+" : "") + v;
+                return [base, `${m.ticker} ${m.open ? "(offen)" : ""} ${s(m.final_eur)}€ · ${m.strategy}`];
               } } },
           },
           onClick: (evt, els) => {
             if (!els.length) return;
-            const ds = ch.data.datasets[els[0].datasetIndex];
-            openAnalysis(ds._meta[els[0].index].ticker);
+            const m = ch.data.datasets[0]._meta[els[0].index];
+            if (m) openAnalysis(m.ticker);
           },
           scales: {
             x: { type: "linear", min: xmin, max: now,
-                 title: { display: true, text: "Ausstiegszeit  →  jetzt  ·  hohl = offener Trade", color: "#808C97" },
+                 title: { display: true, text: "Zeit  →  jetzt", color: "#808C97" },
                  ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => fmtWhen(v) },
                  grid: { color: "#232C36" } },
             y: { type: "linear",
-                 afterBuildTicks: (axis) => {
-                   if (!isFinite(axis.min) || !isFinite(axis.max)) return;
-                   const t = NICE.filter(p => slog(p) >= axis.min && slog(p) <= axis.max).map(p => ({ value: slog(p) }));
-                   if (t.length) axis.ticks = t; },
-                 ticks: { callback: (v) => { const r = sexp(v); return (r >= 0 ? "+" : "") + r.toFixed(0) + "%"; } },
+                 ticks: { callback: (v) => (v >= 0 ? "+" : "") + v + "€" },
                  grid: { color: "#232C36" } }
           }
         }
       });
-      if (ch) ch._sig = sig;
+      if (ch) ch._sig = "cumline";
     }
 
     // ── Aktive Trades: sortier-/filterbar (kein Refetch nötig) ──────────────
@@ -719,12 +709,12 @@
       state.filter = e.target.value.trim(); renderActive();
     });
 
-    // Trades-Chart: „nur offene"-Umschalter (ohne Refetch) + Spotlight zurücksetzen beim Verlassen
+    // Kontowert-Chart: „inkl. offene"-Umschalter (ohne Refetch) — zeichnet die unrealisierte P&L mit.
     const NO_TRADES = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
-    const openOnlyEl = document.getElementById("openOnly");
-    openOnlyEl.checked = state.openOnly;
-    openOnlyEl.addEventListener("change", (e) => {
-      state.openOnly = e.target.checked; lsSet("openOnly", state.openOnly ? "1" : "0");
+    const inclOpenEl = document.getElementById("inclOpen");
+    inclOpenEl.checked = state.includeOpen;
+    inclOpenEl.addEventListener("change", (e) => {
+      state.includeOpen = e.target.checked; lsSet("includeOpen", state.includeOpen ? "1" : "0");
       if (state.data) renderTradesCurves(state.data, NO_TRADES);
     });
 
