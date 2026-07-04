@@ -135,6 +135,20 @@ def sweep_missing_positions(user: dict, client, *, grace_sec: int = 300) -> dict
             skipped.append({"ticker": trade["ticker"], "symbol": sym, "age_sec": age_sec})
             continue
 
+        # Vor dem Schließen per DIREKTER Einzelabfrage bestätigen, dass die Position wirklich weg
+        # ist. `list_positions` kann ein Symbol zeitweise auslassen (Rate-Limit/Timeout um US-Open);
+        # ohne Bestätigung schließt der Sweep die Position fälschlich → `adopt_orphan_positions`
+        # adoptiert sie Sekunden später wieder (Close↔Adopt-Ping-Pong). Nur bei EINDEUTIGEM „weg"
+        # (False) schließen; bei True (existiert doch) oder None (transient/unklar) überspringen.
+        exists = broker.position_exists(sym, client)
+        if exists is not False:
+            log.info("[%s] Sweep-Close übersprungen: %s laut Einzelabfrage nicht bestätigt weg "
+                     "(position_exists=%r) — list_positions vermutlich lückenhaft.",
+                     user["user_id"], sym, exists)
+            skipped.append({"ticker": trade["ticker"], "symbol": sym,
+                            "reason": "broker_still_reports_or_unknown"})
+            continue
+
         exit_price = get_current_price(trade["ticker"], float(trade.get("entry") or 0.0))
         if exit_price is None:
             exit_price = float(trade.get("entry") or 0.0)

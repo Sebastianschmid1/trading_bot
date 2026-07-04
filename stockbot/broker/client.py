@@ -223,6 +223,31 @@ def get_position(symbol: str, client=None) -> dict | None:
         return None
 
 
+def position_exists(symbol: str, client=None) -> bool | None:
+    """Direkte Einzelabfrage, ob eine Position bei Alpaca offen ist — als verlässliche
+    Bestätigung, wenn die (Batch-)`list_positions` ein Symbol auslässt.
+
+    Rückgabe:
+      True  = Position existiert,
+      False = eindeutig weg (Broker meldet „position does not exist"/404),
+      None  = unbekannt (transienter Fehler / Alpaca inaktiv) → NICHT als Verkauf werten.
+
+    Damit lässt sich eine Fehlschließung durch ein einzelnes, zeitweise leeres/lückenhaftes
+    `list_positions` vermeiden (Ursache des Close↔Adopt-Ping-Pongs)."""
+    client = _get_client(client)
+    if client is None:
+        return None
+    try:
+        client.get_open_position(symbol)
+        return True
+    except Exception as e:
+        msg = str(e).lower()
+        if "position does not exist" in msg or "not found" in msg or "404" in msg:
+            return False
+        log.warning(f"Alpaca-Position {symbol} nicht prüfbar (transient): {e}")
+        return None
+
+
 def cancel_order(order_id: str, client=None) -> dict:
     """Storniert eine offene Order (Best-effort)."""
     client = _get_client(client)

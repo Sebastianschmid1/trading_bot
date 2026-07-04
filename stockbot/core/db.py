@@ -1244,6 +1244,28 @@ def expire_trade(user_id: int, ticker: str) -> bool:
     return _terminate_pending(user_id, ticker, "expired")
 
 
+def expire_stale_pending(cutoff_date: str | None = None) -> int:
+    """Läuft ALLE noch ausstehenden (pending) Trades ab, deren Handelstag VOR `cutoff_date` liegt
+    (Default: heute). Räumt liegengebliebene Signale auf, die nie angenommen wurden (z. B.
+    Auto-Accept außerhalb der Sitzung) — `get_pending_trades` filtert ohnehin auf `trade_date=heute`,
+    ältere blieben sonst als Karteileichen liegen (beobachteter Pending-Stau). Setzt Status
+    'expired' + Event je Datensatz; gibt die Anzahl bereinigter Trades zurück."""
+    cutoff = cutoff_date or _today()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, ticker, trade_date FROM trades "
+            "WHERE status = 'pending' AND trade_date < ?",
+            (cutoff,),
+        ).fetchall()
+        for r in rows:
+            conn.execute("UPDATE trades SET status = 'expired' WHERE id = ?", (r["id"],))
+            _log_event(conn, trade_id=r["id"], user_id=r["user_id"], ticker=r["ticker"],
+                       trade_date=r["trade_date"], from_status="pending", to_status="expired")
+    if rows:
+        log.info(f"Stale-Pending bereinigt: {len(rows)} liegengebliebene Signale abgelaufen (< {cutoff}).")
+    return len(rows)
+
+
 def _terminate_pending(user_id: int, ticker: str, to_status: str) -> bool:
     """Setzt den heutigen pendenten Trade auf einen Endstatus (rejected/expired) + Event."""
     with _connect() as conn:

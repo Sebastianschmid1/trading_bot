@@ -286,11 +286,13 @@ def test_monitor_closes_missing_broker_position_after_grace_period():
 
     orig_ready, orig_client = bot._alpaca_ready, bot._alpaca_client
     orig_positions, orig_price = reconcile_mod.broker.list_positions, reconcile_mod.get_current_price
+    orig_exists = reconcile_mod.broker.position_exists
     orig_market_open = bot._us_market_open
     bot._alpaca_ready = lambda user: True
     bot._alpaca_client = lambda user: object()
     bot._us_market_open = lambda *a, **k: False
     reconcile_mod.broker.list_positions = lambda client=None: []
+    reconcile_mod.broker.position_exists = lambda sym, c=None: False   # Einzelabfrage bestätigt: echt weg
     reconcile_mod.get_current_price = lambda ticker, fallback: 97.5
     ctx = MagicMock(); ctx.bot = AsyncMock(); ctx.job_queue = MagicMock()
     try:
@@ -299,6 +301,7 @@ def test_monitor_closes_missing_broker_position_after_grace_period():
         bot._alpaca_ready, bot._alpaca_client = orig_ready, orig_client
         bot._us_market_open = orig_market_open
         reconcile_mod.broker.list_positions = orig_positions
+        reconcile_mod.broker.position_exists = orig_exists
         reconcile_mod.get_current_price = orig_price
 
     trade = db.get_trade(CHAT, "IBM")

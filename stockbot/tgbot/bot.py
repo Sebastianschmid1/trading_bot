@@ -664,6 +664,10 @@ async def expire_pending_trade(context: ContextTypes.DEFAULT_TYPE):
 
 async def send_daily_signals(context: ContextTypes.DEFAULT_TYPE):
     """Job: Eröffnungs-Scan (Börsenöffnung) — die besten top_n Signale je Nutzer mit Begrüßung."""
+    # Zuerst liegengebliebene Pending-Signale vergangener Tage abräumen (Pending-Stau-Prävention).
+    cleaned = await asyncio.to_thread(db.expire_stale_pending)
+    if cleaned:
+        log.info(f"Eröffnung: {cleaned} veraltete Pending-Signale bereinigt.")
     await _run_signal_scan(context, opening=True)
 
 

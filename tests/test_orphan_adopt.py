@@ -207,16 +207,62 @@ def test_sweep_skips_when_broker_list_empty(monkeypatch):
 
 def test_sweep_still_closes_single_genuine_missing(monkeypatch):
     """Einzeln fehlende Position (Broker liefert die übrigen) wird weiterhin normal geschlossen —
-    der Guard blockiert nur die unplausible Massen-Fehlschließung."""
+    sofern die Einzelabfrage sie als eindeutig weg (False) bestätigt."""
     _fresh_db()
     _seed_active(["AAA", "BBB", "CCC", "DDD"])
     present = [{"symbol": s, "qty": 1.0, "avg_entry": 100.0, "side": "long"} for s in ("AAA", "BBB", "CCC")]
     monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: present)  # DDD fehlt echt
+    monkeypatch.setattr(reconcile.broker, "position_exists", lambda sym, c=None: False)  # bestätigt weg
     monkeypatch.setattr(reconcile, "get_current_price", lambda tk, fb=0.0: 100.0)
     res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
                                             client=object(), grace_sec=0)
     assert [c["ticker"] for c in res["closed"]] == ["DDD"]
     assert {t["ticker"] for t in db.get_active_trades(CHAT)} == {"AAA", "BBB", "CCC"}
+
+
+def test_sweep_skips_when_single_symbol_still_confirmed(monkeypatch):
+    """`list_positions` lässt ein Symbol aus (Lücke), die Einzelabfrage bestätigt es aber als
+    vorhanden (True) → NICHT schließen (verhindert den Close↔Adopt-Ping-Pong bei 1–2 Flackerern)."""
+    _fresh_db()
+    _seed_active(["AAA", "BBB", "CCC", "DDD"])
+    present = [{"symbol": s, "qty": 1.0, "avg_entry": 100.0, "side": "long"} for s in ("AAA", "BBB", "CCC")]
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: present)   # DDD scheinbar weg
+    monkeypatch.setattr(reconcile.broker, "position_exists", lambda sym, c=None: True)  # existiert doch
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=object(), grace_sec=0)
+    assert res["closed"] == []
+    assert len(db.get_active_trades(CHAT)) == 4
+    assert any(s.get("reason") == "broker_still_reports_or_unknown" for s in res["skipped"])
+
+
+def test_sweep_skips_when_single_symbol_check_unknown(monkeypatch):
+    """Ist die Einzelabfrage unklar (None = transienter Fehler), NICHT schließen (kein Verkauf
+    ohne Bestätigung)."""
+    _fresh_db()
+    _seed_active(["AAA", "BBB", "CCC", "DDD"])
+    present = [{"symbol": s, "qty": 1.0, "avg_entry": 100.0, "side": "long"} for s in ("AAA", "BBB", "CCC")]
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: present)
+    monkeypatch.setattr(reconcile.broker, "position_exists", lambda sym, c=None: None)  # unklar
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=object(), grace_sec=0)
+    assert res["closed"] == []
+    assert len(db.get_active_trades(CHAT)) == 4
+
+
+# ── Stale-Pending-Bereinigung (Pending-Stau-Prävention) ──────────────────────
+
+def test_expire_stale_pending_only_past_days(monkeypatch):
+    """`expire_stale_pending` läuft NUR Pending vergangener Handelstage ab; heutige bleiben."""
+    _fresh_db()
+    monkeypatch.setattr(db, "_today", lambda: "2000-01-01")             # „gestriges" Pending
+    db.add_pending(CHAT, {"ticker": "OLD", "direction": "long", "price": 10.0}, 0)
+    monkeypatch.undo()                                                  # zurück auf echtes Heute
+    db.add_pending(CHAT, {"ticker": "NEW", "direction": "long", "price": 10.0}, 0)
+
+    n = db.expire_stale_pending()
+    assert n == 1                                                       # nur OLD abgelaufen
+    assert {t["ticker"] for t in db.get_pending_trades(CHAT)} == {"NEW"}  # heutiges bleibt pending
+    assert db.expire_stale_pending() == 0                              # idempotent
 
 
 # ── Dashboard Buying Power ───────────────────────────────────────────────────
