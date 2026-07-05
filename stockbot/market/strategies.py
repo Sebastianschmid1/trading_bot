@@ -81,6 +81,14 @@ STREV_PARAMS = {"lookback": 21, "ma_regime": 200, "drop": 0.08,  # Jegadeesh 199
 FROG_PARAMS = {"lookback": 126, "skip": 21, "ma_regime": 200,    # Da-Gurun-Warachka 2014
                "up_min": 0.52, "sl_mult": 2.5, "tp_mult": 5.0}
 
+# ── Aus dem TradingView-Toolkit abgeleitete Zusatz-Strategien ────────────────
+BBREV_PARAMS = {"bb_len": 20, "bb_mult": 2.0, "ma200": 200,      # Bollinger (%B) Mean-Reversion
+                "pctb_buy": 0.10, "sl_mult": 1.5, "tp_mult": 2.5}
+ADXMFI_PARAMS = {"adx_len": 14, "adx_min": 20.0, "mfi_len": 14,  # Wilder ADX/DMI + Quong-Soudack MFI
+                 "mfi_min": 50.0, "ma_trend": 50, "sl_mult": 2.0, "tp_mult": 4.0}
+SUPERTREND_PARAMS = {"atr_period": 10, "factor": 3.0, "ma_regime": 200,  # SuperTrend Trendfolge (weites TP)
+                     "st_lb": 250, "sl_mult": 3.0, "tp_mult": 10.0}
+
 _STRATEGY_OVERRIDES_CACHE = {"ts": 0.0, "rows": {}}
 _STRATEGY_OVERRIDES_TTL = 20.0
 
@@ -117,6 +125,7 @@ def strategy_runtime_params(key: str) -> dict:
     defaults.update({
         "tsmom": TSMOM_PARAMS, "lowvol": LOWVOL_PARAMS, "faber": FABER_PARAMS,
         "streversal": STREV_PARAMS, "frog": FROG_PARAMS,
+        "bb_revert": BBREV_PARAMS, "adx_mfi": ADXMFI_PARAMS, "supertrend": SUPERTREND_PARAMS,
     })
     base = dict(defaults.get(key, {}))
     base.update(_strategy_overrides(key))
@@ -479,6 +488,138 @@ def frog_signal(ticker: str, tf_data: dict) -> dict | None:
     return _make_signal(ticker, df, "frog", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
+# ── Indikator-Helfer für die TradingView-Toolkit-Strategien ──────────────────
+
+def _dmi_adx(df, n: int = 14):
+    """Wilder DMI/ADX → (adx, +DI, −DI) der letzten Bar (rma = ewm(alpha=1/n))."""
+    h = df["High"].astype(float); l = df["Low"].astype(float); c = df["Close"].astype(float)
+    rma = lambda s: s.ewm(alpha=1.0 / n, adjust=False).mean()
+    prev = c.shift(1)
+    tr = pd.concat([h - l, (h - prev).abs(), (l - prev).abs()], axis=1).max(axis=1)
+    up = h.diff(); dn = -l.diff()
+    pdm = np.where((up > dn) & (up > 0), up, 0.0)
+    mdm = np.where((dn > up) & (dn > 0), dn, 0.0)
+    atr = rma(tr)
+    pdi = 100 * rma(pd.Series(pdm, index=c.index)) / (atr + 1e-10)
+    mdi = 100 * rma(pd.Series(mdm, index=c.index)) / (atr + 1e-10)
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi + 1e-10)
+    adx = rma(dx)
+    return float(adx.iloc[-1]), float(pdi.iloc[-1]), float(mdi.iloc[-1])
+
+
+def _mfi(h: np.ndarray, l: np.ndarray, c: np.ndarray, v: np.ndarray, n: int = 14) -> float:
+    """Money-Flow-Index (Quong & Soudack 1989): „RSI mit Volumen"."""
+    tp = (h + l + c) / 3.0
+    mf = tp * v
+    up = tp[1:] > tp[:-1]
+    dn = tp[1:] < tp[:-1]
+    pos = float(np.sum(np.where(up, mf[1:], 0.0)[-n:]))
+    neg = float(np.sum(np.where(dn, mf[1:], 0.0)[-n:]))
+    if neg <= 0:
+        return 100.0
+    return 100.0 - 100.0 / (1.0 + pos / neg)
+
+
+def _supertrend_dir(df, atr_period: int = 10, factor: float = 3.0, lookback: int = 250):
+    """SuperTrend-Richtung (Seban): +1 = bullish, −1 = bearish, je Bar. Nur die letzten `lookback`
+    Bars (Zustand ist selbstkorrigierend → schnelle Konvergenz) für Tempo im Bar-für-Bar-Backtest."""
+    sub = df.tail(lookback)
+    h = sub["High"].astype(float).values; l = sub["Low"].astype(float).values; c = sub["Close"].astype(float).values
+    n = len(c)
+    if n < atr_period + 2:
+        return None
+    tr = np.empty(n); tr[0] = h[0] - l[0]
+    for i in range(1, n):
+        tr[i] = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+    atr = np.full(n, np.nan)
+    atr[atr_period - 1] = float(np.mean(tr[:atr_period]))
+    for i in range(atr_period, n):
+        atr[i] = (atr[i - 1] * (atr_period - 1) + tr[i]) / atr_period
+    hl2 = (h + l) / 2.0
+    upper = hl2 + factor * atr; lower = hl2 - factor * atr
+    fu = np.copy(upper); fl = np.copy(lower); dirn = np.ones(n)
+    for i in range(1, n):
+        if np.isnan(atr[i]):
+            dirn[i] = 1; continue
+        fu[i] = upper[i] if (upper[i] < fu[i - 1] or c[i - 1] > fu[i - 1]) else fu[i - 1]
+        fl[i] = lower[i] if (lower[i] > fl[i - 1] or c[i - 1] < fl[i - 1]) else fl[i - 1]
+        if c[i] > fu[i - 1]:
+            dirn[i] = 1
+        elif c[i] < fl[i - 1]:
+            dirn[i] = -1
+        else:
+            dirn[i] = dirn[i - 1]
+    return dirn
+
+
+# ── TradingView-Toolkit-Strategien (Bollinger %B, ADX+MFI, SuperTrend) ───────
+
+def bb_revert_signal(ticker: str, tf_data: dict) -> dict | None:
+    """Bollinger-%B-Mean-Reversion (Bollinger 1980er): kauft den Rücksetzer ans/unter das untere
+    Bollinger-Band (%B ≤ Schwelle) im langfristigen Aufwärtstrend (Kurs>MA200). Enge ATR-SL/TP."""
+    p = {**strategy_runtime_params("bb_revert")}
+    df = _clean_1d(tf_data)
+    n = int(p["bb_len"])
+    if df is None or len(df) < max(int(p["ma200"]), n) + 5:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    win = c[-n:]
+    mid = float(np.mean(win)); sd = float(np.std(win)); k = float(p["bb_mult"])
+    upper, lower = mid + k * sd, mid - k * sd
+    pctb = (price - lower) / (upper - lower) if upper > lower else 0.5
+    ma200 = float(np.mean(c[-int(p["ma200"]):]))
+    if not (pctb <= p["pctb_buy"] and price > ma200):
+        return None
+    strength = 55 + 45 * max(0.0, min(1.0, (p["pctb_buy"] - pctb) / 0.30))   # tiefer am Band → stärker
+    return _make_signal(ticker, df, "bb_revert", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def adx_mfi_signal(ticker: str, tf_data: dict) -> dict | None:
+    """ADX+MFI-bestätigter Trend (Wilder ADX/DMI 1978 + Quong-Soudack MFI 1989): long nur bei echtem
+    Trend (ADX ≥ Schwelle, +DI>−DI), Kurs>MA50 UND positivem Geldfluss (MFI ≥ 50). ATR-SL/TP."""
+    p = {**strategy_runtime_params("adx_mfi")}
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < int(p["ma_trend"]) + 40:
+        return None
+    c = df["Close"].astype(float).values
+    h = df["High"].astype(float).values
+    l = df["Low"].astype(float).values
+    v = df["Volume"].astype(float).values
+    price = float(c[-1])
+    ma = float(np.mean(c[-int(p["ma_trend"]):]))
+    adx, pdi, mdi = _dmi_adx(df, int(p["adx_len"]))
+    mfi = _mfi(h, l, c, v, int(p["mfi_len"]))
+    if not (adx >= p["adx_min"] and pdi > mdi and price > ma and mfi >= p["mfi_min"]):
+        return None
+    adx_s = max(0.0, min(1.0, (adx - p["adx_min"]) / 25.0))
+    mfi_s = max(0.0, min(1.0, (mfi - 50.0) / 30.0))
+    strength = 50 + 50 * (0.6 * adx_s + 0.4 * mfi_s)
+    return _make_signal(ticker, df, "adx_mfi", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
+def supertrend_signal(ticker: str, tf_data: dict) -> dict | None:
+    """SuperTrend-Trendfolge (Seban): long, solange die SuperTrend-Richtung bullish ist und der Kurs
+    über der MA200 liegt; frischer Umschwung = stärker. Weites Take-Profit (Gewinner laufen lassen)."""
+    p = {**strategy_runtime_params("supertrend")}
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < int(p["ma_regime"]) + 10:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    dirn = _supertrend_dir(df, int(p["atr_period"]), float(p["factor"]), int(p["st_lb"]))
+    if dirn is None or len(dirn) < 2:
+        return None
+    bull = dirn[-1] > 0
+    flipped = bull and dirn[-2] <= 0
+    if not (bull and price > ma):
+        return None
+    dist = max(0.0, min(1.0, (price / ma - 1.0) / 0.15))
+    strength = min(100.0, (75.0 if flipped else 55.0) + 25.0 * dist)
+    return _make_signal(ticker, df, "supertrend", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
 # ── Fortlaufende Live-Scores (für das 60s-Monitoring je aktivem Trade) ───────
 #
 # Anders als generate() (das nur im Einstiegsmoment feuert) liefern diese einen
@@ -659,6 +800,25 @@ REGISTRY: dict[str, Strategy] = {
         frog_signal, None,
         "Da–Gurun–Warachka (2014): Momentum mit kontinuierlicher Information (viele kleine "
         "Aufwärtstage) läuft stärker weiter. 6-Monats-Momentum + hoher Aufwärtstage-Anteil.",
+    ),
+    # ── Aus dem TradingView-Toolkit abgeleitete Strategien ────────────────────
+    "bb_revert": Strategy(
+        "bb_revert", "Bollinger %B Mean-Reversion",
+        bb_revert_signal, None,
+        "Bollinger (1980er): kauft den Rücksetzer ans/unter das untere Bollinger-Band (%B ≤ 0,10) "
+        "im Aufwärtstrend (>MA200). Enge ATR-SL/TP.",
+    ),
+    "adx_mfi": Strategy(
+        "adx_mfi", "ADX+MFI Trend-Confirmed",
+        adx_mfi_signal, None,
+        "Wilder ADX/DMI (1978) + Money-Flow-Index (1989): long nur bei echtem Trend (ADX≥20, "
+        "+DI>−DI), Kurs>MA50 und positivem Geldfluss (MFI≥50). ATR-SL/TP.",
+    ),
+    "supertrend": Strategy(
+        "supertrend", "SuperTrend Trend-Follow",
+        supertrend_signal, None,
+        "SuperTrend (Seban): long solange die SuperTrend-Richtung bullish & Kurs>MA200; weites "
+        "Take-Profit lässt Gewinner laufen (Trailing-Ersatz im Fix-SL/TP-Backtest).",
     ),
 }
 
