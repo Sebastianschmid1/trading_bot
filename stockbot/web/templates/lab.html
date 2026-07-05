@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Strategie-Labor — Stock Signal Bot{% endblock %}
+{% block content %}
+<style>
+  main { max-width: 1100px !important; }
+  .lab-head { display:flex; align-items:flex-start; gap:.8rem; flex-wrap:wrap; margin:.2rem 0 1rem; }
+  .lab-head .grow { flex:1; min-width:240px; }
+  .lab-head h1 { margin:0 0 .25rem; }
+  .statuspill { display:inline-flex; align-items:center; gap:.45rem; font-family:var(--font-mono);
+                font-size:.74rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+                padding:.32rem .7rem; border-radius:.55rem; border:1px solid var(--edge); background:var(--inset); }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:.7rem; }
+  .cell { background:var(--bezel); border:1px solid var(--edge); border-radius:12px; padding:.7rem .9rem;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03); }
+  .cell .v { font-family:var(--font-mono); font-size:1.5rem; font-weight:700; margin-top:.15rem;
+             font-variant-numeric:tabular-nums; }
+  .cell .sub { color:var(--dim); font-size:.78rem; margin-top:.15rem; }
+  .chips { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.3rem; }
+  .chip { font-family:var(--font-mono); font-size:.8rem; background:var(--inset); border:1px solid var(--edge);
+          border-radius:.5rem; padding:.22rem .5rem; }
+  .chip b { color:var(--trace); font-weight:700; }
+  .chip.changed { border-color:var(--go); background:rgba(62,207,142,.10); }
+  .proposal { border-left:3px solid var(--caution); }
+  .proposal.none { border-left-color:var(--edge); }
+  .bigchange { font-family:var(--font-mono); font-size:1.15rem; font-weight:700; }
+  .bigchange .arr { color:var(--caution); margin:0 .3rem; }
+  .cmp { width:100%; border-collapse:collapse; font-size:.88rem; margin-top:.5rem; }
+  .cmp th, .cmp td { padding:.35rem .5rem; border-bottom:1px solid var(--edge); text-align:right; white-space:nowrap; }
+  .cmp th:first-child, .cmp td:first-child { text-align:left; color:var(--dim); }
+  .cmp td { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .win { color:var(--go); } .lose { color:var(--warn); }
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table.hyp { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid var(--edge); text-align:left; white-space:nowrap; }
+  table.hyp th { color:var(--dim); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; }
+  table.hyp td.m { font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right; }
+  .kind { font-size:.66rem; font-weight:700; padding:.1rem .4rem; border-radius:.35rem; letter-spacing:.03em;
+          text-transform:uppercase; font-family:var(--font-mono); background:var(--inset); border:1px solid var(--edge); color:var(--dim); }
+  .kind.applied { color:var(--go); border-color:var(--go); }
+  .kind.rejected { color:var(--warn); border-color:var(--warn); }
+  .kind.decision { color:var(--trace); border-color:var(--trace); }
+  .ok { color:var(--go); } .bad { color:var(--dim); }
+  .empty { color:var(--dim); text-align:center; padding:1.6rem; border:1px dashed var(--edge); border-radius:12px; }
+  .note { color:var(--dim); font-size:.82rem; line-height:1.5; }
+</style>
+
+{% set st = state %}
+{% set ch = st.champion %}
+
+<div class="lab-head">
+  <div class="grow">
+    <h1>🧪 Strategie-Labor</h1>
+    <div class="muted">Selbst-lernende KI-Strategie <b>„{{ st.target_key }}"</b> — walk-forward getunt gegen die
+      Backtest-Engine (Ziel <b>MAR</b> = Rendite je Risiko), Übernahme nur nach deiner Freigabe.</div>
+  </div>
+  {% if running %}
+    <span class="statuspill"><span class="ann caution"></span>Lauf aktiv…</span>
+  {% elif st.status == 'error' %}
+    <span class="statuspill"><span class="ann warn"></span>Fehler</span>
+  {% else %}
+    <span class="statuspill"><span class="ann go"></span>Bereit · v{{ st.version }}</span>
+  {% endif %}
+  {% if is_admin %}
+  <form method="post" action="/app/lab/run" class="inline">
+    <button class="on" {{ 'disabled' if running }}>▶ Lauf starten</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if st.status == 'error' and st.error %}
+  <div class="flash" style="border-left-color:var(--warn)">Letzter Lauf-Fehler: {{ st.error }}</div>
+{% endif %}
+
+<!-- ── Champion (aktueller Live-Stand) ─────────────────────────────────────── -->
+<div class="card">
+  <h2>Amtierende KI-Strategie · v{{ st.version }}</h2>
+  <div class="grid2">
+    <div class="cell">
+      <span class="marklabel">OOS-MAR (Test)</span>
+      <div class="v">{{ ch.oos_mar if ch else '—' }}</div>
+      <div class="sub">In-Sample: {{ ch.is_mar if ch else '—' }}</div>
+    </div>
+    <div class="cell">
+      <span class="marklabel">Out-of-Sample-Rendite</span>
+      <div class="v {{ 'pos' if ch and ch.oos.return_pct >= 0 else 'neg' if ch }}">
+        {{ '%+.1f'|format(ch.oos.return_pct) ~ '%' if ch else '—' }}</div>
+      <div class="sub">{{ ch.oos.trades ~ ' Trades' if ch else 'noch kein Lauf' }}</div>
+    </div>
+    <div class="cell">
+      <span class="marklabel">Out-of-Sample-Drawdown</span>
+      <div class="v">{{ ch.oos.max_drawdown_pct ~ '%' if ch else '—' }}</div>
+      <div class="sub">Win-Rate {{ ch.oos.win_rate ~ '%' if ch and ch.oos.win_rate is not none else '—' }}</div>
+    </div>
+    <div class="cell">
+      <span class="marklabel">Fenster</span>
+      {% if st.window %}
+      <div class="v" style="font-size:1rem">{{ st.window.is_years }}J&nbsp;IS&nbsp;/&nbsp;{{ st.window.oos_years }}J&nbsp;OOS</div>
+      <div class="sub">{{ st.window.start }} → {{ st.window.split }} → {{ st.window.end }}</div>
+      {% else %}
+      <div class="v" style="font-size:1rem">—</div>
+      <div class="sub">noch kein Lauf</div>
+      {% endif %}
+    </div>
+  </div>
+  <div style="margin-top:.7rem">
+    <span class="marklabel">Live-Parameter (nutzt der Bot)</span>
+    <div class="chips">
+      {% for k, v in st.live_params.items() %}<span class="chip"><b>{{ k }}</b> {{ v }}</span>{% endfor %}
+    </div>
+  </div>
+  {% if ai_row and bench_row %}
+  <div class="note" style="margin-top:.7rem">
+    Im letzten {{ report_years }}-Jahres-Sweep rangiert die KI-Strategie auf
+    <b>Platz {{ ai_rank }} von {{ n_strats }}</b> ({{ '%+.1f'|format(ai_row.return_pct) }}% Rendite,
+    maxDD {{ ai_row.max_drawdown_pct }}%) gegenüber Buy&amp;Hold S&amp;P 500
+    ({{ '%+.1f'|format(bench_row.return_pct) }}% / {{ bench_row.max_drawdown_pct }}%).
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Offener Vorschlag ───────────────────────────────────────────────────── -->
+{% if pending %}
+{% set pr = pending.proposal %}
+<div class="card proposal">
+  <h2>⚠ Offener Vorschlag → v{{ pr.version }}</h2>
+  <div class="bigchange"><b>{{ pr.param }}</b><span class="arr">{{ pr.old }} →</span><span class="win">{{ pr.new }}</span></div>
+  <div class="muted" style="margin:.3rem 0 .2rem">{{ pr.reason }}</div>
+  <div class="scroll">
+  <table class="cmp">
+    <tr><th></th><th>Champion (v{{ st.version }})</th><th>Vorschlag (v{{ pr.version }})</th></tr>
+    <tr><td>OOS-MAR</td><td>{{ pr.champion_oos_mar }}</td><td class="win">{{ pr.candidate_oos_mar }}</td></tr>
+    <tr><td>OOS-Rendite</td>
+        <td>{{ '%+.1f'|format(pr.champion_oos.return_pct) }}%</td>
+        <td>{{ '%+.1f'|format(pr.candidate_oos.return_pct) }}%</td></tr>
+    <tr><td>OOS-Drawdown</td>
+        <td>{{ pr.champion_oos.max_drawdown_pct }}%</td>
+        <td>{{ pr.candidate_oos.max_drawdown_pct }}%</td></tr>
+    <tr><td>OOS-Trades</td>
+        <td>{{ pr.champion_oos.trades }}</td><td>{{ pr.candidate_oos.trades }}</td></tr>
+  </table>
+  </div>
+  {% if is_admin %}
+  <div class="row" style="margin-top:.8rem">
+    <form method="post" action="/app/lab/apply" class="inline">
+      <button class="green">✓ Übernehmen (wird live)</button></form>
+    <form method="post" action="/app/lab/reject" class="inline">
+      <button class="red">✕ Verwerfen</button></form>
+    <span class="note">Übernehmen schreibt die Parameter als Live-Override — der Bot nutzt sie binnen ~20 s.</span>
+  </div>
+  {% else %}
+  <div class="note" style="margin-top:.6rem">Nur der Admin kann Vorschläge übernehmen/verwerfen.</div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card proposal none">
+  <h2>Kein offener Vorschlag</h2>
+  {% if st.last_cycle %}
+  <div class="muted">Letzter Lauf: <b>{{ st.last_cycle.decision }}</b> — {{ st.last_cycle.reason }}
+    ({{ st.last_cycle.n_candidates }} Kandidaten, {{ st.last_cycle.n_tickers }} Werte, {{ st.last_cycle.took_sec }}s).</div>
+  {% else %}
+  <div class="muted">Noch kein Optimierungslauf. {% if is_admin %}Starte einen über „▶ Lauf starten".{% endif %}</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── Hypothesen-Timeline (falsifizierbar) ────────────────────────────────── -->
+<div class="card">
+  <h2>Hypothesen-Verlauf</h2>
+  {% if hyps %}
+  <div class="scroll">
+  <table class="hyp">
+    <thead><tr><th>Zeit</th><th>Art</th><th>Änderung</th><th>Vorhergesagt</th>
+      <th class="m">Champ-MAR</th><th class="m">Kand-MAR</th><th>Ergebnis / Grund</th></tr></thead>
+    <tbody>
+    {% for h in hyps %}
+      <tr>
+        <td class="muted">{{ h.ts[5:16] if h.ts else '' }}</td>
+        <td><span class="kind {{ h.kind }}">{{ h.kind }}</span></td>
+        <td>{% if h.param %}<span class="mono"><b>{{ h.param }}</b> {{ h.old }}→{{ h.new }}</span>{% else %}—{% endif %}</td>
+        <td class="muted">{{ h.predicted or '—' }}</td>
+        <td class="m">{{ h.champion_oos_mar if h.champion_oos_mar is not none else '—' }}</td>
+        <td class="m">{{ h.candidate_oos_mar if h.candidate_oos_mar is not none else '—' }}</td>
+        <td>
+          {% if h.kind == 'candidate' %}
+            <span class="{{ 'ok' if h.actual == 'bestätigt' else 'bad' }}">{{ h.actual }}</span>
+          {% elif h.kind == 'decision' %}
+            <span class="muted">{{ h.decision }} — {{ h.reason }}</span>
+          {% else %}
+            <span class="muted">{{ h.reason or '' }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">Noch keine Hypothesen — der erste Lauf füllt diese Timeline.</div>
+  {% endif %}
+</div>
+
+<div class="note" style="margin:.6rem 0 1.4rem">
+  <b>So arbeitet das Labor:</b> Jeder Lauf ändert <b>genau eine</b> Variable, wählt den besten Kandidaten auf dem
+  <b>In-Sample</b>-Fenster (Training) und lässt ihn nur zu, wenn er den amtierenden Stand <b>out-of-sample</b> (Test)
+  bei MAR schlägt — ohne den Drawdown zu verschlechtern. Ziel <b>{{ st.config.objective }}</b>,
+  {{ st.config.years }}J-Fenster, {{ (st.config.oos_fraction * 100)|int }}% Out-of-Sample, min. {{ st.config.min_trades }} Trades.
+  Der Web-Lauf nutzt {{ web_limit }} Werte (schneller); der volle Lauf läuft per CLI über die ganze S&amp;P 500.
+</div>
+
+{% if running %}
+<script>setTimeout(function(){ location.reload(); }, 15000);</script>
+{% endif %}
+{% endblock %}

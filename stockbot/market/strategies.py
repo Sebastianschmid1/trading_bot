@@ -89,6 +89,14 @@ ADXMFI_PARAMS = {"adx_len": 14, "adx_min": 20.0, "mfi_len": 14,  # Wilder ADX/DM
 SUPERTREND_PARAMS = {"atr_period": 10, "factor": 3.0, "ma_regime": 200,  # SuperTrend Trendfolge (weites TP)
                      "st_lb": 250, "sl_mult": 3.0, "tp_mult": 10.0}
 
+# ── Selbst-lernende KI-Strategie ─────────────────────────────────────────────
+# Saat = SuperTrend-Logik (bester MAR im 5-Jahres-Backtest). Der Lab-Loop
+# (stockbot.optimize.lab) schlägt walk-forward genau EINE Parameteränderung je Zyklus vor;
+# Übernahme erst nach Menschen-Freigabe über den Reiter „Strategie-Labor". Live-Overrides
+# liegen wie bei allen Strategien in strategy_configs (DB) → strategy_runtime_params.
+AI_ADAPTIVE_PARAMS = {"atr_period": 10, "factor": 3.0, "ma_regime": 200,
+                      "st_lb": 250, "sl_mult": 3.0, "tp_mult": 10.0}
+
 _STRATEGY_OVERRIDES_CACHE = {"ts": 0.0, "rows": {}}
 _STRATEGY_OVERRIDES_TTL = 20.0
 
@@ -126,6 +134,7 @@ def strategy_runtime_params(key: str) -> dict:
         "tsmom": TSMOM_PARAMS, "lowvol": LOWVOL_PARAMS, "faber": FABER_PARAMS,
         "streversal": STREV_PARAMS, "frog": FROG_PARAMS,
         "bb_revert": BBREV_PARAMS, "adx_mfi": ADXMFI_PARAMS, "supertrend": SUPERTREND_PARAMS,
+        "ai_adaptive": AI_ADAPTIVE_PARAMS,
     })
     base = dict(defaults.get(key, {}))
     base.update(_strategy_overrides(key))
@@ -620,6 +629,30 @@ def supertrend_signal(ticker: str, tf_data: dict) -> dict | None:
     return _make_signal(ticker, df, "supertrend", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
 
 
+def ai_adaptive_signal(ticker: str, tf_data: dict, p: dict | None = None) -> dict | None:
+    """Selbst-lernende KI-Strategie (Saat: SuperTrend-Trendfolge). Identische Logik wie
+    `supertrend_signal`, aber mit EIGENEM, vom Lab-Loop walk-forward getuntem Parametersatz
+    (Schlüssel „ai_adaptive"). `p` erlaubt dem Optimizer, Kandidat-Parameter direkt einzuspeisen,
+    ohne die Live-Overrides (strategy_configs) zu berühren."""
+    p = {**strategy_runtime_params("ai_adaptive"), **(p or {})}
+    df = _clean_1d(tf_data)
+    if df is None or len(df) < int(p["ma_regime"]) + 10:
+        return None
+    c = df["Close"].astype(float).values
+    price = float(c[-1])
+    ma = float(np.mean(c[-int(p["ma_regime"]):]))
+    dirn = _supertrend_dir(df, int(p["atr_period"]), float(p["factor"]), int(p["st_lb"]))
+    if dirn is None or len(dirn) < 2:
+        return None
+    bull = dirn[-1] > 0
+    flipped = bull and dirn[-2] <= 0
+    if not (bull and price > ma):
+        return None
+    dist = max(0.0, min(1.0, (price / ma - 1.0) / 0.15))
+    strength = min(100.0, (75.0 if flipped else 55.0) + 25.0 * dist)
+    return _make_signal(ticker, df, "ai_adaptive", strength, sl_mult=p["sl_mult"], tp_mult=p["tp_mult"])
+
+
 # ── Fortlaufende Live-Scores (für das 60s-Monitoring je aktivem Trade) ───────
 #
 # Anders als generate() (das nur im Einstiegsmoment feuert) liefern diese einen
@@ -819,6 +852,15 @@ REGISTRY: dict[str, Strategy] = {
         supertrend_signal, None,
         "SuperTrend (Seban): long solange die SuperTrend-Richtung bullish & Kurs>MA200; weites "
         "Take-Profit lässt Gewinner laufen (Trailing-Ersatz im Fix-SL/TP-Backtest).",
+    ),
+    # ── Selbst-lernende KI-Strategie (Lab-Loop tunt die Parameter) ────────────
+    "ai_adaptive": Strategy(
+        "ai_adaptive", "KI-Strategie (selbst-lernend)",
+        ai_adaptive_signal, None,
+        "Selbst-optimierende Strategie (Saat: SuperTrend-Trendfolge). Der Lab-Loop tunt ihre "
+        "Parameter walk-forward mit Out-of-Sample-Gate (Ziel MAR = Rendite je Risiko); Übernahme "
+        "erst nach Freigabe im Reiter „Strategie-Labor“. Läuft im selben Top-N-Portfolio wie die "
+        "fixen Strategien — direkter Vergleich „KI vs. fix“.",
     ),
 }
 
