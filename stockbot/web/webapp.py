@@ -825,6 +825,12 @@ def _lab_context() -> dict:
         "ai_row": rows.get("ai_adaptive"), "bench_row": rows.get("buyhold_sp500"),
         "ai_rank": ai_rank, "n_strats": len(ranked), "report_years": DEFAULT_REPORT_YEARS,
         "web_limit": lab_mod.WEB_LIMIT,
+        "lab_schedule": {
+            "enabled": config.LAB_DAILY_OPTIMIZATION,
+            "days": config.LAB_DAILY_DAYS,
+            "hour": config.LAB_DAILY_HOUR,
+            "minute": config.LAB_DAILY_MIN,
+        },
     }
 
 

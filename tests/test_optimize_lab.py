@@ -101,6 +101,41 @@ def test_candidates_change_exactly_one_variable(lab_tmp):
     assert tp == [8.0, 12.0]
 
 
+def test_call_llm_proposer_parses_openai_json_response(lab_tmp, monkeypatch):
+    import sys
+    import types
+
+    calls = {"model": None, "messages": None}
+
+    class _Models:
+        def list(self):
+            return types.SimpleNamespace(data=[types.SimpleNamespace(id=lab.LAB_LLM_MODEL)])
+
+    class _Completions:
+        def create(self, model, messages):
+            calls["model"] = model
+            calls["messages"] = messages
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content='[{"param":"tp_mult","direction":"up","reason":"test"}]')
+            )])
+
+    class _OpenAI:
+        def __init__(self, api_key):
+            assert api_key == "test-key"
+            self.models = _Models()
+            self.chat = types.SimpleNamespace(completions=_Completions())
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+
+    proposals = lab._call_llm_proposer({"tp_mult": 10.0}, {"version": "01"})
+
+    assert proposals == [{"param": "tp_mult", "direction": "up", "reason": "test"}]
+    assert calls["model"] == lab.LAB_LLM_MODEL
+    assert calls["messages"] is not None
+    assert calls["messages"][0]["role"] == "system"
+
+
 def test_llm_candidates_validates_single_grid_neighbor(lab_tmp, monkeypatch):
     champ = {"tp_mult": 10.0, "factor": 3.0, "atr_period": 10, "ma_regime": 200, "sl_mult": 3.0}
     monkeypatch.setattr(lab, "_call_llm_proposer", lambda champion, context: [
@@ -136,6 +171,16 @@ def test_select_candidates_uses_llm_when_flagged(lab_tmp, monkeypatch):
     }])
 
     assert lab.select_candidates(champ, {"recent": []})[0]["new"] == 3.5
+
+
+def test_select_candidates_falls_back_to_grid_when_llm_errors(lab_tmp, monkeypatch):
+    champ = {"tp_mult": 10.0, "factor": 3.0}
+    monkeypatch.setenv("LAB_PROPOSER", "llm")
+    monkeypatch.setattr(lab, "_llm_candidates", lambda champion, context: (_ for _ in ()).throw(RuntimeError("api down")))
+
+    cands = lab.select_candidates(champ, {"recent": []})
+
+    assert cands and {c["new"] for c in cands if c["param"] == "tp_mult"} == {8.0, 12.0}
 
 
 # ── Gate: nur Out-of-Sample-Gewinner ──────────────────────────────────────────

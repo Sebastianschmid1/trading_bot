@@ -60,11 +60,27 @@
   {% else %}
     <span class="statuspill"><span class="ann go"></span>Bereit · v{{ st.version }}</span>
   {% endif %}
-  {% if is_admin %}
-  <form method="post" action="/app/lab/run" class="inline">
-    <button class="on" {{ 'disabled' if running }}>▶ Lauf starten</button>
-  </form>
-  {% endif %}
+  <div style="display:flex; gap:.45rem; flex-wrap:wrap; justify-content:flex-end">
+    {% if is_admin %}
+    <form method="post" action="/app/lab/run" class="inline">
+      <button class="on" {{ 'disabled' if running }}>▶ Manuellen KI-Lauf starten</button>
+    </form>
+    {% else %}
+      <button disabled title="Nur der Admin kann Laborläufe starten">▶ Manueller Start nur für Admin</button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="border-left:3px solid var(--trace)">
+  <h2>Automatische KI-Prüfung</h2>
+  <div class="muted">
+    {% if lab_schedule.enabled %}
+      Aktiv: <b>1× täglich Mo–Fr um {{ '%02d'|format(lab_schedule.hour) }}:{{ '%02d'|format(lab_schedule.minute) }} Berlin</b>,
+      zusätzlich nur wenn der reguläre US-Markt geöffnet ist. Ergebnis: Vorschlag/Pending, keine automatische Live-Übernahme.
+    {% else %}
+      Automatische Prüfung ist deaktiviert.
+    {% endif %}
+  </div>
 </div>
 
 {% if st.status == 'error' and st.error %}
@@ -158,7 +174,7 @@
   <div class="muted">Letzter Lauf: <b>{{ st.last_cycle.decision }}</b> — {{ st.last_cycle.reason }}
     ({{ st.last_cycle.n_candidates }} Kandidaten, {{ st.last_cycle.n_tickers }} Werte, {{ st.last_cycle.took_sec }}s).</div>
   {% else %}
-  <div class="muted">Noch kein Optimierungslauf. {% if is_admin %}Starte einen über „▶ Lauf starten".{% endif %}</div>
+  <div class="muted">Noch kein Optimierungslauf. {% if is_admin %}Starte einen über „▶ Manuellen KI-Lauf starten".{% else %}Der manuelle Start ist nur für den Admin freigeschaltet.{% endif %}</div>
   {% endif %}
 </div>
 {% endif %}
@@ -204,7 +220,7 @@
   <b>In-Sample</b>-Fenster (Training) und lässt ihn nur zu, wenn er den amtierenden Stand <b>out-of-sample</b> (Test)
   bei MAR schlägt — ohne den Drawdown zu verschlechtern. Ziel <b>{{ st.config.objective }}</b>,
   {{ st.config.years }}J-Fenster, {{ (st.config.oos_fraction * 100)|int }}% Out-of-Sample, min. {{ st.config.min_trades }} Trades.
-  Der Web-Lauf nutzt {{ web_limit }} Werte (schneller); der volle Lauf läuft per CLI über die ganze S&amp;P 500.
+  Der manuelle Web-Lauf nutzt {{ web_limit }} Werte (schneller); der automatische Tageslauf läuft über die ganze S&amp;P 500.
 </div>
 
 {% if running %}

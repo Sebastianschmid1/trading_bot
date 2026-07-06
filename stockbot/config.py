@@ -294,11 +294,20 @@ SMARTMONEY_CACHE_MAX_AGE_H = 36     # Cache gilt so lange als „frisch"
 SMARTMONEY_W_TECH  = 1.0           # Gewicht der technischen Stärke beim /signals-Re-Ranking
 SMARTMONEY_W_SMART = 0.5           # Gewicht des Smart-Money-Scores beim /signals-Re-Ranking
 
-# Wöchentlicher Labor-Optimierungslauf: erzeugt nur pending.json, niemals Live-Parameter.
-LAB_WEEKLY_OPTIMIZATION = os.getenv("LAB_WEEKLY_OPTIMIZATION", "true").strip().lower() in ("1", "true", "yes")
-LAB_WEEKLY_DAY = int(os.getenv("LAB_WEEKLY_DAY", "6"))          # APScheduler: 0=Mo … 6=So
-LAB_WEEKLY_HOUR = int(os.getenv("LAB_WEEKLY_HOUR", "3"))
-LAB_WEEKLY_MIN = int(os.getenv("LAB_WEEKLY_MIN", "0"))
+# Täglicher Labor-Optimierungslauf: erzeugt nur pending.json, niemals Live-Parameter.
+# Default bewusst während regulärer US-Handelszeit: Mo–Fr 16:00 Berlin (= i.d.R. 10:00 ET).
+LAB_DAILY_OPTIMIZATION = os.getenv(
+    "LAB_DAILY_OPTIMIZATION", os.getenv("LAB_WEEKLY_OPTIMIZATION", "true")
+).strip().lower() in ("1", "true", "yes")
+LAB_DAILY_DAYS = tuple(int(x) for x in os.getenv("LAB_DAILY_DAYS", "0,1,2,3,4").split(",") if x.strip())  # 0=Mo … 6=So
+LAB_DAILY_HOUR = int(os.getenv("LAB_DAILY_HOUR", os.getenv("LAB_WEEKLY_HOUR", "16")))
+LAB_DAILY_MIN = int(os.getenv("LAB_DAILY_MIN", os.getenv("LAB_WEEKLY_MIN", "0")))
+
+# Rückwärtskompatible Aliase für ältere Imports/Deploy-Umgebungen.
+LAB_WEEKLY_OPTIMIZATION = LAB_DAILY_OPTIMIZATION
+LAB_WEEKLY_DAY = 6
+LAB_WEEKLY_HOUR = LAB_DAILY_HOUR
+LAB_WEEKLY_MIN = LAB_DAILY_MIN
 
 # ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
 # Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)

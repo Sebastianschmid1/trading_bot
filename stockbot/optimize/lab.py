@@ -239,7 +239,6 @@ def _call_llm_proposer(champion: dict, context: dict) -> list[dict]:
             {"role": "system", "content": "You are a cautious quantitative trading research assistant. Output JSON only."},
             {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
         ],
-        temperature=0.2,
     )
     content = resp.choices[0].message.content or "[]"
     parsed = _extract_json_array(content)
@@ -293,7 +292,10 @@ def _llm_candidates(champion: dict, context: dict) -> list[dict]:
 def select_candidates(champion: dict, context: dict | None = None) -> list[dict]:
     proposer = os.getenv("LAB_PROPOSER", LAB_PROPOSER).strip().lower()
     if proposer == "llm":
-        llm = _llm_candidates(champion, context or {})
+        try:
+            llm = _llm_candidates(champion, context or {})
+        except Exception:
+            llm = []
         if llm:
             return llm
     return candidates(champion)

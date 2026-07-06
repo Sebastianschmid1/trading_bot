@@ -106,7 +106,40 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
     assert jq.run_daily.call_count == 4                        # Signale, Auswertung, Smart-Money, Labor
     daily_by_name = {c.kwargs.get("name"): c for c in jq.run_daily.call_args_list}
-    assert daily_by_name["weekly_lab_optimization"].args[0] is bot.run_weekly_lab_optimization
+    lab_job = daily_by_name["daily_lab_optimization"]
+    assert lab_job.args[0] is bot.run_daily_lab_optimization
+    assert lab_job.kwargs["days"] == config.LAB_DAILY_DAYS
+    assert bot.run_weekly_lab_optimization is bot.run_daily_lab_optimization
+
+
+def test_daily_lab_optimization_only_runs_during_regular_us_market(monkeypatch):
+    import asyncio
+    from unittest.mock import MagicMock
+    from stockbot.optimize import lab
+
+    started = {"called": False}
+    monkeypatch.setattr(bot, "_us_market_open", lambda extended=False: False)
+    monkeypatch.setattr(lab, "is_running", lambda: False)
+    monkeypatch.setattr(lab, "start_background_cycle", lambda limit=None: started.update(called=True) or True)
+
+    asyncio.run(bot.run_daily_lab_optimization(MagicMock()))
+
+    assert started["called"] is False
+
+
+def test_daily_lab_optimization_starts_full_run_when_market_open(monkeypatch):
+    import asyncio
+    from unittest.mock import MagicMock
+    from stockbot.optimize import lab
+
+    started = {"limit": object()}
+    monkeypatch.setattr(bot, "_us_market_open", lambda extended=False: True)
+    monkeypatch.setattr(lab, "is_running", lambda: False)
+    monkeypatch.setattr(lab, "start_background_cycle", lambda limit=None: started.update(limit=limit) or True)
+
+    asyncio.run(bot.run_daily_lab_optimization(MagicMock()))
+
+    assert started["limit"] is None
 
 
 def test_bot_broker_order_blocks_when_buying_power_is_insufficient():

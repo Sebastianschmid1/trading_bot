@@ -465,6 +465,27 @@ def test_dropdown_lists_all_asset_classes():
         assert label in r.text
 
 
+def test_lab_page_shows_daily_schedule_and_manual_start_for_admin(monkeypatch):
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", CHAT)
+    monkeypatch.setattr(webapp.config, "LAB_DAILY_OPTIMIZATION", True)
+    monkeypatch.setattr(webapp.config, "LAB_DAILY_HOUR", 16)
+    monkeypatch.setattr(webapp.config, "LAB_DAILY_MIN", 0)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "1× täglich Mo–Fr um 16:00 Berlin" in r.text
+    assert "▶ Manuellen KI-Lauf starten" in r.text
+    assert "keine automatische Live-Übernahme" in r.text
+
+
+def test_lab_page_explains_manual_start_admin_only(monkeypatch):
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", 999999)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "▶ Manueller Start nur für Admin" in r.text
+
+
 # ── On-Demand-Signal-Scan + 7-Tage-Chart ────────────────────────────────────
 
 def test_sparkline_points_and_direction():
