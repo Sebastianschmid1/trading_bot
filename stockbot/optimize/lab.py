@@ -33,6 +33,7 @@ import os
 import sys
 import json
 import time
+import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,10 @@ from stockbot.market import strategies as strat_mod
 from stockbot.market import universes
 from stockbot.backtest import engine
 from stockbot.core import metrics as metrics_mod
+from stockbot import config
 from stockbot.config import DEFAULT_REGION
+
+log = logging.getLogger(__name__)
 
 # ── Konfiguration (Labor-Zielfunktion & Suchraum) ────────────────────────────
 
@@ -192,6 +196,25 @@ def candidates(champion: dict) -> list[dict]:
     return out
 
 
+def _notify_admin(text: str) -> bool:
+    """Best-effort Telegram-Warnung an den Admin-Chat (Token/Chat aus config). Wirft NIE,
+    loggt den Token NIE. No-op, wenn TELEGRAM_TOKEN oder ADMIN_CHAT_ID fehlen."""
+    token = getattr(config, "TELEGRAM_TOKEN", None)
+    chat = getattr(config, "ADMIN_CHAT_ID", None)
+    if not token or not chat:
+        return False
+    try:
+        import urllib.request
+        data = json.dumps({"chat_id": chat, "text": text, "parse_mode": "Markdown"}).encode("utf-8")
+        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                                     data=data, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5).read()
+        return True
+    except Exception as e:
+        log.warning(f"[lab] Telegram-Warnung nicht zustellbar: {e}")
+        return False
+
+
 def _extract_json_array(text: str):
     """Extrahiert robust ein JSON-Array aus LLM-Text/Markdown."""
     s = (text or "").strip()
@@ -206,20 +229,31 @@ def _extract_json_array(text: str):
 
 
 def _call_llm_proposer(champion: dict, context: dict) -> list[dict]:
-    """Ruft GPT-5.5 für Hypothesen-Vorschläge auf. Kein API-Call ohne OPENAI_API_KEY."""
+    """Ruft die LLM (LAB_LLM_MODEL) für Hypothesen-Vorschläge auf. Kein API-Call ohne
+    OPENAI_API_KEY. Jeder Fehlschlag (fehlender Key/Paket, ungültiges Modell, API-/JSON-Fehler)
+    wird klar geloggt UND als Telegram-Warnung an den Admin gemeldet, dann [] → Raster-Fallback.
+    Token/Key/Prompt werden nie geloggt oder gemeldet."""
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
+        log.warning("[lab] LAB_PROPOSER=llm, aber OPENAI_API_KEY fehlt — Raster-Proposer.")
+        _notify_admin("⚠️ *Strategie-Labor:* LLM-Proposer aktiv, aber `OPENAI_API_KEY` fehlt — "
+                      "es wird der Raster-Proposer genutzt.")
         return []
     try:
         from openai import OpenAI
     except Exception:
+        log.warning("[lab] openai-Paket nicht installiert — Raster-Proposer.")
+        _notify_admin("⚠️ *Strategie-Labor:* `openai`-Paket nicht installiert — "
+                      "es wird der Raster-Proposer genutzt.")
         return []
     prompt = {
         "task": "Propose 1-3 single-parameter grid moves for ai_adaptive strategy lab.",
         "rules": [
             "Return JSON array only.",
-            "Each item: {param, direction, reason} OR {param, new, reason}.",
+            "Each item: {param, direction, steps?, reason} OR {param, new, reason}.",
             "Use exactly one param from search_space per item.",
+            "'new' may be ANY value in that param's grid (multi-step jumps allowed);",
+            "with 'direction' you may add 'steps' (>=1) to jump further.",
             "Do not decide live params or orders; backtest gate is judge.",
         ],
         "champion": champion,
@@ -227,21 +261,35 @@ def _call_llm_proposer(champion: dict, context: dict) -> list[dict]:
         "context": context,
     }
     client = OpenAI(api_key=api_key)
-    # Modellliste best-effort prüfen; kein Logging von Keys/Prompt.
+    model = LAB_LLM_MODEL
+    # Modell-ID HART prüfen: ist sie nicht verfügbar, klar warnen (Log + Telegram) und auf den
+    # Raster-Proposer zurückfallen — kein stiller Fehlschlag mehr.
     try:
-        models = {m.id for m in client.models.list().data}
-        model = LAB_LLM_MODEL if LAB_LLM_MODEL in models else LAB_LLM_MODEL
-    except Exception:
-        model = LAB_LLM_MODEL
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a cautious quantitative trading research assistant. Output JSON only."},
-            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-        ],
-    )
-    content = resp.choices[0].message.content or "[]"
-    parsed = _extract_json_array(content)
+        available = {m.id for m in client.models.list().data}
+    except Exception as e:
+        available = None
+        log.warning(f"[lab] OpenAI-Modellliste nicht abrufbar ({e}); versuche '{model}' direkt.")
+    if available is not None and model not in available:
+        log.warning(f"[lab] LLM-Modell '{model}' bei OpenAI nicht verfügbar — Fallback auf Raster.")
+        _notify_admin(f"⚠️ *Strategie-Labor:* LLM-Modell `{model}` ist bei OpenAI nicht verfügbar — "
+                      f"LLM-Proposer übersprungen, es wird der Raster-Proposer genutzt. "
+                      f"Setze `LAB_LLM_MODEL` auf eine gültige Modell-ID.")
+        return []
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a cautious quantitative trading research assistant. Output JSON only."},
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+        )
+        content = resp.choices[0].message.content or "[]"
+        parsed = _extract_json_array(content)
+    except Exception as e:
+        log.warning(f"[lab] LLM-Aufruf/Parsing fehlgeschlagen ({type(e).__name__}) — Raster-Proposer.")
+        _notify_admin(f"⚠️ *Strategie-Labor:* LLM-Aufruf fehlgeschlagen ({type(e).__name__}) — "
+                      f"es wird der Raster-Proposer genutzt.")
+        return []
     return parsed if isinstance(parsed, list) else []
 
 
@@ -254,17 +302,23 @@ def _candidate_from_proposal(champion: dict, proposal: dict) -> dict | None:
     idx = _nearest_index(grid, cur)
     new = proposal.get("new")
     if new is None:
+        # Richtung + optional 'steps' (>=1) auf das Raster abbilden → auch größere Sprünge.
         direction = str(proposal.get("direction") or "").strip().lower()
-        target_idx = idx + (1 if direction in ("up", "increase", "higher", "+") else -1 if direction in ("down", "decrease", "lower", "-") else 0)
-        if not (0 <= target_idx < len(grid)):
+        sign = 1 if direction in ("up", "increase", "higher", "+") else \
+            -1 if direction in ("down", "decrease", "lower", "-") else 0
+        if sign == 0:
             return None
-        new = grid[target_idx]
-    # Harte Validierung: nur gültiger direkter Raster-Nachbar, genau eine Variable.
-    if new not in grid:
+        try:
+            steps = int(proposal.get("steps") or 1)
+        except (TypeError, ValueError):
+            steps = 1
+        steps = max(1, min(steps, len(grid) - 1))
+        new = grid[min(max(idx + sign * steps, 0), len(grid) - 1)]
+    # Harte Validierung: gültiger Raster-Wert (größere Sprünge erlaubt), genau EINE Variable,
+    # tatsächlich verändert. Kein Live-Write hier — nur ein Kandidat für das Backtest-Gate.
+    if new not in grid or new == cur:
         return None
-    new_idx = grid.index(new)
-    if abs(new_idx - idx) != 1 or new == cur:
-        return None
+    new = grid[grid.index(new)]                 # auf kanonischen Rasterwert normieren (int→float)
     new_params = dict(champion)
     new_params[param] = new
     cand = {"param": param, "old": cur, "new": new, "params": new_params}

@@ -183,6 +183,54 @@ def test_select_candidates_falls_back_to_grid_when_llm_errors(lab_tmp, monkeypat
     assert cands and {c["new"] for c in cands if c["param"] == "tp_mult"} == {8.0, 12.0}
 
 
+def test_llm_candidates_allows_multi_step_jump(lab_tmp, monkeypatch):
+    # (a) Größere Raster-Sprünge: von tp_mult=10 direkt auf 6.0 (Distanz 2) — früher verboten.
+    champ = {"tp_mult": 10.0, "factor": 3.0}
+    monkeypatch.setattr(lab, "_call_llm_proposer", lambda champion, context: [
+        {"param": "tp_mult", "new": 6.0, "reason": "2 Schritte runter"},
+        {"param": "factor", "direction": "down", "steps": 2, "reason": "weit runter"},
+    ])
+    by = {c["param"]: c for c in lab._llm_candidates(champ, {})}
+    assert by["tp_mult"]["new"] == 6.0 and by["tp_mult"]["params"]["tp_mult"] == 6.0
+    assert by["factor"]["new"] == 2.5                     # 3.0 → 2 Schritte runter (geklemmt) → 2.5
+
+
+def test_call_llm_proposer_warns_and_falls_back_on_invalid_model(lab_tmp, monkeypatch):
+    # (b) Ungültiges Modell → klare Telegram-Warnung + Raster-Fallback, KEIN create()-Aufruf.
+    import sys
+    import types
+    warned = {}
+    monkeypatch.setattr(lab, "_notify_admin", lambda text: warned.__setitem__("text", text) or True)
+
+    class _Models:
+        def list(self):
+            return types.SimpleNamespace(data=[types.SimpleNamespace(id="some-other-model")])
+
+    class _Completions:
+        def create(self, model, messages):
+            raise AssertionError("create darf bei ungültigem Modell nicht aufgerufen werden")
+
+    class _OpenAI:
+        def __init__(self, api_key):
+            self.models = _Models()
+            self.chat = types.SimpleNamespace(completions=_Completions())
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+
+    assert lab._call_llm_proposer({"tp_mult": 10.0}, {}) == []
+    assert lab.LAB_LLM_MODEL in warned.get("text", "") and "nicht verfügbar" in warned.get("text", "")
+
+
+def test_call_llm_proposer_warns_on_missing_key(lab_tmp, monkeypatch):
+    # (b) Fehlender Key bei LAB_PROPOSER=llm → Telegram-Warnung + Fallback.
+    warned = {}
+    monkeypatch.setattr(lab, "_notify_admin", lambda text: warned.__setitem__("text", text) or True)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert lab._call_llm_proposer({"tp_mult": 10.0}, {}) == []
+    assert "OPENAI_API_KEY" in warned.get("text", "")
+
+
 # ── Gate: nur Out-of-Sample-Gewinner ──────────────────────────────────────────
 
 def _cand(oos_mar, oos_trades=50, oos_dd=15.0):
