@@ -104,12 +104,50 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
     assert by_name["intraday_signals"].args[0] is bot.scan_intraday
     assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
-    assert jq.run_daily.call_count == 4                        # Signale, Auswertung, Smart-Money, Labor
+    assert jq.run_daily.call_count == 5                        # Signale, Auswertung, Smart-Money, Broker-Abgleich, Labor
     daily_by_name = {c.kwargs.get("name"): c for c in jq.run_daily.call_args_list}
+    broker_job = daily_by_name["daily_broker_reconcile"]
+    assert broker_job.args[0] is bot.run_daily_broker_reconcile
+    assert broker_job.kwargs["time"].hour == config.BROKER_RECONCILE_HOUR
+    assert broker_job.kwargs["time"].minute == config.BROKER_RECONCILE_MIN
     lab_job = daily_by_name["daily_lab_optimization"]
     assert lab_job.args[0] is bot.run_daily_lab_optimization
     assert lab_job.kwargs["days"] == config.LAB_DAILY_DAYS
     assert bot.run_weekly_lab_optimization is bot.run_daily_lab_optimization
+
+
+def test_broker_reconcile_enabled_for_own_alpaca_credentials_even_if_exec_off(monkeypatch):
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", False)
+    user = {"broker_exec": False, "broker_platform": "alpaca"}
+    assert bot._broker_reconcile_enabled(user, full=False) is False
+    assert bot._broker_reconcile_enabled(user, full=True) is True
+
+
+def test_broker_reconcile_global_keys_require_broker_exec(monkeypatch):
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", True)
+    assert bot._broker_reconcile_enabled({"broker_exec": False, "broker_platform": None}, full=True) is False
+    assert bot._broker_reconcile_enabled({"broker_exec": True, "broker_platform": None}, full=True) is True
+
+
+def test_daily_broker_reconcile_runs_both_directions_with_full_flag(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    calls = []
+
+    async def fake_missing(tg_bot, *, full=False):
+        calls.append(("missing", full, tg_bot))
+
+    async def fake_orphan(tg_bot, *, full=False):
+        calls.append(("orphan", full, tg_bot))
+
+    monkeypatch.setattr(bot, "monitor_missing_broker_positions", fake_missing)
+    monkeypatch.setattr(bot, "monitor_orphan_broker_positions", fake_orphan)
+    ctx = MagicMock(); ctx.bot = AsyncMock()
+
+    asyncio.run(bot.run_daily_broker_reconcile(ctx))
+
+    assert calls == [("missing", True, ctx.bot), ("orphan", True, ctx.bot)]
 
 
 def test_daily_lab_optimization_only_runs_during_regular_us_market(monkeypatch):

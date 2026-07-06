@@ -53,6 +53,7 @@ from stockbot.config import (
     SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS, MAX_SIGNALS, TRADE_SIZE_EUR, TRADE_SIZE_CHOICES,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     LAB_DAILY_OPTIMIZATION, LAB_DAILY_DAYS, LAB_DAILY_HOUR, LAB_DAILY_MIN,
+    BROKER_RECONCILE_HOUR, BROKER_RECONCILE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
@@ -152,6 +153,21 @@ def _alpaca_client(user: dict):
         if creds:
             return broker.make_client(creds[0], creds[1], paper=ALPACA_PAPER)
     return broker._get_client()   # globale .env-Keys (oder None)
+
+
+def _broker_reconcile_enabled(user: dict, *, full: bool = False) -> bool:
+    """Ob ein User für Bot↔Alpaca-Abgleich berücksichtigt wird.
+
+    Normaler 60s-Monitor bleibt konservativ: nur `broker_exec=true`.
+    Der tägliche Vollabgleich (`full=True`) nimmt zusätzlich Nutzer mit eigener Alpaca-Verbindung,
+    auch wenn Broker-Ausführung gerade deaktiviert ist. Bei globalen .env-Keys bleibt `broker_exec`
+    Pflicht, damit ein globales Konto nicht versehentlich allen Usern zugeordnet wird.
+    """
+    if not user or not _alpaca_ready(user):
+        return False
+    if user.get("broker_exec"):
+        return True
+    return bool(full and user.get("broker_platform") == "alpaca")
 
 
 def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
@@ -1158,14 +1174,14 @@ async def monitor_broker_closing(bot: Bot):
             db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
-async def monitor_missing_broker_positions(bot: Bot):
+async def monitor_missing_broker_positions(bot: Bot, *, full: bool = False):
     """Schließt aktive Bot-Trades, deren Broker-Position verschwunden ist.
 
     Das fängt den Fall ab, dass ein User die Position manuell im Broker verkauft hat.
     Nach einer kurzen Grace-Phase wird der Trade automatisch als geschlossen markiert.
     """
     for user in db.list_active_users():
-        if not user.get("broker_exec") or not _alpaca_ready(user):
+        if not _broker_reconcile_enabled(user, full=full):
             continue
         client = _alpaca_client(user)
         if client is None:
@@ -1190,7 +1206,7 @@ async def monitor_missing_broker_positions(bot: Bot):
         await refill_pending(bot, user["user_id"], user, None)
 
 
-async def monitor_orphan_broker_positions(bot: Bot):
+async def monitor_orphan_broker_positions(bot: Bot, *, full: bool = False):
     """Übernimmt Broker-Positionen, die der Bot NICHT führt, als aktive Trades.
 
     Schließt die Lücke „im Broker offen, aber nicht im Bot" (z. B. Order ging beim Broker
@@ -1198,7 +1214,7 @@ async def monitor_orphan_broker_positions(bot: Bot):
     Danach überwacht der Bot die Position wieder (SL/TP, Tagesende-Auswertung).
     """
     for user in db.list_active_users():
-        if not user.get("broker_exec") or not _alpaca_ready(user):
+        if not _broker_reconcile_enabled(user, full=full):
             continue
         client = _alpaca_client(user)
         if client is None:
@@ -2266,6 +2282,19 @@ async def run_daily_lab_optimization(context: ContextTypes.DEFAULT_TYPE):
 run_weekly_lab_optimization = run_daily_lab_optimization  # Legacy-Alias für alte Tests/Imports.
 
 
+async def run_daily_broker_reconcile(context: ContextTypes.DEFAULT_TYPE):
+    """Täglicher Vollabgleich Bot-DB ↔ Alpaca um Positions-Drift zu reparieren.
+
+    Führt beide Richtungen aus:
+    - Bot aktiv, Alpaca weg → als verkauft schließen (mit bestehender Sicherheitsprüfung)
+    - Alpaca offen, Bot kennt es nicht → als aktiven Trade übernehmen
+    """
+    log.info("🔄 Starte täglichen Alpaca↔Bot-Positionsabgleich.")
+    await monitor_missing_broker_positions(context.bot, full=True)
+    await monitor_orphan_broker_positions(context.bot, full=True)
+    log.info("🔄 Täglicher Alpaca↔Bot-Positionsabgleich beendet.")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2285,6 +2314,11 @@ def _register_jobs(app):
         time=datetime.now(BERLIN_TZ).replace(
             hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0).timetz(),
         name="smartmoney_scan")
+    job_queue.run_daily(
+        run_daily_broker_reconcile,
+        time=datetime.now(BERLIN_TZ).replace(
+            hour=BROKER_RECONCILE_HOUR, minute=BROKER_RECONCILE_MIN, second=0, microsecond=0).timetz(),
+        name="daily_broker_reconcile")
     if LAB_DAILY_OPTIMIZATION:
         job_queue.run_daily(
             run_daily_lab_optimization,

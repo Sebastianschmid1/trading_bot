@@ -309,6 +309,11 @@ LAB_WEEKLY_DAY = 6
 LAB_WEEKLY_HOUR = LAB_DAILY_HOUR
 LAB_WEEKLY_MIN = LAB_DAILY_MIN
 
+# Täglicher Broker-Vollabgleich: Bot-DB ↔ offene Alpaca-Positionen.
+# 12:00 Berlin liegt vor US-Open und repariert Drift, bevor neue US-Signale/Orders laufen.
+BROKER_RECONCILE_HOUR = int(os.getenv("BROKER_RECONCILE_HOUR", "12"))
+BROKER_RECONCILE_MIN = int(os.getenv("BROKER_RECONCILE_MIN", "0"))
+
 # ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
 # Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)
 # + News/Analysten. Bewusst nur Haiku zur Kostenersparnis (eine gebündelte Anfrage pro Lauf).
