@@ -95,7 +95,8 @@ SUPERTREND_PARAMS = {"atr_period": 10, "factor": 3.0, "ma_regime": 200,  # Super
 # Übernahme erst nach Menschen-Freigabe über den Reiter „Strategie-Labor". Live-Overrides
 # liegen wie bei allen Strategien in strategy_configs (DB) → strategy_runtime_params.
 AI_ADAPTIVE_PARAMS = {"atr_period": 10, "factor": 3.0, "ma_regime": 200,
-                      "st_lb": 250, "sl_mult": 3.0, "tp_mult": 10.0}
+                      "st_lb": 250, "sl_mult": 3.0, "tp_mult": 10.0,
+                      "trail_mult": 3.0}
 
 _STRATEGY_OVERRIDES_CACHE = {"ts": 0.0, "rows": {}}
 _STRATEGY_OVERRIDES_TTL = 20.0

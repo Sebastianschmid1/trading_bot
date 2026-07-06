@@ -128,10 +128,12 @@ def _with_mode(by_date: dict, mode: str) -> dict:
 
 
 def _simulate(data: dict, by_date: dict, *, top_n: int, leverage: float,
-              trade_size: float, max_concurrent: int) -> list:
+              trade_size: float, max_concurrent: int,
+              trail_mode: str | None = None, trail_mult: float | None = None) -> list:
     return engine.simulate_portfolio(data, by_date, top_n=top_n, leverage=leverage,
                                      trade_size=trade_size, max_concurrent=max_concurrent,
-                                     max_hold=engine.MAX_HOLD_DAYS)
+                                     max_hold=engine.MAX_HOLD_DAYS,
+                                     trail_mode=trail_mode, trail_mult=trail_mult)
 
 
 def _metrics(trades: list, initial_capital: float) -> dict:
@@ -143,9 +145,11 @@ def _metrics(trades: list, initial_capital: float) -> dict:
 
 
 def _sim_metrics(data: dict, by_date: dict, *, top_n: int, leverage: float,
-                 trade_size: float, initial_capital: float, max_concurrent: int) -> dict:
+                 trade_size: float, initial_capital: float, max_concurrent: int,
+                 trail_mode: str | None = None, trail_mult: float | None = None) -> dict:
     return _metrics(_simulate(data, by_date, top_n=top_n, leverage=leverage,
-                              trade_size=trade_size, max_concurrent=max_concurrent), initial_capital)
+                              trade_size=trade_size, max_concurrent=max_concurrent,
+                              trail_mode=trail_mode, trail_mult=trail_mult), initial_capital)
 
 
 def _downsample(pts: list, max_points: int = 140) -> list:
@@ -224,13 +228,16 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         by_date = fires_by_strat[s.key]
         print(f"  · {s.key}: {sum(len(v) for v in by_date.values())} Signale → Reports ableiten ...", flush=True)
 
+        trail_mult = strat_mod.strategy_runtime_params(s.key).get("trail_mult") if s.key == "ai_adaptive" else None
+        trail_mode = "atr" if trail_mult else None
         # Fester 10.000-USD-Pool: max. 10 Positionen à 1.000 USD; ist das Budget belegt,
         # werden neue Signale übersprungen (simulate_portfolio: free = max_concurrent − offene).
         # Overall-View: native SL/TP, Hebel 1.
         strat_rows.append({"key": s.key, "label": s.label,
                            **_sim_metrics(data, by_date, top_n=PORTFOLIO_TOPN, leverage=1.0,
                                           trade_size=TRADE_SIZE, initial_capital=START_CAPITAL,
-                                          max_concurrent=PORTFOLIO_TOPN)})
+                                          max_concurrent=PORTFOLIO_TOPN,
+                                          trail_mode=trail_mode, trail_mult=trail_mult)})
 
         # Vollständige Matrix: jede Kombination aus SL/TP-Modus × Hebel (gleicher 10k-Pool).
         # Pro Kombination zusätzlich die Depot-Equity-Kurve (für den Klick-auf-Zeile-Chart).
@@ -238,7 +245,8 @@ def collect(region: str, years: int, limit: int | None, full: bool = True, jobs:
         for mode in MODES:
             for lev in LEVERAGES:
                 trades = _simulate(data, by_mode[mode], top_n=PORTFOLIO_TOPN, leverage=float(lev),
-                                   trade_size=TRADE_SIZE, max_concurrent=PORTFOLIO_TOPN)
+                                   trade_size=TRADE_SIZE, max_concurrent=PORTFOLIO_TOPN,
+                                   trail_mode=trail_mode, trail_mult=trail_mult)
                 matrix_rows.append({"key": s.key, "label": s.label, "mode": mode, "leverage": lev,
                                     **_metrics(trades, START_CAPITAL)})
                 equity_curves[f"{s.key}|{lev}|{mode}"] = _equity_curve(trades, START_CAPITAL,

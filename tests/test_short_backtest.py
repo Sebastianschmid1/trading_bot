@@ -145,6 +145,59 @@ def test_walk_exit_short_mirrors_stop_and_target():
     assert reason == "Take-Profit" and price == 90.0
 
 
+def test_walk_exit_trailing_stop_secures_long_profit():
+    idx = pd.bdate_range("2020-01-01", periods=8)
+    df = pd.DataFrame({
+        "Open":  [100, 104, 110, 115, 116, 112, 111, 111],
+        "High":  [101, 106, 112, 118, 118, 113, 112, 112],
+        "Low":   [ 99, 103, 109, 114, 113, 110, 109, 109],
+        "Close": [100, 105, 111, 116, 114, 111, 110, 110],
+        "Volume": 1e6,
+    }, index=idx)
+
+    j, price, reason = engine._walk_exit(df, 0, sl=95.0, tp=200.0, leverage=1.0,
+                                         direction="long", trail_mode="atr", trail_mult=1.0)
+
+    assert reason == "Trailing-Stop"
+    assert price > 100.0
+    assert j == 6
+
+
+def test_backtest_ticker_trailing_mode_keeps_fix_mode_unchanged(monkeypatch):
+    idx = pd.bdate_range("2020-01-01", periods=12)
+    close = [100, 100, 100, 104, 110, 115, 116, 112, 111, 111, 111, 111]
+    df = pd.DataFrame({
+        "Open": close,
+        "High": [c + 2 for c in close],
+        "Low": [c - 2 for c in close],
+        "Close": close,
+        "Volume": 1e6,
+    }, index=idx)
+
+    class OneShot:
+        key = "one"
+        label = "One"
+        def __init__(self):
+            self.calls = 0
+        def generate(self, ticker, tf_data):
+            self.calls += 1
+            if self.calls == 1:
+                return {"ticker": ticker, "direction": "long", "price": 100.0,
+                        "stop_loss": 95.0, "take_profit": 200.0}
+            return None
+
+    orig = engine.WARMUP_BARS
+    monkeypatch.setattr(engine, "WARMUP_BARS", 2)
+    fixed = engine.backtest_ticker(OneShot(), "T", df, 1000.0, max_hold=5, warmup=2)
+    trailing = engine.backtest_ticker(OneShot(), "T", df, 1000.0, max_hold=5, warmup=2,
+                                      trail_mode="atr", trail_mult=1.0)
+    monkeypatch.setattr(engine, "WARMUP_BARS", orig)
+
+    assert fixed[0]["reason"] == "Zeitlimit"
+    assert trailing[0]["reason"] == "Trailing-Stop"
+    assert trailing[0]["exit"] > trailing[0]["entry"]
+
+
 def test_simulate_portfolio_short_pnl_sign():
     """Über die Feuer-Events der gemischten Reihe entstehen Shorts; deren P&L hat das
     korrekte Vorzeichen (Ausstieg unter Einstieg = Gewinn)."""

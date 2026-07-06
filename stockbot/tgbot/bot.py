@@ -52,6 +52,7 @@ from stockbot.config import (
     UNIVERSES, REGION_LABELS, DEFAULT_REGION, DEFAULT_AUTO_UNIVERSE,
     SIGNAL_COUNT_CHOICES, TOP_N_SIGNALS, MAX_SIGNALS, TRADE_SIZE_EUR, TRADE_SIZE_CHOICES,
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
+    LAB_WEEKLY_OPTIMIZATION, LAB_WEEKLY_DAY, LAB_WEEKLY_HOUR, LAB_WEEKLY_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
@@ -2245,6 +2246,20 @@ def _start_dashboard_thread():
     log.info(f"📊 Dashboard aktiv — Link: {DASHBOARD_BASE_URL}")
 
 
+async def run_weekly_lab_optimization(context: ContextTypes.DEFAULT_TYPE):
+    """Wöchentlicher Laborlauf: nur Kandidat/Pending erzeugen, niemals Live-Parameter anwenden."""
+    from stockbot.optimize import lab
+    if lab.is_running():
+        log.info("🧪 Labor-Optimierung übersprungen: bereits ein Lauf aktiv.")
+        return
+    log.info("🧪 Starte wöchentlichen Labor-Optimierungslauf (voller Lauf, pending-only).")
+    started = await asyncio.to_thread(lab.start_background_cycle, None)
+    if started:
+        log.info("🧪 Labor-Optimierung im Hintergrund gestartet.")
+    else:
+        log.info("🧪 Labor-Optimierung nicht gestartet: Lock belegt.")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2264,6 +2279,13 @@ def _register_jobs(app):
         time=datetime.now(BERLIN_TZ).replace(
             hour=SMARTMONEY_SCAN_HOUR, minute=SMARTMONEY_SCAN_MIN, second=0, microsecond=0).timetz(),
         name="smartmoney_scan")
+    if LAB_WEEKLY_OPTIMIZATION:
+        job_queue.run_daily(
+            run_weekly_lab_optimization,
+            time=datetime.now(BERLIN_TZ).replace(
+                hour=LAB_WEEKLY_HOUR, minute=LAB_WEEKLY_MIN, second=0, microsecond=0).timetz(),
+            days=(LAB_WEEKLY_DAY,),
+            name="weekly_lab_optimization")
     # Intraday: alle 30 Min während der Handelszeit nach NEUEN Signalen suchen und pushen.
     job_queue.run_repeating(scan_intraday, interval=INTRADAY_SCAN_INTERVAL_SEC,
                             first=INTRADAY_SCAN_INTERVAL_SEC, name="intraday_signals")

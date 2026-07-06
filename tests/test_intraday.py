@@ -104,7 +104,9 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
     assert by_name["intraday_signals"].args[0] is bot.scan_intraday
     assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
-    assert jq.run_daily.call_count == 3                        # Eröffnungs-Signale, Auswertung, Smart-Money
+    assert jq.run_daily.call_count == 4                        # Signale, Auswertung, Smart-Money, Labor
+    daily_by_name = {c.kwargs.get("name"): c for c in jq.run_daily.call_args_list}
+    assert daily_by_name["weekly_lab_optimization"].args[0] is bot.run_weekly_lab_optimization
 
 
 def test_bot_broker_order_blocks_when_buying_power_is_insufficient():

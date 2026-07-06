@@ -72,11 +72,11 @@ def _pmap(fn, items: list, jobs: int | None) -> list:
 def _bt_one(args):
     """Backtestet EINEN Ticker (Worker für den Prozess-Pool). Alle Argumente sind picklebar;
     die Strategie wird im Kindprozess aus ihrem Schlüssel rekonstruiert."""
-    strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short = args
+    strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short, trail_mode, trail_mult = args
     try:
         return backtest_ticker(strat_mod.get(strategy_key), ticker, df, trade_size,
                                max_hold=max_hold, warmup=warmup, sl_tp_mode=sl_tp_mode,
-                               allow_short=allow_short)
+                               allow_short=allow_short, trail_mode=trail_mode, trail_mult=trail_mult)
     except Exception as e:
         log.warning(f"Backtest {ticker} fehlgeschlagen: {e}")
         return []
@@ -138,7 +138,8 @@ def _generate(strategy: strat_mod.Strategy, ticker: str, tf_data: dict, allow_sh
 def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
                     trade_size: float, max_hold: int = MAX_HOLD_DAYS,
                     warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None,
-                    allow_short: bool = False) -> list[dict]:
+                    allow_short: bool = False,
+                    trail_mode: str | None = None, trail_mult: float | None = None) -> list[dict]:
     """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück.
     `sl_tp_mode` (passiv/normal/aggressiv) überschreibt – falls gesetzt – die SL/TP der Strategie
     einheitlich per ATR (für die Modus-Vergleichs-Reports).
@@ -158,17 +159,20 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
         entry = float(df["Close"].iloc[i])
         sl, tp = float(sig["stop_loss"]), float(sig["take_profit"])
         exit_price, reason, j = None, "Zeitlimit", i + 1
+        trailing = (trail_mode or "").lower() == "atr" and bool(trail_mult and trail_mult > 0)
         while j < n and (j - i) <= max_hold:
             lo, hi = float(df["Low"].iloc[j]), float(df["High"].iloc[j])
+            sl = _update_trailing_stop(df, j, direction, sl, trail_mode, trail_mult)
+            stop_reason = "Trailing-Stop" if trailing else "Stop-Loss"
             if direction == "long":
                 if lo <= sl:                     # konservativ: SL vor TP, falls beide am selben Tag
-                    exit_price, reason = sl, "Stop-Loss"; break
-                if hi >= tp:
+                    exit_price, reason = sl, stop_reason; break
+                if not trailing and hi >= tp:
                     exit_price, reason = tp, "Take-Profit"; break
             else:                                # short: SL liegt ÜBER, TP UNTER dem Einstieg
                 if hi >= sl:
-                    exit_price, reason = sl, "Stop-Loss"; break
-                if lo <= tp:
+                    exit_price, reason = sl, stop_reason; break
+                if not trailing and lo <= tp:
                     exit_price, reason = tp, "Take-Profit"; break
             j += 1
         if exit_price is None:
@@ -203,19 +207,24 @@ def _direction_split(trades: list[dict]) -> dict:
 
 def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int = 2,
                  trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
-                 data: dict | None = None, jobs: int | None = None) -> dict:
+                 data: dict | None = None, jobs: int | None = None,
+                 trail_mode: str | None = None, trail_mult: float | None = None) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
     Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve.
     `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups.
     `data` (vorab geladen) überspringt den Download — so teilen sich mehrere Strategien einen
     Download. `jobs` parallelisiert über Ticker (None → Config/alle Kerne)."""
     strategy = strat_mod.get(strategy_key)
+    if strategy.key == "ai_adaptive" and trail_mode is None and trail_mult is None:
+        p = strat_mod.strategy_runtime_params("ai_adaptive")
+        if p.get("trail_mult"):
+            trail_mode, trail_mult = "atr", float(p["trail_mult"])
     if tickers is None:
         tickers = universes.get_tickers(DEFAULT_REGION, auto=False)   # kuratierter Korb
     if data is None:
         data = _download_daily(tickers, years)
 
-    args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short)
+    args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, trail_mode, trail_mult)
             for t, df in data.items()]
     all_trades = []
     for trades in _pmap(_bt_one, args, jobs):
@@ -253,7 +262,7 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
 
     items = list(data.items())
     T = len(items)
-    args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short)
+    args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, None, None)
             for k in keys for t, df in items]
     flat = _pmap(_bt_one, args, jobs)            # ein Pool für ALLE Strategien×Ticker
 
@@ -272,31 +281,63 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
     return results
 
 
+def _trailing_atr(df: pd.DataFrame, end_idx: int, period: int = 14) -> float | None:
+    """ATR bis einschließlich end_idx; nur historische/geschlossene Bars, kein Future-Lookahead."""
+    if end_idx <= 0:
+        return None
+    start = max(1, end_idx - period + 1)
+    trs = []
+    for k in range(start, end_idx + 1):
+        hi = float(df["High"].iloc[k])
+        lo = float(df["Low"].iloc[k])
+        prev_close = float(df["Close"].iloc[k - 1])
+        trs.append(max(hi - lo, abs(hi - prev_close), abs(lo - prev_close)))
+    return float(sum(trs) / len(trs)) if trs else None
+
+
+def _update_trailing_stop(df: pd.DataFrame, j: int, direction: str, current_stop: float,
+                          trail_mode: str | None, trail_mult: float | None) -> float:
+    if (trail_mode or "").lower() != "atr" or not trail_mult or trail_mult <= 0:
+        return current_stop
+    # Vor der Intraday-Prüfung von Bar j nur Daten bis Bar j-1 nutzen.
+    atr = _trailing_atr(df, j - 1)
+    if atr is None or atr <= 0:
+        return current_stop
+    prev_close = float(df["Close"].iloc[j - 1])
+    if direction == "long":
+        return max(current_stop, prev_close - float(trail_mult) * atr)
+    return min(current_stop, prev_close + float(trail_mult) * atr)
+
+
 # ── Portfolio-Backtest: top_n Signale/Tag + Hebel ────────────────────────────
 
 def _walk_exit(df: pd.DataFrame, i: int, sl: float, tp: float, leverage: float,
-               max_hold: int = MAX_HOLD_DAYS, direction: str = "long"):
+               max_hold: int = MAX_HOLD_DAYS, direction: str = "long",
+               trail_mode: str | None = None, trail_mult: float | None = None):
     """Ausstieg ab Bar i+1: Liquidation (Hebel) → SL → TP (intrabar via High/Low), sonst Zeitlimit.
     Bei `direction="short"` ist alles gespiegelt: SL liegt ÜBER, TP UNTER dem Einstieg, und
     liquidiert wird bei steigendem Kurs (Hoch ≥ Liquidationskurs)."""
     n = len(df)
     liq = evaluator.liquidation_price(float(df["Close"].iloc[i]), leverage, direction)
+    trailing = (trail_mode or "").lower() == "atr" and bool(trail_mult and trail_mult > 0)
     j = i + 1
     while j < n and (j - i) <= max_hold:
         lo, hi = float(df["Low"].iloc[j]), float(df["High"].iloc[j])
+        sl = _update_trailing_stop(df, j, direction, sl, trail_mode, trail_mult)
+        stop_reason = "Trailing-Stop" if trailing else "Stop-Loss"
         if direction == "long":
             if liq is not None and lo <= liq:
                 return j, liq, "Liquidation"
             if lo <= sl:
-                return j, sl, "Stop-Loss"
-            if hi >= tp:
+                return j, sl, stop_reason
+            if not trailing and hi >= tp:
                 return j, tp, "Take-Profit"
         else:                                # short: Liquidation/SL oben, TP unten
             if liq is not None and hi >= liq:
                 return j, liq, "Liquidation"
             if hi >= sl:
-                return j, sl, "Stop-Loss"
-            if lo <= tp:
+                return j, sl, stop_reason
+            if not trailing and lo <= tp:
                 return j, tp, "Take-Profit"
         j += 1
     j = min(j, n - 1)
@@ -320,7 +361,8 @@ def gather_fires(strategy, data: dict, start_after, allow_short: bool = False,
 
 def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
                        trade_size: float, max_concurrent: int,
-                       max_hold: int = MAX_HOLD_DAYS) -> list[dict]:
+                       max_hold: int = MAX_HOLD_DAYS,
+                       trail_mode: str | None = None, trail_mult: float | None = None) -> list[dict]:
     """Billiger Teil: aus den Feuer-Events die Trades simulieren (Hold = max_hold Tage).
     `max_hold=1` ≈ „am Tagesende schließen", großes max_hold = „halten bis SL/TP".
     Die Richtung (long/short) wird je Feuer-Event übernommen (Default long)."""
@@ -338,7 +380,8 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
             df = data[s["ticker"]]
             direction = s.get("direction", "long")
             ej, ex_price, reason = _walk_exit(df, s["idx"], s["sl"], s["tp"], leverage,
-                                              max_hold, direction)
+                                              max_hold, direction, trail_mode=trail_mode,
+                                              trail_mult=trail_mult)
             pnl_pct, pnl_eur = evaluator.realized_pnl(s["entry"], ex_price, direction,
                                                       trade_size, leverage)
             open_pos[s["ticker"]] = df.index[ej]
@@ -367,7 +410,8 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
                        trade_size: float | None = None, initial_capital: float = 10000.0,
                        max_concurrent: int | None = None, max_hold: int = MAX_HOLD_DAYS,
                        allow_short: bool = False, data: dict | None = None,
-                       jobs: int | None = None) -> dict:
+                       jobs: int | None = None,
+                       trail_mode: str | None = None, trail_mult: float | None = None) -> dict:
     """
     Portfolio-Simulation: pro Handelstag die besten `top_n` Signale (für noch nicht offene Ticker)
     eröffnen — mit `leverage`. Ausstieg via Liquidation/SL/TP/Zeitlimit (`max_hold`). Kein Look-ahead.
@@ -378,6 +422,10 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
     `allow_short` (nur Standard-Strategie, Backtest) nimmt zusätzlich Short-Setups auf.
     """
     strategy = strat_mod.get(strategy_key)
+    if strategy.key == "ai_adaptive" and trail_mode is None and trail_mult is None:
+        p = strat_mod.strategy_runtime_params("ai_adaptive")
+        if p.get("trail_mult"):
+            trail_mode, trail_mult = "atr", float(p["trail_mult"])
     if tickers is None:
         tickers = universes.get_tickers(DEFAULT_REGION, auto=False)
     if max_concurrent is None:
@@ -393,7 +441,8 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
     by_date = gather_fires(strategy, data, start_after, allow_short=allow_short, jobs=jobs)
-    trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold)
+    trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold,
+                                trail_mode=trail_mode, trail_mult=trail_mult)
 
     return {
         "strategy": strategy.key, "label": strategy.label,

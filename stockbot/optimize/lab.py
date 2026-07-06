@@ -62,6 +62,8 @@ TOP_N = 10
 START_CAPITAL = TRADE_SIZE * TOP_N  # fester 10.000-USD-Pool (wie im Sweep)
 
 WEB_LIMIT = 150                     # Web-Trigger nutzt ein kleineres Universum (schneller, interaktiv)
+LAB_LLM_MODEL = os.getenv("LAB_LLM_MODEL", "gpt-5.5")
+LAB_PROPOSER = os.getenv("LAB_PROPOSER", "grid").strip().lower()
 
 # Suchraum: je tunebarer Parameter ein sortiertes Werteraster. Der Optimizer bewegt sich pro
 # Zyklus um GENAU einen Schritt (±1) auf GENAU einem dieser Raster (wissenschaftliche Disziplin).
@@ -71,6 +73,7 @@ SEARCH_SPACE = {
     "ma_regime":  [100, 150, 200],               # Regime-Filter-Länge
     "sl_mult":    [2.0, 2.5, 3.0, 3.5, 4.0],     # Stop-Loss in ATR
     "tp_mult":    [6.0, 8.0, 10.0, 12.0, 15.0],  # Take-Profit in ATR
+    "trail_mult": [2.0, 2.5, 3.0, 3.5, 4.0],     # optionaler ATR-Trailing-Stop
 }
 
 _run_lock = threading.Lock()        # verhindert gleichzeitige Läufe (Web-Trigger)
@@ -120,11 +123,14 @@ def _fires_by_date(data: dict, params: dict, jobs) -> dict:
     return by_date
 
 
-def _portfolio_metrics(data: dict, by_date: dict) -> dict:
+def _portfolio_metrics(data: dict, by_date: dict, params: dict | None = None) -> dict:
     """Top-N-Portfolio-Kennzahlen (Hebel 1, fester Pool) für die gegebenen Fires."""
+    trail_mult = (params or {}).get("trail_mult")
     trades = engine.simulate_portfolio(data, by_date, top_n=TOP_N, leverage=1.0,
                                        trade_size=TRADE_SIZE, max_concurrent=TOP_N,
-                                       max_hold=engine.MAX_HOLD_DAYS)
+                                       max_hold=engine.MAX_HOLD_DAYS,
+                                       trail_mode=("atr" if trail_mult else None),
+                                       trail_mult=(float(trail_mult) if trail_mult else None))
     m = metrics_mod.compute_metrics(trades, initial_capital=START_CAPITAL)
     pnl = m.get("total_pnl_eur", 0.0)
     return {
@@ -155,8 +161,8 @@ def evaluate(data: dict, params: dict, split: pd.Timestamp, is_years: float,
     by_date = _fires_by_date(data, params, jobs)
     is_bd = {d: v for d, v in by_date.items() if pd.Timestamp(d) < split}
     oos_bd = {d: v for d, v in by_date.items() if pd.Timestamp(d) >= split}
-    is_m = _portfolio_metrics(data, is_bd)
-    oos_m = _portfolio_metrics(data, oos_bd)
+    is_m = _portfolio_metrics(data, is_bd, params)
+    oos_m = _portfolio_metrics(data, oos_bd, params)
     return {
         "is": is_m, "oos": oos_m,
         "is_mar": mar(is_m, is_years), "oos_mar": mar(oos_m, oos_years),
@@ -184,6 +190,113 @@ def candidates(champion: dict) -> list[dict]:
                 new_params[param] = grid[j]
                 out.append({"param": param, "old": cur, "new": grid[j], "params": new_params})
     return out
+
+
+def _extract_json_array(text: str):
+    """Extrahiert robust ein JSON-Array aus LLM-Text/Markdown."""
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        if s.lower().startswith("json"):
+            s = s[4:].strip()
+    start, end = s.find("["), s.rfind("]")
+    if start >= 0 and end > start:
+        s = s[start:end + 1]
+    return json.loads(s)
+
+
+def _call_llm_proposer(champion: dict, context: dict) -> list[dict]:
+    """Ruft GPT-5.5 für Hypothesen-Vorschläge auf. Kein API-Call ohne OPENAI_API_KEY."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return []
+    try:
+        from openai import OpenAI
+    except Exception:
+        return []
+    prompt = {
+        "task": "Propose 1-3 single-parameter grid moves for ai_adaptive strategy lab.",
+        "rules": [
+            "Return JSON array only.",
+            "Each item: {param, direction, reason} OR {param, new, reason}.",
+            "Use exactly one param from search_space per item.",
+            "Do not decide live params or orders; backtest gate is judge.",
+        ],
+        "champion": champion,
+        "search_space": SEARCH_SPACE,
+        "context": context,
+    }
+    client = OpenAI(api_key=api_key)
+    # Modellliste best-effort prüfen; kein Logging von Keys/Prompt.
+    try:
+        models = {m.id for m in client.models.list().data}
+        model = LAB_LLM_MODEL if LAB_LLM_MODEL in models else LAB_LLM_MODEL
+    except Exception:
+        model = LAB_LLM_MODEL
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You are a cautious quantitative trading research assistant. Output JSON only."},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ],
+        temperature=0.2,
+    )
+    content = resp.choices[0].message.content or "[]"
+    parsed = _extract_json_array(content)
+    return parsed if isinstance(parsed, list) else []
+
+
+def _candidate_from_proposal(champion: dict, proposal: dict) -> dict | None:
+    param = str(proposal.get("param") or "").strip()
+    if param not in SEARCH_SPACE:
+        return None
+    grid = SEARCH_SPACE[param]
+    cur = champion.get(param)
+    idx = _nearest_index(grid, cur)
+    new = proposal.get("new")
+    if new is None:
+        direction = str(proposal.get("direction") or "").strip().lower()
+        target_idx = idx + (1 if direction in ("up", "increase", "higher", "+") else -1 if direction in ("down", "decrease", "lower", "-") else 0)
+        if not (0 <= target_idx < len(grid)):
+            return None
+        new = grid[target_idx]
+    # Harte Validierung: nur gültiger direkter Raster-Nachbar, genau eine Variable.
+    if new not in grid:
+        return None
+    new_idx = grid.index(new)
+    if abs(new_idx - idx) != 1 or new == cur:
+        return None
+    new_params = dict(champion)
+    new_params[param] = new
+    cand = {"param": param, "old": cur, "new": new, "params": new_params}
+    if proposal.get("reason"):
+        cand["reason"] = str(proposal["reason"])
+    return cand
+
+
+def _llm_candidates(champion: dict, context: dict) -> list[dict]:
+    out, seen = [], set()
+    for proposal in _call_llm_proposer(champion, context):
+        if not isinstance(proposal, dict):
+            continue
+        cand = _candidate_from_proposal(champion, proposal)
+        if not cand:
+            continue
+        key = (cand["param"], cand["new"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cand)
+    return out
+
+
+def select_candidates(champion: dict, context: dict | None = None) -> list[dict]:
+    proposer = os.getenv("LAB_PROPOSER", LAB_PROPOSER).strip().lower()
+    if proposer == "llm":
+        llm = _llm_candidates(champion, context or {})
+        if llm:
+            return llm
+    return candidates(champion)
 
 
 # ── Gate: nur out-of-sample-Gewinner vorschlagen ─────────────────────────────
@@ -309,8 +422,9 @@ def run_cycle(data: dict | None = None, limit: int | None = None, jobs=None,
         f"(OOS Return {champ_eval['oos']['return_pct']}% / DD {champ_eval['oos']['max_drawdown_pct']}%, "
         f"{champ_eval['oos']['trades']} Trades)")
 
-    cands = candidates(champion)
-    log(f"[lab] {len(cands)} Ein-Variablen-Kandidaten prüfen ...")
+    cands = select_candidates(champion, {"champion_eval": champ_eval, "version": version})
+    proposer = "llm" if os.getenv("LAB_PROPOSER", LAB_PROPOSER).strip().lower() == "llm" else "grid"
+    log(f"[lab] {len(cands)} Ein-Variablen-Kandidaten prüfen ({proposer}) ...")
     cycle_id = _now()
     results, hyp_records = [], []
     for k, cand in enumerate(cands, 1):

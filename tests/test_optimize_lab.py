@@ -101,6 +101,43 @@ def test_candidates_change_exactly_one_variable(lab_tmp):
     assert tp == [8.0, 12.0]
 
 
+def test_llm_candidates_validates_single_grid_neighbor(lab_tmp, monkeypatch):
+    champ = {"tp_mult": 10.0, "factor": 3.0, "atr_period": 10, "ma_regime": 200, "sl_mult": 3.0}
+    monkeypatch.setattr(lab, "_call_llm_proposer", lambda champion, context: [
+        {"param": "tp_mult", "direction": "up", "reason": "Gewinner laufen lassen"},
+        {"param": "factor", "new": 9.9, "reason": "ungültig: nicht im Raster"},
+        {"param": "unknown", "direction": "down", "reason": "ungültiger Parameter"},
+    ])
+
+    cands = lab._llm_candidates(champ, {"recent": []})
+
+    assert len(cands) == 1
+    assert cands[0]["param"] == "tp_mult"
+    assert cands[0]["old"] == 10.0 and cands[0]["new"] == 12.0
+    assert cands[0]["params"]["tp_mult"] == 12.0
+    assert cands[0]["reason"] == "Gewinner laufen lassen"
+
+
+def test_select_candidates_uses_grid_without_flag(lab_tmp, monkeypatch):
+    champ = {"tp_mult": 10.0, "factor": 3.0}
+    monkeypatch.delenv("LAB_PROPOSER", raising=False)
+    monkeypatch.setattr(lab, "_llm_candidates", lambda champion, context: (_ for _ in ()).throw(AssertionError("LLM darf ohne Flag nicht laufen")))
+
+    cands = lab.select_candidates(champ, {"recent": []})
+
+    assert cands and {c["new"] for c in cands if c["param"] == "tp_mult"} == {8.0, 12.0}
+
+
+def test_select_candidates_uses_llm_when_flagged(lab_tmp, monkeypatch):
+    champ = {"tp_mult": 10.0, "factor": 3.0}
+    monkeypatch.setenv("LAB_PROPOSER", "llm")
+    monkeypatch.setattr(lab, "_llm_candidates", lambda champion, context: [{
+        "param": "factor", "old": 3.0, "new": 3.5, "params": {**champion, "factor": 3.5}
+    }])
+
+    assert lab.select_candidates(champ, {"recent": []})[0]["new"] == 3.5
+
+
 # ── Gate: nur Out-of-Sample-Gewinner ──────────────────────────────────────────
 
 def _cand(oos_mar, oos_trades=50, oos_dd=15.0):
