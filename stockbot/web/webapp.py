@@ -656,6 +656,17 @@ def app_settings_alpaca(request: Request, api_key: str = Form(""), api_secret: s
     return _redirect("/app/settings?msg=Alpaca-Zugangsdaten+gespeichert.")
 
 
+@router.post("/app/settings/token/rotate")
+def app_settings_token_rotate(request: Request):
+    """Erzeugt einen neuen Dashboard-Token — der alte Link wird sofort ungültig
+    (z. B. nach versehentlichem Teilen oder Leak über Logs/Browser-Verlauf)."""
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    db.rotate_dashboard_token(user["user_id"])
+    return _redirect("/app/settings?msg=Neuer+Dashboard-Link+erzeugt+%E2%80%93+der+alte+ist+ung%C3%BCltig.")
+
+
 @router.post("/app/settings/alpaca/clear")
 def app_settings_alpaca_clear(request: Request):
     user = auth.current_user(request)

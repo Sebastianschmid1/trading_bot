@@ -149,6 +149,8 @@
     const token = window.location.pathname.split("/").filter(Boolean).pop();
     const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
     const cls = (n) => n >= 0 ? "green" : "red";
+    // HTML-Escaping für alle String-Daten, die per innerHTML/Template-Literal gerendert werden.
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     let currentStrategy = "";   // "" = Alle
     let currentDays = 0;        // 0 = Alle; sonst letzte N Tage
     let currentPriceTicker = null;   // im „Kursverlauf heute"-Dropdown gewählter Trade
@@ -208,7 +210,7 @@
       const el = document.getElementById("tabs");
       if (tabs.length <= 2) { el.innerHTML = ""; return; }   // nur „Alle" + 1 Strategie → kein Umschalter nötig
       el.innerHTML = tabs.map(t =>
-        `<div class="tab ${t.key === currentStrategy ? "active" : ""}" data-key="${t.key}">${t.label}</div>`
+        `<div class="tab ${t.key === currentStrategy ? "active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</div>`
       ).join("");
       el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
         currentStrategy = b.dataset.key;
@@ -371,9 +373,9 @@
           <div class="table-scroll"><table>
             <thead><tr><th>Ticker</th><th>Richtung</th><th class="num">Einsatz</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">P&L</th><th class="num">Stop-Loss</th><th class="num">Take-Profit</th></tr></thead>
             <tbody>${act.map(t => `
-              <tr class="clickable" data-ticker="${t.ticker}">
-                <td><b>${t.ticker}</b><div class="sub">${t.status_text || "Aktiv"}</div></td>
-                <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
+              <tr class="clickable" data-ticker="${esc(t.ticker)}">
+                <td><b>${esc(t.ticker)}</b><div class="sub">${esc(t.status_text || "Aktiv")}</div></td>
+                <td><span class="badge">${esc(t.direction.toUpperCase())}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
                 <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
                 <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
                 <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
@@ -427,7 +429,7 @@
           currentPriceTicker = intraday[0].ticker;
         }
         sel.innerHTML = intraday.map(s =>
-          `<option value="${s.ticker}"${s.ticker === currentPriceTicker ? " selected" : ""}>${s.ticker}</option>`).join("");
+          `<option value="${esc(s.ticker)}"${s.ticker === currentPriceTicker ? " selected" : ""}>${esc(s.ticker)}</option>`).join("");
         renderPriceChart(intraday.find(s => s.ticker === currentPriceTicker));
       }
     }
@@ -491,7 +493,7 @@
         if (!res.ok) throw new Error("Analyse fehlgeschlagen.");
         renderAnalysis(await res.json());
       } catch (e) {
-        document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${e.message}</div>`;
+        document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`;
       }
     }
 
@@ -499,7 +501,7 @@
       const pts = d.points || [];
       if (!pts.length) {
         document.getElementById("modalBody").innerHTML =
-          `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + d.error + ")" : ""}.</div>`;
+          `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + esc(d.error) + ")" : ""}.</div>`;
         return;
       }
       const last = pts[pts.length - 1];

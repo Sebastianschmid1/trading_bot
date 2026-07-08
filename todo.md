@@ -1,9 +1,21 @@
 # TODO — Handoff an Hermes-Bot
 
-Stand: 2026-07-06. Repo-Root: `c:\Users\sebas\OneDrive\trading_bot` (Windows, PowerShell primär).
+Stand: 2026-07-09. Repo-Root: `c:\Users\sebas\OneDrive\trading_bot` (Windows, PowerShell primär).
+
+## Offen (aus Sicherheits-Audit 2026-07-08)
+
+### A1 — systemd-Dienste nicht mehr als root betreiben
+- `deploy/stockbot.service` und `deploy/dashboard.service` laufen mit `User=root` unter `/root/stockbot`.
+- Ziel: dedizierter Nutzer (`useradd -r stockbot`), Repo z. B. nach `/opt/stockbot`, `.env` mit `chmod 600`.
+- systemd-Härtung ergänzen: `NoNewPrivileges=true`, `ProtectSystem=strict` (+ `ReadWritePaths` für `data/` und `logs/`), `ProtectHome=true`, `PrivateTmp=true`.
+- Achtung: Pfade in `upload.ps1`/`deploy/*.sh` (`/root/stockbot`) müssen mitziehen; Migration auf dem VPS nötig (Daten/venv umziehen).
+
+### A2 — Dependencies pinnen
+- `requirements.txt` ist komplett ungepinnt — jedes Deploy installiert blind die neuesten Versionen (Breaking Changes / Supply-Chain-Risiko direkt auf dem VPS).
+- Ziel: Versionen pinnen (z. B. `pip freeze` in ein `requirements.lock`, das beim Deploy installiert wird, oder pip-tools) und Updates bewusst einspielen.
 
 ## Status
-Alle priorisierten Punkte aus diesem Handoff wurden umgesetzt bzw. nach Nutzerfreigabe angepasst.
+Alle priorisierten Punkte aus dem Hermes-Handoff wurden umgesetzt bzw. nach Nutzerfreigabe angepasst.
 
 ## Erledigt
 

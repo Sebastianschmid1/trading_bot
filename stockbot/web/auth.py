@@ -56,6 +56,11 @@ def rate_ok(key: str, limit: int = 20, window: int = 60) -> bool:
     """True, solange `key` (z. B. Client-IP) im Zeitfenster unter dem Limit bleibt.
     Schützt die Login-Endpunkte gegen Missbrauch/Brute-Force."""
     now = time.time()
+    # Speicher-Deckel: bei vielen Keys (Bot-Scans probieren zig IPs) abgelaufene Einträge räumen,
+    # sonst wächst das Dict im Dauerbetrieb unbegrenzt.
+    if len(_auth_hits) > 512:
+        for stale in [k for k, v in _auth_hits.items() if not v or now - v[-1] >= window]:
+            _auth_hits.pop(stale, None)
     hits = [t for t in _auth_hits.get(key, []) if now - t < window]
     hits.append(now)
     _auth_hits[key] = hits

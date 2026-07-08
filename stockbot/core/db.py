@@ -6,6 +6,7 @@ Broker-Zugangsdaten) und Demo-Trades, jeweils pro user_id (== Telegram chat_id).
 
 import sqlite3
 import json
+import hashlib
 import logging
 import secrets
 from contextlib import contextmanager
@@ -273,6 +274,15 @@ def _migrate(conn: sqlite3.Connection):
                 )
         if n:
             log.info(f"Migration: trade_events backfilled für {n} Trade(s).")
+
+    # Web-Session-Tokens nur noch als SHA-256-Hash speichern: Klartext-Alttokens einmalig
+    # hashen (erkennbar an der Form — token_urlsafe(32) ist 43 Zeichen Base64, kein 64er-Hex).
+    legacy = [r["token"] for r in conn.execute("SELECT token FROM sessions").fetchall()
+              if not _is_token_hash(r["token"])]
+    for tok in legacy:
+        conn.execute("UPDATE sessions SET token = ? WHERE token = ?", (_hash_token(tok), tok))
+    if legacy:
+        log.info(f"Migration: {len(legacy)} Web-Session-Token(s) gehasht.")
 
 
 @contextmanager
@@ -693,6 +703,16 @@ def get_or_create_dashboard_token(user_id: int) -> str:
     return token
 
 
+def rotate_dashboard_token(user_id: int) -> str:
+    """Erzeugt einen NEUEN Dashboard-Token (der alte Link wird sofort ungültig).
+    Für den Fall, dass ein Token-Link geleakt ist (Logs, Browser-Verlauf, Weitergabe)."""
+    token = secrets.token_urlsafe(24)
+    with _connect() as conn:
+        conn.execute("UPDATE users SET dashboard_token = ?, updated_at = datetime('now') "
+                     "WHERE user_id = ?", (token, user_id))
+    return token
+
+
 def get_user_by_token(token: str) -> dict | None:
     """Löst einen Dashboard-Token zum Nutzerprofil auf (oder None bei ungültigem Token)."""
     if not token:
@@ -703,6 +723,19 @@ def get_user_by_token(token: str) -> dict | None:
 
 
 # ── Web-Sessions (Login-Cookies) ─────────────────────────────────────────────
+# In der DB liegt nur der SHA-256-Hash des Tokens — ein DB-Leak (Backup, Kopie)
+# ergibt damit keine gültigen Sessions. Das Klartext-Token existiert nur im Cookie.
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _is_token_hash(value: str | None) -> bool:
+    """True, wenn `value` wie ein SHA-256-Hex-Digest aussieht (64 Hex-Zeichen)."""
+    if not value or len(value) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in value)
+
 
 def create_session(user_id: int, days: int = 30) -> str:
     """Legt eine Web-Session an und gibt das Session-Token (für das Cookie) zurück."""
@@ -711,7 +744,7 @@ def create_session(user_id: int, days: int = 30) -> str:
         conn.execute(
             "INSERT INTO sessions (token, user_id, expires_at) "
             "VALUES (?, ?, datetime('now', ?))",
-            (token, user_id, f"{int(days):+d} days"),
+            (_hash_token(token), user_id, f"{int(days):+d} days"),
         )
     return token
 
@@ -723,7 +756,7 @@ def user_id_for_session(token: str) -> int | None:
     with _connect() as conn:
         row = conn.execute(
             "SELECT user_id FROM sessions WHERE token = ? AND expires_at > datetime('now')",
-            (token,),
+            (_hash_token(token),),
         ).fetchone()
     return row["user_id"] if row else None
 
@@ -733,7 +766,7 @@ def delete_session(token: str):
     if not token:
         return
     with _connect() as conn:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.execute("DELETE FROM sessions WHERE token = ?", (_hash_token(token),))
 
 
 def delete_user_sessions(user_id: int) -> int:

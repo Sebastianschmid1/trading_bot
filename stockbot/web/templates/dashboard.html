@@ -284,6 +284,8 @@
     const LS = (k) => `dash:${token}:${k}`;
     const lsGet = (k, d) => { try { const v = localStorage.getItem(LS(k)); return v === null ? d : v; } catch (e) { return d; } };
     const lsSet = (k, v) => { try { localStorage.setItem(LS(k), v); } catch (e) {} };
+    // HTML-Escaping für alle String-Daten, die per innerHTML/Template-Literal gerendert werden.
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
     const state = {
       strategy:    lsGet("strategy", ""),
@@ -453,7 +455,7 @@
       const tabs = d.strategies || [], el = document.getElementById("tabs");
       if (tabs.length <= 2) { el.innerHTML = ""; return; }
       el.innerHTML = `<span class="lbl">Strategie:</span>` + tabs.map(t =>
-        `<div class="tab ${t.key === state.strategy ? "active" : ""}" data-key="${t.key}">${t.label}</div>`).join("");
+        `<div class="tab ${t.key === state.strategy ? "active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</div>`).join("");
       el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
         state.strategy = b.dataset.key; lsSet("strategy", state.strategy); countdown = REFRESH_SEC; load(false);
       }));
@@ -673,7 +675,7 @@
         act = act.filter(t => t.ticker.toLowerCase().includes(f));
       }
       if (!act.length) {
-        host.innerHTML = `<div class="empty">${state.filter ? "Kein Treffer für „" + state.filter + "“." : "Keine aktiven Trades."}</div>`;
+        host.innerHTML = `<div class="empty">${state.filter ? "Kein Treffer für „" + esc(state.filter) + "“." : "Keine aktiven Trades."}</div>`;
         return;
       }
       const get = SORTERS[state.sort.key] || SORTERS.pnl_eur;
@@ -688,9 +690,9 @@
       host.innerHTML = `<div class="table-scroll"><table>
         <thead><tr>${ths}</tr></thead>
         <tbody>${act.map(t => `
-          <tr class="clickable" data-ticker="${t.ticker}">
-            <td><b>${t.ticker}</b><div class="sub">${t.status_text || "Aktiv"}</div></td>
-            <td><span class="badge">${t.direction.toUpperCase()}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
+          <tr class="clickable" data-ticker="${esc(t.ticker)}">
+            <td><b>${esc(t.ticker)}</b><div class="sub">${esc(t.status_text || "Aktiv")}</div></td>
+            <td><span class="badge">${esc(t.direction.toUpperCase())}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
             <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
             <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
             <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
@@ -744,7 +746,7 @@
       if (!intraday.length) { sel.style.display = "none"; replaceCanvas("priceChartSingle", "Keine aktiven Trades."); return; }
       sel.style.display = "";
       if (!state.priceTicker || !intraday.some(s => s.ticker === state.priceTicker)) state.priceTicker = intraday[0].ticker;
-      sel.innerHTML = intraday.map(s => `<option value="${s.ticker}"${s.ticker === state.priceTicker ? " selected" : ""}>${s.ticker}</option>`).join("");
+      sel.innerHTML = intraday.map(s => `<option value="${esc(s.ticker)}"${s.ticker === state.priceTicker ? " selected" : ""}>${esc(s.ticker)}</option>`).join("");
       renderPriceChart(intraday.find(s => s.ticker === state.priceTicker));
     }
     function renderPriceChart(s) {
@@ -803,12 +805,12 @@
         const res = await fetch(`/api/${token}/analyze/${encodeURIComponent(ticker)}`);
         if (!res.ok) throw new Error("Analyse fehlgeschlagen.");
         renderAnalysis(await res.json());
-      } catch (e) { document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${e.message}</div>`; }
+      } catch (e) { document.getElementById("modalBody").innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`; }
     }
     function renderAnalysis(d) {
       const pts = d.points || [];
       if (!pts.length) { document.getElementById("modalBody").innerHTML =
-        `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + d.error + ")" : ""}.</div>`; return; }
+        `<div class="empty">Keine Analysedaten verfügbar${d.error ? " (" + esc(d.error) + ")" : ""}.</div>`; return; }
       const last = pts[pts.length - 1];
       document.getElementById("modalBody").innerHTML = `
         <div class="desc">Stand ${last.date} · Kurs $${last.price.toFixed(2)} · dieselben Faktoren wie im Signal-Modell</div>

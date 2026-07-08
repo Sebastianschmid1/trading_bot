@@ -124,6 +124,13 @@
   <form class="inline" method="post" action="/logout/all">
     <button class="red">Überall abmelden</button>
   </form>
+  <p class="muted" style="margin-top:1rem">Erzeugt einen neuen privaten Dashboard-Link. Der alte
+    Link (z.&nbsp;B. aus Telegram oder dem Browser-Verlauf) wird sofort ungültig — nützlich, wenn
+    er versehentlich geteilt wurde.</p>
+  <form class="inline" method="post" action="/app/settings/token/rotate"
+        onsubmit="return confirm('Neuen Dashboard-Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.');">
+    <button>🔄 Dashboard-Link erneuern</button>
+  </form>
 </div>
 
 <div class="card">
