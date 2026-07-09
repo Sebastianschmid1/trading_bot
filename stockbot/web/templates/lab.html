@@ -124,6 +124,37 @@
       {% for k, v in st.live_params.items() %}<span class="chip"><b>{{ k }}</b> {{ v }}</span>{% endfor %}
     </div>
   </div>
+  {% if ch and ch.fold_mars %}
+  <div class="note" style="margin-top:.6rem">
+    OOS-Folds (MAR je Teilfenster): {{ ch.fold_mars | join(' · ') }} — ein Kandidat muss die
+    Mehrheit der Folds gewinnen, nicht nur das Aggregat.
+  </div>
+  {% endif %}
+  {% if st.streak and st.streak.count %}
+  <div class="note" style="margin-top:.4rem">
+    🔁 Bestätigungs-Serie: <b>{{ st.streak.param }} {{ st.streak.old }}→{{ st.streak.new }}</b>
+    hat das Gate {{ st.streak.count }}/{{ st.streak.required }}× in Folge bestanden —
+    Vorschlag erst nach voller Serie.
+  </div>
+  {% endif %}
+  {% if st.reality and st.reality.live_win_rate is defined and st.reality.live_win_rate is not none %}
+  <div class="note" style="margin-top:.4rem {{ 'color:var(--red)' if st.reality.divergent }}">
+    🩺 Reality-Check ({{ st.reality.n }} Live-Trades, {{ st.reality.days }} Tage):
+    Trefferquote live {{ st.reality.live_win_rate }}% vs. erwartet
+    {{ st.reality.expected_win_rate if st.reality.expected_win_rate is not none else '—' }}%
+    {{ '— ⚠️ deutliche Abweichung: das Backtest-Modell bildet die Realität evtl. nicht ab.' if st.reality.divergent else '— im Rahmen.' }}
+  </div>
+  {% elif st.reality and st.reality.note %}
+  <div class="note" style="margin-top:.4rem">🩺 Reality-Check: {{ st.reality.note }}</div>
+  {% endif %}
+  {% if st.edge_warnings %}
+  <div class="note" style="margin-top:.4rem">
+    📐 {{ st.edge_warnings | join(' · ') }}
+  </div>
+  {% endif %}
+  {% if st.config and st.config.caveats %}
+  <div class="note muted" style="margin-top:.4rem">{{ st.config.caveats | join(' ') }}</div>
+  {% endif %}
   {% if ai_row and bench_row %}
   <div class="note" style="margin-top:.7rem">
     Im letzten {{ report_years }}-Jahres-Sweep rangiert die KI-Strategie auf
@@ -153,8 +184,24 @@
         <td>{{ pr.candidate_oos.max_drawdown_pct }}%</td></tr>
     <tr><td>OOS-Trades</td>
         <td>{{ pr.champion_oos.trades }}</td><td>{{ pr.candidate_oos.trades }}</td></tr>
+    {% if pr.fold_wins %}
+    <tr><td>Fold-Siege</td><td>—</td><td class="win">{{ pr.fold_wins }}</td></tr>
+    {% endif %}
+    {% if pr.boot_prob is defined and pr.boot_prob is not none %}
+    <tr><td>Bootstrap-Konfidenz</td><td>—</td>
+        <td class="win">{{ (pr.boot_prob * 100) | round(0) | int }}% der Resamples</td></tr>
+    {% endif %}
   </table>
   </div>
+  {% if pr.proposer and pr.proposer != 'grid' %}
+  <div class="note" style="margin-top:.4rem">Quelle des Kandidaten:
+    <b>{{ {'llm': 'LLM-Proposer', 'history': 'Historie (Multi-Step)',
+           'history-pair': 'Historie (Parameter-Paar)', 'rollback': 'Regression-Guard (Rollback)'}
+          .get(pr.proposer, pr.proposer) }}</b></div>
+  {% endif %}
+  {% if pr.edge_warnings %}
+  <div class="note" style="margin-top:.4rem">📐 {{ pr.edge_warnings | join(' · ') }}</div>
+  {% endif %}
   {% if is_admin %}
   <div class="row" style="margin-top:.8rem">
     <form method="post" action="/app/lab/apply" class="inline">
@@ -192,7 +239,8 @@
       <tr>
         <td class="muted">{{ h.ts[5:16] if h.ts else '' }}</td>
         <td><span class="kind {{ h.kind }}">{{ h.kind }}</span></td>
-        <td>{% if h.param %}<span class="mono"><b>{{ h.param }}</b> {{ h.old }}→{{ h.new }}</span>{% else %}—{% endif %}</td>
+        <td>{% if h.param %}<span class="mono"><b>{{ h.param }}</b> {{ h.old }}→{{ h.new }}</span>
+          {%- if h.proposer and h.proposer != 'grid' %} <span class="muted">[{{ h.proposer }}]</span>{% endif %}{% else %}—{% endif %}</td>
         <td class="muted">{{ h.predicted or '—' }}</td>
         <td class="m">{{ h.champion_oos_mar if h.champion_oos_mar is not none else '—' }}</td>
         <td class="m">{{ h.candidate_oos_mar if h.candidate_oos_mar is not none else '—' }}</td>

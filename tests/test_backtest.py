@@ -215,13 +215,38 @@ def test_backtest_engine_detects_tp_then_sl():
     df = pd.DataFrame({"Open": close, "High": high, "Low": low, "Close": close,
                        "Volume": np.full(n, 1e6)}, index=idx)
 
+    # cost_pct=0: dieser Test prüft die reine SL/TP-Mechanik ohne Transaktionskosten.
     trades = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
-                                      max_hold=10, warmup=2)
+                                      max_hold=10, warmup=2, cost_pct=0.0)
     assert len(trades) >= 2
     assert trades[0]["reason"] == "Take-Profit" and trades[0]["pnl_eur"] > 0
     assert trades[1]["reason"] == "Stop-Loss" and trades[1]["pnl_eur"] < 0
     assert round(trades[0]["pnl_pct"], 1) == 5.0
     assert round(trades[1]["pnl_pct"], 1) == -2.0
+
+
+def test_backtest_engine_applies_transaction_costs():
+    """Round-Trip-Kosten (cost_pct % je Seite) mindern P&L in % und € — Default aus der Config."""
+    n = 15
+    close = np.full(n, 100.0)
+    high = close + 0.5
+    low = close - 0.5
+    high[3] = 106.0
+    idx = pd.date_range("2023-01-01", periods=n, freq="B")
+    df = pd.DataFrame({"Open": close, "High": high, "Low": low, "Close": close,
+                       "Volume": np.full(n, 1e6)}, index=idx)
+
+    gross = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
+                                     max_hold=10, warmup=2, cost_pct=0.0)
+    net = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
+                                   max_hold=10, warmup=2, cost_pct=0.1)
+    assert round(gross[0]["pnl_pct"] - net[0]["pnl_pct"], 2) == 0.2      # 2 × 0.1 %
+    assert round(gross[0]["pnl_eur"] - net[0]["pnl_eur"], 2) == 2.0      # 0.2 % von 1000 €
+    # Default (None) folgt der Config und ist teurer als kostenlos.
+    default = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
+                                       max_hold=10, warmup=2)
+    from stockbot import config as _cfg
+    assert round(gross[0]["pnl_pct"] - default[0]["pnl_pct"], 2) == round(2 * _cfg.BACKTEST_COST_PCT, 2)
 
 
 if __name__ == "__main__":

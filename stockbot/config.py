@@ -212,6 +212,12 @@ MAX_SIGNALS      = 20      # harte Obergrenze
 # während eines großen Backtests responsiv bleibt.
 BACKTEST_JOBS    = int(os.getenv("BACKTEST_JOBS", "0") or 0)
 
+# Transaktionskosten im Backtest: Prozent des Positionswerts JE SEITE (Einstieg + Ausstieg),
+# als Pauschale für Spread + Slippage (Kommission ist bei Alpaca 0). 0.05 = 5 Basispunkte.
+# Ohne Kosten driftet jede Optimierung systematisch zu mehr/engeren Trades, weil Trades im
+# Modell gratis wären. Per BACKTEST_COST_PCT=0 abschaltbar (z. B. für Vergleichs-Läufe).
+BACKTEST_COST_PCT = float(os.getenv("BACKTEST_COST_PCT", "0.05"))
+
 # ── Analyse-Parameter ──────────────────────────────────────────────────────
 RSI_PERIOD       = 14
 RSI_OVERSOLD     = 35      # Unter diesem Wert = bullish Signal

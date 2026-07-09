@@ -24,6 +24,7 @@ from stockbot.core import metrics as metrics_mod
 from stockbot.market import strategies as strat_mod
 from stockbot.market import analyzer
 from stockbot.market import universes
+from stockbot import config
 from stockbot.config import TRADE_SIZE_EUR, DEFAULT_REGION, BACKTEST_JOBS
 
 log = logging.getLogger(__name__)
@@ -31,6 +32,23 @@ log = logging.getLogger(__name__)
 WARMUP_BARS = 260      # genug für EMA200 + ADX + Hüllkurven-Z-Scores (env_base=150)
 MAX_HOLD_DAYS = 40     # ~2 Handelsmonate Obergrenze je Trade
 PARALLEL_MIN = 8       # ab so vielen Tickern lohnt der Prozess-Pool (darunter: seriell, kein Spawn)
+
+
+def _resolve_cost(cost_pct: float | None) -> float:
+    """Effektive Transaktionskosten in % je Seite: explizit > Config-Default."""
+    return config.BACKTEST_COST_PCT if cost_pct is None else float(cost_pct)
+
+
+def _net_pnl(entry: float, exit_price: float, direction: str, trade_size: float,
+             leverage: float, cost_pct: float) -> tuple[float, float]:
+    """P&L NACH Round-Trip-Transaktionskosten (`cost_pct` % des Positionswerts je Seite).
+    Kosten wirken wie eine zusätzliche Kursbewegung gegen den Trade; der Verlust bleibt
+    wie in evaluator.realized_pnl auf die Margin begrenzt."""
+    pnl_pct, _ = evaluator.realized_pnl(entry, exit_price, direction, trade_size, leverage)
+    net_pct = pnl_pct - 2.0 * (cost_pct or 0.0)
+    pnl_eur = trade_size * (net_pct / 100.0) * (leverage or 1.0)
+    pnl_eur = max(pnl_eur, -trade_size)
+    return net_pct, pnl_eur
 
 
 # ── Parallelisierung (Ticker sind unabhängig → über Prozesse verteilen) ──────
@@ -72,11 +90,13 @@ def _pmap(fn, items: list, jobs: int | None) -> list:
 def _bt_one(args):
     """Backtestet EINEN Ticker (Worker für den Prozess-Pool). Alle Argumente sind picklebar;
     die Strategie wird im Kindprozess aus ihrem Schlüssel rekonstruiert."""
-    strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short, trail_mode, trail_mult = args
+    (strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short,
+     trail_mode, trail_mult, cost_pct) = args
     try:
         return backtest_ticker(strat_mod.get(strategy_key), ticker, df, trade_size,
                                max_hold=max_hold, warmup=warmup, sl_tp_mode=sl_tp_mode,
-                               allow_short=allow_short, trail_mode=trail_mode, trail_mult=trail_mult)
+                               allow_short=allow_short, trail_mode=trail_mode, trail_mult=trail_mult,
+                               cost_pct=cost_pct)
     except Exception as e:
         log.warning(f"Backtest {ticker} fehlgeschlagen: {e}")
         return []
@@ -139,11 +159,14 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
                     trade_size: float, max_hold: int = MAX_HOLD_DAYS,
                     warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None,
                     allow_short: bool = False,
-                    trail_mode: str | None = None, trail_mult: float | None = None) -> list[dict]:
+                    trail_mode: str | None = None, trail_mult: float | None = None,
+                    cost_pct: float | None = None) -> list[dict]:
     """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück.
     `sl_tp_mode` (passiv/normal/aggressiv) überschreibt – falls gesetzt – die SL/TP der Strategie
     einheitlich per ATR (für die Modus-Vergleichs-Reports).
-    `allow_short` (nur Backtest) erlaubt zusätzlich Short-Trades (gespiegeltes SL/TP)."""
+    `allow_short` (nur Backtest) erlaubt zusätzlich Short-Trades (gespiegeltes SL/TP).
+    `cost_pct` (% je Seite, None → Config BACKTEST_COST_PCT) zieht Spread/Slippage vom P&L ab."""
+    cost_pct = _resolve_cost(cost_pct)
     trades = []
     n = len(df)
     i = warmup
@@ -179,7 +202,7 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
             j = min(j, n - 1)
             exit_price, reason = float(df["Close"].iloc[j]), "Zeitlimit"
 
-        pnl_pct, pnl_eur = evaluator.realized_pnl(entry, exit_price, direction, trade_size, 1.0)
+        pnl_pct, pnl_eur = _net_pnl(entry, exit_price, direction, trade_size, 1.0, cost_pct)
         trades.append({
             "ticker": ticker, "direction": direction, "entry": entry, "exit": exit_price,
             "pnl_pct": round(pnl_pct, 2), "pnl_eur": round(pnl_eur, 2),
@@ -208,7 +231,8 @@ def _direction_split(trades: list[dict]) -> dict:
 def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int = 2,
                  trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
                  data: dict | None = None, jobs: int | None = None,
-                 trail_mode: str | None = None, trail_mult: float | None = None) -> dict:
+                 trail_mode: str | None = None, trail_mult: float | None = None,
+                 cost_pct: float | None = None) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
     Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve.
     `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups.
@@ -224,16 +248,20 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
     if data is None:
         data = _download_daily(tickers, years)
 
-    args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, trail_mode, trail_mult)
+    cost_pct = _resolve_cost(cost_pct)
+    args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short,
+             trail_mode, trail_mult, cost_pct)
             for t, df in data.items()]
     all_trades = []
     for trades in _pmap(_bt_one, args, jobs):
         all_trades.extend(trades)
-    return _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades)
+    return _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades,
+                            cost_pct=cost_pct)
 
 
 def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
-                     trade_size: float, trades: list[dict]) -> dict:
+                     trade_size: float, trades: list[dict],
+                     cost_pct: float | None = None) -> dict:
     """Baut das Backtest-Ergebnis-Dict (Trades chronologisch nach Ausstiegsdatum)."""
     trades = sorted(trades, key=lambda x: x["exit_date"])
     return {
@@ -242,6 +270,7 @@ def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
         "n_tickers": n_tickers,
         "years":     years,
         "allow_short": allow_short,
+        "cost_pct":  _resolve_cost(cost_pct),
         "direction_split": _direction_split(trades),
         "metrics":   metrics_mod.compute_metrics(trades, initial_capital=trade_size * 10),
         "trades":    trades,
@@ -250,7 +279,8 @@ def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
 
 def compare_strategies(keys: list[str], tickers: list[str] | None = None, years: int = 2,
                        trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
-                       data: dict | None = None, jobs: int | None = None) -> list[dict]:
+                       data: dict | None = None, jobs: int | None = None,
+                       cost_pct: float | None = None) -> list[dict]:
     """Backtestet mehrere Strategien über denselben Korb/Zeitraum (sortiert nach Profitfaktor).
     Lädt die Kurse **einmal** (statt K× neu) und verteilt **alle (Strategie × Ticker)-Aufgaben
     über EINEN gemeinsamen Prozess-Pool** — so wird der Worker-Start-/Import-Overhead nur einmal
@@ -260,9 +290,10 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
     if data is None:
         data = _download_daily(tickers, years)
 
+    cost_pct = _resolve_cost(cost_pct)
     items = list(data.items())
     T = len(items)
-    args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, None, None)
+    args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, None, None, cost_pct)
             for k in keys for t, df in items]
     flat = _pmap(_bt_one, args, jobs)            # ein Pool für ALLE Strategien×Ticker
 
@@ -271,7 +302,8 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
         trades = []
         for r in flat[ki * T:(ki + 1) * T]:
             trades.extend(r)
-        results.append(_assemble_result(strat_mod.get(k), T, years, allow_short, trade_size, trades))
+        results.append(_assemble_result(strat_mod.get(k), T, years, allow_short, trade_size, trades,
+                                        cost_pct=cost_pct))
 
     def pf_key(r):
         pf = r["metrics"]["profit_factor"]
@@ -362,10 +394,13 @@ def gather_fires(strategy, data: dict, start_after, allow_short: bool = False,
 def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
                        trade_size: float, max_concurrent: int,
                        max_hold: int = MAX_HOLD_DAYS,
-                       trail_mode: str | None = None, trail_mult: float | None = None) -> list[dict]:
+                       trail_mode: str | None = None, trail_mult: float | None = None,
+                       cost_pct: float | None = None) -> list[dict]:
     """Billiger Teil: aus den Feuer-Events die Trades simulieren (Hold = max_hold Tage).
     `max_hold=1` ≈ „am Tagesende schließen", großes max_hold = „halten bis SL/TP".
-    Die Richtung (long/short) wird je Feuer-Event übernommen (Default long)."""
+    Die Richtung (long/short) wird je Feuer-Event übernommen (Default long).
+    `cost_pct` (% je Seite, None → Config) zieht Spread/Slippage vom P&L ab."""
+    cost_pct = _resolve_cost(cost_pct)
     trades = []
     open_pos: dict[str, pd.Timestamp] = {}            # ticker -> Ausstiegsdatum (blockiert Re-Entry)
     for d in sorted(by_date):
@@ -382,8 +417,8 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
             ej, ex_price, reason = _walk_exit(df, s["idx"], s["sl"], s["tp"], leverage,
                                               max_hold, direction, trail_mode=trail_mode,
                                               trail_mult=trail_mult)
-            pnl_pct, pnl_eur = evaluator.realized_pnl(s["entry"], ex_price, direction,
-                                                      trade_size, leverage)
+            pnl_pct, pnl_eur = _net_pnl(s["entry"], ex_price, direction,
+                                        trade_size, leverage, cost_pct)
             open_pos[s["ticker"]] = df.index[ej]
             trades.append({
                 "ticker": s["ticker"], "entry_date": d, "exit_date": str(df.index[ej].date()),
@@ -411,7 +446,8 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
                        max_concurrent: int | None = None, max_hold: int = MAX_HOLD_DAYS,
                        allow_short: bool = False, data: dict | None = None,
                        jobs: int | None = None,
-                       trail_mode: str | None = None, trail_mult: float | None = None) -> dict:
+                       trail_mode: str | None = None, trail_mult: float | None = None,
+                       cost_pct: float | None = None) -> dict:
     """
     Portfolio-Simulation: pro Handelstag die besten `top_n` Signale (für noch nicht offene Ticker)
     eröffnen — mit `leverage`. Ausstieg via Liquidation/SL/TP/Zeitlimit (`max_hold`). Kein Look-ahead.
@@ -440,13 +476,15 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
+    cost_pct = _resolve_cost(cost_pct)
     by_date = gather_fires(strategy, data, start_after, allow_short=allow_short, jobs=jobs)
     trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold,
-                                trail_mode=trail_mode, trail_mult=trail_mult)
+                                trail_mode=trail_mode, trail_mult=trail_mult, cost_pct=cost_pct)
 
     return {
         "strategy": strategy.key, "label": strategy.label,
         "trades": trades, "metrics": metrics_mod.compute_metrics(trades, initial_capital),
+        "cost_pct": cost_pct,
         "leverage": leverage, "top_n": top_n, "years": years, "max_hold": max_hold,
         "allow_short": allow_short, "direction_split": _direction_split(trades),
         "n_tickers": len(data), "trade_size": trade_size, "initial_capital": initial_capital,

@@ -40,13 +40,17 @@ def _series(slope: float, noise: float, n: int = 520, seed: int = 0) -> pd.DataF
 
 @pytest.fixture
 def lab_tmp(monkeypatch):
-    """Isoliertes Lab-Verzeichnis + kleine, schnelle Fenster/Suchraum."""
+    """Isoliertes Lab-Verzeichnis + kleine, schnelle Fenster/Suchraum.
+    STREAK_REQUIRED=1 und EMBARGO=0, damit Einzel-Zyklus-Tests direkt vorschlagen können;
+    die Streak-/Embargo-Mechanik hat eigene Tests."""
     tmp = Path(tempfile.mkdtemp(prefix="labtest_"))
     monkeypatch.setattr(lab, "LAB_DIR", tmp)
     monkeypatch.setattr(lab, "HISTORY_DIR", tmp / "history")
     monkeypatch.setattr(lab, "YEARS", 1)
     monkeypatch.setattr(lab, "OOS_FRACTION", 0.4)
     monkeypatch.setattr(lab, "MIN_TRADES", 1)
+    monkeypatch.setattr(lab, "STREAK_REQUIRED", 1)
+    monkeypatch.setattr(lab, "EMBARGO_DAYS", 0)
     monkeypatch.setattr(lab, "SEARCH_SPACE",
                         {"tp_mult": [6.0, 8.0, 10.0, 12.0], "factor": [2.5, 3.0, 3.5]})
     return tmp
@@ -233,38 +237,120 @@ def test_call_llm_proposer_warns_on_missing_key(lab_tmp, monkeypatch):
 
 # ── Gate: nur Out-of-Sample-Gewinner ──────────────────────────────────────────
 
-def _cand(oos_mar, oos_trades=50, oos_dd=15.0):
-    return {"param": "tp_mult", "old": 10.0, "new": 12.0, "oos_mar": oos_mar,
-            "oos": {"trades": oos_trades, "max_drawdown_pct": oos_dd, "return_pct": 30.0}}
+def _cand(oos_mar, oos_trades=50, oos_dd=15.0, fold_mars=None):
+    c = {"param": "tp_mult", "old": 10.0, "new": 12.0, "oos_mar": oos_mar,
+         "oos": {"trades": oos_trades, "max_drawdown_pct": oos_dd, "return_pct": 30.0}}
+    if fold_mars is not None:
+        c["fold_mars"] = fold_mars
+    return c
+
+
+def _champ_eval(oos_mar=0.9, oos_dd=15.0, fold_mars=None, oos_trades_list=None):
+    return {"oos": {"max_drawdown_pct": oos_dd}, "oos_mar": oos_mar,
+            "fold_mars": fold_mars or [], "oos_trades_list": oos_trades_list or []}
 
 
 def test_gate_promotes_true_oos_winner():
-    champ_oos = {"max_drawdown_pct": 15.0}
-    ok, _ = lab._gate(_cand(oos_mar=1.2), champ_oos, champ_oos_mar=0.9)
+    ok, _ = lab._gate(_cand(oos_mar=1.2), _champ_eval(oos_mar=0.9), oos_years=1.0)
     assert ok is True
 
 
 def test_gate_rejects_when_not_beating_oos():
-    champ_oos = {"max_drawdown_pct": 15.0}
-    ok, reason = lab._gate(_cand(oos_mar=0.8), champ_oos, champ_oos_mar=0.9)
+    ok, reason = lab._gate(_cand(oos_mar=0.8), _champ_eval(oos_mar=0.9), oos_years=1.0)
     assert ok is False and "out-of-sample" in reason
 
 
 def test_gate_rejects_too_few_oos_trades():
-    champ_oos = {"max_drawdown_pct": 15.0}
-    ok, reason = lab._gate(_cand(oos_mar=2.0, oos_trades=5), champ_oos, champ_oos_mar=0.9)
+    ok, reason = lab._gate(_cand(oos_mar=2.0, oos_trades=5), _champ_eval(), oos_years=1.0)
     assert ok is False and "Out-of-Sample-Trades" in reason
 
 
 def test_gate_rejects_worse_drawdown():
-    champ_oos = {"max_drawdown_pct": 15.0}
-    ok, reason = lab._gate(_cand(oos_mar=2.0, oos_dd=30.0), champ_oos, champ_oos_mar=0.9)
+    ok, reason = lab._gate(_cand(oos_mar=2.0, oos_dd=30.0), _champ_eval(), oos_years=1.0)
     assert ok is False and "Drawdown" in reason
 
 
 def test_gate_rejects_when_no_candidate():
-    ok, reason = lab._gate(None, {"max_drawdown_pct": 15.0}, 0.9)
+    ok, reason = lab._gate(None, _champ_eval(), oos_years=1.0)
     assert ok is False and "In-Sample" in reason
+
+
+def test_gate_requires_fold_majority():
+    """Aggregat-Sieg reicht nicht: Kandidat gewinnt nur 1 von 3 Folds → abgelehnt."""
+    champ = _champ_eval(oos_mar=0.9, fold_mars=[1.0, 1.0, 1.0])
+    ok, reason = lab._gate(_cand(oos_mar=1.5, fold_mars=[2.0, 0.5, 0.5]), champ, oos_years=1.0)
+    assert ok is False and "Folds" in reason
+    # Mehrheit gewonnen (2/3) → durchgelassen.
+    ok, _ = lab._gate(_cand(oos_mar=1.5, fold_mars=[2.0, 2.0, 0.5]), champ, oos_years=1.0)
+    assert ok is True
+
+
+def _trades_seq(pnls):
+    return [{"pnl_eur": p, "pnl_pct": p / 10.0} for p in pnls]
+
+
+def test_gate_bootstrap_blocks_fragile_winner():
+    """Kandidat gleichwertig zum Champion (identische Trades) → Bootstrap-Anteil ~50 % < 70 %
+    → abgelehnt, obwohl der Punktvergleich knapp für den Kandidaten ausgeht."""
+    same = _trades_seq([50, -30, 40, -20, 60, -10, 30, -40, 20, 10, 25, -15])
+    champ = _champ_eval(oos_mar=0.9, oos_trades_list=same)
+    cand = _cand(oos_mar=0.91)
+    cand["oos_trades_list"] = list(same)
+    ok, reason = lab._gate(cand, champ, oos_years=1.0)
+    assert ok is False and "Bootstrap" in reason
+
+
+def test_gate_bootstrap_passes_clear_winner():
+    """Klar besserer Kandidat (durchweg höhere P&L-Sequenz) → hohe Bootstrap-Konfidenz → ok."""
+    champ_trades = _trades_seq([10, -30, 5, -25, 8, -20, 4, -35, 6, -15, 3, -10])
+    cand_trades = _trades_seq([80, 60, 90, -5, 70, 50, 85, -10, 60, 75, 55, 65])
+    champ = _champ_eval(oos_mar=0.5, oos_trades_list=champ_trades)
+    cand = _cand(oos_mar=3.0)
+    cand["oos_trades_list"] = cand_trades
+    ok, _ = lab._gate(cand, champ, oos_years=1.0)
+    assert ok is True and cand["boot_prob"] >= lab.BOOT_MIN_PROB
+
+
+# ── Embargo & Folds ───────────────────────────────────────────────────────────
+
+def test_evaluate_embargo_purges_boundary_fires(lab_tmp, monkeypatch):
+    """Fires kurz vor dem Split gehören mit Embargo NICHT mehr zum In-Sample."""
+    monkeypatch.setattr(lab, "EMBARGO_DAYS", 30)
+    df = _series(0.0010, 0.008, seed=3)
+    data = {"X": df}
+    first, split, last, is_years, oos_years = lab._split(data)
+    captured = {}
+    real_pm = lab._portfolio_metrics
+
+    def spy(data_, by_date, params=None):
+        captured.setdefault("windows", []).append(sorted(by_date))
+        return real_pm(data_, by_date, params)
+
+    monkeypatch.setattr(lab, "_portfolio_metrics", spy)
+    monkeypatch.setattr(lab, "_fires_by_date", lambda d, p, j: {
+        str((split - pd.Timedelta(days=5)).date()): [{"ticker": "X", "idx": 300, "strength": 1,
+                                                      "entry": 100.0, "sl": 95.0, "tp": 120.0,
+                                                      "date": str((split - pd.Timedelta(days=5)).date())}],
+        str((split - pd.Timedelta(days=60)).date()): [{"ticker": "X", "idx": 200, "strength": 1,
+                                                       "entry": 100.0, "sl": 95.0, "tp": 120.0,
+                                                       "date": str((split - pd.Timedelta(days=60)).date())}],
+    })
+    ev = lab.evaluate(data, {}, split, is_years, oos_years, jobs=1)
+    is_window = captured["windows"][0]
+    # Der Fire 5 Tage vor dem Split fällt ins Embargo (30 Tage) → nicht im IS-Fenster.
+    assert str((split - pd.Timedelta(days=5)).date()) not in is_window
+    assert str((split - pd.Timedelta(days=60)).date()) in is_window
+    assert ev["oos"]["trades"] == 0                       # keiner der Fires liegt im OOS
+
+
+def test_fold_bounds_partition_oos():
+    split, last = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-12-31")
+    folds = lab._fold_bounds(split, last, 3)
+    assert len(folds) == 3
+    assert folds[0][0] == split                            # beginnt am Split
+    assert folds[-1][1] > last                             # letztes Fold schließt `last` ein
+    for (a, b), (a2, _) in zip(folds, folds[1:]):
+        assert b == a2                                     # lückenlos aneinander
 
 
 # ── Voller (kleiner) Zyklus ───────────────────────────────────────────────────
@@ -349,3 +435,174 @@ def test_reject_pending_keeps_live_untouched(lab_tmp):
 def test_apply_pending_none_when_empty(lab_tmp):
     lab._write_json(lab.pending_path(), {"proposal": None})
     assert lab.apply_pending()["ok"] is False
+
+
+# ── Bestätigungs-Serie (Streak) ───────────────────────────────────────────────
+
+def _uptrend_data(n_tickers=4):
+    return {f"T{i}": _series(0.0008 + 0.0003 * (i % 3), 0.010, seed=i) for i in range(n_tickers)}
+
+
+def test_streak_requires_consecutive_gate_wins(lab_tmp, monkeypatch):
+    """Mit STREAK_REQUIRED=2 landet ein Gate-Sieger erst im ZWEITEN Zyklus in pending.json."""
+    monkeypatch.setattr(lab, "STREAK_REQUIRED", 2)
+    data = _uptrend_data()
+    first = lab.run_cycle(data=data, jobs=1, log=lambda m: None)
+    if first["decision"].startswith("Serie"):              # Zyklus 1: Gate bestanden → Serie 1/2
+        assert lab.load_pending() is None, "Serie 1/2 darf noch keinen Vorschlag schreiben"
+        st = lab.load_state()
+        assert st["streak"]["count"] == 1 and st["streak"]["required"] == 2
+        second = lab.run_cycle(data=data, jobs=1, log=lambda m: None)   # gleiche Daten → gleicher Sieger
+        assert second["decision"] == "vorgeschlagen"
+        assert lab.load_pending() is not None
+    else:
+        # Auf diesen synthetischen Daten bestand kein Kandidat das Gate — dann darf es
+        # auch keine Serie und keinen Vorschlag geben (Negativ-Pfad bleibt konsistent).
+        assert first["decision"] == "kein Vorschlag" and lab.load_pending() is None
+        assert lab.load_state().get("streak") in ({}, None)
+
+
+def test_run_cycle_never_overwrites_waiting_pending(lab_tmp):
+    """Ein wartender Vorschlag wird von Folgezyklen nicht überschrieben oder geleert."""
+    marker = {"proposal": {"version": "99", "param": "tp_mult", "old": 10.0, "new": 12.0,
+                           "params": {"tp_mult": 12.0}}, "updated_at": "marker"}
+    lab._write_json(lab.pending_path(), marker)
+    lab.run_cycle(data=_uptrend_data(), jobs=1, log=lambda m: None)
+    after = lab._read_json(lab.pending_path(), None)
+    assert after["updated_at"] == "marker" and after["proposal"]["version"] == "99"
+
+
+# ── Lernen aus der Historie ───────────────────────────────────────────────────
+
+def _seed_hypotheses(records):
+    lab._append_hypotheses(records)
+
+
+def test_history_stats_and_candidates_learn_confirmed_direction(lab_tmp):
+    champ = {"tp_mult": 8.0, "factor": 3.0, "atr_period": 10, "ma_regime": 200, "sl_mult": 3.0}
+    # Historie: tp_mult↑ zweimal bestätigt, factor↓ zweimal widerlegt.
+    _seed_hypotheses([
+        {"kind": "candidate", "param": "tp_mult", "old": 8.0, "new": 10.0, "actual": "bestätigt"},
+        {"kind": "candidate", "param": "tp_mult", "old": 8.0, "new": 10.0, "actual": "bestätigt"},
+        {"kind": "candidate", "param": "factor", "old": 3.0, "new": 2.5, "actual": "widerlegt"},
+        {"kind": "candidate", "param": "factor", "old": 3.0, "new": 2.5, "actual": "widerlegt"},
+        {"kind": "candidate", "param": "factor", "old": 3.0, "new": 3.5, "actual": "bestätigt"},
+    ])
+    stats = lab.history_stats()
+    assert stats[("tp_mult", "up")]["bestätigt"] == 2
+    assert stats[("factor", "down")]["widerlegt"] == 2
+
+    cands = lab._history_candidates(champ, stats)
+    assert cands, "bestätigte Richtungen müssen History-Kandidaten erzeugen"
+    # Multi-Step: tp_mult 2 Schritte in die bestätigte Richtung (8 → 12 im Test-Raster).
+    multi = next(c for c in cands if c["proposer"] == "history" and c["param"] == "tp_mult")
+    assert multi["new"] == 12.0
+    # Paar-Kandidat kombiniert die zwei besten bestätigten Richtungen (tp_mult↑ + factor↑).
+    pair = next((c for c in cands if c["proposer"] == "history-pair"), None)
+    assert pair is not None and pair["params"]["tp_mult"] == 10.0 and pair["params"]["factor"] == 3.5
+    # Die widerlegte Richtung (factor↓) wird NICHT vorgeschlagen.
+    assert all(not (c["param"] == "factor" and c["params"]["factor"] < 3.0) for c in cands)
+
+
+def test_select_candidates_merges_all_sources_and_dedupes(lab_tmp, monkeypatch):
+    champ = {"tp_mult": 10.0, "factor": 3.0}
+    monkeypatch.setenv("LAB_PROPOSER", "llm")
+    # LLM schlägt denselben Move vor wie ein Grid-Nachbar → Dedupe behält die LLM-Nennung.
+    monkeypatch.setattr(lab, "_llm_candidates", lambda c, ctx: [
+        {"param": "tp_mult", "old": 10.0, "new": 12.0,
+         "params": {**champ, "tp_mult": 12.0}, "proposer": "llm"}])
+    cands = lab.select_candidates(champ, {})
+    keys = [json.dumps(c["params"], sort_keys=True) for c in cands]
+    assert len(keys) == len(set(keys)), "Kandidaten müssen dedupliziert sein"
+    tp12 = [c for c in cands if c.get("param") == "tp_mult" and c.get("new") == 12.0]
+    assert len(tp12) == 1 and tp12[0]["proposer"] == "llm"
+    # Grid-Basis bleibt vollständig enthalten (z. B. tp_mult 8.0 als Nachbar).
+    assert any(c["param"] == "tp_mult" and c["new"] == 8.0 for c in cands)
+
+
+def test_llm_context_contains_history(lab_tmp, monkeypatch):
+    _seed_hypotheses([{"kind": "candidate", "param": "tp_mult", "old": 8.0, "new": 10.0,
+                       "actual": "bestätigt", "proposer": "grid"}])
+    seen = {}
+    monkeypatch.setenv("LAB_PROPOSER", "llm")
+    monkeypatch.setattr(lab, "_llm_candidates",
+                        lambda c, ctx: seen.update(ctx=ctx) or [])
+    lab.select_candidates({"tp_mult": 10.0, "factor": 3.0}, {})
+    assert seen["ctx"]["history"], "LLM muss die Hypothesen-Historie als Kontext bekommen"
+    assert seen["ctx"]["history"][0]["param"] == "tp_mult"
+    assert "tp_mult:up" in seen["ctx"]["history_stats"]
+
+
+# ── Regression-Guard (Rollback-Kandidat) ─────────────────────────────────────
+
+def test_latest_archived_params_found_and_excluded(lab_tmp):
+    lab.HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    lab._write_json(lab.HISTORY_DIR / "v01.json", {"version": "01", "params": {"tp_mult": 8.0}})
+    lab._write_json(lab.HISTORY_DIR / "v02.json", {"version": "02", "params": {"tp_mult": 10.0}})
+    # Jüngste archivierte Version mit ANDEREN Parametern als der aktuelle Champion.
+    ver, params = lab._latest_archived_params({"tp_mult": 12.0})
+    assert ver == "02" and params == {"tp_mult": 10.0}
+    # Identische Parameter werden übersprungen (kein Rollback auf sich selbst).
+    ver, params = lab._latest_archived_params({"tp_mult": 10.0})
+    assert ver == "01" and params == {"tp_mult": 8.0}
+
+
+# ── Reality-Check (Live vs. Backtest-Erwartung) ───────────────────────────────
+
+def test_reality_check_compares_live_with_expectation(lab_tmp):
+    from stockbot.core import db
+    db.DB_FILE = Path(tempfile.mkdtemp(prefix="labdb3_")) / "d.db"
+    db.init_db()
+    with db._connect() as c:
+        c.execute("INSERT INTO users (user_id, username) VALUES (7, 'u')")
+        for i, pnl in enumerate([2.0, 3.0, -1.0, 4.0, 1.5, -0.5]):
+            c.execute(
+                "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, "
+                "status, pnl_pct) VALUES (?, date('now'), ?, 'long', ?, 'closed', ?)",
+                (7, f"T{i}", json.dumps({"strategy": "ai_adaptive"}), pnl))
+        # Fremd-Strategie-Trade darf NICHT einfließen:
+        c.execute(
+            "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, "
+            "status, pnl_pct) VALUES (?, date('now'), 'ZZZ', 'long', ?, 'closed', -99.0)",
+            (7, json.dumps({"strategy": "standard"})))
+
+    r = lab.reality_check({"win_rate": 66.0, "avg_trade_pct": 1.5}, days=7, min_trades=5)
+    assert r["n"] == 6
+    assert r["live_win_rate"] == round(100 * 4 / 6, 1)
+    assert r["divergent"] is False                        # 66.7 % vs. 66 % erwartet → im Rahmen
+    r2 = lab.reality_check({"win_rate": 20.0, "avg_trade_pct": 1.5}, days=7, min_trades=5)
+    assert r2["divergent"] is True                        # >15 pp Abweichung → Alarm
+
+
+def test_reality_check_needs_enough_trades(lab_tmp):
+    from stockbot.core import db
+    db.DB_FILE = Path(tempfile.mkdtemp(prefix="labdb4_")) / "d.db"
+    db.init_db()
+    r = lab.reality_check({"win_rate": 50.0}, days=7, min_trades=5)
+    assert r["n"] == 0 and "zu wenige" in r.get("note", "")
+
+
+# ── Rasterrand-Warnung & Fires-Cache ─────────────────────────────────────────
+
+def test_edge_warnings_flag_grid_boundaries(lab_tmp):
+    assert lab._edge_warnings({"tp_mult": 12.0, "factor": 3.0})       # 12 = oberer Rand
+    assert not lab._edge_warnings({"tp_mult": 10.0, "factor": 3.0})   # alles im Inneren
+
+
+def test_fires_cache_hits_second_call(lab_tmp, monkeypatch):
+    data = {"X": _series(0.0010, 0.008, seed=9)}
+    calls = {"n": 0}
+    real = lab._ai_fires_ticker
+
+    def counting(args):
+        calls["n"] += 1
+        return real(args)
+
+    monkeypatch.setattr(lab, "_ai_fires_ticker", counting)
+    p = {"tp_mult": 10.0}
+    first = lab._fires_by_date(data, p, jobs=1)
+    assert calls["n"] == 1
+    second = lab._fires_by_date(data, p, jobs=1)          # gleicher Satz + Datenstand → Cache
+    assert calls["n"] == 1 and second == first
+    lab._fires_by_date(data, {"tp_mult": 12.0}, jobs=1)   # andere Parameter → neu rechnen
+    assert calls["n"] == 2
