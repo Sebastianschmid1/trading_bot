@@ -92,7 +92,8 @@ WEB_LIMIT = 150                     # Web-Trigger nutzt ein kleineres Universum 
 LAB_LLM_MODEL = os.getenv("LAB_LLM_MODEL", "gpt-5.5")
 LAB_PROPOSER = os.getenv("LAB_PROPOSER", "grid").strip().lower()
 HISTORY_CONTEXT_N = 30              # so viele jüngste Hypothesen bekommt der LLM-Proposer als Kontext
-FIRES_CACHE_MAX = 80                # so viele Fires-Cache-Dateien werden vorgehalten
+FIRES_CACHE_MAX = 12                # so viele Fires-Cache-Dateien werden vorgehalten (gzip, je ~5-10 MB
+#   beim Voll-Universum; unkomprimiert wären es >80 MB pro Datei — 2026-07-10 auf dem VPS gesehen)
 
 # Suchraum: je tunebarer Parameter ein sortiertes Werteraster. Der Optimizer bewegt sich pro
 # Zyklus um GENAU einen Schritt (±1) auf GENAU einem dieser Raster (wissenschaftliche Disziplin).
@@ -161,7 +162,7 @@ def _fires_cache_dir() -> Path:
 
 def _prune_fires_cache():
     try:
-        files = sorted(_fires_cache_dir().glob("fires-*.json"), key=lambda p: p.stat().st_mtime)
+        files = sorted(_fires_cache_dir().glob("fires-*.json*"), key=lambda p: p.stat().st_mtime)
         for p in files[:-FIRES_CACHE_MAX]:
             p.unlink(missing_ok=True)
     except Exception:
@@ -169,10 +170,17 @@ def _prune_fires_cache():
 
 
 def _fires_by_date(data: dict, params: dict, jobs) -> dict:
-    cache_file = _fires_cache_dir() / f"fires-{_fires_cache_key(data, params)}.json"
-    cached = _read_json(cache_file, None)
-    if isinstance(cached, dict) and "by_date" in cached:
-        return cached["by_date"]
+    import gzip
+    cache_file = _fires_cache_dir() / f"fires-{_fires_cache_key(data, params)}.json.gz"
+    try:
+        with gzip.open(cache_file, "rt", encoding="utf-8") as f:
+            cached = json.load(f)
+        if isinstance(cached, dict) and "by_date" in cached:
+            return cached["by_date"]
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log.debug(f"[lab] Fires-Cache nicht lesbar ({e}) — rechne neu.")
     tasks = [(t, df, dict(params)) for t, df in data.items()]
     by_date: dict[str, list] = {}
     for fires in engine._pmap(_ai_fires_ticker, tasks, jobs):
@@ -180,7 +188,10 @@ def _fires_by_date(data: dict, params: dict, jobs) -> dict:
             by_date.setdefault(f["date"], []).append(f)
     try:
         _fires_cache_dir().mkdir(parents=True, exist_ok=True)
-        _write_json(cache_file, {"by_date": by_date, "params": params})
+        tmp = cache_file.with_suffix(".tmp")
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
+            json.dump({"by_date": by_date, "params": params}, f, default=str)
+        tmp.replace(cache_file)
         _prune_fires_cache()
     except Exception as e:
         log.debug(f"[lab] Fires-Cache nicht schreibbar: {e}")

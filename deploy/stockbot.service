@@ -19,6 +19,10 @@ EnvironmentFile=/root/stockbot/.env
 ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_bot.py
 Restart=always
 RestartSec=10
+# yfinance leakt bei großen Scans (~500 Ticker) Datei-Handles auf seinen Timezone-Cache
+# (~/.cache/py-yfinance/tkr-tz.db). Mit dem Default-Limit 1024 war nach ~1 Tag Dauerbetrieb
+# kein sqlite3.connect mehr möglich ("unable to open database file", gesehen 2026-07-10).
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

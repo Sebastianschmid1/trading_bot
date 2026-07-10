@@ -18,6 +18,8 @@ EnvironmentFile=/root/stockbot/.env
 ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_dashboard.py
 Restart=always
 RestartSec=10
+# Gleicher Schutz wie stockbot.service: yfinance-Handle-Leck (tkr-tz.db) vs. Default 1024.
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
