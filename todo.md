@@ -13,6 +13,7 @@ Stand: 2026-07-09. Repo-Root: `c:\Users\sebas\OneDrive\trading_bot` (Windows, Po
 ### A2 — Dependencies pinnen
 - `requirements.txt` ist komplett ungepinnt — jedes Deploy installiert blind die neuesten Versionen (Breaking Changes / Supply-Chain-Risiko direkt auf dem VPS).
 - Ziel: Versionen pinnen (z. B. `pip freeze` in ein `requirements.lock`, das beim Deploy installiert wird, oder pip-tools) und Updates bewusst einspielen.
+- Dabei prüfen: **yfinance-Handle-Leck** (2026-07-10: ~1000 offene FDs auf `~/.cache/py-yfinance/tkr-tz.db` → DB-Ausfall). `LimitNOFILE=65535` in den systemd-Units ist der Workaround; beim Pinnen eine yfinance-Version mit gefixtem tz-Cache wählen bzw. Leck upstream nachverfolgen.
 
 ## Status
 Alle priorisierten Punkte aus dem Hermes-Handoff wurden umgesetzt bzw. nach Nutzerfreigabe angepasst.
