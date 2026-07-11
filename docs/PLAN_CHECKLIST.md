@@ -59,7 +59,10 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 Ziel: Belastbares Zustands- und Datenmodell.
 
 - [ ] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
-- [ ] **PLAT-001** Bestehendes SQLite-Schema dokumentieren + einfrieren; read-only Export aufbewahren
+- [x] **PLAT-001** Bestehendes SQLite-Schema dokumentieren + einfrieren; read-only Export aufbewahren
+      (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
+      `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen
+      als JSON für den späteren Zeilen/Summen-Vergleich nach der Postgres-Migration.)
 - [ ] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
 - [ ] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
