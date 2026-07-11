@@ -77,10 +77,12 @@ CLOSE_TIME_HOUR  = 22      # Trades schließen/auswerten um...
 CLOSE_TIME_MIN   = 15      # ...22:15 Uhr
 
 # Tagesende-Schließung pro Nutzer:
-#   True  = alle Trades am Tagesende (22:15) schließen (bisheriges Verhalten).
-#   False = Trades über Nacht halten, nur per SL/TP/Liquidation schließen — Backtests zeigen,
-#           dass v. a. Trendfolge-Strategien das EOD-Schließen die ganze Kante kostet.
-DEFAULT_EOD_CLOSE = True
+#   True  = alle Trades am Tagesende (22:15) schließen.
+#   False = Trades über Nacht halten, nur per SL/TP/Liquidation/Höchsthaltedauer schließen.
+# TSAFE-007: Default auf False. Die feste 22:15-Berlin-Schließung war zeitzonen-/session-blind;
+# die session-relative Schließung folgt in Phase 2 (Exchange-Kalender, DATA-002). Backtests zeigen
+# zudem, dass EOD-Schließen v. a. Trendfolge-Strategien die Kante kostet. Pro Nutzer weiter wählbar.
+DEFAULT_EOD_CLOSE = False
 # Sicherheits-Höchsthaltedauer (Kalendertage) für über Nacht gehaltene Trades:
 HOLD_MAX_DAYS     = 14
 
@@ -371,9 +373,11 @@ LIVE_TRADING_ENABLED = ALLOW_LIVE_TRADING and TRADING_MODE == "live"
 if not LIVE_TRADING_ENABLED:
     ALPACA_PAPER = True
 
-# ── Options (gehebelte Trades über Long-Calls statt gehebelter Aktien) ───────
-# Bei Hebel > 1 kauft der Bot für den Trade-Wert eine Option mit ~diesem Hebel (Omega),
-# statt Trade-Wert × Hebel an Aktien. Verfallsfenster (Tage bis Expiry) für die Kontraktwahl:
+# ── Options (DEPRECATED in Version 1 — TSAFE-003) ────────────────────────────
+# Gehebelte Trades über Long-Calls sind in V1 deaktiviert (`ALLOW_OPTIONS=false`, s. o.):
+# Der Broker-Layer lehnt Optionsorders serverseitig ab. Da Hebel ohnehin auf `MAX_LEVERAGE=1`
+# geklemmt ist (TSAFE-002), wird der Options-Pfad im Produktivbetrieb nicht mehr erreicht.
+# Die folgenden Parameter bleiben nur für spätere, bewusst freigeschaltete Phasen erhalten.
 OPTION_TARGET_DTE_MIN = int(os.getenv("OPTION_TARGET_DTE_MIN", "30"))
 OPTION_TARGET_DTE_MAX = int(os.getenv("OPTION_TARGET_DTE_MAX", "45"))
 OPTION_TYPE           = os.getenv("OPTION_TYPE", "call").strip().lower()   # long-only: call
@@ -385,7 +389,9 @@ ADMIN_CHAT_ID = int(_admin) if _admin.lstrip("-").isdigit() else None
 # Pfad der Bot-Logdatei (gemeinsam von bot.py geschrieben und vom Web-Log-Download gelesen).
 LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")
 
-# Sizing: Ist eine Aktie nur etwas teurer als die Trade-Größe (Budget), kauft der Bot 1 GANZE
-# Aktie statt eines Bruchteils — bis zu diesem Faktor des Budgets (1.0 = nie aufrunden).
-# Vorteil: ganze Aktien sind auch außerhalb der regulären Handelszeit als Limit handelbar.
-SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.5"))
+# Sizing-Aufrundung — DEPRECATED (TSAFE-004): Früher rundete der Bot bei einer knapp über dem
+# Budget liegenden Aktie auf 1 GANZE Aktie auf (Faktor 1.5) und überschritt so bewusst die
+# Trade-Größe. Das ist entfernt — eine Order darf das verfügbare Budget nie überschreiten:
+# passt keine ganze Aktie ins Budget, wird ein Bruchteil (Notional) gehandelt bzw. außerhalb der
+# regulären Sitzung vorgemerkt. Default daher 1.0 (= nie aufrunden); der Live-Pfad übergibt hart 1.0.
+SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.0"))

@@ -195,6 +195,32 @@ def test_live_order_allowed_when_live_enabled():
         config.LIVE_TRADING_ENABLED = orig
 
 
+# ── Optionshandel deaktiviert (Phase 0 / TSAFE-003) ──────────────────────────
+
+def test_option_order_blocked_when_options_disabled():
+    orig = config.ALLOW_OPTIONS
+    config.ALLOW_OPTIONS = False
+    try:
+        c = _PaperClient()
+        res = broker.submit_option_buy("AAPL240712C00150000", 1, client=c)
+        assert res["ok"] is False and "Option" in res["detail"]
+        assert c.submitted == []
+    finally:
+        config.ALLOW_OPTIONS = orig
+
+
+def test_option_order_allowed_when_options_enabled():
+    orig_o, orig_l = config.ALLOW_OPTIONS, config.LIVE_TRADING_ENABLED
+    config.ALLOW_OPTIONS = True
+    config.LIVE_TRADING_ENABLED = True     # Live-Gate separat erfüllen
+    try:
+        c = _PaperClient()
+        res = broker.submit_option_buy("AAPL240712C00150000", 1, client=c)
+        assert res["ok"] is True and len(c.submitted) == 1
+    finally:
+        config.ALLOW_OPTIONS, config.LIVE_TRADING_ENABLED = orig_o, orig_l
+
+
 # ── get_order_status (Fill-Bestätigung) ──────────────────────────────────────
 
 def test_get_order_status_filled():

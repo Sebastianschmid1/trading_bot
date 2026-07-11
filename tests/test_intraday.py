@@ -81,8 +81,9 @@ def test_auto_close_take_profit():
     assert "Take-Profit" in bot.evaluate_active_trade(_trade(), price=109.0, strength=70.0)
 
 
-def test_auto_close_weak_signal():
-    assert "verschlechtert" in bot.evaluate_active_trade(_trade(), price=101.0, strength=30.0)
+def test_weak_signal_no_longer_closes():
+    # TSAFE-005: schwacher Signal-Score schließt NICHT mehr automatisch (nur SL/TP/Liquidation).
+    assert bot.evaluate_active_trade(_trade(), price=101.0, strength=30.0) is None
 
 
 def test_auto_close_holds_when_fine():
@@ -489,8 +490,9 @@ def test_monitor_evaluates_each_trade_with_its_own_strategy():
     captured = {}
     def fake_live_scores(pairs):
         captured["pairs"] = set(pairs)
-        # schwacher Strategie-Score (<35) → Auto-Close „Signal verschlechtert"
-        return {(t, k): {"price": 101.0, "strength": 10.0} for (t, k) in pairs}
+        # TSAFE-005: Score schließt nicht mehr; Kurs unter Stop (90) → Schließen via Stop-Loss.
+        # Der niedrige Strategie-Score (10) wird weiterhin als Tick aufgezeichnet.
+        return {(t, k): {"price": 89.0, "strength": 10.0} for (t, k) in pairs}
 
     orig_open, orig_ls = bot._us_market_open, strategies.live_scores
     bot._us_market_open = lambda *a, **k: True

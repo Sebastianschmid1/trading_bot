@@ -62,11 +62,12 @@ def test_auto_close_aus_still_liquidates_with_leverage():
     assert "Liquidation" in bot.evaluate_active_trade(t, price=89.0, strength=70.0)
 
 
-def test_auto_close_signal_decay_still_works_in_normal_mode():
-    # Im normalen Modus schließt der Signal-Verfall weiterhin
+def test_signal_decay_no_longer_closes_in_normal_mode():
+    # TSAFE-005: Der Signal-Verfall (niedriger Score) schließt NICHT mehr — nur SL/TP/Liquidation.
     t = {"ticker": "NVDA", "direction": "long", "entry": 100.0,
          "signal": {"stop_loss": 85.0, "take_profit": 120.0, "leverage": 1.0, "sl_tp_mode": "normal"}}
-    assert "verschlechtert" in bot.evaluate_active_trade(t, price=95.0, strength=20.0)
+    assert bot.evaluate_active_trade(t, price=95.0, strength=20.0) is None   # hält (kein Score-Exit)
+    assert "Stop-Loss" in bot.evaluate_active_trade(t, price=84.0, strength=20.0)   # SL greift weiter
 
 
 # ── Hebel & Liquidation ──────────────────────────────────────────────────────

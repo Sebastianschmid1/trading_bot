@@ -425,7 +425,7 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
         plan = await asyncio.to_thread(
             sizing.plan_order, float(entry), budget, leverage,
             option_selector=_make_option_selector(user, client, ticker, float(entry)),
-            extended=extended, roundup_factor=SHARE_ROUNDUP_FACTOR)
+            extended=extended, roundup_factor=1.0)   # TSAFE-004: nie über Budget aufrunden
 
     if plan["kind"] == "none":
         db.mark_broker_failed(chat_id, ticker, broker_status="not_submitted")
@@ -1015,8 +1015,11 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
             return "Stop-Loss 🛑"
         if tp is not None and price >= tp:
             return "Take-Profit 🎯"
-    if not aus and strength is not None and strength < SIGNAL_CLOSE_THRESHOLD:
-        return "Signal verschlechtert 📉"
+    # TSAFE-005: Das automatische Schließen bei niedrigem Signal-Score (< SIGNAL_CLOSE_THRESHOLD)
+    # ist entfernt — ein generischer Score entscheidet nicht mehr über Exits. Es schließen nur noch
+    # explizite Regeln: Liquidation, Stop-Loss, Take-Profit (hier) sowie die Höchsthaltedauer/EOD im
+    # Tagesjob. Strategie-spezifische Exits folgen in Phase 5. Der schwache Score löst weiterhin nur
+    # eine Heads-up-Warnung aus (_maybe_warn_sltp_off), schließt aber nicht.
     return None
 
 

@@ -415,6 +415,10 @@ def submit_option_buy(option_symbol: str, qty: int, client=None) -> dict:
     client = _get_client(client)
     if client is None:
         return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    if not config.ALLOW_OPTIONS:
+        reason = "Optionshandel ist in Version 1 deaktiviert (ALLOW_OPTIONS=false) — Order abgelehnt (TSAFE-003)."
+        log.warning(f"Options-Order {option_symbol} blockiert: {reason}")
+        return {"ok": False, "detail": reason}
     blocked = _live_block_reason(client)
     if blocked:
         log.warning(f"Options-Order {option_symbol} blockiert: {blocked}")

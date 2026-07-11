@@ -27,23 +27,30 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
       und `bot._maybe_broker_order` lehnen echte Broker-Orders mit Hebel > `MAX_LEVERAGE` jetzt
       explizit ab, statt sie still auf Aktien/1x herabzustufen — schließt auch die Lücke, dass
       Telegram bislang bei Hebel > 1 einen echten Optionskontrakt wählen/kaufen konnte.)
-- [ ] **TSAFE-003** Optionen deaktivieren: Long-Call-Pfad aus Produktion entfernen, UI ausblenden,
-      Brokeradapter blockiert Optionssymbole, Optionskonfig als deprecated markieren
-- [ ] **TSAFE-004** Budgetüberschreitung entfernen: `SHARE_ROUNDUP_FACTOR`-Aufrunden (1.5×) raus →
-      nie über verfügbares Budget; Fractional nutzen oder Trade verkleinern/ablehnen
-- [ ] **TSAFE-005** Score-Exit deaktivieren: automatisches Schließen bei `SIGNAL_CLOSE_THRESHOLD` (< 35) entfernen
-- [ ] **TSAFE-005** Explizite strategiebezogene Exits an dessen Stelle setzen; Alt-Trades mit Exitgrund markieren
-- [ ] **TSAFE-006** Direkte Brokeraufrufe inventarisieren: Repo nach `submit_order`, `close_position`,
-      `cancel_order`, Alpaca-Client-Aufrufen, Orderneuerzeugung in Telegram/Web/Scheduler durchsuchen + Liste dokumentieren
-- [ ] **TSAFE-007** EOD-22:15-Schließung deaktivieren; neue Positionen nur in definierten Sessions (vorläufig Exchange-Kalender)
-- [ ] **TSAFE-007** Zentrale Risk-/Order-Vorprüfung einführen (Platzhalter, den Phase 3/4 füllt)
+- [x] **TSAFE-003** Optionen deaktivieren: `broker.submit_option_buy` lehnt bei `ALLOW_OPTIONS=false`
+      serverseitig ab; Optionskonfig als deprecated markiert. Optionen ohnehin über Hebel-Deckel
+      (TSAFE-002) unerreichbar; separate Options-UI existiert nicht (war an Hebel-Auswahl gekoppelt, entfernt).
+- [x] **TSAFE-004** Budgetüberschreitung entfernt: Live-Pfad übergibt `roundup_factor=1.0` (kein Aufrunden
+      auf ganze Aktie über Budget); zu teure Aktie → Bruchteil/Notional bzw. Vormerkung. `SHARE_ROUNDUP_FACTOR` deprecated (Default 1.0).
+- [x] **TSAFE-005** Score-Exit deaktiviert: `bot.evaluate_active_trade` schließt nicht mehr bei
+      `strength < SIGNAL_CLOSE_THRESHOLD`; Tests angepasst.
+- [x] **TSAFE-005** Explizite Exits bleiben: Liquidation/Stop-Loss/Take-Profit + Höchsthaltedauer/EOD.
+      Voll strategiespezifische Exits folgen in Phase 5; Alt-Trades tragen ihren Close-Grund unverändert (self-identifizierend).
+- [x] **TSAFE-006** Direkte Brokeraufrufe inventarisiert → `docs/BROKER_CALLS_INVENTORY.md`
+      (alle `submit_*`/`close_position`/`cancel_order`-Stellen in Telegram/Web/Scheduler + bestehende Gates).
+- [x] **TSAFE-007** EOD-22:15-Schließung: `DEFAULT_EOD_CLOSE=False` (feste Berlin-Zeit war session-blind;
+      session-relative Schließung folgt Phase 2/DATA-002). Interim: neue Positionen entstehen nur über die
+      Signal-Jobs während der US-Sitzung; hartes Session-Gate über Exchange-Kalender in Phase 2.
+- [x] **TSAFE-007** Zentrale Risk-/Order-Vorprüfung eingeführt: `stockbot/core/risk.py::pretrade_check`
+      (Seam für Phase 3) — prüft Live-Gate, Hebel-Deckel, Optionsverbot; volles Risikomodell in Phase 3.
 
 **Gate P0 (Abnahme):**
-- [ ] Kein Codepfad kann eine Live-Order senden
-- [ ] Jede Order mit Hebel > 1 / jede Optionsorder wird abgelehnt
-- [ ] Keine Order überschreitet Budget/Buying Power
-- [ ] Kein Trade wird allein wegen globalem Score geschlossen
-- [ ] Tests beweisen: Telegram und Web senden keine direkten Brokerorders
+- [x] Kein Codepfad kann eine Live-Order senden — Live-Guard + erzwungener Paper-Modus
+- [x] Jede Order mit Hebel > 1 / jede Optionsorder wird abgelehnt (TSAFE-002 / TSAFE-003)
+- [x] Keine Order überschreitet Budget/Buying Power (TSAFE-004 + bestehender Buying-Power-Check)
+- [x] Kein Trade wird allein wegen globalem Score geschlossen (TSAFE-005)
+- [~] Tests beweisen: Telegram und Web senden keine direkten Brokerorders — Live-Orders bereits
+      serverseitig geblockt; der vollständige „kein Direktpfad"-Nachweis kommt mit dem OMS (Phase 4)
 
 ---
 
