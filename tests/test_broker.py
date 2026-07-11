@@ -144,6 +144,57 @@ def test_submit_buy_no_client_is_off():
         config.ALPACA_ENABLED = orig
 
 
+# ── Globaler Live-Kill-Switch (Phase 0 / TSAFE-001) ──────────────────────────
+
+class _LiveClient(FakeClient):
+    """Fake-Client auf einem echten Geldkonto (Paper-Flag aus)."""
+    _paper = False
+
+class _PaperClient(FakeClient):
+    _paper = True
+
+
+def test_live_order_blocked_when_live_disabled():
+    """Eine Order gegen ein Live-Konto wird abgelehnt, solange Live nicht freigeschaltet ist."""
+    orig = config.LIVE_TRADING_ENABLED
+    config.LIVE_TRADING_ENABLED = False
+    try:
+        c = _LiveClient()
+        res = broker.submit_buy("AAPL", notional=50.0, client=c)
+        assert res["ok"] is False
+        assert "Live-Trading" in res["detail"] or "Kill-Switch" in res["detail"]
+        assert c.submitted == []                      # keine Order beim Broker gelandet
+        # auch der Options-Einstieg ist gesperrt
+        res_opt = broker.submit_option_buy("AAPL240712C00150000", 1, client=c)
+        assert res_opt["ok"] is False
+    finally:
+        config.LIVE_TRADING_ENABLED = orig
+
+
+def test_paper_order_allowed_when_live_disabled():
+    """Paper-Orders laufen weiter, auch wenn Live global aus ist."""
+    orig = config.LIVE_TRADING_ENABLED
+    config.LIVE_TRADING_ENABLED = False
+    try:
+        c = _PaperClient()
+        res = broker.submit_buy("AAPL", notional=50.0, client=c)
+        assert res["ok"] is True and len(c.submitted) == 1
+    finally:
+        config.LIVE_TRADING_ENABLED = orig
+
+
+def test_live_order_allowed_when_live_enabled():
+    """Ist Live ausdrücklich freigeschaltet, wird die Live-Order durchgelassen."""
+    orig = config.LIVE_TRADING_ENABLED
+    config.LIVE_TRADING_ENABLED = True
+    try:
+        c = _LiveClient()
+        res = broker.submit_buy("AAPL", notional=50.0, client=c)
+        assert res["ok"] is True and len(c.submitted) == 1
+    finally:
+        config.LIVE_TRADING_ENABLED = orig
+
+
 # ── get_order_status (Fill-Bestätigung) ──────────────────────────────────────
 
 def test_get_order_status_filled():

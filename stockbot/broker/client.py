@@ -47,6 +47,31 @@ def _get_client(client=None):
     return make_client(config.ALPACA_API_KEY, config.ALPACA_API_SECRET, paper=config.ALPACA_PAPER)
 
 
+def _is_live_order(client) -> bool:
+    """True, wenn die Order ein echtes Geldkonto (kein Paper) treffen würde.
+
+    Alpacas TradingClient hinterlegt das Paper-Flag; wo es nicht lesbar ist, wird konservativ
+    das Standardkonto (`config.ALPACA_PAPER`) herangezogen."""
+    if client is not None:
+        paper = getattr(client, "_paper", None)
+        if paper is not None:
+            return not bool(paper)
+    return not config.ALPACA_PAPER
+
+
+def _live_block_reason(client) -> str | None:
+    """Serverseitiges Kill-Switch-Gate (Phase 0 / TSAFE-001): Gibt einen Ablehnungsgrund zurück,
+    wenn eine Order ein echtes Geldkonto träfe, Live-Trading aber nicht ausdrücklich freigeschaltet
+    ist (`TRADING_MODE=live` + `ALLOW_LIVE_TRADING=true`). Sonst None.
+
+    Greift für Einstiegs-Orders. Kein UI-/Telegram-Schalter kann dies umgehen — nur die
+    Konfiguration selbst."""
+    if _is_live_order(client) and not config.LIVE_TRADING_ENABLED:
+        return ("Live-Trading ist deaktiviert (globaler Kill-Switch: TRADING_MODE!=live oder "
+                "ALLOW_LIVE_TRADING=false) — Live-Order serverseitig abgelehnt.")
+    return None
+
+
 def health_check(client=None) -> dict:
     """Selbsttest der Alpaca-Anbindung: Konto + Marktstatus."""
     if client is None:
@@ -132,6 +157,10 @@ def submit_buy(symbol: str, *, notional: float | None = None, qty: float | None 
     client = _get_client(client)
     if client is None:
         return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    blocked = _live_block_reason(client)
+    if blocked:
+        log.warning(f"Kauf-Order {symbol} blockiert: {blocked}")
+        return {"ok": False, "detail": blocked}
     try:
         from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
@@ -386,6 +415,10 @@ def submit_option_buy(option_symbol: str, qty: int, client=None) -> dict:
     client = _get_client(client)
     if client is None:
         return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    blocked = _live_block_reason(client)
+    if blocked:
+        log.warning(f"Options-Order {option_symbol} blockiert: {blocked}")
+        return {"ok": False, "detail": blocked}
     if not qty or qty < 1:
         return {"ok": False, "detail": "qty < 1 Kontrakt."}
     try:

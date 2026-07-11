@@ -343,6 +343,31 @@ ALPACA_ENABLED    = bool(ALPACA_API_KEY and ALPACA_API_SECRET)
 # 4:00–20:00 ET statt 9:30–16:00 ET. yfinance-Extended-Daten sind dünn — Nutzen teilweise.
 EXTENDED_HOURS    = os.getenv("EXTENDED_HOURS", "true").strip().lower() in ("1", "true", "yes")
 
+# ── Trading-Modus & globale Sicherheits-Flags (Phase 0 / TSAFE-001) ──────────
+# Globaler Kill-Switch gegen ungewollten Live-Handel. Diese Flags sind die EINZIGE Stelle,
+# die echten Geldhandel ermöglichen darf — kein UI-/Telegram-Schalter kann Live aktivieren.
+# Solange Live nicht ausdrücklich freigeschaltet ist, werden Live-Orders serverseitig abgelehnt
+# und der Broker-Layer läuft erzwungen im Paper-Modus.
+TRADING_MODE       = os.getenv("TRADING_MODE", "paper").strip().lower()   # "paper" | "live"
+ALLOW_LIVE_TRADING = os.getenv("ALLOW_LIVE_TRADING", "false").strip().lower() in ("1", "true", "yes")
+ALLOW_MARGIN       = os.getenv("ALLOW_MARGIN", "false").strip().lower() in ("1", "true", "yes")
+ALLOW_OPTIONS      = os.getenv("ALLOW_OPTIONS", "false").strip().lower() in ("1", "true", "yes")
+ALLOW_SHORTS       = os.getenv("ALLOW_SHORTS", "false").strip().lower() in ("1", "true", "yes")
+try:
+    MAX_LEVERAGE = float(os.getenv("MAX_LEVERAGE", "1") or 1)
+except ValueError:
+    MAX_LEVERAGE = 1.0
+
+# Abgeleitetes Gate: Live-Handel ist NUR aktiv, wenn beide Bedingungen bewusst gesetzt sind.
+# Der Broker-Layer nutzt dies als serverseitige Order-Sperre.
+LIVE_TRADING_ENABLED = ALLOW_LIVE_TRADING and TRADING_MODE == "live"
+
+# Harte Absicherung: Ist Live nicht freigeschaltet, wird der Broker zwingend auf Paper gestellt —
+# selbst wenn versehentlich ALPACA_PAPER=false in der .env steht. So kann kein Standard-/Nutzer-Client
+# ein echtes Geldkonto treffen, bevor Live bewusst (TRADING_MODE=live + ALLOW_LIVE_TRADING=true) aktiv ist.
+if not LIVE_TRADING_ENABLED:
+    ALPACA_PAPER = True
+
 # ── Options (gehebelte Trades über Long-Calls statt gehebelter Aktien) ───────
 # Bei Hebel > 1 kauft der Bot für den Trade-Wert eine Option mit ~diesem Hebel (Omega),
 # statt Trade-Wert × Hebel an Aktien. Verfallsfenster (Tage bis Expiry) für die Kontraktwahl:
