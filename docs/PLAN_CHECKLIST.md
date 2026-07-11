@@ -84,7 +84,10 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;
       noch nicht an ORM/DB gebunden — das ist der nächste Schritt zusammen mit den Zustandsmaschinen.
       `RiskDecision` bleibt bewusst der bestehende Typ aus `stockbot/core/risk.py`, keine Dopplung.)
-- [ ] Zustandsmaschine **Signal** (generated→filtered→published→accepted/rejected/expired/blocked_by_risk→order_created)
+- [x] Zustandsmaschine **Signal** (generated→filtered→published→accepted/rejected/expired/blocked_by_risk→order_created)
+      (`stockbot/core/state_machine.py::signal_transition_allowed`/`assert_signal_transition`;
+      Interpretation: `filtered` kann direkt nach `rejected`/`expired` wechseln, wenn der Filter
+      das Signal aussortiert, ohne es zu veröffentlichen; `order_created` folgt nur aus `accepted`.)
 - [ ] Zustandsmaschine **Order** (created→validated→submitted→accepted_by_broker→partially_filled→filled / cancel_requested→cancelled / rejected / expired)
 - [ ] Zustandsmaschine **Position** (pending_open→open→pending_close→closed / reconciliation_required)
 - [ ] Zentrale Validierung: ungültige Zustandsübergänge werden abgelehnt
