@@ -141,8 +141,9 @@ def test_broker_rejected_trade_does_not_remain_active():
 def test_set_pending_leverage_only_while_pending():
     fresh_db()
     _pending("NVDA", leverage=1.0)
+    # TSAFE-002: Hebel serverseitig hart auf MAX_LEVERAGE (Default 1×) begrenzt.
     updated = trade_svc.set_pending_leverage(CHAT, "NVDA", 3.0)
-    assert updated is not None and updated["signal"]["leverage"] == 3.0
+    assert updated is not None and updated["signal"]["leverage"] == 1.0
     trade_svc.reject_trade(CHAT, "NVDA")
     assert trade_svc.set_pending_leverage(CHAT, "NVDA", 5.0) is None     # nicht mehr pending
 
@@ -193,8 +194,8 @@ def test_apply_setting_dispatch_and_validation():
     fresh_db()
     settings_svc.apply_setting(CHAT, "set_size", "250")
     assert db.get_user(CHAT)["trade_size_eur"] == 250.0
-    settings_svc.apply_setting(CHAT, "set_lev", "999")       # wird in db auf max 20 geclamped
-    assert db.get_user(CHAT)["leverage"] == 20.0
+    settings_svc.apply_setting(CHAT, "set_lev", "999")       # TSAFE-002: in db hart auf 1× geclamped
+    assert db.get_user(CHAT)["leverage"] == 1.0
     settings_svc.apply_setting(CHAT, "set_strat", "adx_trend")
     assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
     settings_svc.apply_setting(CHAT, "set_size", "keine-zahl")   # ungültig → ignoriert

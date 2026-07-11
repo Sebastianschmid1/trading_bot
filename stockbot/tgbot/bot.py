@@ -55,7 +55,7 @@ from stockbot.config import (
     LAB_DAILY_OPTIMIZATION, LAB_DAILY_DAYS, LAB_DAILY_HOUR, LAB_DAILY_MIN,
     BROKER_RECONCILE_HOUR, BROKER_RECONCILE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
-    SL_TP_MODES, DEFAULT_SL_TP_MODE, LEVERAGE_CHOICES, DEFAULT_LEVERAGE,
+    SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
     ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE, SHARE_ROUNDUP_FACTOR,
@@ -250,7 +250,7 @@ def _get_candidates(key: str) -> list[dict]:
 
 def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
                  expiry_min: int | None = None) -> tuple[str, InlineKeyboardMarkup]:
-    """Baut Nachrichtentext + Tastatur eines Signals (inkl. SL/TP, Hebel, Liquidation, Hebel-Buttons)."""
+    """Baut Nachrichtentext + Tastatur eines Signals (inkl. SL/TP, Hebel, Liquidation)."""
     ticker = signal["ticker"]
     direction = signal["direction"]
     direction_emoji = "🟢 LONG" if direction == "long" else "🔴 SHORT"
@@ -292,11 +292,7 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
             f"{window_line}\n"
             f"⏱ Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr (oder früher bei SL/TP)"
         )
-        # Hebel-Buttons (pro Signal änderbar) + JA/NEIN
-        lev_row = [InlineKeyboardButton(("✅ " if float(v) == leverage else "") + f"{v:g}×",
-                                        callback_data=f"lev:{ticker}:{v}") for v in LEVERAGE_CHOICES]
         keyboard = InlineKeyboardMarkup([
-            lev_row,
             [InlineKeyboardButton("✅ JA — Demo-Trade starten", callback_data=f"accept:{ticker}"),
              InlineKeyboardButton("❌ NEIN", callback_data=f"reject:{ticker}")],
         ])
@@ -1612,8 +1608,6 @@ def _settings_view(user: dict):
     size_row = [InlineKeyboardButton(("✅ " if float(v) == float(size) else "") + f"{v:g}€",
                                      callback_data=f"set_size:{v}")
                 for v in TRADE_SIZE_CHOICES]
-    lev_row = [InlineKeyboardButton(("✅ " if float(v) == lev else "") + f"{v:g}×", callback_data=f"set_lev:{v}")
-               for v in LEVERAGE_CHOICES]
     region_row = [InlineKeyboardButton(("✅ " if k in region_keys else "") + lbl, callback_data=f"set_region:{k}")
                   for k, lbl in REGION_LABELS.items()]
     count_row = [InlineKeyboardButton(("✅ " if n == top_n else "") + str(n), callback_data=f"set_count:{n}")
@@ -1636,7 +1630,7 @@ def _settings_view(user: dict):
         toggles.append(_toggle(f"Broker-Order ({broker_mode})", broker_on, "set_broker"))
     toggle_rows = [toggles[i:i + 2] for i in range(0, len(toggles), 2)]
 
-    rows = [size_row, lev_row, region_row, count_row, mode_row] + strat_rows + toggle_rows
+    rows = [size_row, region_row, count_row, mode_row] + strat_rows + toggle_rows
     keyboard = InlineKeyboardMarkup(rows)
     return text, keyboard
 

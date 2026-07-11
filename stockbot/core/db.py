@@ -15,7 +15,7 @@ from datetime import date
 from cryptography.fernet import Fernet
 import yfinance as yf
 
-from stockbot.config import ENCRYPTION_KEY
+from stockbot.config import ENCRYPTION_KEY, MAX_LEVERAGE
 from stockbot.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -502,8 +502,9 @@ def set_sl_tp_mode(user_id: int, mode: str):
 
 
 def set_leverage(user_id: int, leverage: float):
-    """Setzt den Standard-Hebel des Nutzers (auf 1..20 begrenzt)."""
-    leverage = max(1.0, min(20.0, float(leverage)))
+    """Setzt den Standard-Hebel des Nutzers — serverseitig hart auf `MAX_LEVERAGE` begrenzt
+    (TSAFE-002: kein UI-/Telegram-Wert kann das umgehen, Default 1×)."""
+    leverage = max(1.0, min(MAX_LEVERAGE, float(leverage)))
     with _connect() as conn:
         conn.execute(
             "UPDATE users SET leverage = ?, updated_at = datetime('now') WHERE user_id = ?",
@@ -654,7 +655,9 @@ def remove_watchlist_ticker(user_id: int, ticker: str) -> list[str]:
 
 
 def set_trade_leverage(user_id: int, ticker: str, leverage: float):
-    """Ändert den Hebel eines noch ausstehenden Trades (im gespeicherten signal_json)."""
+    """Ändert den Hebel eines noch ausstehenden Trades (im gespeicherten signal_json) —
+    serverseitig hart auf `MAX_LEVERAGE` begrenzt (TSAFE-002, Default 1×)."""
+    leverage = max(1.0, min(MAX_LEVERAGE, float(leverage)))
     with _connect() as conn:
         row = conn.execute(
             "SELECT signal_json FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
@@ -663,7 +666,7 @@ def set_trade_leverage(user_id: int, ticker: str, leverage: float):
         if not row:
             return
         sig = json.loads(row["signal_json"])
-        sig["leverage"] = float(leverage)
+        sig["leverage"] = leverage
         conn.execute(
             "UPDATE trades SET signal_json = ? WHERE user_id = ? AND trade_date = ? AND ticker = ?",
             (json.dumps(sig, default=str), user_id, _today(), ticker),

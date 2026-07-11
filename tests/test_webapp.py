@@ -303,11 +303,12 @@ def test_reject_via_web():
 
 
 def test_lev_via_web():
+    # TSAFE-002: kein UI-Auswahl mehr, Backend klemmt serverseitig hart auf MAX_LEVERAGE (1×).
     fresh()
     db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0, "leverage": 1.0}, 1)
     c = _client()
     c.post("/app/lev", data={"ticker": "NVDA", "leverage": "3"}, follow_redirects=False)
-    assert db.get_trade(CHAT, "NVDA")["signal"]["leverage"] == 3.0
+    assert db.get_trade(CHAT, "NVDA")["signal"]["leverage"] == 1.0
 
 
 def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):

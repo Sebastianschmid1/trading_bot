@@ -443,7 +443,6 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     return _render("app.html", request, user, active="home", msg=msg,
                    pending=pending, broker_pending=broker_pending,
                    broker_closing=broker_closing, active_trades=active_trades,
-                   leverages=config.LEVERAGE_CHOICES,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=_scanned_for(user), trade_filter=atf)
 
@@ -620,7 +619,7 @@ def app_settings(request: Request, msg: str = ""):
         toggles.append(("set_broker", "Echte Broker-Order (Alpaca)", user["broker_exec"]))
     return _render("settings.html", request, user, active="settings", msg=msg,
                    universes=config.REGION_LABELS, sl_tp_modes=list(config.SL_TP_MODES),
-                   leverages=config.LEVERAGE_CHOICES, has_alpaca=db.has_alpaca_credentials(user["user_id"]),
+                   has_alpaca=db.has_alpaca_credentials(user["user_id"]),
                    strategies=strategies.all_strategies(), toggles=toggles)
 
 

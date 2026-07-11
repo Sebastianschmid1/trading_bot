@@ -20,8 +20,11 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
       `ALLOW_OPTIONS=false`, `ALLOW_SHORTS=false`, `MAX_LEVERAGE=1`) — in `config.py`, inkl. erzwungenem Paper-Modus solange Live nicht frei
 - [x] **TSAFE-001** Live-Orderversuche serverseitig ablehnen (nicht nur UI-Schalter) — Guard `_live_block_reason` in `broker/client.py` auf `submit_buy`/`submit_option_buy`
 - [x] **TSAFE-001** Telegram kann Live nicht aktivieren; nur protokollierte Admin-Konfig kann es später — Telegram steuert nur `broker_exec` (Ausführung an/aus); Paper/Live ausschließlich über Config-Flags
-- [ ] **TSAFE-002** Hebel hart blockieren: UI-Auswahl entfernen (Web + Telegram), Backend validiert `leverage == 1`
-- [ ] **TSAFE-002** Migration: gespeicherte Hebelwerte > 1 auf 1 setzen; Orders mit Hebel > 1 ablehnen
+- [x] **TSAFE-002** Hebel hart blockieren: UI-Auswahl entfernen (Web + Telegram), Backend validiert `leverage == 1`
+- [~] **TSAFE-002** Migration: gespeicherte Hebelwerte > 1 auf 1 setzen; Orders mit Hebel > 1 ablehnen
+      (Rest: `db.set_leverage`/`set_trade_leverage` klemmen neue Werte bereits hart auf `MAX_LEVERAGE`;
+      es fehlt noch eine einmalige Migration bestehender `users.leverage`/`signal.leverage`-Altwerte > 1
+      auf 1 sowie ein expliziter Order-Ablehnungspfad, falls trotzdem ein Hebel > 1 im Signal steht.)
 - [ ] **TSAFE-003** Optionen deaktivieren: Long-Call-Pfad aus Produktion entfernen, UI ausblenden,
       Brokeradapter blockiert Optionssymbole, Optionskonfig als deprecated markieren
 - [ ] **TSAFE-004** Budgetüberschreitung entfernen: `SHARE_ROUNDUP_FACTOR`-Aufrunden (1.5×) raus →

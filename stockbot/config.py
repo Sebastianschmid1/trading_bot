@@ -288,6 +288,9 @@ DEFAULT_SL_TP_MODE = "normal"
 # ── Hebel (Leverage) ─────────────────────────────────────────────────────────
 # Höherer Hebel = höherer Gewinn/Verlust UND schnellere Liquidation:
 # Long wird bei einem Kursverlust von 1/Hebel liquidiert (Hebel 10 → schon bei −10 %).
+# TSAFE-002 (Phase 0): Die Hebel-Auswahl ist aus Web/Telegram entfernt; `db.set_leverage`/
+# `db.set_trade_leverage` klemmen serverseitig hart auf `MAX_LEVERAGE` (Default 1×) — die Liste
+# bleibt nur als Referenz/Rückwärtskompatibilität für alte Datensätze stehen.
 LEVERAGE_CHOICES = [1, 1.5, 2, 3, 5, 10]
 DEFAULT_LEVERAGE = 1.0
 

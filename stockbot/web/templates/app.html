@@ -87,15 +87,6 @@
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
       <button class="red">❌ Ablehnen</button>
     </form>
-    <form class="inline row" method="post" action="/app/lev">
-      <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <select name="leverage">
-        {% for lv in leverages %}
-        <option value="{{ lv }}" {{ 'selected' if lv == s.leverage }}>{{ '%g'|format(lv) }}×</option>
-        {% endfor %}
-      </select>
-      <button>Hebel setzen</button>
-    </form>
   </div>
 </div>
 {% endfor %}

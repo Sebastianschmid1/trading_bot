@@ -51,20 +51,12 @@
 </div>
 
 <div class="card">
-  <h2>SL/TP-Modus & Hebel</h2>
+  <h2>SL/TP-Modus</h2>
   <div class="row">
     {% for m in sl_tp_modes %}
     <form class="inline" method="post" action="/app/settings/set">
       <input type="hidden" name="action" value="set_mode"><input type="hidden" name="value" value="{{ m }}">
       <button class="{{ 'on' if m == user.sl_tp_mode }}">{{ m }}</button>
-    </form>
-    {% endfor %}
-  </div>
-  <div class="row" style="margin-top:.5rem">
-    {% for lv in leverages %}
-    <form class="inline" method="post" action="/app/settings/set">
-      <input type="hidden" name="action" value="set_lev"><input type="hidden" name="value" value="{{ lv }}">
-      <button class="{{ 'on' if lv == user.leverage }}">{{ '%g'|format(lv) }}×</button>
     </form>
     {% endfor %}
   </div>

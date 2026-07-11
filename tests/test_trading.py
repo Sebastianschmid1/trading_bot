@@ -117,21 +117,24 @@ def test_settings_defaults_and_setters():
     assert u["sl_tp_mode"] == "normal" and u["leverage"] == 1.0 and u["auto_accept"] is False
 
     db.set_sl_tp_mode(CHAT, "aggressiv")
-    db.set_leverage(CHAT, 5)
     db.set_auto_accept(CHAT, True)
     u = db.get_user(CHAT)
-    assert u["sl_tp_mode"] == "aggressiv" and u["leverage"] == 5.0 and u["auto_accept"] is True
+    assert u["sl_tp_mode"] == "aggressiv" and u["auto_accept"] is True
 
-    db.set_leverage(CHAT, 999)            # Clamp auf max 20
-    assert db.get_user(CHAT)["leverage"] == 20.0
+    # TSAFE-002: Hebel hart auf MAX_LEVERAGE (Default 1×) begrenzt — kein Wert kommt durch.
+    db.set_leverage(CHAT, 5)
+    assert db.get_user(CHAT)["leverage"] == 1.0
+    db.set_leverage(CHAT, 999)
+    assert db.get_user(CHAT)["leverage"] == 1.0
 
 
 def test_set_trade_leverage_updates_pending():
     fresh_db()
     db.get_or_create_user(CHAT)
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0, "leverage": 1.0}, 1)
+    # TSAFE-002: serverseitig hart auf MAX_LEVERAGE (Default 1×) begrenzt.
     db.set_trade_leverage(CHAT, "AAPL", 3.0)
-    assert db.get_trade(CHAT, "AAPL")["signal"]["leverage"] == 3.0
+    assert db.get_trade(CHAT, "AAPL")["signal"]["leverage"] == 1.0
 
 
 def test_get_pending_trades():
