@@ -1,0 +1,19 @@
+# Lokale PostgreSQL-Instanz für die Entwicklung (PLAT-001, docs/PLAN_CHECKLIST.md Phase 1).
+# Nur für lokale Entwicklung/Tests gedacht — kein Staging-/Produktions-Deploy-Mechanismus.
+# Start: `docker compose up -d`. Passt zum Default aus `config.POSTGRES_DSN`
+# (postgresql+psycopg2://stockbot:stockbot@localhost:5432/stockbot).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stockbot
+      POSTGRES_PASSWORD: stockbot
+      POSTGRES_DB: stockbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

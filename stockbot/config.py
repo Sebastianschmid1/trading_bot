@@ -395,3 +395,17 @@ LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")
 # passt keine ganze Aktie ins Budget, wird ein Bruchteil (Notional) gehandelt bzw. außerhalb der
 # regulären Sitzung vorgemerkt. Default daher 1.0 (= nie aufrunden); der Live-Pfad übergibt hart 1.0.
 SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.0"))
+
+# ── PostgreSQL — Vorbereitung (Phase 1 / PLAT-001) ───────────────────────────
+# SQLite (`db.py`) bleibt bis zum dokumentierten Cutover (docs/DB_SCHEMA_SQLITE.md,
+# Migrationsstrategie Schritt 6/7) die alleinige Quelle der Wahrheit. Diese Werte
+# konfigurieren nur das Alembic-Migrationstooling (`migrations/`) und den Connection-Pool
+# aus `stockbot/core/db_pool.py`, der noch von keinem Live-Codepfad genutzt wird.
+POSTGRES_DSN = os.getenv(
+    "POSTGRES_DSN",
+    "postgresql+psycopg2://stockbot:stockbot@localhost:5432/stockbot",
+)
+POSTGRES_POOL_SIZE = int(os.getenv("POSTGRES_POOL_SIZE", "5"))
+POSTGRES_MAX_OVERFLOW = int(os.getenv("POSTGRES_MAX_OVERFLOW", "10"))
+POSTGRES_POOL_TIMEOUT = int(os.getenv("POSTGRES_POOL_TIMEOUT", "30"))
+POSTGRES_POOL_RECYCLE = int(os.getenv("POSTGRES_POOL_RECYCLE", "1800"))

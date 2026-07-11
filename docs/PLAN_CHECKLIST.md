@@ -58,7 +58,14 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 
 Ziel: Belastbares Zustands- und Datenmodell.
 
-- [ ] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
+- [~] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
+      (Tooling steht: `docker-compose.yml` für lokales Postgres, `alembic.ini`/`migrations/`
+      mit initialer Schema-Migration [Spiegel von `docs/DB_SCHEMA_SQLITE.md`, 7 Tabellen] und
+      `stockbot/core/db_pool.py` [SQLAlchemy-Connection-Pool + `session_scope`-Transaktionsgrenze],
+      getestet gegen SQLite in `tests/test_migrations.py`/`tests/test_db_pool.py`. Modul wird von
+      keinem Live-Codepfad genutzt — SQLite bleibt bis zum dokumentierten Cutover Quelle der
+      Wahrheit. Reststand: echtes Staging-Provisioning + Domänenobjekte + Datenmigration/Cutover
+      sind eigene, spätere Checklisten-Punkte.)
 - [x] **PLAT-001** Bestehendes SQLite-Schema dokumentieren + einfrieren; read-only Export aufbewahren
       (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
       `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen

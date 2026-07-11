@@ -13,3 +13,6 @@ lxml
 anthropic
 openai
 alpaca-py
+sqlalchemy
+alembic
+psycopg2-binary
