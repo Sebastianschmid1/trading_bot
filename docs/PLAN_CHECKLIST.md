@@ -72,7 +72,13 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
       `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen
       als JSON für den späteren Zeilen/Summen-Vergleich nach der Postgres-Migration.)
-- [ ] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
+- [~] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
+      (`stockbot/core/db_migrate.py` schreibt einen `db_export`-Snapshot in eine per Alembic
+      angelegte Zielengine und vergleicht danach Zeilenzahlen + Summen je Tabelle
+      [`tests/test_db_migrate.py`, Testmigration gegen eine Kopie, kein Live-DB-Zugriff].
+      Reststand: echtes Staging-Postgres befüllen (Schritt 6) + Paper-Laufzeit auf
+      Postgres umstellen [Schritt 7] brauchen eine echte Staging-Instanz und sind ein
+      eigener, späterer Schritt — kein Deploy aus dieser Session.)
 - [ ] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
 - [ ] Zustandsmaschine **Signal** (generated→filtered→published→accepted/rejected/expired/blocked_by_risk→order_created)
