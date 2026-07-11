@@ -3,7 +3,7 @@
 Tägliche Aktienempfehlungen per Telegram mit Demo-Trade-Tracking.
 
 ## Features
-- **8:45 Uhr**: tägliche Aktienempfehlungen mit technischer Analyse (Bereich wählbar: S&P 500 / MSCI World / Emerging Markets)
+- **15:35 Uhr** (nach US-Open): tägliche Aktienempfehlungen mit technischer Analyse (Bereich wählbar: S&P 500 / MSCI World / Emerging Markets)
 - **JA/NEIN Buttons**: Trade annehmen oder ablehnen
 - **22:15 Uhr**: Automatische Auswertung mit P&L-Berechnung (inkl. SL/TP)
 - **🐳 Smart-Money** (`/top5trade`): was große Trader (Insider + Institutionen) zuletzt gekauft haben; fließt auch ins Signal-Ranking ein
