@@ -49,8 +49,10 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 - [x] Jede Order mit Hebel > 1 / jede Optionsorder wird abgelehnt (TSAFE-002 / TSAFE-003)
 - [x] Keine Order überschreitet Budget/Buying Power (TSAFE-004 + bestehender Buying-Power-Check)
 - [x] Kein Trade wird allein wegen globalem Score geschlossen (TSAFE-005)
-- [~] Tests beweisen: Telegram und Web senden keine direkten Brokerorders — Live-Orders bereits
-      serverseitig geblockt; der vollständige „kein Direktpfad"-Nachweis kommt mit dem OMS (Phase 4)
+- [x] Tests beweisen: Telegram und Web senden keine direkten Brokerorders — Live-Orders bereits
+      serverseitig geblockt; `tests/test_no_direct_broker_access.py` beweist statisch, dass
+      `bot.py`/`webapp.py` das Alpaca-SDK nie direkt aufrufen und nur die gate-geprüften
+      `broker.*`-Funktionen nutzen. Der Idempotency-/Zustandsmaschinen-Nachweis kommt mit dem OMS (Phase 4).
 
 ---
 
