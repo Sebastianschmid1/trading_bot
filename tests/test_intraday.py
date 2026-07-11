@@ -223,6 +223,49 @@ def test_bot_broker_order_blocks_when_buying_power_is_insufficient():
     assert "Buying Power reicht nicht" in fake_bot.send_message.await_args.kwargs["text"]
 
 
+def test_bot_broker_order_rejects_stale_leverage_above_one():
+    """TSAFE-002: ein gespeicherter Hebel > MAX_LEVERAGE (Altwert) darf über Telegram nie zu einer
+    echten Broker-Order (erst recht keiner Optionsorder) führen — explizite Ablehnung statt
+    stillem Aktien-Fallback."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "brokerlev")
+    db.save_profile(CHAT, trade_size_eur=1000.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "leverage": 5.0, "strength": 70.0}, 1)
+    db.activate_trade(CHAT, "AAPL")
+    trade = db.get_trade(CHAT, "AAPL")
+    assert trade is not None
+    submitted = {"called": False}
+
+    orig_ready, orig_client = bot._alpaca_ready, bot._alpaca_client
+    orig_submit, orig_submit_opt = bot.broker.submit_buy, bot.broker.submit_option_buy
+    bot._alpaca_ready = lambda user: True
+    bot._alpaca_client = lambda user: object()
+
+    def fake_submit(*args, **kwargs):
+        submitted["called"] = True
+        return {"ok": True, "id": "should-not-submit"}
+    bot.broker.submit_buy = fake_submit
+    bot.broker.submit_option_buy = fake_submit
+    fake_bot = AsyncMock()
+    try:
+        asyncio.run(bot._maybe_broker_order(fake_bot, CHAT, trade))
+    finally:
+        bot._alpaca_ready, bot._alpaca_client = orig_ready, orig_client
+        bot.broker.submit_buy, bot.broker.submit_option_buy = orig_submit, orig_submit_opt
+
+    assert submitted["called"] is False
+    trade = db.get_trade(CHAT, "AAPL")
+    assert trade is not None
+    assert trade["status"] == "broker_failed"
+    assert trade["broker_status"] == "leverage_blocked"
+    assert "Hebel" in fake_bot.send_message.await_args.kwargs["text"]
+
+
 def test_monitor_promotes_filled_broker_pending_trade():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock

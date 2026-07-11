@@ -74,7 +74,7 @@ def test_web_order_queues_fractional_in_extended_hours(monkeypatch):
     db.get_or_create_user(CHAT, "u")
     db.save_profile(CHAT, trade_size_eur=25.0)
     db.add_pending(CHAT, {"ticker": "FIX", "direction": "long", "price": 2000.0,
-                          "leverage": 5.0, "strength": 60.0}, 1)
+                          "leverage": 1.0, "strength": 60.0}, 1)
     with db._connect() as c:
         c.execute("UPDATE trades SET status='broker_pending', entry=2000.0 WHERE ticker='FIX'")
 

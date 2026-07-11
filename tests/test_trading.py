@@ -6,6 +6,7 @@ Lauf:  python test_trading.py   oder   pytest test_trading.py
 """
 
 import sys
+import json
 import tempfile
 from pathlib import Path
 
@@ -134,6 +135,29 @@ def test_set_trade_leverage_updates_pending():
     db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0, "leverage": 1.0}, 1)
     # TSAFE-002: serverseitig hart auf MAX_LEVERAGE (Default 1×) begrenzt.
     db.set_trade_leverage(CHAT, "AAPL", 3.0)
+    assert db.get_trade(CHAT, "AAPL")["signal"]["leverage"] == 1.0
+
+
+def test_migration_clamps_stale_leverage_values_on_startup():
+    """TSAFE-002: Altwerte > MAX_LEVERAGE (aus der Zeit vor dem harten Server-Cap in
+    set_leverage/set_trade_leverage) werden bei jedem Start automatisch auf MAX_LEVERAGE geklemmt —
+    sowohl users.leverage als auch der Hebel im signal_json noch offener Trades."""
+    fresh_db()
+    db.get_or_create_user(CHAT)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0, "leverage": 1.0}, 1)
+
+    # Stale Altwerte direkt schreiben (umgeht die heutigen harten Caps in set_leverage/set_trade_leverage).
+    with db._connect() as conn:
+        conn.execute("UPDATE users SET leverage = 5.0 WHERE user_id = ?", (CHAT,))
+        conn.execute(
+            "UPDATE trades SET signal_json = ? WHERE user_id = ? AND ticker = ?",
+            (json.dumps({"ticker": "AAPL", "direction": "long", "price": 100.0, "leverage": 5.0}),
+             CHAT, "AAPL"),
+        )
+
+    db.init_db()  # Migration erneut anstoßen (idempotent, wie beim nächsten Bot-Start)
+
+    assert db.get_user(CHAT)["leverage"] == 1.0
     assert db.get_trade(CHAT, "AAPL")["signal"]["leverage"] == 1.0
 
 

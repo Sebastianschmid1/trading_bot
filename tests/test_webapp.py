@@ -249,6 +249,33 @@ def test_web_accept_does_not_submit_when_buying_power_is_insufficient(monkeypatc
     assert db.get_active_trades(CHAT) == []
 
 
+def test_web_accept_rejects_broker_order_with_stale_leverage_above_one(monkeypatch):
+    """TSAFE-002: ein Signal mit Hebel > MAX_LEVERAGE (z. B. ein Altwert aus der Zeit vor dem
+    harten Server-Cap) darf niemals eine echte Broker-Order auslösen — die Order wird explizit
+    abgelehnt statt still auf Aktien/1x herabgestuft zu werden."""
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "TSLA", "direction": "long", "price": 100.0,
+                          "leverage": 5.0, "strength": 70.0}, 1)
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: object())
+    submitted = {"called": False}
+    def fake_submit(*args, **kwargs):
+        submitted["called"] = True
+        return {"ok": True, "id": "should-not-submit"}
+    monkeypatch.setattr(webapp.broker, "submit_buy", fake_submit)
+    monkeypatch.setattr(webapp.broker, "submit_option_buy", fake_submit)
+
+    r = _client().post("/app/accept", data={"ticker": "TSLA"}, headers={"X-Requested-With": "fetch"})
+
+    assert r.json()["status"] == "broker_failed"
+    assert "Hebel" in r.json()["msg"]
+    assert submitted["called"] is False
+    trade = db.get_trade(CHAT, "TSLA")
+    assert trade["status"] == "broker_failed"
+    assert trade["broker_status"] == "leverage_blocked"
+
+
 def test_web_sell_with_broker_exec_sets_broker_closing(monkeypatch):
     fresh()
     db.set_broker_exec(CHAT, True)

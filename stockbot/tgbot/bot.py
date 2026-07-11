@@ -58,7 +58,7 @@ from stockbot.config import (
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
-    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE, SHARE_ROUNDUP_FACTOR,
+    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE, SHARE_ROUNDUP_FACTOR, MAX_LEVERAGE,
 )
 
 os.makedirs(os.path.dirname(LOG_FILE) or ".", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
@@ -404,9 +404,16 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
 
     ticker = trade["ticker"]
     leverage = float(sig.get("leverage", 1.0) or 1.0)
+    mode = "PAPER" if ALPACA_PAPER else "LIVE"
+    if leverage > MAX_LEVERAGE + 1e-9:
+        await asyncio.to_thread(db.mark_broker_failed, chat_id, ticker, broker_status="leverage_blocked")
+        await _tg_status(
+            bot, user,
+            (f"⛔ Alpaca-{mode}: Order für {ticker} abgelehnt — Hebel {leverage:g}× über "
+             f"erlaubtem Maximum {MAX_LEVERAGE:g}× (TSAFE-002)."))
+        return
     budget = float(user["trade_size_eur"])     # Trade-Wert = Budget; Hebel hebelt NICHT den Einsatz
     extended = EXTENDED_HOURS and not _us_market_open(extended=False)
-    mode = "PAPER" if ALPACA_PAPER else "LIVE"
 
     # Order-Plan: Hebel>1 (reguläre Zeit) → Option fürs Budget; sonst ganze Aktien fürs Budget.
     # Wurde bei der Aktivierung bereits ein Kontrakt für die Demo-Simulation gewählt, exakt den kaufen.

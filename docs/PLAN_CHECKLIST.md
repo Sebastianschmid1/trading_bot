@@ -21,10 +21,12 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 - [x] **TSAFE-001** Live-Orderversuche serverseitig ablehnen (nicht nur UI-Schalter) — Guard `_live_block_reason` in `broker/client.py` auf `submit_buy`/`submit_option_buy`
 - [x] **TSAFE-001** Telegram kann Live nicht aktivieren; nur protokollierte Admin-Konfig kann es später — Telegram steuert nur `broker_exec` (Ausführung an/aus); Paper/Live ausschließlich über Config-Flags
 - [x] **TSAFE-002** Hebel hart blockieren: UI-Auswahl entfernen (Web + Telegram), Backend validiert `leverage == 1`
-- [~] **TSAFE-002** Migration: gespeicherte Hebelwerte > 1 auf 1 setzen; Orders mit Hebel > 1 ablehnen
-      (Rest: `db.set_leverage`/`set_trade_leverage` klemmen neue Werte bereits hart auf `MAX_LEVERAGE`;
-      es fehlt noch eine einmalige Migration bestehender `users.leverage`/`signal.leverage`-Altwerte > 1
-      auf 1 sowie ein expliziter Order-Ablehnungspfad, falls trotzdem ein Hebel > 1 im Signal steht.)
+- [x] **TSAFE-002** Migration: gespeicherte Hebelwerte > 1 auf 1 setzen; Orders mit Hebel > 1 ablehnen
+      (`db._migrate_leverage_values` klemmt bei jedem Start `users.leverage` sowie den Hebel im
+      `signal_json` noch offener Trades auf `MAX_LEVERAGE`; `webapp._execute_broker_order_for_web`
+      und `bot._maybe_broker_order` lehnen echte Broker-Orders mit Hebel > `MAX_LEVERAGE` jetzt
+      explizit ab, statt sie still auf Aktien/1x herabzustufen — schließt auch die Lücke, dass
+      Telegram bislang bei Hebel > 1 einen echten Optionskontrakt wählen/kaufen konnte.)
 - [ ] **TSAFE-003** Optionen deaktivieren: Long-Call-Pfad aus Produktion entfernen, UI ausblenden,
       Brokeradapter blockiert Optionssymbole, Optionskonfig als deprecated markieren
 - [ ] **TSAFE-004** Budgetüberschreitung entfernen: `SHARE_ROUNDUP_FACTOR`-Aufrunden (1.5×) raus →

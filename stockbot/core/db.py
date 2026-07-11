@@ -284,6 +284,42 @@ def _migrate(conn: sqlite3.Connection):
     if legacy:
         log.info(f"Migration: {len(legacy)} Web-Session-Token(s) gehasht.")
 
+    _migrate_leverage_values(conn)
+
+
+def _migrate_leverage_values(conn: sqlite3.Connection):
+    """TSAFE-002: klemmt bestehende Hebel-Altwerte > `MAX_LEVERAGE` auf `MAX_LEVERAGE` — sowohl
+    `users.leverage` als auch der Hebel im gespeicherten `signal_json` noch offener Trades
+    (pending/active/broker_pending). Läuft bei jedem Start erneut (idempotent) und heilt so auch
+    Datensätze, die vor der Einführung des harten Server-Caps in `set_leverage`/`set_trade_leverage`
+    entstanden sind. Abgeschlossene Trades bleiben als historischer Datensatz unverändert."""
+    n_users = conn.execute(
+        "UPDATE users SET leverage = ? WHERE leverage > ?", (MAX_LEVERAGE, MAX_LEVERAGE)
+    ).rowcount
+    if n_users:
+        log.info(f"Migration: {n_users} users.leverage-Altwert(e) > {MAX_LEVERAGE:g}x auf {MAX_LEVERAGE:g}x geklemmt.")
+
+    n_trades = 0
+    rows = conn.execute(
+        "SELECT id, signal_json FROM trades WHERE status IN ('pending', 'active', 'broker_pending')"
+    ).fetchall()
+    for row in rows:
+        try:
+            sig = json.loads(row["signal_json"])
+        except Exception:
+            continue
+        changed = False
+        for key in ("leverage", "effective_leverage"):
+            val = sig.get(key)
+            if val is not None and float(val) > MAX_LEVERAGE:
+                sig[key] = MAX_LEVERAGE
+                changed = True
+        if changed:
+            conn.execute("UPDATE trades SET signal_json = ? WHERE id = ?", (json.dumps(sig), row["id"]))
+            n_trades += 1
+    if n_trades:
+        log.info(f"Migration: {n_trades} offene(r) Trade(s) mit Hebel-Altwert "
+                 f"> {MAX_LEVERAGE:g}x auf {MAX_LEVERAGE:g}x geklemmt.")
 
 @contextmanager
 def _connect():

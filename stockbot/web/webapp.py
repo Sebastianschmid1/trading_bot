@@ -185,6 +185,11 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
 
     ticker = trade["ticker"]
     leverage = float((trade.get("signal") or {}).get("leverage") or 1.0)
+    if leverage > config.MAX_LEVERAGE + 1e-9:
+        db.mark_broker_failed(user["user_id"], ticker, broker_status="leverage_blocked")
+        return {"ok": False, "status": "broker_failed",
+                "msg": f"Order abgelehnt: Hebel {leverage:g}× über erlaubtem Maximum "
+                       f"{config.MAX_LEVERAGE:g}× (TSAFE-002)."}
     entry = trade.get("entry") or (trade.get("signal") or {}).get("price")
     if entry is None:
         db.mark_broker_failed(user["user_id"], ticker, broker_status="not_submitted")
