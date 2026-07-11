@@ -79,8 +79,11 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Reststand: echtes Staging-Postgres befüllen (Schritt 6) + Paper-Laufzeit auf
       Postgres umstellen [Schritt 7] brauchen eine echte Staging-Instanz und sind ein
       eigener, späterer Schritt — kein Deploy aus dieser Session.)
-- [ ] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
+- [x] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
+      (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;
+      noch nicht an ORM/DB gebunden — das ist der nächste Schritt zusammen mit den Zustandsmaschinen.
+      `RiskDecision` bleibt bewusst der bestehende Typ aus `stockbot/core/risk.py`, keine Dopplung.)
 - [ ] Zustandsmaschine **Signal** (generated→filtered→published→accepted/rejected/expired/blocked_by_risk→order_created)
 - [ ] Zustandsmaschine **Order** (created→validated→submitted→accepted_by_broker→partially_filled→filled / cancel_requested→cancelled / rejected / expired)
 - [ ] Zustandsmaschine **Position** (pending_open→open→pending_close→closed / reconciliation_required)
