@@ -1,0 +1,162 @@
+:root {
+  color-scheme: dark;
+
+  --bg-base: #0B0D10;
+  --bg-surface-1: #11151A;
+  --bg-surface-2: #171C22;
+  --bg-surface-3: #1D242C;
+  --bg-elevated: #222A33;
+  --bg-hover: #252E38;
+  --bg-selected: #263242;
+
+  --text-primary: #F4F7FA;
+  --text-secondary: #B5C0CC;
+  --text-muted: #7F8B99;
+  --text-disabled: #56616D;
+  --text-inverse: #0B0D10;
+
+  --primary: #5B8CFF;
+  --primary-hover: #74A0FF;
+  --primary-active: #4779E8;
+  --primary-soft: rgba(91, 140, 255, 0.14);
+  --primary-border: rgba(91, 140, 255, 0.38);
+
+  --success: #35C98F;
+  --success-soft: rgba(53, 201, 143, 0.14);
+  --success-border: rgba(53, 201, 143, 0.36);
+
+  --warning: #F2B84B;
+  --warning-soft: rgba(242, 184, 75, 0.14);
+  --warning-border: rgba(242, 184, 75, 0.38);
+
+  --danger: #FF667A;
+  --danger-hover: #FF7C8C;
+  --danger-soft: rgba(255, 102, 122, 0.14);
+  --danger-border: rgba(255, 102, 122, 0.38);
+
+  --info: #66B7FF;
+  --info-soft: rgba(102, 183, 255, 0.13);
+
+  --border-subtle: #242B33;
+  --border-default: #303945;
+  --border-strong: #45515F;
+  --focus-ring: rgba(91, 140, 255, 0.55);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.28);
+  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.42);
+
+  /* Offline-first font stacks: installed faces are used when available. */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
+    monospace;
+  --font-display: var(--font-ui);
+
+  --font-size-display: 32px;
+  --line-height-display: 40px;
+  --font-weight-display: 650;
+  --font-size-h1: 28px;
+  --line-height-h1: 36px;
+  --font-weight-h1: 650;
+  --font-size-h2: 22px;
+  --line-height-h2: 30px;
+  --font-weight-h2: 600;
+  --font-size-h3: 18px;
+  --line-height-h3: 26px;
+  --font-weight-h3: 600;
+  --font-size-body-lg: 16px;
+  --line-height-body-lg: 25px;
+  --font-size-body: 14px;
+  --line-height-body: 22px;
+  --font-size-small: 13px;
+  --line-height-small: 19px;
+  --font-size-caption: 12px;
+  --line-height-caption: 17px;
+  --font-weight-caption: 500;
+  --font-size-metric-lg: 28px;
+  --line-height-metric-lg: 34px;
+  --font-size-metric: 18px;
+  --line-height-metric: 24px;
+  --font-weight-metric: 600;
+}
+
+body {
+  font-family: var(--font-ui);
+}
+
+.text-display,
+.text-h1,
+.text-h2,
+.text-h3,
+.text-body-lg,
+.text-body,
+.text-small,
+.text-caption,
+.text-metric-lg,
+.text-metric {
+  margin-block: 0;
+}
+
+.text-display { font-size: var(--font-size-display); line-height: var(--line-height-display); font-weight: var(--font-weight-display); }
+.text-h1 { font-size: var(--font-size-h1); line-height: var(--line-height-h1); font-weight: var(--font-weight-h1); }
+.text-h2 { font-size: var(--font-size-h2); line-height: var(--line-height-h2); font-weight: var(--font-weight-h2); }
+.text-h3 { font-size: var(--font-size-h3); line-height: var(--line-height-h3); font-weight: var(--font-weight-h3); }
+.text-body-lg { font-size: var(--font-size-body-lg); line-height: var(--line-height-body-lg); font-weight: 400; }
+.text-body { font-size: var(--font-size-body); line-height: var(--line-height-body); font-weight: 400; }
+.text-small { font-size: var(--font-size-small); line-height: var(--line-height-small); font-weight: 400; }
+.text-caption { font-size: var(--font-size-caption); line-height: var(--line-height-caption); font-weight: var(--font-weight-caption); }
+.text-metric-lg { font-size: var(--font-size-metric-lg); line-height: var(--line-height-metric-lg); font-weight: var(--font-weight-metric); }
+.text-metric { font-size: var(--font-size-metric); line-height: var(--line-height-metric); font-weight: var(--font-weight-metric); }
+
+.font-mono,
+.numeric,
+.text-metric,
+.text-metric-lg {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: var(--line-height-caption);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.mode-badge__icon {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.mode-badge--backtest { color: #9B8CFF; background: rgba(155, 140, 255, 0.14); border-color: rgba(155, 140, 255, 0.38); }
+.mode-badge--shadow { color: var(--info); background: var(--info-soft); border-color: rgba(102, 183, 255, 0.38); }
+.mode-badge--paper { color: var(--warning); background: var(--warning-soft); border-color: var(--warning-border); }
+.mode-badge--live { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
