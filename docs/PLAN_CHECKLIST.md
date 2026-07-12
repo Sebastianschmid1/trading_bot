@@ -96,7 +96,10 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`stockbot/core/state_machine.py::position_transition_allowed`/`assert_position_transition`;
       `reconciliation_required` ist von `pending_open`/`open`/`pending_close` aus erreichbar und
       löst sich nach Klärung zu `open` oder `closed` auf, statt ein eigener linearer Schritt zu sein.)
-- [ ] Zentrale Validierung: ungültige Zustandsübergänge werden abgelehnt
+- [x] Zentrale Validierung: ungültige Zustandsübergänge werden abgelehnt
+      (`stockbot/core/state_machine.py::assert_transition`/`transition_allowed` dispatchen anhand
+      des Enum-Typs von `from_status` an Signal-/Order-/Position-Zustandsmaschine — ein Einstiegspunkt
+      für alle drei, wie in Plan.md §9.3 gefordert; lehnt zusätzlich Typ-Mismatches ab.)
 - [ ] **PLAT-002** Audit-Log append-only (Event-ID, Timestamp, User, Actor, Entity-Typ/-ID, Aktion, alt/neu, Trace-ID, Quellkanal, Metadaten)
 
 **Gate P1.1 (Abnahme):**

@@ -4,8 +4,14 @@ Reine, deterministische Prüfung: erlaubt Zustand X einen Wechsel nach Y? Ob ein
 inhaltlich gerechtfertigt ist (z. B. Risk-Check bestanden), entscheiden die aufrufenden
 Services (Risk Service Phase 3, OMS Phase 4) — hier wird nur die Struktur der Zustandsmaschine
 durchgesetzt. Noch von keinem Live-Codepfad genutzt (SQLite/`db.py` bleibt bis zum Cutover
-maßgeblich); dient als Grundlage für "Zentrale Validierung: ungültige Zustandsübergänge
-werden abgelehnt" (nächster Checklisten-Punkt).
+maßgeblich).
+
+`assert_transition`/`transition_allowed` am Ende der Datei sind der EINE zentrale Einstiegspunkt
+für alle drei Entitäten (Plan.md §9.3: "Übergänge werden zentral validiert.") — er dispatcht anhand
+des konkreten Enum-Typs von `from_status` an die passende Zustandsmaschine, statt dass Aufrufer
+(künftig OMS/Risk Service) selbst wissen müssen, welche der drei `assert_*_transition`-Funktionen
+zuständig ist. Die typisierten `assert_signal_transition`/`assert_order_transition`/
+`assert_position_transition` bleiben für Aufrufer erhalten, die den Entity-Typ bereits kennen.
 
 ## Signal (Plan.md §9.3)
 
@@ -142,4 +148,36 @@ def assert_position_transition(from_status: PositionStatus, to_status: PositionS
     if not position_transition_allowed(from_status, to_status):
         raise ValueError(
             f"Ungültiger Position-Übergang: {from_status.value} -> {to_status.value}"
+        )
+
+
+_STATUS_TYPE_TO_CHECK = {
+    SignalStatus: signal_transition_allowed,
+    OrderStatus: order_transition_allowed,
+    PositionStatus: position_transition_allowed,
+}
+
+
+def transition_allowed(from_status, to_status) -> bool:
+    """Zentraler Einstiegspunkt: dispatcht anhand des Enum-Typs von `from_status`
+    an Signal-/Order-/Position-Zustandsmaschine. `from_status` und `to_status`
+    müssen demselben Entity-Typ angehören."""
+    check = _STATUS_TYPE_TO_CHECK.get(type(from_status))
+    if check is None:
+        raise TypeError(f"Unbekannter Zustandstyp: {type(from_status).__name__}")
+    if type(to_status) is not type(from_status):
+        raise TypeError(
+            f"Zustandstyp-Mismatch: {type(from_status).__name__} -> {type(to_status).__name__}"
+        )
+    return check(from_status, to_status)
+
+
+def assert_transition(from_status, to_status) -> None:
+    """Wirft `ValueError` bei einem ungültigen Übergang, `TypeError` bei
+    unbekanntem/gemischtem Zustandstyp. Zentraler Einstiegspunkt für alle drei
+    Zustandsmaschinen (Plan.md §9.3: "Übergänge werden zentral validiert.")."""
+    if not transition_allowed(from_status, to_status):
+        raise ValueError(
+            f"Ungültiger {type(from_status).__name__}-Übergang: "
+            f"{from_status.value} -> {to_status.value}"
         )

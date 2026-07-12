@@ -9,9 +9,11 @@ from stockbot.core.state_machine import (
     assert_order_transition,
     assert_position_transition,
     assert_signal_transition,
+    assert_transition,
     order_transition_allowed,
     position_transition_allowed,
     signal_transition_allowed,
+    transition_allowed,
 )
 
 VALID_SIGNAL_TRANSITIONS = [
@@ -157,3 +159,36 @@ def test_assert_invalid_position_transition_raises_value_error():
 def test_every_position_status_has_an_explicit_transition_entry():
     from stockbot.core.state_machine import POSITION_TRANSITIONS
     assert set(POSITION_TRANSITIONS.keys()) == set(PositionStatus)
+
+
+@pytest.mark.parametrize("from_status,to_status", VALID_SIGNAL_TRANSITIONS)
+def test_central_transition_allowed_dispatches_signal(from_status, to_status):
+    assert transition_allowed(from_status, to_status) is True
+    assert_transition(from_status, to_status)               # wirft nicht
+
+
+@pytest.mark.parametrize("from_status,to_status", VALID_ORDER_TRANSITIONS)
+def test_central_transition_allowed_dispatches_order(from_status, to_status):
+    assert transition_allowed(from_status, to_status) is True
+    assert_transition(from_status, to_status)               # wirft nicht
+
+
+@pytest.mark.parametrize("from_status,to_status", VALID_POSITION_TRANSITIONS)
+def test_central_transition_allowed_dispatches_position(from_status, to_status):
+    assert transition_allowed(from_status, to_status) is True
+    assert_transition(from_status, to_status)               # wirft nicht
+
+
+def test_central_assert_transition_rejects_invalid_transition():
+    with pytest.raises(ValueError, match="Ungültiger SignalStatus-Übergang"):
+        assert_transition(SignalStatus.GENERATED, SignalStatus.ORDER_CREATED)
+
+
+def test_central_transition_rejects_mixed_entity_types():
+    with pytest.raises(TypeError, match="Zustandstyp-Mismatch"):
+        transition_allowed(SignalStatus.GENERATED, OrderStatus.VALIDATED)
+
+
+def test_central_transition_rejects_unknown_status_type():
+    with pytest.raises(TypeError, match="Unbekannter Zustandstyp"):
+        transition_allowed("generated", "filtered")
