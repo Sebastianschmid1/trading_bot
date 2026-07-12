@@ -248,11 +248,13 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Markt offen → Quote frisch → Spread → Liquidität → Tagesverlustlimit → max Positionen → bestehende Ticker-Position →
       Exposure/Sektor → Sizing → Buying Power → Brokerstatus)
       (`stockbot/core/risk.py::pretrade_check` erweitert: nach Kill-Switch/Hebel/Optionen [Phase 0]
-      jetzt zusätzlich Markt offen [DATA-002] und Quote frisch/Spread [DATA-004, delegiert an
-      `data_quality.check_quote_age`/`check_spread`] — feste Reihenfolge, jeder Check optional
-      [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei.
-      Noch offen: Signal gültig/Strategie erlaubt [keine eigene Validierung existiert bislang],
-      Liquidität [`min_average_dollar_volume`], Tagesverlustlimit/max Positionen/bestehende
+      jetzt zusätzlich Signal gültig/nicht abgelaufen [`signal_status`/`signal_expires_at`],
+      Strategie erlaubt [`strategy_key`/`allowed_strategies`, leere Liste blockiert nichts —
+      RiskProfile-Default], Markt offen [DATA-002], Quote frisch/Spread [DATA-004, delegiert an
+      `data_quality.check_quote_age`/`check_spread`] und Liquidität [`average_dollar_volume`/
+      `min_average_dollar_volume`] — feste Reihenfolge nach Plan.md §11.3, jeder Check optional
+      [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei;
+      neue Tests in `tests/test_risk.py`. Noch offen: Tagesverlustlimit/max Positionen/bestehende
       Ticker-Position/Exposure-Sektor [RISK-004/RISK-005, brauchen eine Live-Kontoabfrage —
       offene Positionen/Tages-P&L —, die den bislang reinen IO-freien Charakter dieses Seams
       sprengen würde], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert,
