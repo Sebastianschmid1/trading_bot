@@ -134,6 +134,48 @@ CREATE TABLE IF NOT EXISTS trade_events (
 
 CREATE INDEX IF NOT EXISTS idx_trade_events_trade ON trade_events (trade_id, ts);
 CREATE INDEX IF NOT EXISTS idx_trade_events_user  ON trade_events (user_id, ts);
+
+CREATE TABLE IF NOT EXISTS trade_intents (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id              INTEGER NOT NULL,
+    signal_id            INTEGER NOT NULL,
+    requested_action     TEXT    NOT NULL,
+    accepted_exit_policy TEXT    NOT NULL,
+    source_channel       TEXT    NOT NULL,
+    created_at           TEXT    NOT NULL,
+    idempotency_key      TEXT    NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_intent_id   INTEGER NOT NULL REFERENCES trade_intents(id),
+    user_id           INTEGER NOT NULL,
+    ticker            TEXT    NOT NULL,
+    side              TEXT    NOT NULL,
+    qty               REAL,
+    notional          REAL,
+    limit_price       REAL,
+    status            TEXT    NOT NULL DEFAULT 'created',
+    broker_order_id   TEXT,
+    client_order_id   TEXT    UNIQUE,
+    idempotency_key   TEXT    NOT NULL UNIQUE,
+    rejection_reason  TEXT,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS order_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        INTEGER NOT NULL REFERENCES orders(id),
+    event_type      TEXT    NOT NULL,
+    from_status     TEXT,
+    to_status       TEXT    NOT NULL,
+    broker_event_id TEXT,
+    payload_json    TEXT    NOT NULL DEFAULT '{}',
+    occurred_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id);
 """
 
 
@@ -286,6 +328,37 @@ def _migrate(conn: sqlite3.Connection):
 
     _migrate_leverage_values(conn)
 
+    # Phase 4 / OMS: additive, idempotente Tabellen. Bei Alt-Datenbanken wurde
+    # SCHEMA_SQL bereits ausgefuehrt; die explizite Anlage hier dokumentiert den
+    # Migrationspfad und haelt direkte _migrate-Aufrufe rueckwaertskompatibel.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS trade_intents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            signal_id INTEGER NOT NULL, requested_action TEXT NOT NULL,
+            accepted_exit_policy TEXT NOT NULL, source_channel TEXT NOT NULL,
+            created_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_intent_id INTEGER NOT NULL REFERENCES trade_intents(id),
+            user_id INTEGER NOT NULL, ticker TEXT NOT NULL, side TEXT NOT NULL,
+            qty REAL, notional REAL, limit_price REAL,
+            status TEXT NOT NULL DEFAULT 'created', broker_order_id TEXT,
+            client_order_id TEXT UNIQUE, idempotency_key TEXT NOT NULL UNIQUE,
+            rejection_reason TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS order_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL REFERENCES orders(id), event_type TEXT NOT NULL,
+            from_status TEXT, to_status TEXT NOT NULL, broker_event_id TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id);
+    """)
+
 
 def _migrate_leverage_values(conn: sqlite3.Connection):
     """TSAFE-002: klemmt bestehende Hebel-Altwerte > `MAX_LEVERAGE` auf `MAX_LEVERAGE` — sowohl
@@ -335,6 +408,115 @@ def _connect():
 
 def _today() -> str:
     return str(date.today())
+
+
+# -- OMS persistence (Phase 4) -------------------------------------------------
+
+def get_order_by_idempotency_key(idempotency_key: str) -> dict | None:
+    """Return the one OMS order belonging to a user action, if it exists."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM orders WHERE idempotency_key = ?", (idempotency_key,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_oms_order(order_id: int) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def create_oms_order(intent, *, ticker: str, qty: float | None,
+                     notional: float | None, limit_price: float | None = None) -> tuple[dict, bool]:
+    """Persist intent and order atomically.
+
+    The database constraints are the final concurrency guard.  If another request
+    wins the same idempotency key, this call returns that order with ``False``.
+    """
+    try:
+        with _connect() as conn:
+            existing = conn.execute(
+                "SELECT * FROM orders WHERE idempotency_key = ?", (intent.idempotency_key,)
+            ).fetchone()
+            if existing:
+                return dict(existing), False
+            cur = conn.execute(
+                """INSERT INTO trade_intents
+                   (user_id, signal_id, requested_action, accepted_exit_policy,
+                    source_channel, created_at, idempotency_key)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (intent.user_id, intent.signal_id, intent.requested_action,
+                 intent.accepted_exit_policy, intent.source_channel, intent.created_at,
+                 intent.idempotency_key),
+            )
+            intent_id = int(cur.lastrowid)
+            cur = conn.execute(
+                """INSERT INTO orders
+                   (trade_intent_id, user_id, ticker, side, qty, notional,
+                    limit_price, status, idempotency_key)
+                   VALUES (?, ?, ?, 'buy', ?, ?, ?, 'created', ?)""",
+                (intent_id, intent.user_id, ticker, qty, notional, limit_price,
+                 intent.idempotency_key),
+            )
+            order_id = int(cur.lastrowid)
+            client_order_id = f"oms-{order_id}"
+            conn.execute(
+                "UPDATE orders SET client_order_id = ? WHERE id = ?",
+                (client_order_id, order_id),
+            )
+            conn.execute(
+                """INSERT INTO order_events
+                   (order_id, event_type, from_status, to_status, payload_json)
+                   VALUES (?, 'created', NULL, 'created', '{}')""",
+                (order_id,),
+            )
+            row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+            return dict(row), True
+    except sqlite3.IntegrityError:
+        existing = get_order_by_idempotency_key(intent.idempotency_key)
+        if existing is None:
+            raise
+        return existing, False
+
+
+def transition_oms_order(order_id: int, *, from_status: str, to_status: str,
+                         event_type: str | None = None, broker_order_id: str | None = None,
+                         broker_event_id: str | None = None, payload: dict | None = None,
+                         rejection_reason: str | None = None) -> dict:
+    """Update an order and append its event in the same transaction."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE orders
+               SET status = ?, broker_order_id = COALESCE(?, broker_order_id),
+                   rejection_reason = COALESCE(?, rejection_reason),
+                   updated_at = datetime('now')
+               WHERE id = ? AND status = ?""",
+            (to_status, broker_order_id, rejection_reason, order_id, from_status),
+        )
+        if cur.rowcount != 1:
+            current = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+            actual = current["status"] if current else "missing"
+            raise RuntimeError(
+                f"OMS order {order_id} transition race: expected {from_status}, found {actual}"
+            )
+        conn.execute(
+            """INSERT INTO order_events
+               (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (order_id, event_type or to_status, from_status, to_status, broker_event_id,
+             json.dumps(payload or {}, default=str)),
+        )
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    return dict(row)
+
+
+def get_oms_order_events(order_id: int) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM order_events WHERE order_id = ? ORDER BY id", (order_id,)
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _log_event(conn: sqlite3.Connection, *, trade_id: int, user_id: int, ticker: str,
