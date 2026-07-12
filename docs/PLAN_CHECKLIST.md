@@ -175,7 +175,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `LicensedProductionProvider` bleibt bewusst offen — noch keine konkrete lizenzierte
       Datenquelle ausgewählt. Noch von KEINEM Live-Codepfad genutzt; DATA-003 damit abgeschlossen,
       soweit ohne echte Alpaca-Keys/Lizenzentscheidung möglich.)
-- [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
+- [x] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
+      (`stockbot/core/domain.py::Signal` trug bereits `data_provider`/`data_version` [PLAT-001];
+      ergänzt um die restlichen vier Plan.md-§10.3-Felder: `data_feed`, `data_fetched_at`
+      [Abrufzeit], `data_exchange_time` [Exchange-Zeit], `data_quality_status` — deckt jetzt alle
+      sechs geforderten Felder ab. Bewusst als reine Datenfelder ohne Mapping-Hilfsfunktion, damit
+      `domain.py` sein bestehendes Muster [„reine, IO-freie Datencontainer", keine Funktionen]
+      nicht bricht; `stockbot/core/market_data.py::Quote` trägt dieselben Provider-/Feed-/
+      Zeit-Felder bereits auf Roh-Quote-Ebene [DATA-003]. Wie der Rest von `domain.py` noch NICHT
+      an eine DB gebunden und von keinem Live-Codepfad genutzt — das ist der dokumentierte,
+      bereits bekannte nächste Schritt für das gesamte Domänenmodell, kein neuer Rückstand dieses
+      Punkts.)
 - [ ] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
 - [ ] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
 

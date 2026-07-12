@@ -161,7 +161,10 @@ class SignalCandidate:
 @dataclass(frozen=True)
 class Signal:
     """Moduskennzeichnung Pflicht (RES-002). `status` folgt der Zustandsmaschine in
-    Plan.md §9.3."""
+    Plan.md §9.3. `data_*`-Felder decken Plan.md §10.3 „Datenherkunft je Berechnung speichern"
+    (DATA-005) vollständig ab: Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion,
+    Qualitätsstatus — siehe `stockbot/core/market_data.py::Quote` für dieselben Provider-/Feed-/
+    Zeit-Felder auf Roh-Quote-Ebene (DATA-003)."""
     id: int | None
     strategy_version_id: int
     ticker: str
@@ -170,7 +173,11 @@ class Signal:
     status: SignalStatus = SignalStatus.GENERATED
     candidate_id: int | None = None
     data_provider: str | None = None
+    data_feed: str | None = None
+    data_fetched_at: str | None = None
+    data_exchange_time: str | None = None
     data_version: str | None = None
+    data_quality_status: str | None = None
     generated_at: str | None = None
     published_at: str | None = None
     expires_at: str | None = None

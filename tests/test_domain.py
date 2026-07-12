@@ -92,6 +92,33 @@ def test_signal_and_order_and_position_default_to_initial_status():
     assert position.status is domain.PositionStatus.PENDING_OPEN
 
 
+def test_signal_has_all_data_provenance_fields_from_plan_section_10_3():
+    """DATA-005 „Datenherkunft je Berechnung speichern": Provider, Feed, Abrufzeit,
+    Exchange-Zeit, Datenversion, Qualitätsstatus."""
+    signal = domain.Signal(
+        id=None, strategy_version_id=1, ticker="AAPL", direction="long", mode=domain.Mode.PAPER,
+        data_provider="yfinance_research", data_feed="delayed",
+        data_fetched_at="2026-07-11T15:35:00Z", data_exchange_time="2026-07-11T15:34:58Z",
+        data_version="2026-07-11", data_quality_status="ok",
+    )
+    for name in ("data_provider", "data_feed", "data_fetched_at", "data_exchange_time",
+                "data_version", "data_quality_status"):
+        assert hasattr(signal, name)
+    assert signal.data_provider == "yfinance_research"
+    assert signal.data_quality_status == "ok"
+
+
+def test_signal_data_provenance_fields_default_to_none():
+    signal = domain.Signal(id=None, strategy_version_id=1, ticker="AAPL",
+                           direction="long", mode=domain.Mode.PAPER)
+    assert signal.data_provider is None
+    assert signal.data_feed is None
+    assert signal.data_fetched_at is None
+    assert signal.data_exchange_time is None
+    assert signal.data_version is None
+    assert signal.data_quality_status is None
+
+
 def test_strategy_version_is_frozen_and_immutable():
     sv = domain.StrategyVersion(id=1, strategy_id=1, version=1, release_status="live")
     try:
