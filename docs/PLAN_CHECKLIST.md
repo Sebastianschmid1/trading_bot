@@ -251,14 +251,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       jetzt zusätzlich Signal gültig/nicht abgelaufen [`signal_status`/`signal_expires_at`],
       Strategie erlaubt [`strategy_key`/`allowed_strategies`, leere Liste blockiert nichts —
       RiskProfile-Default], Markt offen [DATA-002], Quote frisch/Spread [DATA-004, delegiert an
-      `data_quality.check_quote_age`/`check_spread`] und Liquidität [`average_dollar_volume`/
-      `min_average_dollar_volume`] — feste Reihenfolge nach Plan.md §11.3, jeder Check optional
-      [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei;
-      neue Tests in `tests/test_risk.py`. Noch offen: Tagesverlustlimit/max Positionen/bestehende
-      Ticker-Position/Exposure-Sektor [RISK-004/RISK-005, brauchen eine Live-Kontoabfrage —
-      offene Positionen/Tages-P&L —, die den bislang reinen IO-freien Charakter dieses Seams
-      sprengen würde], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert,
-      ist aber noch nicht in `pretrade_check` verdrahtet], Buying Power/Brokerstatus [Live-
+      `data_quality.check_quote_age`/`check_spread`], Liquidität [`average_dollar_volume`/
+      `min_average_dollar_volume`], Tagesverlustlimit [RISK-004, delegiert an
+      `daily_loss_limit.check_daily_loss_limit`], max Positionen [`open_position_count` vs.
+      `risk_profile.max_open_positions`] und bestehende Ticker-Position
+      [`has_existing_ticker_position`] — feste Reihenfolge nach Plan.md §11.3, jeder Check
+      optional [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin
+      broker-/IO-frei; neue Tests in `tests/test_risk.py`. Noch offen: Exposure-Sektor
+      [RISK-005, `exposure.evaluate_exposure` existiert bereits als Seam, aber noch nicht in
+      `pretrade_check` verdrahtet — braucht eine Liste offener Positionen inkl. Sektor/
+      Korrelation], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert, ist
+      aber noch nicht in `pretrade_check` verdrahtet], Buying Power/Brokerstatus [Live-
       Broker-Abfrage]. Noch von KEINEM Live-Codepfad genutzt.)
 - [x] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
       (`stockbot/core/daily_loss_limit.py::check_daily_loss_limit` — reine, zustandslose

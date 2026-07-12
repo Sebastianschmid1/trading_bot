@@ -6,9 +6,9 @@ Position ein. Sie bündelt die harten Sicherheits-Invarianten, die schon andersw
 werden (globaler Live-Kill-Switch, Hebel-Deckel, Optionsverbot), an einer reproduzierbaren
 Stelle. Phase 3 (RISK-003) erweitert sie schrittweise um das volle Risikomodell — bislang
 Signal gültig/nicht abgelaufen, Strategie erlaubt, Markt-offen (DATA-002), Quote-Frische/Spread
-(DATA-004), Liquidität, Tagesverlustlimit (RISK-004); max Positionen/Exposure-Sektor/Sizing/
-Buying-Power/Brokerstatus (RISK-005/RISK-002-Integration) folgen als eigene Schritte, sobald die
-dafür nötige Live-Kontoabfrage angebunden ist.
+(DATA-004), Liquidität, Tagesverlustlimit (RISK-004), max Positionen, bestehende
+Ticker-Position; Exposure-Sektor/Sizing/Buying-Power/Brokerstatus (RISK-005/RISK-002-Integration)
+folgen als eigene Schritte, sobald die dafür nötige Live-Kontoabfrage angebunden ist.
 
 Bewusst broker-/IO-frei und rein — nur Config + übergebene Werte, damit sie gut testbar ist und
 identisch für Telegram- und Web-Pfad gilt. Sie ENTSCHEIDET, führt aber selbst keine Order aus.
@@ -46,6 +46,7 @@ def pretrade_check(
     average_dollar_volume: float | None = None, min_average_dollar_volume: float | None = None,
     realized_pnl_today: float | None = None, account_value: float | None = None,
     risk_profile: RiskProfile | None = None,
+    open_position_count: int | None = None, has_existing_ticker_position: bool | None = None,
     now: datetime | None = None,
 ) -> RiskDecision:
     """Prüft die Pre-Trade-Invarianten für eine NEUE Position, in fester Reihenfolge
@@ -65,12 +66,16 @@ def pretrade_check(
          `min_average_dollar_volume` übergeben wurden),
      10. Tagesverlustlimit (nur geprüft, wenn `realized_pnl_today`+`account_value`+
          `risk_profile` übergeben wurden — der heutige REALISIERTE Tages-P&L ist eine
-         Live-Kontoabfrage, die der Aufrufer selbst ermitteln und übergeben muss).
+         Live-Kontoabfrage, die der Aufrufer selbst ermitteln und übergeben muss),
+     11. maximale Positionen (nur geprüft, wenn `open_position_count`+`risk_profile`
+         übergeben wurden),
+     12. bestehende Ticker-Position (nur geprüft, wenn `has_existing_ticker_position`
+         übergeben wurde — verhindert eine zweite offene Position im selben Ticker).
 
-    Max Positionen/bestehende Ticker-Position/Exposure-Sektor/Sizing/Buying-Power/Brokerstatus
-    (RISK-005/RISK-002-Integration) sind noch NICHT Teil dieser Funktion — sie brauchen eine
-    Live-Kontoabfrage (offene Positionen, Buying Power), die den bislang reinen IO-freien
-    Charakter dieses Seams sprengen würde; sie folgen als eigene, separate Schritte.
+    Exposure-Sektor/Sizing/Buying-Power/Brokerstatus (RISK-005/RISK-002-Integration) sind noch
+    NICHT Teil dieser Funktion — sie brauchen eine Live-Kontoabfrage (offene Positionen inkl.
+    Sektor/Korrelation, Buying Power), die den bislang reinen IO-freien Charakter dieses Seams
+    sprengen würde; sie folgen als eigene, separate Schritte.
 
     Schutz-Exits (Verkäufe/Positionsschließungen) laufen NICHT über diese Funktion — sie bleiben
     erlaubt (vgl. Konzept §17.4).
@@ -117,4 +122,14 @@ def pretrade_check(
             risk_profile=risk_profile)
         if not d.ok:
             return RiskDecision(False, d.reason, d.code)
+    if open_position_count is not None and risk_profile is not None:
+        if open_position_count >= risk_profile.max_open_positions:
+            return RiskDecision(
+                False,
+                f"Maximale Anzahl offener Positionen erreicht "
+                f"({open_position_count}/{risk_profile.max_open_positions}).",
+                "max_positions_reached")
+    if has_existing_ticker_position:
+        return RiskDecision(
+            False, "Für diesen Ticker ist bereits eine Position offen.", "ticker_position_exists")
     return _ALLOW

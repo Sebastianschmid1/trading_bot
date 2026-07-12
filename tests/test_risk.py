@@ -185,3 +185,37 @@ def test_liquidity_wins_over_daily_loss_limit():
         average_dollar_volume=50_000, min_average_dollar_volume=100_000,
         realized_pnl_today=-200.0, account_value=10_000.0, risk_profile=profile)
     assert d.ok is False and d.code == "liquidity_low"
+
+
+# ── RISK-003: max Positionen, bestehende Ticker-Position ────────────────────
+
+def test_blocks_when_max_positions_reached():
+    profile = RiskProfile(user_id=1, max_open_positions=5)
+    d = risk.pretrade_check(open_position_count=5, risk_profile=profile)
+    assert d.ok is False and d.code == "max_positions_reached"
+
+
+def test_allows_when_below_max_positions():
+    profile = RiskProfile(user_id=1, max_open_positions=5)
+    assert risk.pretrade_check(open_position_count=4, risk_profile=profile).ok is True
+
+
+def test_max_positions_check_skipped_when_not_provided():
+    assert risk.pretrade_check().ok is True
+
+
+def test_blocks_when_ticker_position_already_exists():
+    d = risk.pretrade_check(has_existing_ticker_position=True)
+    assert d.ok is False and d.code == "ticker_position_exists"
+
+
+def test_allows_when_no_existing_ticker_position():
+    assert risk.pretrade_check(has_existing_ticker_position=False).ok is True
+
+
+def test_daily_loss_limit_wins_over_max_positions():
+    profile = RiskProfile(user_id=1, daily_loss_limit_pct=1.0, max_open_positions=5)
+    d = risk.pretrade_check(
+        realized_pnl_today=-200.0, account_value=10_000.0, risk_profile=profile,
+        open_position_count=5)
+    assert d.ok is False and d.code == "daily_loss_limit_reached"
