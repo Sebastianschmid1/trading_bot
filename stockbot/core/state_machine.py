@@ -29,11 +29,24 @@ Ein Cancel-Request kann mit einem in-flight Fill kollidieren: der Broker füllt
 (teilweise) noch, bevor die Stornierung wirksam wird — daher erlaubt
 `cancel_requested` auch `partially_filled`/`filled`, nicht nur `cancelled`.
 Terminal: filled, cancelled, rejected, expired.
+
+## Position (Plan.md §9.3)
+
+    pending_open  -> {open, reconciliation_required}
+    open          -> {pending_close, reconciliation_required}
+    pending_close -> {closed, reconciliation_required}
+    reconciliation_required -> {open, closed}
+
+`reconciliation_required` ist kein normaler Zwischenschritt, sondern der
+Abzweig für jede Phase, in der lokaler und Broker-Zustand auseinanderlaufen
+(Reconciliation, Phase 4/OMS-007) — von dort aus wird nach Klärung entweder
+`open` (Position besteht doch) oder `closed` (Position ist tatsächlich zu)
+gesetzt. Terminal: closed.
 """
 
 from __future__ import annotations
 
-from stockbot.core.domain import OrderStatus, SignalStatus
+from stockbot.core.domain import OrderStatus, PositionStatus, SignalStatus
 
 SIGNAL_TRANSITIONS: dict[SignalStatus, frozenset[SignalStatus]] = {
     SignalStatus.GENERATED: frozenset({SignalStatus.FILTERED}),
@@ -99,4 +112,34 @@ def assert_order_transition(from_status: OrderStatus, to_status: OrderStatus) ->
     if not order_transition_allowed(from_status, to_status):
         raise ValueError(
             f"Ungültiger Order-Übergang: {from_status.value} -> {to_status.value}"
+        )
+
+
+POSITION_TRANSITIONS: dict[PositionStatus, frozenset[PositionStatus]] = {
+    PositionStatus.PENDING_OPEN: frozenset({
+        PositionStatus.OPEN, PositionStatus.RECONCILIATION_REQUIRED,
+    }),
+    PositionStatus.OPEN: frozenset({
+        PositionStatus.PENDING_CLOSE, PositionStatus.RECONCILIATION_REQUIRED,
+    }),
+    PositionStatus.PENDING_CLOSE: frozenset({
+        PositionStatus.CLOSED, PositionStatus.RECONCILIATION_REQUIRED,
+    }),
+    PositionStatus.RECONCILIATION_REQUIRED: frozenset({
+        PositionStatus.OPEN, PositionStatus.CLOSED,
+    }),
+    PositionStatus.CLOSED: frozenset(),
+}
+
+
+def position_transition_allowed(from_status: PositionStatus, to_status: PositionStatus) -> bool:
+    """True, wenn `from_status -> to_status` in der Position-Zustandsmaschine erlaubt ist."""
+    return to_status in POSITION_TRANSITIONS.get(from_status, frozenset())
+
+
+def assert_position_transition(from_status: PositionStatus, to_status: PositionStatus) -> None:
+    """Wirft `ValueError` bei einem ungültigen Position-Übergang."""
+    if not position_transition_allowed(from_status, to_status):
+        raise ValueError(
+            f"Ungültiger Position-Übergang: {from_status.value} -> {to_status.value}"
         )

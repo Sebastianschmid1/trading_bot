@@ -92,7 +92,10 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`stockbot/core/state_machine.py::order_transition_allowed`/`assert_order_transition`;
       `cancel_requested` erlaubt zusätzlich `partially_filled`/`filled`, weil ein Fill in-flight
       sein kann, bevor die Stornierung beim Broker wirksam wird.)
-- [ ] Zustandsmaschine **Position** (pending_open→open→pending_close→closed / reconciliation_required)
+- [x] Zustandsmaschine **Position** (pending_open→open→pending_close→closed / reconciliation_required)
+      (`stockbot/core/state_machine.py::position_transition_allowed`/`assert_position_transition`;
+      `reconciliation_required` ist von `pending_open`/`open`/`pending_close` aus erreichbar und
+      löst sich nach Klärung zu `open` oder `closed` auf, statt ein eigener linearer Schritt zu sein.)
 - [ ] Zentrale Validierung: ungültige Zustandsübergänge werden abgelehnt
 - [ ] **PLAT-002** Audit-Log append-only (Event-ID, Timestamp, User, Actor, Entity-Typ/-ID, Aktion, alt/neu, Trace-ID, Quellkanal, Metadaten)
 

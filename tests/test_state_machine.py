@@ -4,11 +4,13 @@ Tests für die Signal-Zustandsmaschine (Phase 1, stockbot/core/state_machine.py,
 
 import pytest
 
-from stockbot.core.domain import OrderStatus, SignalStatus
+from stockbot.core.domain import OrderStatus, PositionStatus, SignalStatus
 from stockbot.core.state_machine import (
     assert_order_transition,
+    assert_position_transition,
     assert_signal_transition,
     order_transition_allowed,
+    position_transition_allowed,
     signal_transition_allowed,
 )
 
@@ -112,3 +114,46 @@ def test_assert_invalid_order_transition_raises_value_error():
 def test_every_order_status_has_an_explicit_transition_entry():
     from stockbot.core.state_machine import ORDER_TRANSITIONS
     assert set(ORDER_TRANSITIONS.keys()) == set(OrderStatus)
+
+
+VALID_POSITION_TRANSITIONS = [
+    (PositionStatus.PENDING_OPEN, PositionStatus.OPEN),
+    (PositionStatus.PENDING_OPEN, PositionStatus.RECONCILIATION_REQUIRED),
+    (PositionStatus.OPEN, PositionStatus.PENDING_CLOSE),
+    (PositionStatus.OPEN, PositionStatus.RECONCILIATION_REQUIRED),
+    (PositionStatus.PENDING_CLOSE, PositionStatus.CLOSED),
+    (PositionStatus.PENDING_CLOSE, PositionStatus.RECONCILIATION_REQUIRED),
+    (PositionStatus.RECONCILIATION_REQUIRED, PositionStatus.OPEN),
+    (PositionStatus.RECONCILIATION_REQUIRED, PositionStatus.CLOSED),
+]
+
+
+@pytest.mark.parametrize("from_status,to_status", VALID_POSITION_TRANSITIONS)
+def test_valid_position_transitions_allowed(from_status, to_status):
+    assert position_transition_allowed(from_status, to_status) is True
+    assert_position_transition(from_status, to_status)      # wirft nicht
+
+
+def test_position_terminal_state_allows_no_further_transition():
+    for target in PositionStatus:
+        assert position_transition_allowed(PositionStatus.CLOSED, target) is False
+
+
+def test_position_cannot_skip_pending_open_to_pending_close():
+    assert position_transition_allowed(
+        PositionStatus.PENDING_OPEN, PositionStatus.PENDING_CLOSE
+    ) is False
+
+
+def test_position_cannot_reopen_from_closed():
+    assert position_transition_allowed(PositionStatus.CLOSED, PositionStatus.OPEN) is False
+
+
+def test_assert_invalid_position_transition_raises_value_error():
+    with pytest.raises(ValueError, match="Ungültiger Position-Übergang"):
+        assert_position_transition(PositionStatus.PENDING_OPEN, PositionStatus.CLOSED)
+
+
+def test_every_position_status_has_an_explicit_transition_entry():
+    from stockbot.core.state_machine import POSITION_TRANSITIONS
+    assert set(POSITION_TRANSITIONS.keys()) == set(PositionStatus)
