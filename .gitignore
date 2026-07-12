@@ -15,3 +15,5 @@ docs/context_export*.json
 *csv
 # Strategie-Labor: Laufzeit-Zustand (state/pending/hypotheses) nicht versionieren
 data/lab/
+# Rohdatenarchiv (Parquet-Snapshots, Laufzeit-Cache) nicht versionieren
+data/raw_archive/
