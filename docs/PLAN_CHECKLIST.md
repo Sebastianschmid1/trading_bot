@@ -140,9 +140,13 @@ Ziel: Belastbares Zustands- und Datenmodell.
       synchron sind. Toleranzfenster [`_SESSION_FIRE_WINDOW_MIN`] verhindert Nachfeuern Stunden nach
       einem Neustart. `SMARTMONEY_SCAN_HOUR`/`BROKER_RECONCILE_HOUR`/`LAB_DAILY_HOUR` bleiben bewusst
       auf fester Berlin-Zeit [nicht direkt session-gated bzw. bereits intern über `_us_market_open`
-      abgesichert — geringeres Risiko]. Noch offen: „Entry-Sperre relativ zum Close" [keine neuen
-      Positionen kurz vor Handelsschluss, Gate P2: „keine Intraday-Position nach Entry-Cutoff"] und
-      „Reports separat in Europe/Berlin" [Berlin-Zeit explizit auf Reports/Dashboards kennzeichnen].)
+      abgesichert — geringeres Risiko]. Außerdem „Entry-Sperre relativ zum Close" (Plan.md §10.1,
+      Gate P2 „keine Intraday-Position nach Entry-Cutoff") umgesetzt: `exchange_calendar.
+      is_past_entry_cutoff` + `ENTRY_CUTOFF_BEFORE_CLOSE_MIN` [Default 15 Min.] zentral in
+      `services/trades.py::accept_trade` — gilt für Telegram-Auto-Accept, Telegram-Button-Accept UND
+      Web gleichermaßen [ein Seam für beide Kanäle]; betrifft nur neue Einstiege, nie Schutz-Exits.
+      Noch offen: „Reports separat in Europe/Berlin" [Berlin-Zeit explizit auf Reports/Dashboards
+      kennzeichnen].)
 - [ ] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
 - [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)

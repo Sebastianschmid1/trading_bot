@@ -95,3 +95,19 @@ def test_is_early_close_false_on_regular_session():
 
 def test_is_early_close_false_on_non_trading_day():
     assert cal.is_early_close(SATURDAY) is False
+
+
+def test_is_past_entry_cutoff_true_shortly_before_close():
+    close_ts = cal.market_close(FRIDAY)
+    ten_min_before_close = close_ts - timedelta(minutes=10)
+    assert cal.is_past_entry_cutoff(15, ten_min_before_close) is True
+
+
+def test_is_past_entry_cutoff_false_with_enough_time_left():
+    close_ts = cal.market_close(FRIDAY)
+    thirty_min_before_close = close_ts - timedelta(minutes=30)
+    assert cal.is_past_entry_cutoff(15, thirty_min_before_close) is False
+
+
+def test_is_past_entry_cutoff_false_when_market_closed():
+    assert cal.is_past_entry_cutoff(15, SATURDAY.replace(hour=15)) is False

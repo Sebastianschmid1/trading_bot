@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from stockbot.core import db
+from stockbot.core import exchange_calendar
 from stockbot.market import lookup
 from stockbot.ai import llm_ranker
 from stockbot.services import trades as trade_svc
@@ -19,6 +20,19 @@ from stockbot.services import settings as settings_svc
 from stockbot.services import watchlist as watchlist_svc
 
 CHAT = 7788
+
+_orig_is_past_entry_cutoff = exchange_calendar.is_past_entry_cutoff
+
+
+def setup_module(module):
+    # Alle Tests hier außer test_accept_trade_blocked_by_entry_cutoff testen NICHT die Entry-Sperre
+    # (DATA-002) — ohne Patch würden accept_trade-Aufrufe vom echten Ausführungszeitpunkt abhängen
+    # (selten, aber theoretisch flaky kurz vor NYSE-Handelsschluss).
+    exchange_calendar.is_past_entry_cutoff = lambda *a, **k: False
+
+
+def teardown_module(module):
+    exchange_calendar.is_past_entry_cutoff = _orig_is_past_entry_cutoff
 
 
 class _FakeYF:
@@ -62,6 +76,20 @@ def test_accept_and_reject_trade():
     _pending("AAPL")
     assert trade_svc.reject_trade(CHAT, "AAPL") is True
     assert trade_svc.reject_trade(CHAT, "AAPL") is False     # schon abgelehnt
+
+
+def test_accept_trade_blocked_by_entry_cutoff():
+    """DATA-002 / Plan.md §10.1 „Entry-Sperre relativ zum Close": kurz vor Handelsschluss
+    keine neue Position — zentral in accept_trade, gilt für Telegram- UND Web-Pfad gleich."""
+    fresh_db()
+    _pending("NVDA")
+    exchange_calendar.is_past_entry_cutoff = lambda *a, **k: True
+    try:
+        res = trade_svc.accept_trade(CHAT, "NVDA")
+    finally:
+        exchange_calendar.is_past_entry_cutoff = lambda *a, **k: False    # Modul-Default (setup_module)
+    assert res == {"ok": False, "reason": "entry_cutoff"}
+    assert db.get_trade(CHAT, "NVDA")["status"] == "pending"              # unverändert, noch annehmbar
 
 
 def test_accept_trade_can_wait_for_broker_fill_before_becoming_active():
@@ -253,6 +281,7 @@ def test_remove_from_watchlist():
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────
 
 if __name__ == "__main__":
+    setup_module(None)
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]
     passed = failed = 0
@@ -267,5 +296,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"💥 {name}: {type(e).__name__}: {e}")
             failed += 1
+    teardown_module(None)
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

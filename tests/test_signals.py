@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from stockbot.core import db
+from stockbot.core import exchange_calendar
 from stockbot.tgbot import bot
 
 CHAT = 4242
@@ -310,7 +311,9 @@ def test_auto_accept_is_silent_and_sends_one_daily_report():
     db.set_auto_accept(CHAT, True)
 
     o_open, o_eval = bot._us_market_open, bot.evaluate_trades
+    o_cutoff = exchange_calendar.is_past_entry_cutoff
     bot._us_market_open = lambda extended=None: True
+    exchange_calendar.is_past_entry_cutoff = lambda *a, **k: False  # weit vor Handelsschluss
     try:
         # 1) Auto-Accept-Kauf: KEINE Einzelmeldung, Trade wird aber aktiv angelegt
         b = fake_bot()
@@ -334,6 +337,31 @@ def test_auto_accept_is_silent_and_sends_one_daily_report():
         assert "NVDA" in text
     finally:
         bot._us_market_open, bot.evaluate_trades = o_open, o_eval
+        exchange_calendar.is_past_entry_cutoff = o_cutoff
+
+
+def test_auto_accept_skips_activation_within_entry_cutoff():
+    """DATA-002 / Plan.md §10.1 „Entry-Sperre relativ zum Close": Auto-Accept legt kurz vor
+    Handelsschluss KEINE neue Position mehr an (send_signal läuft trotzdem durch, Duplikat-
+    Schutz für den Tag bleibt aber aus, da nie aktiviert wurde)."""
+    fresh_db()
+    db.get_or_create_user(CHAT, "u")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_auto_accept(CHAT, True)
+
+    o_open, o_cutoff = bot._us_market_open, exchange_calendar.is_past_entry_cutoff
+    bot._us_market_open = lambda extended=None: True
+    exchange_calendar.is_past_entry_cutoff = lambda *a, **k: True   # kurz vor Handelsschluss
+    try:
+        b = fake_bot()
+        sent = asyncio.run(bot.send_signal(b, CHAT, make_signal("NVDA", 100.0), 25.0,
+                                           market_open=True, auto_accept=True))
+        assert sent is True
+        assert b.send_message.await_count == 0
+        assert db.get_trade(CHAT, "NVDA")["status"] == "pending"    # NICHT aktiviert
+    finally:
+        bot._us_market_open = o_open
+        exchange_calendar.is_past_entry_cutoff = o_cutoff
 
 
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────

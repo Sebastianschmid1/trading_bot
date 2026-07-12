@@ -56,6 +56,7 @@ from stockbot.config import (
     LAB_DAILY_OPTIMIZATION, LAB_DAILY_DAYS, LAB_DAILY_HOUR, LAB_DAILY_MIN,
     BROKER_RECONCILE_HOUR, BROKER_RECONCILE_MIN,
     SIGNAL_OPEN_OFFSET_MIN, CLOSE_AFTER_CLOSE_OFFSET_MIN, SESSION_TICK_INTERVAL_SEC,
+    ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
@@ -643,11 +644,14 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         db.add_pending(chat_id, sig, 0)
         user = db.get_user(chat_id) or {}
         broker_will_execute = bool(user.get("broker_exec") and _alpaca_ready(user) and _alpaca_client(user) is not None)
-        trade = db.activate_trade(chat_id, ticker, status="broker_pending" if broker_will_execute else "active")
-        if trade:
+        result = trade_svc.accept_trade(chat_id, ticker, status="broker_pending" if broker_will_execute else "active")
+        if result["ok"]:
+            trade = result["trade"]
             await asyncio.to_thread(_attach_demo_option, user, trade)
             await _maybe_broker_order(bot, chat_id, trade)
-        log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
+            log.info(f"[{chat_id}] Auto-Accept Signal gestartet: {ticker} ({leverage:g}×)")
+        elif result["reason"] == "entry_cutoff":
+            log.info(f"[{chat_id}] Auto-Accept übersprungen (Entry-Sperre kurz vor Handelsschluss): {ticker}")
         return True
 
     text, keyboard = _signal_card(sig, trade_size_eur, market_open, expiry_min)
@@ -2148,6 +2152,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer(
                 f"⏰ Zeitfenster abgelaufen — Start ist nur innerhalb von "
                 f"{TRADE_ACTIVATION_WINDOW_MIN} Minuten möglich.",
+                show_alert=True
+            )
+        elif result["reason"] == "entry_cutoff":
+            await query.answer(
+                f"🔒 Kein neuer Einstieg mehr — weniger als {ENTRY_CUTOFF_BEFORE_CLOSE_MIN} Minuten "
+                f"bis Handelsschluss.",
                 show_alert=True
             )
         else:

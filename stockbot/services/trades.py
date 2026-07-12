@@ -7,8 +7,9 @@ etwaige Broker-Ausführung anhand des zurückgegebenen Ergebnisses.
 """
 
 from stockbot.core import db
+from stockbot.core import exchange_calendar
 from stockbot.core.evaluator import get_current_price, trade_pnl
-from stockbot.config import DEFAULT_LEVERAGE
+from stockbot.config import DEFAULT_LEVERAGE, ENTRY_CUTOFF_BEFORE_CLOSE_MIN
 
 
 def accept_signal(user_id: int, signal: dict) -> dict:
@@ -35,8 +36,14 @@ def accept_trade(user_id: int, ticker: str, *, status: str = "active") -> dict:
     Standard: pending → active (Demo-Modus). Bei echter Broker-Ausführung nutzt der Aufrufer
     `status='broker_pending'`; der Trade wird erst nach Alpaca-Fill zu `active`.
 
-    Rückgabe: {"ok": True, "trade": …} oder {"ok": False, "reason": "expired"|"unavailable"}.
+    Rückgabe: {"ok": True, "trade": …} oder
+    {"ok": False, "reason": "expired"|"unavailable"|"entry_cutoff"}.
     """
+    # Plan.md §10.1 „Entry-Sperre relativ zum Close" (DATA-002): kurz vor Handelsschluss keine
+    # NEUEN Positionen mehr — zentral hier, damit Telegram- UND Web-Pfad gleichermaßen gelten
+    # (Auto-Accept in bot.py läuft ebenfalls über diese Funktion).
+    if exchange_calendar.is_past_entry_cutoff(ENTRY_CUTOFF_BEFORE_CLOSE_MIN):
+        return {"ok": False, "reason": "entry_cutoff"}
     trade = db.activate_trade(user_id, ticker, status=status)
     if trade:
         return {"ok": True, "trade": trade}

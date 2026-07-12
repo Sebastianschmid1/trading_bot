@@ -96,6 +96,20 @@ def minutes_to_close(
     return (close_ts - at).total_seconds() / 60.0
 
 
+def is_past_entry_cutoff(
+    cutoff_minutes: float, at: datetime | None = None, exchange: str = DEFAULT_EXCHANGE
+) -> bool:
+    """True, wenn der Markt offen ist, aber weniger als `cutoff_minutes` bis Handelsschluss
+    verbleiben — dann sollten keine NEUEN Positionen mehr eröffnet werden (Plan.md §10.1
+    „Entry-Sperre relativ zum Close", DATA-002). False, wenn der Markt gerade geschlossen ist
+    (dafür gilt die separate `is_market_open`-Prüfung) oder noch genug Zeit bis Handelsschluss
+    verbleibt."""
+    remaining = minutes_to_close(at, exchange)
+    if remaining is None:
+        return False
+    return remaining < cutoff_minutes
+
+
 def is_early_close(date, exchange: str = DEFAULT_EXCHANGE) -> bool:
     """True, wenn der Handelstag von `date` ein Frühschluss ist (z. B. Tag nach Thanksgiving).
 

@@ -535,6 +535,8 @@ async def app_scan_accept(request: Request, ticker: str = Form(...)):
         broker_res = await run_in_threadpool(_execute_broker_order_for_web, user, trade) if trade else {"status": "unavailable"}
         msg = broker_res.get("msg") or f"{ticker} gestartet."
         status = broker_res.get("status") or "accepted"
+    elif res.get("reason") == "entry_cutoff":
+        msg, status = "Kein neuer Einstieg mehr — zu kurz vor Handelsschluss.", "entry_cutoff"
     else:
         msg, status = f"{ticker} heute bereits gehandelt.", "unavailable"
     if _wants_json(request):
@@ -556,6 +558,8 @@ async def app_accept(request: Request, ticker: str = Form(...)):
         status = broker_res.get("status") or ("broker_pending" if broker_status == "broker_pending" else "accepted")
     elif res.get("reason") == "expired":
         msg, status = "Zeitfenster abgelaufen.", "expired"
+    elif res.get("reason") == "entry_cutoff":
+        msg, status = "Kein neuer Einstieg mehr — zu kurz vor Handelsschluss.", "entry_cutoff"
     else:
         msg, status = "Trade nicht mehr verfügbar.", "unavailable"
     if _wants_json(request):
