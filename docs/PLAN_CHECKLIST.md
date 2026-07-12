@@ -60,25 +60,31 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 
 Ziel: Belastbares Zustands- und Datenmodell.
 
-- [~] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
-      (Tooling steht: `docker-compose.yml` für lokales Postgres, `alembic.ini`/`migrations/`
-      mit initialer Schema-Migration [Spiegel von `docs/DB_SCHEMA_SQLITE.md`, 7 Tabellen] und
-      `stockbot/core/db_pool.py` [SQLAlchemy-Connection-Pool + `session_scope`-Transaktionsgrenze],
-      getestet gegen SQLite in `tests/test_migrations.py`/`tests/test_db_pool.py`. Modul wird von
-      keinem Live-Codepfad genutzt — SQLite bleibt bis zum dokumentierten Cutover Quelle der
-      Wahrheit. Reststand: echtes Staging-Provisioning + Domänenobjekte + Datenmigration/Cutover
-      sind eigene, spätere Checklisten-Punkte.)
+- [!] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
+      (Lokaler Teil erledigt + verifiziert: `docker-compose.yml` für lokales Postgres,
+      `alembic.ini`/`migrations/` mit initialer Schema-Migration [Spiegel von
+      `docs/DB_SCHEMA_SQLITE.md`, 7 Tabellen] und `stockbot/core/db_pool.py`
+      [SQLAlchemy-Connection-Pool + `session_scope`-Transaktionsgrenze]; `tests/test_migrations.py`/
+      `tests/test_db_pool.py` laufen sowohl gegen SQLite als auch — wenn erreichbar — gegen ein
+      echtes lokales PostgreSQL unter `config.POSTGRES_DSN` [übersprungen, wenn keins läuft].
+      Modul wird von keinem Live-Codepfad genutzt — SQLite bleibt bis zum dokumentierten Cutover
+      Quelle der Wahrheit. Blockiert: eine echte Staging-Instanz [persistenter Server außerhalb
+      dieser Sandbox] bereitzustellen ist eine Infra-/Ops-Entscheidung, die ein Mensch mit
+      VPS-/Hosting-Zugriff treffen und ausführen muss — kein Code-Task und durch die
+      Kein-Deploy-Leitplanke dieser Session dauerhaft ausgeschlossen.)
 - [x] **PLAT-001** Bestehendes SQLite-Schema dokumentieren + einfrieren; read-only Export aufbewahren
       (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
       `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen
       als JSON für den späteren Zeilen/Summen-Vergleich nach der Postgres-Migration.)
-- [~] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
+- [!] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
       (`stockbot/core/db_migrate.py` schreibt einen `db_export`-Snapshot in eine per Alembic
       angelegte Zielengine und vergleicht danach Zeilenzahlen + Summen je Tabelle
-      [`tests/test_db_migrate.py`, Testmigration gegen eine Kopie, kein Live-DB-Zugriff].
-      Reststand: echtes Staging-Postgres befüllen (Schritt 6) + Paper-Laufzeit auf
-      Postgres umstellen [Schritt 7] brauchen eine echte Staging-Instanz und sind ein
-      eigener, späterer Schritt — kein Deploy aus dieser Session.)
+      [`tests/test_db_migrate.py`, Testmigration gegen eine Kopie]. Läuft zusätzlich zur
+      SQLite-Kopie gegen ein echtes lokales PostgreSQL, wenn erreichbar — hat dabei einen
+      echten Treiberunterschied aufgedeckt und fixiert [psycopg2 liefert `BYTEA` als
+      `memoryview`, nicht `bytes`]. Blockiert wie der Punkt darüber: echtes Staging-Postgres
+      befüllen (Schritt 6) + Paper-Laufzeit auf Postgres umstellen [Schritt 7] brauchen eine
+      echte, von einem Menschen bereitgestellte Staging-Instanz — kein Deploy aus dieser Session.)
 - [x] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
       (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;

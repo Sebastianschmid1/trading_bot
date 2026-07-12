@@ -4,12 +4,27 @@ Tests für den PostgreSQL-Connection-Pool (PLAT-001, stockbot/core/db_pool.py).
 Läuft komplett offline gegen eine In-Memory-SQLite-Engine — es wird kein echter
 Postgres-Server benötigt. Prüft nur die Pool-/Transaktions-Mechanik selbst; das
 Modul wird von keinem Live-Codepfad genutzt (siehe Modul-Docstring).
+
+`test_session_scope_*_on_real_postgres` laufen zusätzlich gegen ein echtes lokales
+PostgreSQL (`config.POSTGRES_DSN`) und werden übersprungen, wenn keins erreichbar ist.
 """
 
+import pytest
 from sqlalchemy import Column, Integer, MetaData, Table, Text, create_engine, select
 
 from stockbot import config
 from stockbot.core import db_pool
+
+
+def _postgres_available() -> bool:
+    try:
+        engine = create_engine(config.POSTGRES_DSN, future=True)
+        with engine.connect():
+            pass
+        engine.dispose()
+        return True
+    except Exception:
+        return False
 
 
 def test_build_engine_kwargs_reflects_config(monkeypatch):
@@ -71,3 +86,53 @@ def test_session_scope_rolls_back_on_exception():
     with engine.connect() as conn:
         rows = conn.execute(select(demo)).fetchall()
     assert rows == []
+
+
+@pytest.mark.skipif(
+    not _postgres_available(), reason="kein lokaler Postgres unter POSTGRES_DSN erreichbar"
+)
+def test_session_scope_commits_on_success_on_real_postgres():
+    engine = create_engine(config.POSTGRES_DSN, future=True)
+    metadata = MetaData()
+    demo = Table("pool_test_demo", metadata, Column("id", Integer, primary_key=True), Column("val", Text))
+    metadata.drop_all(engine)
+    metadata.create_all(engine)
+    try:
+        with db_pool.session_scope(engine) as session:
+            session.execute(demo.insert().values(id=1, val="a"))
+
+        with engine.connect() as conn:
+            rows = conn.execute(select(demo)).fetchall()
+        assert rows == [(1, "a")]
+    finally:
+        metadata.drop_all(engine)
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not _postgres_available(), reason="kein lokaler Postgres unter POSTGRES_DSN erreichbar"
+)
+def test_session_scope_rolls_back_on_exception_on_real_postgres():
+    engine = create_engine(config.POSTGRES_DSN, future=True)
+    metadata = MetaData()
+    demo = Table("pool_test_demo_rollback", metadata, Column("id", Integer, primary_key=True), Column("val", Text))
+    metadata.drop_all(engine)
+    metadata.create_all(engine)
+
+    class Boom(Exception):
+        pass
+
+    try:
+        try:
+            with db_pool.session_scope(engine) as session:
+                session.execute(demo.insert().values(id=1, val="a"))
+                raise Boom("kaputt")
+        except Boom:
+            pass
+
+        with engine.connect() as conn:
+            rows = conn.execute(select(demo)).fetchall()
+        assert rows == []
+    finally:
+        metadata.drop_all(engine)
+        engine.dispose()

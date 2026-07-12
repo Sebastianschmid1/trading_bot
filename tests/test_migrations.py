@@ -5,18 +5,37 @@ Führt die initiale Migration gegen eine temporäre SQLite-Datei aus (kein echte
 Postgres-Server nötig) und prüft, dass alle 7 Tabellen aus docs/DB_SCHEMA_SQLITE.md
 angelegt werden. Reine Schema-Prüfung — keine Datenübernahme (folgt als eigener
 späterer Checklisten-Punkt).
+
+`test_upgrade_head_creates_all_tables_on_real_postgres` läuft zusätzlich gegen ein
+echtes lokales PostgreSQL (`config.POSTGRES_DSN`, Default passend zu `docker-compose.yml`)
+— SQLite akzeptiert DDL-Abweichungen (Typen, Server-Defaults), die auf Postgres erst
+auffallen. Wird übersprungen, wenn kein lokaler Postgres erreichbar ist (kein
+Staging-/Produktions-Server — nur lokale Entwicklung, kein Deploy).
 """
 
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
+from stockbot import config
 from stockbot.core import db_export
 from stockbot.paths import PROJECT_ROOT
 
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
+
+
+def _postgres_available() -> bool:
+    try:
+        engine = create_engine(config.POSTGRES_DSN, future=True)
+        with engine.connect():
+            pass
+        engine.dispose()
+        return True
+    except Exception:
+        return False
 
 
 def _alembic_config(sqlite_path: Path) -> Config:
@@ -48,3 +67,25 @@ def test_downgrade_base_drops_all_tables(tmp_path):
     engine = create_engine(f"sqlite:///{sqlite_path}", future=True)
     tables = set(inspect(engine).get_table_names())
     assert not (tables & set(db_export.TABLES))
+
+
+@pytest.mark.skipif(
+    not _postgres_available(), reason="kein lokaler Postgres unter POSTGRES_DSN erreichbar"
+)
+def test_upgrade_head_creates_all_tables_on_real_postgres():
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+    cfg.attributes["sqlalchemy.url"] = config.POSTGRES_DSN
+
+    command.downgrade(cfg, "base")  # sauberer Start, falls ein Vorlauf Tabellen hinterließ
+    try:
+        command.upgrade(cfg, "head")
+        engine = create_engine(config.POSTGRES_DSN, future=True)
+        try:
+            tables = set(inspect(engine).get_table_names())
+            for name in db_export.TABLES:
+                assert name in tables
+        finally:
+            engine.dispose()
+    finally:
+        command.downgrade(cfg, "base")
