@@ -889,6 +889,19 @@ def test_delete_expired_sessions():
 
 # ── Telegram-Login-HMAC ─────────────────────────────────────────────────────
 
+# ── Ablehnungsgründe im UI sichtbar (PLAN_CHECKLIST.md Phase 3) ─────────────
+
+def test_broker_status_label_covers_leverage_blocked():
+    # leverage_blocked wird live gesetzt (webapp.py/bot.py bei TSAFE-002-Ablehnung) —
+    # ohne Label-Eintrag würde die UI nur den rohen Code zeigen statt eines lesbaren Grunds.
+    assert _dashboard.broker_status_label("leverage_blocked") == \
+        "Durch Risikoregel blockiert (Hebel über Maximum)"
+
+
+def test_broker_status_label_falls_back_for_unknown_code():
+    assert _dashboard.broker_status_label("some_new_code") == "Some New Code"
+
+
 def test_verify_telegram_login_valid_and_tampered():
     orig = auth.TELEGRAM_TOKEN
     auth.TELEGRAM_TOKEN = "123:test-bot-token"

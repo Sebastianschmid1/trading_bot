@@ -309,7 +309,21 @@ Ziel: Belastbares Zustands- und Datenmodell.
       der explizite, benannte Gegenpol. Noch NICHT an eine DB gebunden [In-Prozess-State geht bei
       Neustart verloren — persistente Anbindung folgt mit dem Postgres-Cutover] und von KEINEM
       Live-Codepfad genutzt.)
-- [ ] UI für Risikoeinstellungen; Ablehnungsgründe im UI sichtbar
+- [~] UI für Risikoeinstellungen; Ablehnungsgründe im UI sichtbar
+      (Erster Teilschritt „Ablehnungsgründe im UI sichtbar": `stockbot/web/dashboard.py::
+      BROKER_STATUS_LABELS` um bislang fehlende, im Live-Pfad tatsächlich gesetzte Codes
+      ergänzt [`leverage_blocked`, `submit_failed`, `missing_order_id`, `requested`] — vorher
+      fiel z. B. eine TSAFE-002-Hebel-Ablehnung im Trade-Status-Badge auf den unübersetzten
+      Fallback „Leverage Blocked" zurück statt einen lesbaren Grund zu zeigen. Formulierung
+      nach Stylekonzept.md §25.2 [„Durch Risikoregel blockiert" statt Ticket-ID/Fachjargon].
+      Test in `tests/test_webapp.py`. Noch offen: „UI für Risikoeinstellungen" [ein
+      Risk-Profile-Editor braucht laut Stylekonzept.md Style-Phase 4 eine eigene, größere
+      Umsetzung — und eine DB-Anbindung für `domain.RiskProfile`, die es laut PLAT-001 noch
+      nicht gibt; ein Kandidat für den nächsten Teilschritt ist eine schreibgeschützte
+      „Risiko-Parameter"-Karte in `settings.html` mit den aktuellen fest codierten Limits], und
+      die übrigen, noch nicht im Live-Pfad gesetzten `risk.py`-Ablehnungscodes [`signal_invalid`,
+      `strategy_not_allowed`, `liquidity_low` usw. — erst relevant, sobald `pretrade_check`
+      selbst live verdrahtet ist].)
 
 **Gate P3 (Abnahme):**
 - [ ] Keine Order umgeht den Risk Service; gleiche Inputs → gleiche RiskDecision

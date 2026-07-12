@@ -51,6 +51,12 @@ BROKER_STATUS_LABELS = {
     "insufficient_buying_power": "Buying Power zu gering",
     "queued_regular": "Vorgemerkt (wartet auf reguläre Sitzung)",
     "queue_expired": "Vorgemerkt — verfallen (Signal veraltet)",
+    # Ablehnungsgründe im UI sichtbar (PLAN_CHECKLIST.md Phase 3): Terminologie nach
+    # Stylekonzept.md §25.2 ("Durch Risikoregel blockiert" statt Ticket-ID/Fachjargon).
+    "leverage_blocked": "Durch Risikoregel blockiert (Hebel über Maximum)",
+    "submit_failed": "Order konnte nicht gesendet werden",
+    "missing_order_id": "Order ohne Broker-Bestätigung",
+    "requested": "Verkauf angefragt",
 }
 
 TRADE_STATUS_LABELS = {
