@@ -159,7 +159,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Reines, IO-freies Interface nach dem Muster von `exchange_calendar.py`/`domain.py` — noch von
       KEINEM Live-Codepfad genutzt; die Umstellung von `analyzer.py`/`evaluator.py`/`smartmoney.py`/
       `lookup.py`/`db.py` [aktuell direktes `yfinance`] folgt mit den konkreten Implementierungen.)
-- [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
+- [~] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
+      (`YFinanceResearchProvider` erledigt — `stockbot/market/data_providers.py` bündelt die
+      bislang verstreuten `yfinance`-Aufrufe [`Ticker.history`/`fast_info`/`splits`/`dividends`]
+      hinter dem `MarketDataProvider`-Interface; `get_market_status` nutzt den bestehenden
+      Exchange-Kalender statt eigener Zeitfensterlogik. Pull-only — `stream_quotes`/`stream_trades`
+      lehnen bewusst ab [`yfinance` bietet kein Echtzeit-Streaming]. Noch offen:
+      `AlpacaPaperMarketDataProvider` [`alpaca.data.historical.stock.StockHistoricalDataClient`
+      ist bereits über die vorhandene `alpaca-py`-Abhängigkeit verfügbar] und später
+      `LicensedProductionProvider`. Noch von KEINEM Live-Codepfad genutzt.)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
 - [ ] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
 - [ ] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
