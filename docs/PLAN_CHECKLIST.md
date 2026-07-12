@@ -276,8 +276,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Kandidaten, wird der jeweilige Check übersprungen statt fälschlich zu blockieren. Noch
       offen: „Post-Trade: offene Position ohne Schutzorder erkennen" [eigenes, separates Thema]
       und die Verdrahtung in `risk.py::pretrade_check`. Noch von KEINEM Live-Codepfad genutzt.)
-- [ ] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
+- [x] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
       `is_new_position_allowed`, `is_protective_exit_allowed`)
+      (`stockbot/core/kill_switch.py::KillSwitchService` — reiner In-Prozess-Store für
+      `domain.KillSwitch` nach demselben Muster wie `audit_log.py::AuditLog`; alle vier
+      Plan.md-§11.5-Methoden plus `global_status`/`user_status` zum Auslesen. Globaler Kill-Switch
+      blockiert alle Nutzer, User-Kill-Switch nur den betroffenen; `is_new_position_allowed`
+      prüft beide. `is_protective_exit_allowed` liefert bewusst immer `True` [Konzept §17.4:
+      Schutz-Exits bleiben immer erlaubt] — kein Platzhalter für eine künftige Sperre, sondern
+      der explizite, benannte Gegenpol. Noch NICHT an eine DB gebunden [In-Prozess-State geht bei
+      Neustart verloren — persistente Anbindung folgt mit dem Postgres-Cutover] und von KEINEM
+      Live-Codepfad genutzt.)
 - [ ] UI für Risikoeinstellungen; Ablehnungsgründe im UI sichtbar
 
 **Gate P3 (Abnahme):**
