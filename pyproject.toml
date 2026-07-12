@@ -16,6 +16,7 @@ packages = [
     "stockbot.market",
     "stockbot.backtest",
     "stockbot.broker",
+    "stockbot.execution",
     "stockbot.ai",
     "stockbot.tgbot",
     "stockbot.web",

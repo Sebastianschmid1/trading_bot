@@ -147,7 +147,8 @@ def market_open(client=None) -> bool | None:
 
 
 def submit_buy(symbol: str, *, notional: float | None = None, qty: float | None = None,
-               limit_price: float | None = None, extended_hours: bool = False, client=None) -> dict:
+               limit_price: float | None = None, extended_hours: bool = False,
+               client_order_id: str | None = None, client=None) -> dict:
     """Sendet eine (Paper-)Kauforder (long). SL/TP managt der Bot, daher kein Bracket.
 
     - `notional` (USD): Market-DAY-Order über genau diesen Betrag → Bruchteile möglich
@@ -168,12 +169,17 @@ def submit_buy(symbol: str, *, notional: float | None = None, qty: float | None 
         if extended_hours:
             if not (qty and limit_price):
                 return {"ok": False, "detail": "Extended Hours benötigt qty + limit_price."}
-            req = LimitOrderRequest(
+            kwargs = dict(
                 symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
                 limit_price=round(float(limit_price), 2), extended_hours=True)
+            if client_order_id:
+                kwargs["client_order_id"] = client_order_id
+            req = LimitOrderRequest(**kwargs)
             human = f"{symbol} ×{qty:g} Limit/Ext"
         else:
             kwargs = dict(symbol=symbol, side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+            if client_order_id:
+                kwargs["client_order_id"] = client_order_id
             if notional is not None:
                 kwargs["notional"] = round(float(notional), 2)
                 human = f"{symbol} ${kwargs['notional']:.2f} (Bruchteile)"
