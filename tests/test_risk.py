@@ -257,3 +257,34 @@ def test_ticker_position_wins_over_exposure():
         has_existing_ticker_position=True, candidate_notional=2_000.0, account_value=10_000.0,
         risk_profile=profile)
     assert d.ok is False and d.code == "ticker_position_exists"
+
+
+# ── RISK-002: Sizing-Integration in pretrade_check ───────────────────────────
+
+def test_allows_and_attaches_sizing_result():
+    profile = RiskProfile(user_id=1, account_risk_per_trade_pct=1.0, max_position_pct=100.0)
+    d = risk.pretrade_check(
+        entry_price=100.0, stop_price=95.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is True
+    assert d.sizing is not None
+    assert d.sizing.qty == 20.0
+
+
+def test_blocks_on_zero_stop_distance():
+    profile = RiskProfile(user_id=1)
+    d = risk.pretrade_check(
+        entry_price=100.0, stop_price=100.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is False and d.code == "invalid_stop_distance"
+
+
+def test_sizing_check_skipped_when_not_fully_provided():
+    d = risk.pretrade_check(entry_price=100.0, stop_price=95.0)
+    assert d.ok is True and d.sizing is None
+
+
+def test_exposure_wins_over_sizing():
+    profile = RiskProfile(user_id=1, max_position_pct=10.0)
+    d = risk.pretrade_check(
+        candidate_notional=2_000.0, entry_price=100.0, stop_price=95.0,
+        account_value=10_000.0, risk_profile=profile)
+    assert d.ok is False and d.code == "single_position_exposure"

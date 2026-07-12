@@ -7,9 +7,9 @@ werden (globaler Live-Kill-Switch, Hebel-Deckel, Optionsverbot), an einer reprod
 Stelle. Phase 3 (RISK-003) erweitert sie schrittweise um das volle Risikomodell — bislang
 Signal gültig/nicht abgelaufen, Strategie erlaubt, Markt-offen (DATA-002), Quote-Frische/Spread
 (DATA-004), Liquidität, Tagesverlustlimit (RISK-004), max Positionen, bestehende
-Ticker-Position, Exposure/Sektor/Korreliert/Täglich-neu (RISK-005); Sizing/Buying-Power/
-Brokerstatus (RISK-002-Integration) folgen als eigene Schritte, sobald die dafür nötige
-Live-Kontoabfrage angebunden ist.
+Ticker-Position, Exposure/Sektor/Korreliert/Täglich-neu (RISK-005), risikobasiertes Sizing
+(RISK-002); Buying-Power/Brokerstatus folgen als eigene Schritte, sobald die dafür nötige
+Live-Broker-Abfrage angebunden ist.
 
 Bewusst broker-/IO-frei und rein — nur Config + übergebene Werte, damit sie gut testbar ist und
 identisch für Telegram- und Web-Pfad gilt. Sie ENTSCHEIDET, führt aber selbst keine Order aus.
@@ -26,6 +26,7 @@ from stockbot.core.daily_loss_limit import check_daily_loss_limit
 from stockbot.core.domain import RiskProfile, SignalStatus
 from stockbot.core.exposure import ExposurePosition, evaluate_exposure
 from stockbot.core.market_data import Quote
+from stockbot.core.risk_sizing import SizingResult, size_position
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class RiskDecision:
     ok: bool
     reason: str = ""
     code: str = ""          # maschinenlesbarer Ablehnungsgrund (z. B. "leverage_blocked")
+    sizing: SizingResult | None = None   # gesetzt, wenn entry_price/stop_price übergeben wurden
 
 
 _ALLOW = RiskDecision(ok=True)
@@ -52,6 +54,7 @@ def pretrade_check(
     candidate_notional: float | None = None, candidate_sector: str | None = None,
     candidate_correlation_group: str | None = None,
     open_positions: tuple[ExposurePosition, ...] = (),
+    entry_price: float | None = None, stop_price: float | None = None,
     now: datetime | None = None,
 ) -> RiskDecision:
     """Prüft die Pre-Trade-Invarianten für eine NEUE Position, in fester Reihenfolge
@@ -78,12 +81,15 @@ def pretrade_check(
          übergeben wurde — verhindert eine zweite offene Position im selben Ticker),
      13. Exposure (Einzel/Sektor/Korreliert/Täglich neu, delegiert an
          `exposure.evaluate_exposure` — nur geprüft, wenn `candidate_notional`+`account_value`+
-         `risk_profile` übergeben wurden; `open_positions` defaultet auf leer).
+         `risk_profile` übergeben wurden; `open_positions` defaultet auf leer),
+     14. risikobasiertes Sizing (delegiert an `risk_sizing.size_position` — nur geprüft, wenn
+         `entry_price`+`stop_price`+`account_value`+`risk_profile` übergeben wurden; das
+         Ergebnis [Stückzahl/Risikobetrag/Notional] hängt bei Erfolg als `sizing` an der
+         zurückgegebenen `RiskDecision`, damit der Aufrufer nicht doppelt rechnen muss).
 
-    Sizing/Buying-Power/Brokerstatus (RISK-002-Integration) sind noch NICHT Teil dieser
-    Funktion — sie brauchen eine Live-Kontoabfrage (Buying Power, Brokerstatus), die den
-    bislang reinen IO-freien Charakter dieses Seams sprengen würde; sie folgen als eigene,
-    separate Schritte.
+    Buying-Power/Brokerstatus sind noch NICHT Teil dieser Funktion — sie brauchen eine Live-
+    Broker-Abfrage, die den bislang reinen IO-freien Charakter dieses Seams sprengen würde; sie
+    folgen als eigene, separate Schritte.
 
     Schutz-Exits (Verkäufe/Positionsschließungen) laufen NICHT über diese Funktion — sie bleiben
     erlaubt (vgl. Konzept §17.4).
@@ -147,4 +153,12 @@ def pretrade_check(
             candidate_correlation_group=candidate_correlation_group, positions=open_positions)
         if not d.ok:
             return RiskDecision(False, d.reason, d.code)
+    if (entry_price is not None and stop_price is not None and account_value is not None
+            and risk_profile is not None):
+        s = size_position(
+            account_value=account_value, entry_price=entry_price, stop_price=stop_price,
+            risk_profile=risk_profile)
+        if not s.ok:
+            return RiskDecision(False, s.reason, s.code)
+        return RiskDecision(True, s.reason, s.code, sizing=s)
     return _ALLOW

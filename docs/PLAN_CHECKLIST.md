@@ -236,8 +236,11 @@ Ziel: Belastbares Zustands- und Datenmodell.
       unverhältnismäßig große Position ergibt]. Bewusst getrennt von `stockbot/broker/sizing.py`
       [das plant eine Order für ein bereits FESTES Euro-Budget; hier wird die Positionsgröße erst
       aus dem Kontorisiko berechnet]. `SizingResult`-Dataclass nach demselben `ok`/`reason`/`code`-
-      Muster wie `risk.py::pretrade_check`/`data_quality.py`. Noch von KEINEM Live-Codepfad
-      genutzt — Verdrahtung folgt mit RISK-003.)
+      Muster wie `risk.py::pretrade_check`/`data_quality.py`. In `risk.py::pretrade_check`
+      verdrahtet [Schritt 14 der Plan.md-§11.3-Reihenfolge — nur geprüft, wenn `entry_price`+
+      `stop_price`+`account_value`+`risk_profile` übergeben wurden; das `SizingResult` hängt
+      bei Erfolg als `sizing`-Feld an der zurückgegebenen `RiskDecision`]. Noch von KEINEM
+      Live-Codepfad genutzt.)
 - [x] **RISK-002** Konservative Defaults: 0,25 %/Trade, 1,00 % Tagesverlust, max 5 Positionen, 1× Exposure
       (Bereits mit RISK-001/PLAT-001 in `domain.RiskProfile` gesetzt und getestet
       [`account_risk_per_trade_pct=0.25`, `daily_loss_limit_pct=1.00`, `max_open_positions=5`];
@@ -258,12 +261,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       [`has_existing_ticker_position`] und Exposure [RISK-005, delegiert an
       `exposure.evaluate_exposure` — Einzel/Sektor/Korreliert/Täglich neu über
       `candidate_notional`/`candidate_sector`/`candidate_correlation_group`/`open_positions`]
-      — feste Reihenfolge nach Plan.md §11.3, jeder Check optional [nur geprüft, wenn die
-      nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei; neue Tests in
-      `tests/test_risk.py`. Noch offen: Sizing-Integration [RISK-002
-      `risk_sizing.size_position` existiert, ist aber noch nicht in `pretrade_check`
-      verdrahtet], Buying Power/Brokerstatus [Live-Broker-Abfrage]. Noch von KEINEM
-      Live-Codepfad genutzt.)
+      und risikobasiertes Sizing [RISK-002, delegiert an `risk_sizing.size_position` über
+      `entry_price`/`stop_price`, Ergebnis hängt als `sizing`-Feld an der `RiskDecision`] —
+      feste Reihenfolge nach Plan.md §11.3, jeder Check optional [nur geprüft, wenn die nötige
+      Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei; neue Tests in
+      `tests/test_risk.py`. Noch offen: Buying Power/Brokerstatus — brauchen eine echte
+      Live-Broker-Abfrage [`broker/client.py`], die den bislang reinen IO-freien Charakter
+      dieses Seams sprengen würde; das ist der letzte verbleibende Baustein von RISK-003 und
+      bleibt bis dahin `[~]`. Noch von KEINEM Live-Codepfad genutzt.)
 - [x] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
       (`stockbot/core/daily_loss_limit.py::check_daily_loss_limit` — reine, zustandslose
       Entscheidungsfunktion nach demselben `ok`/`reason`/`code`-Muster; „laufend fortschreiben"
