@@ -229,8 +229,20 @@ Ziel: Belastbares Zustands- und Datenmodell.
       implementiert. Wie der Rest von `domain.py` noch NICHT an eine DB gebunden/an keinen Live-
       Codepfad angebunden — das Sizing/die Pre-Trade-Prüfung, die es tatsächlich NUTZT, ist RISK-002/
       RISK-003.)
-- [ ] **RISK-002** Sizing-Service: `Risikobetrag = Kontowert × Risiko_pro_Trade`, `Stückzahl = Risikobetrag / Stop-Abstand` + Caps
-- [ ] **RISK-002** Konservative Defaults: 0,25 %/Trade, 1,00 % Tagesverlust, max 5 Positionen, 1× Exposure
+- [x] **RISK-002** Sizing-Service: `Risikobetrag = Kontowert × Risiko_pro_Trade`, `Stückzahl = Risikobetrag / Stop-Abstand` + Caps
+      (`stockbot/core/risk_sizing.py::size_position` — reine Formel nach Plan.md §11.2, gedeckelt
+      durch `risk_profile.max_position_pct` [verhindert, dass ein sehr enger Stop eine
+      unverhältnismäßig große Position ergibt]. Bewusst getrennt von `stockbot/broker/sizing.py`
+      [das plant eine Order für ein bereits FESTES Euro-Budget; hier wird die Positionsgröße erst
+      aus dem Kontorisiko berechnet]. `SizingResult`-Dataclass nach demselben `ok`/`reason`/`code`-
+      Muster wie `risk.py::pretrade_check`/`data_quality.py`. Noch von KEINEM Live-Codepfad
+      genutzt — Verdrahtung folgt mit RISK-003.)
+- [x] **RISK-002** Konservative Defaults: 0,25 %/Trade, 1,00 % Tagesverlust, max 5 Positionen, 1× Exposure
+      (Bereits mit RISK-001/PLAT-001 in `domain.RiskProfile` gesetzt und getestet
+      [`account_risk_per_trade_pct=0.25`, `daily_loss_limit_pct=1.00`, `max_open_positions=5`];
+      „1× Exposure" ist keine RiskProfile-Feld-Konstante, sondern die Summenwirkung der Caps —
+      wird durch `risk_sizing.size_position`s `max_position_pct`-Deckel je Einzelposition erzwungen,
+      ein aggregierter Portfolio-Exposure-Deckel über mehrere offene Positionen folgt mit RISK-005.)
 - [ ] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
       Markt offen → Quote frisch → Spread → Liquidität → Tagesverlustlimit → max Positionen → bestehende Ticker-Position →
       Exposure/Sektor → Sizing → Buying Power → Brokerstatus)
