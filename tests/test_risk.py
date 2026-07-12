@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from stockbot.core import risk
 from stockbot.core.domain import RiskProfile, SignalStatus
+from stockbot.core.exposure import ExposurePosition
 from stockbot.core.market_data import Quote
 from stockbot import config
 
@@ -219,3 +220,40 @@ def test_daily_loss_limit_wins_over_max_positions():
         realized_pnl_today=-200.0, account_value=10_000.0, risk_profile=profile,
         open_position_count=5)
     assert d.ok is False and d.code == "daily_loss_limit_reached"
+
+
+# ── RISK-005: Exposure-Wiring in pretrade_check ──────────────────────────────
+
+def test_blocks_on_single_position_exposure():
+    profile = RiskProfile(user_id=1, max_position_pct=10.0)
+    d = risk.pretrade_check(
+        candidate_notional=2_000.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is False and d.code == "single_position_exposure"
+
+
+def test_blocks_on_sector_exposure():
+    profile = RiskProfile(user_id=1, max_position_pct=100.0, max_sector_exposure_pct=10.0)
+    positions = (ExposurePosition(ticker="MSFT", notional=500.0, sector="tech"),)
+    d = risk.pretrade_check(
+        candidate_notional=600.0, candidate_sector="tech", account_value=10_000.0,
+        risk_profile=profile, open_positions=positions)
+    assert d.ok is False and d.code == "sector_exposure"
+
+
+def test_allows_within_exposure_limits():
+    profile = RiskProfile(user_id=1)
+    assert risk.pretrade_check(
+        candidate_notional=500.0, candidate_sector="tech", account_value=10_000.0,
+        risk_profile=profile).ok is True
+
+
+def test_exposure_check_skipped_when_not_fully_provided():
+    assert risk.pretrade_check(candidate_notional=1_000_000.0).ok is True
+
+
+def test_ticker_position_wins_over_exposure():
+    profile = RiskProfile(user_id=1, max_position_pct=10.0)
+    d = risk.pretrade_check(
+        has_existing_ticker_position=True, candidate_notional=2_000.0, account_value=10_000.0,
+        risk_profile=profile)
+    assert d.ok is False and d.code == "ticker_position_exists"

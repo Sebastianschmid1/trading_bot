@@ -7,8 +7,9 @@ werden (globaler Live-Kill-Switch, Hebel-Deckel, Optionsverbot), an einer reprod
 Stelle. Phase 3 (RISK-003) erweitert sie schrittweise um das volle Risikomodell — bislang
 Signal gültig/nicht abgelaufen, Strategie erlaubt, Markt-offen (DATA-002), Quote-Frische/Spread
 (DATA-004), Liquidität, Tagesverlustlimit (RISK-004), max Positionen, bestehende
-Ticker-Position; Exposure-Sektor/Sizing/Buying-Power/Brokerstatus (RISK-005/RISK-002-Integration)
-folgen als eigene Schritte, sobald die dafür nötige Live-Kontoabfrage angebunden ist.
+Ticker-Position, Exposure/Sektor/Korreliert/Täglich-neu (RISK-005); Sizing/Buying-Power/
+Brokerstatus (RISK-002-Integration) folgen als eigene Schritte, sobald die dafür nötige
+Live-Kontoabfrage angebunden ist.
 
 Bewusst broker-/IO-frei und rein — nur Config + übergebene Werte, damit sie gut testbar ist und
 identisch für Telegram- und Web-Pfad gilt. Sie ENTSCHEIDET, führt aber selbst keine Order aus.
@@ -23,6 +24,7 @@ from stockbot import config
 from stockbot.core import data_quality
 from stockbot.core.daily_loss_limit import check_daily_loss_limit
 from stockbot.core.domain import RiskProfile, SignalStatus
+from stockbot.core.exposure import ExposurePosition, evaluate_exposure
 from stockbot.core.market_data import Quote
 
 
@@ -47,6 +49,9 @@ def pretrade_check(
     realized_pnl_today: float | None = None, account_value: float | None = None,
     risk_profile: RiskProfile | None = None,
     open_position_count: int | None = None, has_existing_ticker_position: bool | None = None,
+    candidate_notional: float | None = None, candidate_sector: str | None = None,
+    candidate_correlation_group: str | None = None,
+    open_positions: tuple[ExposurePosition, ...] = (),
     now: datetime | None = None,
 ) -> RiskDecision:
     """Prüft die Pre-Trade-Invarianten für eine NEUE Position, in fester Reihenfolge
@@ -70,12 +75,15 @@ def pretrade_check(
      11. maximale Positionen (nur geprüft, wenn `open_position_count`+`risk_profile`
          übergeben wurden),
      12. bestehende Ticker-Position (nur geprüft, wenn `has_existing_ticker_position`
-         übergeben wurde — verhindert eine zweite offene Position im selben Ticker).
+         übergeben wurde — verhindert eine zweite offene Position im selben Ticker),
+     13. Exposure (Einzel/Sektor/Korreliert/Täglich neu, delegiert an
+         `exposure.evaluate_exposure` — nur geprüft, wenn `candidate_notional`+`account_value`+
+         `risk_profile` übergeben wurden; `open_positions` defaultet auf leer).
 
-    Exposure-Sektor/Sizing/Buying-Power/Brokerstatus (RISK-005/RISK-002-Integration) sind noch
-    NICHT Teil dieser Funktion — sie brauchen eine Live-Kontoabfrage (offene Positionen inkl.
-    Sektor/Korrelation, Buying Power), die den bislang reinen IO-freien Charakter dieses Seams
-    sprengen würde; sie folgen als eigene, separate Schritte.
+    Sizing/Buying-Power/Brokerstatus (RISK-002-Integration) sind noch NICHT Teil dieser
+    Funktion — sie brauchen eine Live-Kontoabfrage (Buying Power, Brokerstatus), die den
+    bislang reinen IO-freien Charakter dieses Seams sprengen würde; sie folgen als eigene,
+    separate Schritte.
 
     Schutz-Exits (Verkäufe/Positionsschließungen) laufen NICHT über diese Funktion — sie bleiben
     erlaubt (vgl. Konzept §17.4).
@@ -132,4 +140,11 @@ def pretrade_check(
     if has_existing_ticker_position:
         return RiskDecision(
             False, "Für diesen Ticker ist bereits eine Position offen.", "ticker_position_exists")
+    if candidate_notional is not None and account_value is not None and risk_profile is not None:
+        d = evaluate_exposure(
+            candidate_notional=candidate_notional, account_value=account_value,
+            risk_profile=risk_profile, candidate_sector=candidate_sector,
+            candidate_correlation_group=candidate_correlation_group, positions=open_positions)
+        if not d.ok:
+            return RiskDecision(False, d.reason, d.code)
     return _ALLOW

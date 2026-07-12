@@ -254,15 +254,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `data_quality.check_quote_age`/`check_spread`], Liquidität [`average_dollar_volume`/
       `min_average_dollar_volume`], Tagesverlustlimit [RISK-004, delegiert an
       `daily_loss_limit.check_daily_loss_limit`], max Positionen [`open_position_count` vs.
-      `risk_profile.max_open_positions`] und bestehende Ticker-Position
-      [`has_existing_ticker_position`] — feste Reihenfolge nach Plan.md §11.3, jeder Check
-      optional [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin
-      broker-/IO-frei; neue Tests in `tests/test_risk.py`. Noch offen: Exposure-Sektor
-      [RISK-005, `exposure.evaluate_exposure` existiert bereits als Seam, aber noch nicht in
-      `pretrade_check` verdrahtet — braucht eine Liste offener Positionen inkl. Sektor/
-      Korrelation], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert, ist
-      aber noch nicht in `pretrade_check` verdrahtet], Buying Power/Brokerstatus [Live-
-      Broker-Abfrage]. Noch von KEINEM Live-Codepfad genutzt.)
+      `risk_profile.max_open_positions`], bestehende Ticker-Position
+      [`has_existing_ticker_position`] und Exposure [RISK-005, delegiert an
+      `exposure.evaluate_exposure` — Einzel/Sektor/Korreliert/Täglich neu über
+      `candidate_notional`/`candidate_sector`/`candidate_correlation_group`/`open_positions`]
+      — feste Reihenfolge nach Plan.md §11.3, jeder Check optional [nur geprüft, wenn die
+      nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei; neue Tests in
+      `tests/test_risk.py`. Noch offen: Sizing-Integration [RISK-002
+      `risk_sizing.size_position` existiert, ist aber noch nicht in `pretrade_check`
+      verdrahtet], Buying Power/Brokerstatus [Live-Broker-Abfrage]. Noch von KEINEM
+      Live-Codepfad genutzt.)
 - [x] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
       (`stockbot/core/daily_loss_limit.py::check_daily_loss_limit` — reine, zustandslose
       Entscheidungsfunktion nach demselben `ok`/`reason`/`code`-Muster; „laufend fortschreiben"
@@ -282,9 +283,12 @@ Ziel: Belastbares Zustands- und Datenmodell.
       sind ein Eingabe-String je Position [`ExposurePosition.sector`/`correlation_group`] — das
       Modul berechnet KEINE Sektor-Klassifikation/Kurskorrelation selbst, das bleibt ein
       separater Wiring-Schritt [z. B. `yfinance` `.info['sector']`]. Fehlt die Angabe für den
-      Kandidaten, wird der jeweilige Check übersprungen statt fälschlich zu blockieren. Noch
-      offen: „Post-Trade: offene Position ohne Schutzorder erkennen" [eigenes, separates Thema]
-      und die Verdrahtung in `risk.py::pretrade_check`. Noch von KEINEM Live-Codepfad genutzt.)
+      Kandidaten, wird der jeweilige Check übersprungen statt fälschlich zu blockieren. In
+      `risk.py::pretrade_check` verdrahtet [Schritt 13 der Plan.md-§11.3-Reihenfolge — nur
+      geprüft, wenn `candidate_notional`+`account_value`+`risk_profile` übergeben wurden].
+      Noch offen: „Post-Trade: offene Position ohne Schutzorder erkennen" — eigenes, separates
+      Thema, gehört inhaltlich zu Plan.md §11.4 (Post-Trade-Risk), nicht zum Pre-Trade-Seam.
+      Noch von KEINEM Live-Codepfad genutzt.)
 - [x] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
       `is_new_position_allowed`, `is_protective_exit_allowed`)
       (`stockbot/core/kill_switch.py::KillSwitchService` — reiner In-Prozess-Store für
