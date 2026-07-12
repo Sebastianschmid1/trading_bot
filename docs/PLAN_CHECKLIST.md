@@ -218,9 +218,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 3 — Risk Service & Position Sizing `P1` · Epic: RISK
 
-- [ ] **RISK-001** `RiskProfile`-Modell (account_risk_per_trade_pct, daily_loss_limit_pct, max_open_positions,
+- [x] **RISK-001** `RiskProfile`-Modell (account_risk_per_trade_pct, daily_loss_limit_pct, max_open_positions,
       max_position_pct, max_sector/correlated_exposure_pct, max_daily_new_exposure_pct, max_spread_bps,
       max_quote_age_seconds, min_average_dollar_volume, earnings_blackout_days, allow_overnight, allowed_strategies)
+      (Bereits mit PLAT-001 umgesetzt: `stockbot/core/domain.py::RiskProfile` trägt exakt diese
+      Felder [Plan.md §11.1] inkl. der konservativen Defaults aus RISK-002 [`account_risk_per_trade_pct
+      =0.25`, `daily_loss_limit_pct=1.00`, `max_open_positions=5`] — `tests/test_domain.py::
+      test_risk_profile_has_all_plan_fields` deckt es ab. War beim Schreiben von PLAT-001 als
+      Domänenobjekt bereits vollständig, wurde hier nur nachträglich als RISK-001 abgehakt statt neu
+      implementiert. Wie der Rest von `domain.py` noch NICHT an eine DB gebunden/an keinen Live-
+      Codepfad angebunden — das Sizing/die Pre-Trade-Prüfung, die es tatsächlich NUTZT, ist RISK-002/
+      RISK-003.)
 - [ ] **RISK-002** Sizing-Service: `Risikobetrag = Kontowert × Risiko_pro_Trade`, `Stückzahl = Risikobetrag / Stop-Abstand` + Caps
 - [ ] **RISK-002** Konservative Defaults: 0,25 %/Trade, 1,00 % Tagesverlust, max 5 Positionen, 1× Exposure
 - [ ] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
