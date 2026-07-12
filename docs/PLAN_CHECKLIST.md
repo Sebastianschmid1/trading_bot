@@ -159,15 +159,22 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Reines, IO-freies Interface nach dem Muster von `exchange_calendar.py`/`domain.py` — noch von
       KEINEM Live-Codepfad genutzt; die Umstellung von `analyzer.py`/`evaluator.py`/`smartmoney.py`/
       `lookup.py`/`db.py` [aktuell direktes `yfinance`] folgt mit den konkreten Implementierungen.)
-- [~] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
-      (`YFinanceResearchProvider` erledigt — `stockbot/market/data_providers.py` bündelt die
+- [x] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
+      (Beide in `stockbot/market/data_providers.py`. `YFinanceResearchProvider` bündelt die
       bislang verstreuten `yfinance`-Aufrufe [`Ticker.history`/`fast_info`/`splits`/`dividends`]
       hinter dem `MarketDataProvider`-Interface; `get_market_status` nutzt den bestehenden
-      Exchange-Kalender statt eigener Zeitfensterlogik. Pull-only — `stream_quotes`/`stream_trades`
-      lehnen bewusst ab [`yfinance` bietet kein Echtzeit-Streaming]. Noch offen:
-      `AlpacaPaperMarketDataProvider` [`alpaca.data.historical.stock.StockHistoricalDataClient`
-      ist bereits über die vorhandene `alpaca-py`-Abhängigkeit verfügbar] und später
-      `LicensedProductionProvider`. Noch von KEINEM Live-Codepfad genutzt.)
+      Exchange-Kalender statt eigener Zeitfensterlogik. `AlpacaPaperMarketDataProvider` nutzt die
+      bereits vorhandene `alpaca-py`-Abhängigkeit [`StockHistoricalDataClient`/
+      `CorporateActionsClient`/`TradingClient.get_clock()`, dieselben Zugangsdaten wie
+      `broker/client.py`, aber ein eigener IO-isolierter Marktdaten-Client] — Order-Ausführung und
+      Marktdaten bleiben getrennte Verantwortlichkeiten. Beide Provider sind Pull-only;
+      `stream_quotes`/`stream_trades` lehnen bewusst mit `NotImplementedError` ab [Alpaca-
+      Echtzeit-Streaming via `alpaca.data.live.StockDataStream` folgt separat, falls benötigt].
+      `data_client`/`corporate_actions_client`/`trading_client` sind injizierbar, damit Tests ohne
+      echte Alpaca-Keys/Netzwerk auskommen [gleiches Prinzip wie `tests/test_broker.py`].
+      `LicensedProductionProvider` bleibt bewusst offen — noch keine konkrete lizenzierte
+      Datenquelle ausgewählt. Noch von KEINEM Live-Codepfad genutzt; DATA-003 damit abgeschlossen,
+      soweit ohne echte Alpaca-Keys/Lizenzentscheidung möglich.)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
 - [ ] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
 - [ ] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
