@@ -100,7 +100,10 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`stockbot/core/state_machine.py::assert_transition`/`transition_allowed` dispatchen anhand
       des Enum-Typs von `from_status` an Signal-/Order-/Position-Zustandsmaschine — ein Einstiegspunkt
       für alle drei, wie in Plan.md §9.3 gefordert; lehnt zusätzlich Typ-Mismatches ab.)
-- [ ] **PLAT-002** Audit-Log append-only (Event-ID, Timestamp, User, Actor, Entity-Typ/-ID, Aktion, alt/neu, Trace-ID, Quellkanal, Metadaten)
+- [x] **PLAT-002** Audit-Log append-only (Event-ID, Timestamp, User, Actor, Entity-Typ/-ID, Aktion, alt/neu, Trace-ID, Quellkanal, Metadaten)
+      (`stockbot/core/audit_log.py::AuditLog` — reiner In-Prozess-Store für `AuditEvent`
+      [alle Plan.md-§9.4-Felder], erzwingt Append-only strukturell durch Fehlen von
+      update()/delete(); persistente Anbindung folgt mit dem Postgres-Cutover.)
 
 **Gate P1.1 (Abnahme):**
 - [ ] Nutzer + Trades migrierbar; Zustandsübergänge getestet; ungültige abgelehnt
