@@ -1,0 +1,19 @@
+{% macro mode_badge(mode, label=None, title=None) -%}
+  {%- set normalized_mode = mode|default('shadow', true)|lower -%}
+  {%- set supported_mode = normalized_mode if normalized_mode in ('backtest', 'shadow', 'paper', 'live') else 'shadow' -%}
+  {%- set default_labels = {
+    'backtest': 'BACKTEST',
+    'shadow': 'SHADOW',
+    'paper': 'PAPER',
+    'live': 'LIVE – ECHTES GELD'
+  } -%}
+  <span class="mode-badge mode-badge--{{ supported_mode }} modepill {{ supported_mode }}"
+        {% if title %}title="{{ title }}"{% endif %}
+        data-trading-mode="{{ supported_mode }}">
+    <svg class="mode-badge__icon" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+      <circle cx="5" cy="5" r="4"></circle>
+    </svg>
+    <span>{{ label or default_labels[supported_mode] }}</span>
+  </span>
+{%- endmacro %}
+

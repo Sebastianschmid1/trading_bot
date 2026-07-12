@@ -112,7 +112,27 @@ def test_history_page_lists_closed_trades():
     assert r.status_code == 200
     assert "Verlauf" in r.text                     # Seiten-/Nav-Titel
     assert "NVDA" in r.text                         # abgeschlossener Trade gelistet
-    assert "fonts.googleapis" in r.text            # Instrument-Identität (Cockpit-Partial) eingebunden
+    assert '/static/tokens.css' in r.text           # zentrale Design-Tokens eingebunden
+    assert "fonts.googleapis" not in r.text        # Fonts bleiben CSP-/offline-sicher
+
+
+def test_design_tokens_and_mode_badge_are_served():
+    fresh()
+    c = _client()
+
+    page = c.get("/app")
+    assert 'class="mode-badge mode-badge--shadow' in page.text
+    assert 'data-trading-mode="shadow"' in page.text
+    assert "SHADOW" in page.text
+
+    css = c.get("/static/tokens.css")
+    assert css.status_code == 200
+    assert css.headers["content-type"].startswith("text/css")
+    for token in ("--bg-base", "--text-primary", "--primary", "--space-1",
+                  "--radius-sm", "--shadow-sm", "--font-size-display"):
+        assert token in css.text
+    for mode in ("backtest", "shadow", "paper", "live"):
+        assert f".mode-badge--{mode}" in css.text
 
 
 def test_history_empty_state_renders():

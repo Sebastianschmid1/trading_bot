@@ -20,6 +20,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from stockbot.core import db
@@ -122,6 +123,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Stock Signal Bot — Dashboard", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # ── Security-Header (gegen Sniffing/Clickjacking/Referer-Leak) ───────────────
@@ -134,11 +136,12 @@ async def security_headers(request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    # CSP: eigene Quelle; Inline-Styles (base.html nutzt <style>) erlaubt, sonst restriktiv.
+    # Fonts und Styles bleiben vollständig lokal; Inline-Styles werden noch von
+    # bestehenden Templates verwendet.
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com data:; "
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; "
         "img-src 'self' data:; "
         "script-src 'self' https://telegram.org https://cdn.jsdelivr.net 'unsafe-inline'; "
         "frame-src https://oauth.telegram.org; base-uri 'self'; form-action 'self'",
