@@ -150,7 +150,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
       session-relativ [variabel] feuert; zeigt jetzt die tatsächliche `Europe/Berlin`-Uhrzeit im
       Moment der Auswertung. Damit sind alle vier Punkte aus Plan.md §10.1 „Scheduler-Umstellung"
       umgesetzt.)
-- [ ] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
+- [x] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
+      (`stockbot/core/market_data.py`: `MarketDataProvider` als `ABC` mit den sechs Methoden aus
+      Plan.md §10.2 + Wertobjekten `Quote`/`CorporateAction`/`MarketStatus` [Provider/Feed/Abrufzeit/
+      Exchange-Zeit-Felder für DATA-005]. `get_bars` liefert bewusst ein `pandas.DataFrame`
+      [OHLCV, `DatetimeIndex`] — dasselbe Format, das die bestehende Indikator-Berechnung schon
+      erwartet, damit die spätere Umstellung bestehender Aufrufer keinen Format-Bruch erzwingt.
+      Reines, IO-freies Interface nach dem Muster von `exchange_calendar.py`/`domain.py` — noch von
+      KEINEM Live-Codepfad genutzt; die Umstellung von `analyzer.py`/`evaluator.py`/`smartmoney.py`/
+      `lookup.py`/`db.py` [aktuell direktes `yfinance`] folgt mit den konkreten Implementierungen.)
 - [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
 - [ ] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
