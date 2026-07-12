@@ -119,8 +119,13 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 2 — Exchange-Kalender & Marktdaten `P1` · Epic: DATA
 
-- [ ] **DATA-001** Exchange-Kalender-Bibliothek wählen; NYSE/Nasdaq integrieren
-- [ ] **DATA-001** Funktionen: `is_trading_day`, `market_open/close`, `is_market_open`, `next_market_open`, `minutes_to_close`, `is_early_close`
+- [x] **DATA-001** Exchange-Kalender-Bibliothek wählen; NYSE/Nasdaq integrieren
+      (`pandas_market_calendars` gewählt — baut auf der bereits vorhandenen `pandas`-Abhängigkeit
+      auf, deckt NYSE/Nasdaq-Feiertage + Frühschluss-Tage korrekt ab; `stockbot/core/exchange_calendar.py`.)
+- [x] **DATA-001** Funktionen: `is_trading_day`, `market_open/close`, `is_market_open`, `next_market_open`, `minutes_to_close`, `is_early_close`
+      (alle in `stockbot/core/exchange_calendar.py`, DST-robust [Sitzungsdauer-Vergleich statt fester
+      Uhrzeit für `is_early_close`]. Noch von keinem Live-Codepfad genutzt — Umstellung von
+      `bot.py::_us_market_open`/Scheduler ist DATA-002.)
 - [ ] **DATA-002** Scheduler umstellen: feste Berlin-Zeiten → relativ zu Open/Close; Reports separat in Europe/Berlin
 - [ ] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
 - [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)

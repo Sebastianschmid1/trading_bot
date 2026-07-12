@@ -16,3 +16,4 @@ alpaca-py
 sqlalchemy
 alembic
 psycopg2-binary
+pandas_market_calendars
