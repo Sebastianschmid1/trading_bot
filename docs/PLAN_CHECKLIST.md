@@ -197,18 +197,19 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `CorporateAction`] auf. Noch von KEINEM Live-Codepfad genutzt — Verdrahtung in den
       Produktionssignalpfad [Gate P2: „veraltete Quotes blockieren Orders"] setzt die noch
       offene Migration bestehender Aufrufer auf `MarketDataProvider` voraus.)
-- [~] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
+- [!] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
       (`stockbot/core/raw_data_archive.py`: `write_bars`/`read_bars` schreiben/lesen unveränderte
       OHLCV-Rohdaten als Parquet [neue Abhängigkeit `pyarrow`], partitioniert nach
       `<Symbol>/<Datum>/<Timeframe>.parquet` unter `data/raw_archive/` — getrennt von den
       bestehenden Feature-/Indikator-Berechnungen. Ein erneuter Schreibvorgang derselben Partition
       ersetzt den alten Snapshot statt zu duplizieren. `write_bars` liefert eine
       `RawDataArchiveEntry` [Provider/Abrufzeit/Zeilenanzahl/Dateipfad — dieselben
-      Provenance-Felder wie `Quote`/`Signal`, DATA-003/DATA-005] zurück. „Metadaten in
-      PostgreSQL" bleibt offen — derselbe Blocker wie bei PLAT-001: eine echte, von einem
-      Menschen bereitgestellte Staging-Instanz ist kein Code-Task dieser Session; sobald sie
-      existiert, kann `RawDataArchiveEntry` über den bestehenden `db_pool`-Seam persistiert
-      werden. Noch von KEINEM Live-Codepfad genutzt.)
+      Provenance-Felder wie `Quote`/`Signal`, DATA-003/DATA-005] zurück. Blockiert wie die beiden
+      PLAT-001-Punkte oben: „Metadaten in PostgreSQL" braucht eine echte, von einem Menschen
+      bereitgestellte Staging-Instanz — kein Code-Task dieser Session und durch die
+      Kein-Deploy-Leitplanke dauerhaft ausgeschlossen; sobald sie existiert, kann
+      `RawDataArchiveEntry` über den bestehenden `db_pool`-Seam persistiert werden. Noch von
+      KEINEM Live-Codepfad genutzt.)
 
 **Gate P2 (Abnahme):**
 - [ ] DST-Wechsel + Half Days korrekt; keine Intraday-Position nach Entry-Cutoff
