@@ -33,6 +33,8 @@ from stockbot.market import smartmoney
 from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
+from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
+from stockbot.execution.oms import OrderManagementSystem
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
@@ -79,6 +81,22 @@ TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch g
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
+
+
+def _load_oms_signal(signal_id: int) -> Signal | None:
+    """Bridge vom bisherigen Trade-JSON zum Phase-4-Signalobjekt."""
+    trade = db.get_trade_by_id(signal_id)
+    if trade is None:
+        return None
+    sig = trade.get("signal") or {}
+    return Signal(
+        id=signal_id, strategy_version_id=0, ticker=trade["ticker"],
+        direction=trade["direction"], mode=Mode.PAPER, status=SignalStatus.ACCEPTED,
+        expires_at=sig.get("expires_at"),
+    )
+
+
+_oms = OrderManagementSystem(signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db)
 
 
 def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
@@ -452,17 +470,9 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             (f"🎯 Hebel {leverage:g}× → Option statt Aktien: {plan['option_symbol']} "
              f"(≈{plan['omega']:g}× Hebel, Strike {plan['strike']:g}, Verfall {plan['expiry']}), "
              f"{plan['qty']}× Kontrakt(e) ≈ ${plan['premium'] * 100 * plan['qty']:.2f}."))
-        res = await asyncio.to_thread(
-            broker.submit_option_buy, plan["option_symbol"], plan["qty"], client)
         order_label = f"{plan['qty']}× {plan['option_symbol']}"
     elif plan.get("qty"):
         # Ganze Aktien fürs Budget (reguläre Zeit: Market-qty; erweiterte Zeit: Limit/Ext).
-        if extended:
-            res = await asyncio.to_thread(
-                broker.submit_buy, ticker, qty=plan["qty"], limit_price=float(entry),
-                extended_hours=True, client=client)
-        else:
-            res = await asyncio.to_thread(broker.submit_buy, ticker, qty=plan["qty"], client=client)
         order_label = f"{plan['qty']:g} {ticker}"
     else:
         # Aktie teurer als Budget → Bruchteil-Fall (Notional). Bruchteile gehen NUR in der regulären
@@ -477,9 +487,33 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
                  f"Börsenstart automatisch gesendet."),
                 parse_mode="Markdown")
             return
-        res = await asyncio.to_thread(
-            broker.submit_buy, ticker, notional=plan["notional"], client=client)
         order_label = f"{ticker} ${plan['notional']:.2f} (Bruchteil)"
+
+    intent = TradeIntent(
+        user_id=chat_id, signal_id=int(trade["id"]), requested_action="accept",
+        accepted_exit_policy="strategy-default", source_channel="telegram",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        idempotency_key=f"telegram:{chat_id}:{trade['id']}:accept",
+    )
+    oms_result = await asyncio.to_thread(
+        _oms.submit_intent,
+        intent,
+        price=float(entry),
+        trade_size=budget,
+        leverage=leverage,
+        risk_context={
+            "is_live_account": broker._is_live_order(client),
+            "is_option": plan["kind"] == "option",
+            "extended": extended,
+            "roundup_factor": 1.0,
+        },
+        broker_client=client,
+    )
+    res = {
+        "ok": oms_result.ok and oms_result.order is not None,
+        "id": oms_result.order.broker_order_id if oms_result.order else "",
+        "detail": oms_result.reason or order_label,
+    }
 
     if not res["ok"]:
         db.mark_broker_failed(chat_id, ticker, broker_status="submit_failed")

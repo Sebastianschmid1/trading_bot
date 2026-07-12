@@ -12,6 +12,7 @@ import time
 import csv
 import io
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
@@ -22,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from stockbot.core import db
 from stockbot.core import trade_lifecycle
 from stockbot.core import logfilter
+from stockbot.core.domain import Mode, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.core.evaluator import trade_pnl
 from stockbot.backtest import engine as backtest_engine
 from stockbot.market import strategies
@@ -36,10 +38,27 @@ from stockbot.services import settings as settings_svc
 from stockbot.services import watchlist as watchlist_svc
 from stockbot.web import auth
 from stockbot.optimize import lab as lab_mod
+from stockbot.execution.oms import OrderManagementSystem
 
 log = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def _load_oms_signal(signal_id: int) -> Signal | None:
+    """Bridge vom bisherigen Trade-JSON zum Phase-4-Signalobjekt."""
+    trade = db.get_trade_by_id(signal_id)
+    if trade is None:
+        return None
+    sig = trade.get("signal") or {}
+    return Signal(
+        id=signal_id, strategy_version_id=0, ticker=trade["ticker"],
+        direction=trade["direction"], mode=Mode.PAPER, status=SignalStatus.ACCEPTED,
+        expires_at=sig.get("expires_at"),
+    )
+
+
+_oms = OrderManagementSystem(signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db)
 
 
 async def _csrf_protect(request: Request):
@@ -212,34 +231,48 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
     if plan["kind"] == "shares" and leverage > 1.0:
         db.merge_active_trade_signal(user["user_id"], ticker, {"effective_leverage": 1.0})
 
-    if plan["kind"] == "option":
-        res = broker.submit_option_buy(plan["option_symbol"], plan["qty"], client)
-    elif plan.get("qty"):
-        if extended:
-            res = broker.submit_buy(ticker, qty=plan["qty"], limit_price=float(entry), extended_hours=True, client=client)
-        else:
-            res = broker.submit_buy(ticker, qty=plan["qty"], client=client)
-    else:
+    if plan["kind"] == "shares" and not plan.get("qty"):
         if extended:
             # Bruchteil außerhalb regulärer Zeit → vormerken; der Bot-Monitor sendet beim nächsten Open.
             db.mark_broker_pending(user["user_id"], ticker, order_id=None, broker_status="queued_regular")
             return {"ok": True, "status": "broker_pending",
                     "msg": ("Order vorgemerkt — Bruchteile gehen nur in der regulären US-Sitzung; "
                             "wird beim nächsten Börsenstart automatisch gesendet.")}
-        res = broker.submit_buy(ticker, notional=plan["notional"], client=client)
+    intent = TradeIntent(
+        user_id=user["user_id"], signal_id=int(trade["id"]), requested_action="accept",
+        accepted_exit_policy="strategy-default", source_channel="web",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        idempotency_key=f"web:{user['user_id']}:{trade['id']}:accept",
+    )
+    oms_result = _oms.submit_intent(
+        intent, price=float(entry), trade_size=float(user["trade_size_eur"]), leverage=leverage,
+        risk_context={
+            "is_live_account": broker._is_live_order(client),
+            "is_option": plan["kind"] == "option",
+            "extended": extended,
+            "roundup_factor": config.SHARE_ROUNDUP_FACTOR,
+        },
+        broker_client=client,
+    )
+    if not oms_result.ok or oms_result.order is None:
+        broker_status = (oms_result.code if oms_result.code not in {"broker_rejected", "order_plan_rejected"}
+                         else "submit_failed") or "submit_failed"
+        db.mark_broker_failed(user["user_id"], ticker, broker_status=broker_status)
+        return {"ok": False, "status": "broker_failed",
+                "msg": f"Broker-Order nicht angenommen: {oms_result.reason}"}
 
-    if not res.get("ok"):
-        db.mark_broker_failed(user["user_id"], ticker, broker_status="submit_failed")
-        return {"ok": False, "status": "broker_failed", "msg": f"Broker-Order nicht angenommen: {res.get('detail')}"}
-
-    order_id = res.get("id", "")
+    order_id = oms_result.order.broker_order_id or ""
     db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status="accepted")
     fill = broker.get_order_status(order_id, client)
     status = fill.get("status", "unbekannt")
+    if oms_result.order.status == OrderStatus.FILLED:
+        status = "filled"
+    elif oms_result.order.status == OrderStatus.PARTIALLY_FILLED:
+        status = "partially_filled"
     if status == "filled":
         db.mark_broker_filled(user["user_id"], ticker, broker_status=status,
-                              filled_qty=fill.get("filled_qty"),
-                              filled_avg_price=fill.get("filled_avg_price"))
+                              filled_qty=fill.get("filled_qty", oms_result.order.qty),
+                              filled_avg_price=fill.get("filled_avg_price", entry))
         return {"ok": True, "status": "filled", "msg": f"{ticker} gekauft."}
     if status in ("rejected", "canceled", "expired"):
         db.mark_broker_failed(user["user_id"], ticker, broker_status=status)

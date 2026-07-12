@@ -217,6 +217,41 @@ def test_web_accept_with_broker_exec_tracks_order_fill(monkeypatch):
     assert trade["broker_status"] == "filled"
     assert trade["broker_order_id"] == "ord-web"
     assert db.get_active_trades(CHAT)[0]["ticker"] == "NVDA"
+    with db._connect() as conn:
+        intent = conn.execute("SELECT * FROM trade_intents").fetchone()
+        order = conn.execute("SELECT * FROM orders").fetchone()
+    assert intent["source_channel"] == "web"
+    assert intent["idempotency_key"] == f"web:{CHAT}:{trade['id']}:accept"
+    assert order["broker_order_id"] == "ord-web"
+
+
+def test_web_live_account_without_release_is_blocked_by_oms(monkeypatch):
+    fresh()
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "LIVE", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+
+    class LiveClient:
+        _paper = False
+
+    submitted = {"called": False}
+    monkeypatch.setattr(webapp.config, "LIVE_TRADING_ENABLED", False)
+    monkeypatch.setattr(webapp, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(webapp, "_alpaca_client", lambda user: LiveClient())
+    monkeypatch.setattr(webapp.broker, "market_open", lambda client: True)
+    monkeypatch.setattr(webapp.broker, "account_summary",
+                        lambda client=None: {"ok": True, "buying_power": 1000.0})
+    monkeypatch.setattr(webapp.broker, "submit_buy",
+                        lambda *args, **kwargs: submitted.__setitem__("called", True))
+
+    response = _client().post(
+        "/app/accept", data={"ticker": "LIVE"}, headers={"X-Requested-With": "fetch"})
+
+    assert response.json()["status"] == "broker_failed"
+    assert submitted["called"] is False
+    trade = db.get_trade(CHAT, "LIVE")
+    assert trade["broker_status"] == "live_blocked"
+    assert db.get_order_by_idempotency_key(f"web:{CHAT}:{trade['id']}:accept") is None
 
 
 def test_web_accept_with_broker_exec_stays_pending_until_fill(monkeypatch):

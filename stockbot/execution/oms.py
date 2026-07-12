@@ -1,4 +1,4 @@
-"""Idempotent order-management pipeline for long-only paper entries.
+"""Idempotent order-management pipeline for long-only entries.
 
 Web and Telegram hand a :class:`TradeIntent` to this service.  Broker access,
 notification delivery and signal/context loading are injected so this module has
@@ -52,7 +52,7 @@ def _as_order(row: Mapping[str, Any]) -> Order:
 
 
 class OrderManagementSystem:
-    """The single creation boundary for new long-only paper orders."""
+    """The single creation boundary for new long-only orders."""
 
     def __init__(
         self, *, signal_loader: Callable[[int], Signal | None],
@@ -82,6 +82,7 @@ class OrderManagementSystem:
         self, intent: TradeIntent, *, price: float | None = None,
         trade_size: float | None = None, leverage: float = 1.0,
         risk_context: Mapping[str, Any] | None = None,
+        broker_client: Any = None,
     ) -> OMSResult:
         """Validate, risk-check, persist and submit one user action."""
         invalid = self._validate_intent(intent)
@@ -107,11 +108,6 @@ class OrderManagementSystem:
         if trade_size is not None:
             context["trade_size"] = trade_size
         context.setdefault("leverage", leverage)
-
-        # Phase 4 is deliberately paper-only, independently of a UI toggle.
-        if context.get("is_live_account"):
-            return self._finish(OMSResult(False, reason="OMS erlaubt derzeit nur Paper-Orders.",
-                                          code="paper_only"))
 
         risk_args = {k: v for k, v in context.items()
                      if k not in {"price", "trade_size", "extended", "roundup_factor"}}
@@ -152,8 +148,9 @@ class OrderManagementSystem:
             submit_kwargs["notional"] = order.notional
         if context.get("extended"):
             submit_kwargs.update(limit_price=order.limit_price, extended_hours=True)
-        if self.transport_client is not None:
-            submit_kwargs["client"] = self.transport_client
+        transport_client = broker_client if broker_client is not None else self.transport_client
+        if transport_client is not None:
+            submit_kwargs["client"] = transport_client
 
         try:
             response = self.broker.submit_buy(order.ticker, **submit_kwargs)
@@ -174,7 +171,7 @@ class OrderManagementSystem:
         broker_status = str(response.get("status") or "accepted").lower()
         if broker_status in {"accepted", "new", "pending_new"} and broker_id and hasattr(self.broker, "get_order_status"):
             status_response = self.broker.get_order_status(
-                broker_id, **({"client": self.transport_client} if self.transport_client is not None else {})
+                broker_id, **({"client": transport_client} if transport_client is not None else {})
             )
             if status_response.get("ok"):
                 response = status_response
