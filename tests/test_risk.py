@@ -1,9 +1,13 @@
 """
 Tests für die zentrale Pre-Trade-Risk-Vorprüfung (stockbot.core.risk).
 Phase 0 / TSAFE-007 — harte Invarianten: Live-Kill-Switch, Hebel-Deckel, Optionsverbot.
+Phase 3 / RISK-003 — Markt offen + Quote-Frische/Spread (die übrigen Schritte folgen separat).
 """
 
+from datetime import datetime, timedelta, timezone
+
 from stockbot.core import risk
+from stockbot.core.market_data import Quote
 from stockbot import config
 
 
@@ -44,3 +48,50 @@ def test_live_account_allowed_when_live_enabled():
         assert risk.pretrade_check(leverage=1.0, is_live_account=True).ok is True
     finally:
         config.LIVE_TRADING_ENABLED = orig
+
+
+# ── RISK-003: Markt offen + Quote-Frische/Spread ─────────────────────────────
+
+def test_blocks_when_market_closed():
+    d = risk.pretrade_check(market_open=False)
+    assert d.ok is False and d.code == "market_closed"
+
+
+def test_allows_when_market_open_true():
+    assert risk.pretrade_check(market_open=True).ok is True
+
+
+def test_market_open_check_skipped_when_not_provided():
+    assert risk.pretrade_check().ok is True
+
+
+def test_blocks_on_stale_quote():
+    now = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    q = Quote(ticker="AAPL", price=100.0, as_of=now - timedelta(seconds=120),
+             fetched_at=now, provider="stub")
+    d = risk.pretrade_check(quote=q, max_quote_age_seconds=30, now=now)
+    assert d.ok is False and d.code == "quote_stale"
+
+
+def test_allows_fresh_quote():
+    now = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    q = Quote(ticker="AAPL", price=100.0, as_of=now - timedelta(seconds=5),
+             fetched_at=now, provider="stub")
+    assert risk.pretrade_check(quote=q, max_quote_age_seconds=30, now=now).ok is True
+
+
+def test_blocks_on_wide_spread():
+    q = Quote(ticker="AAPL", price=100.0, as_of=datetime.now(timezone.utc),
+             fetched_at=datetime.now(timezone.utc), provider="stub", bid=100.0, ask=101.0)
+    d = risk.pretrade_check(quote=q, max_spread_bps=10)
+    assert d.ok is False and d.code == "spread_wide"
+
+
+def test_quote_checks_skipped_without_quote():
+    assert risk.pretrade_check(max_quote_age_seconds=1, max_spread_bps=1).ok is True
+
+
+def test_leverage_check_still_wins_over_market_closed():
+    # Reihenfolge: Kill-Switch/Hebel/Optionen zuerst, dann erst Markt-offen (RISK-003-Reihenfolge)
+    d = risk.pretrade_check(leverage=config.MAX_LEVERAGE + 1, market_open=False)
+    assert d.ok is False and d.code == "leverage_blocked"

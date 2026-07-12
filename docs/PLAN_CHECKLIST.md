@@ -243,9 +243,20 @@ Ziel: Belastbares Zustands- und Datenmodell.
       „1× Exposure" ist keine RiskProfile-Feld-Konstante, sondern die Summenwirkung der Caps —
       wird durch `risk_sizing.size_position`s `max_position_pct`-Deckel je Einzelposition erzwungen,
       ein aggregierter Portfolio-Exposure-Deckel über mehrere offene Positionen folgt mit RISK-005.)
-- [ ] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
+- [~] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
       Markt offen → Quote frisch → Spread → Liquidität → Tagesverlustlimit → max Positionen → bestehende Ticker-Position →
       Exposure/Sektor → Sizing → Buying Power → Brokerstatus)
+      (`stockbot/core/risk.py::pretrade_check` erweitert: nach Kill-Switch/Hebel/Optionen [Phase 0]
+      jetzt zusätzlich Markt offen [DATA-002] und Quote frisch/Spread [DATA-004, delegiert an
+      `data_quality.check_quote_age`/`check_spread`] — feste Reihenfolge, jeder Check optional
+      [nur geprüft, wenn die nötige Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei.
+      Noch offen: Signal gültig/Strategie erlaubt [keine eigene Validierung existiert bislang],
+      Liquidität [`min_average_dollar_volume`], Tagesverlustlimit/max Positionen/bestehende
+      Ticker-Position/Exposure-Sektor [RISK-004/RISK-005, brauchen eine Live-Kontoabfrage —
+      offene Positionen/Tages-P&L —, die den bislang reinen IO-freien Charakter dieses Seams
+      sprengen würde], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert,
+      ist aber noch nicht in `pretrade_check` verdrahtet], Buying Power/Brokerstatus [Live-
+      Broker-Abfrage]. Noch von KEINEM Live-Codepfad genutzt.)
 - [ ] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
 - [ ] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
 - [ ] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
