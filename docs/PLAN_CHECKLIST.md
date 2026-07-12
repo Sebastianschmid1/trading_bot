@@ -186,7 +186,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       an eine DB gebunden und von keinem Live-Codepfad genutzt — das ist der dokumentierte,
       bereits bekannte nächste Schritt für das gesamte Domänenmodell, kein neuer Rückstand dieses
       Punkts.)
-- [ ] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
+- [x] **DATA-004** Datenqualitäts-Gates: Quote-Alter, Spread, Bar-Vollständigkeit, keine NaN, Symbol aktiv, kein Halt, Corporate Actions
+      (`stockbot/core/data_quality.py`: `QualityDecision`-Dataclass [`ok`/`reason`/`code`] nach
+      demselben Muster wie `risk.py::pretrade_check`; einzelne `check_*`-Funktionen für alle
+      Plan.md-§10.4-Punkte [inkl. „Marktstatus korrekt", das die Checklisten-Kurzfassung nicht
+      nennt] + `evaluate_quality(...)` als Bündelung in fester Reihenfolge [Symbol aktiv → Halt →
+      Marktstatus → Quote-Alter → Spread → Bars/NaN → Corporate Actions]. Jeder Einzel-Check läuft
+      nur, wenn die dafür nötige Eingabe übergeben wurde — kein Check blockiert allein wegen
+      fehlender Eingabe. Baut auf den DATA-003-Wertobjekten [`Quote`/`MarketStatus`/
+      `CorporateAction`] auf. Noch von KEINEM Live-Codepfad genutzt — Verdrahtung in den
+      Produktionssignalpfad [Gate P2: „veraltete Quotes blockieren Orders"] setzt die noch
+      offene Migration bestehender Aufrufer auf `MarketDataProvider` voraus.)
 - [ ] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
 
 **Gate P2 (Abnahme):**
