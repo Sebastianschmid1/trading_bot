@@ -1587,6 +1587,13 @@ def get_trade(user_id: int, ticker: str) -> dict | None:
     return _trade_to_dict(row) if row else None
 
 
+def get_trade_by_id(trade_id: int) -> dict | None:
+    """Liefert einen Trade anhand seiner global eindeutigen ID (OMS-Signal-Bridge)."""
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
+    return _trade_to_dict(row) if row else None
+
+
 def close_all(user_id: int, results: list[dict], *, broker_status: str | None = None):
     """Schließt die ausgewerteten Trades des Nutzers (matcht den AKTIVEN Trade je Aktie,
     datumsunabhängig — auch über Nacht gehaltene).

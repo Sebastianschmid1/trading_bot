@@ -272,6 +272,49 @@ def test_bot_broker_order_blocks_when_buying_power_is_insufficient():
     assert "Buying Power reicht nicht" in fake_bot.send_message.await_args.kwargs["text"]
 
 
+def test_bot_paper_broker_order_runs_through_oms(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "brokeroms")
+    db.save_profile(CHAT, trade_size_eur=1000.0)
+    db.set_broker_exec(CHAT, True)
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    trade = db.activate_trade(CHAT, "AAPL", status="broker_pending")
+
+    class PaperClient:
+        _paper = True
+
+    submissions = []
+    monkeypatch.setattr(bot, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(bot, "_alpaca_client", lambda user: PaperClient())
+    monkeypatch.setattr(bot, "_us_market_open", lambda extended=False: True)
+    monkeypatch.setattr(bot.broker, "account_summary",
+                        lambda client=None: {"ok": True, "buying_power": 10000.0})
+    monkeypatch.setattr(
+        bot.broker, "submit_buy",
+        lambda symbol, **kwargs: submissions.append((symbol, kwargs))
+        or {"ok": True, "id": "ord-tg", "status": "filled", "detail": "filled"})
+    monkeypatch.setattr(
+        bot.broker, "get_order_status",
+        lambda order_id, client=None: {"ok": True, "status": "filled",
+                                       "filled_qty": 10.0, "filled_avg_price": 100.0})
+    monkeypatch.setattr(bot, "_reconcile_and_alert", AsyncMock())
+
+    asyncio.run(bot._maybe_broker_order(AsyncMock(), CHAT, trade))
+
+    assert submissions[0][0] == "AAPL"
+    assert submissions[0][1]["client_order_id"].startswith("oms-")
+    updated = db.get_trade(CHAT, "AAPL")
+    assert updated["status"] == "active" and updated["broker_status"] == "filled"
+    with db._connect() as conn:
+        intent = conn.execute("SELECT * FROM trade_intents").fetchone()
+    assert intent["source_channel"] == "telegram"
+    assert intent["idempotency_key"] == f"telegram:{CHAT}:{trade['id']}:accept"
+
+
 def test_bot_broker_order_rejects_stale_leverage_above_one():
     """TSAFE-002: ein gespeicherter Hebel > MAX_LEVERAGE (Altwert) darf über Telegram nie zu einer
     echten Broker-Order (erst recht keiner Optionsorder) führen — explizite Ablehnung statt
