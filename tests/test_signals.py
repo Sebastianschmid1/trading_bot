@@ -15,6 +15,7 @@ Alle Tests laufen offline (yfinance + Telegram werden gemockt).
 import sys
 import asyncio
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -362,6 +363,43 @@ def test_auto_accept_skips_activation_within_entry_cutoff():
     finally:
         bot._us_market_open = o_open
         exchange_calendar.is_past_entry_cutoff = o_cutoff
+
+
+def test_close_and_evaluate_report_header_shows_actual_berlin_time():
+    """DATA-002 / Plan.md §10.1 „Reports separat in Europe/Berlin": der Job feuert seit
+    _session_scheduler_tick relativ zum echten Handelsschluss, daher zeigt der Report die
+    tatsächliche Berlin-Uhrzeit statt eines evtl. nicht mehr zutreffenden CLOSE_TIME_HOUR/MIN."""
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "u")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_eod_close(CHAT, True)
+    db.add_pending(CHAT, make_signal("NVDA"), 111)
+    db.activate_trade(CHAT, "NVDA")
+
+    from stockbot import config as cfg
+    fixed_berlin_now = datetime(2026, 6, 10, 23, 0, tzinfo=bot.BERLIN_TZ)
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_berlin_now if tz is not None else fixed_berlin_now.replace(tzinfo=None)
+
+    o_datetime, o_eval = bot.datetime, bot.evaluate_trades
+    bot.datetime = _FixedDatetime
+    bot.evaluate_trades = lambda trades, size: [
+        {"ticker": t["ticker"], "entry": t["entry"], "exit": 105.0,
+         "pnl_eur": 1.25, "pnl_pct": 5.0, "exit_reason": "Schlusskurs"} for t in trades]
+    try:
+        ctx = MagicMock()
+        ctx.bot = fake_bot()
+        asyncio.run(bot.close_and_evaluate(ctx))
+        head_call = ctx.bot.send_message.await_args_list[0]
+        text = head_call.kwargs["text"]
+        assert "23:00 Uhr" in text
+        assert f"{cfg.CLOSE_TIME_HOUR:02d}:{cfg.CLOSE_TIME_MIN:02d} Uhr" not in text
+    finally:
+        bot.datetime, bot.evaluate_trades = o_datetime, o_eval
 
 
 # ── Runner (ohne pytest nutzbar) ─────────────────────────────────────────────

@@ -126,7 +126,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (alle in `stockbot/core/exchange_calendar.py`, DST-robust [Sitzungsdauer-Vergleich statt fester
       Uhrzeit für `is_early_close`]. Noch von keinem Live-Codepfad genutzt — Umstellung von
       `bot.py::_us_market_open`/Scheduler ist DATA-002.)
-- [~] **DATA-002** Scheduler umstellen: feste Berlin-Zeiten → relativ zu Open/Close; Reports separat in Europe/Berlin
+- [x] **DATA-002** Scheduler umstellen: feste Berlin-Zeiten → relativ zu Open/Close; Reports separat in Europe/Berlin
       (Erledigt: `bot._us_market_open` nutzt `stockbot/core/exchange_calendar` statt reinem
       Wochentag+ET-Fenster-Check — Feiertage [z. B. Thanksgiving] und Frühschluss-Tage [z. B. Black
       Friday, 9:30–13:00 ET] schließen den Markt jetzt korrekt. Betrifft alle Aufrufer: Auto-Accept,
@@ -145,8 +145,11 @@ Ziel: Belastbares Zustands- und Datenmodell.
       is_past_entry_cutoff` + `ENTRY_CUTOFF_BEFORE_CLOSE_MIN` [Default 15 Min.] zentral in
       `services/trades.py::accept_trade` — gilt für Telegram-Auto-Accept, Telegram-Button-Accept UND
       Web gleichermaßen [ein Seam für beide Kanäle]; betrifft nur neue Einstiege, nie Schutz-Exits.
-      Noch offen: „Reports separat in Europe/Berlin" [Berlin-Zeit explizit auf Reports/Dashboards
-      kennzeichnen].)
+      Zuletzt: „Reports separat in Europe/Berlin" — der `close_and_evaluate`-Tagesreport-Header zeigte
+      bisher den statischen Anzeigewert `CLOSE_TIME_HOUR:CLOSE_TIME_MIN`, obwohl der Job jetzt
+      session-relativ [variabel] feuert; zeigt jetzt die tatsächliche `Europe/Berlin`-Uhrzeit im
+      Moment der Auswertung. Damit sind alle vier Punkte aus Plan.md §10.1 „Scheduler-Umstellung"
+      umgesetzt.)
 - [ ] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
 - [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)

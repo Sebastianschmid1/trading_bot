@@ -863,7 +863,12 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(0.5)
             continue
 
-        head = (f"⏰ *{CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr — Schließe alle Demo-Trades und werte aus...*"
+        # DATA-002 / Plan.md §10.1 "Reports separat in Europe/Berlin": der Job feuert seit
+        # _session_scheduler_tick relativ zum tatsächlichen Handelsschluss (nicht mehr fix
+        # CLOSE_TIME_HOUR/MIN) — der Report zeigt daher die echte Berlin-Uhrzeit "jetzt" statt
+        # eines ggf. nicht mehr zutreffenden nominalen Anzeigewerts.
+        now_berlin = datetime.now(BERLIN_TZ)
+        head = (f"⏰ *{now_berlin:%H:%M} Uhr — Schließe alle Demo-Trades und werte aus...*"
                 if eod else
                 f"⏰ Schließe {len(to_close)} Trade(s) über der Höchsthaltedauer ({HOLD_MAX_DAYS} Tage); "
                 f"{len(kept)} bleiben über Nacht offen.")
