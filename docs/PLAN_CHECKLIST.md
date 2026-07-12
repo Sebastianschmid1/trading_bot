@@ -257,7 +257,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
       sprengen würde], Sizing-Integration [RISK-002 `risk_sizing.size_position` existiert,
       ist aber noch nicht in `pretrade_check` verdrahtet], Buying Power/Brokerstatus [Live-
       Broker-Abfrage]. Noch von KEINEM Live-Codepfad genutzt.)
-- [ ] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
+- [~] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
+      (`stockbot/core/daily_loss_limit.py::check_daily_loss_limit` — reine, zustandslose
+      Entscheidungsfunktion nach demselben `ok`/`reason`/`code`-Muster; „laufend fortschreiben"
+      bedeutet hier: der Aufrufer übergibt bei jeder Prüfung den aktuellen realisierten
+      Tages-P&L [z. B. aus `db.get_all_trades_between(user_id, heute, heute)`], die Funktion
+      selbst hält keinen eigenen State. Zählt bewusst nur REALISIERTE P&L geschlossener Trades,
+      nicht unrealisierte Verluste offener Positionen. Noch offen: Verdrahtung in
+      `risk.py::pretrade_check` [Aufrufer muss den heutigen realisierten P&L ermitteln — noch
+      keine Live-Anbindung]. Noch von KEINEM Live-Codepfad genutzt.)
 - [ ] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
 - [ ] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
       `is_new_position_allowed`, `is_protective_exit_allowed`)
