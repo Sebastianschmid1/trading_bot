@@ -27,6 +27,7 @@ from telegram.error import Conflict, BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from stockbot.core import db
+from stockbot.core import exchange_calendar
 from stockbot.market import universes
 from stockbot.market import smartmoney
 from stockbot.market import strategies
@@ -1358,18 +1359,25 @@ def _registered_user(chat_id: int) -> dict | None:
 
 
 def _us_market_open(extended: bool | None = None) -> bool:
-    """Grobe Prüfung, ob die US-Börse gerade „offen" ist (Wochentag, ET-Zeitfenster).
-    Regulär 9:30–16:00 ET; mit Extended Hours (Pre-/After-Market) 4:00–20:00 ET.
-    Feiertage werden nicht berücksichtigt."""
+    """Prüft, ob die US-Börse gerade „offen" ist — Feiertage und Frühschluss-Tage werden über
+    den NYSE/Nasdaq-Kalender (`exchange_calendar`, DATA-001/DATA-002) berücksichtigt, nicht nur
+    Wochentag + festes ET-Zeitfenster.
+    Regulär: tatsächliche Sitzungszeit des Handelstags (z. B. verkürzt an Frühschluss-Tagen).
+    Extended Hours (Pre-/After-Market): 4:00–20:00 ET, aber nur an echten Handelstagen."""
     if extended is None:
         extended = EXTENDED_HOURS
     now = datetime.now(ZoneInfo("America/New_York"))
-    if now.weekday() >= 5:
+    if not exchange_calendar.is_trading_day(now.date()):
         return False
-    minutes = now.hour * 60 + now.minute
     if extended:
+        minutes = now.hour * 60 + now.minute
         return 4 * 60 <= minutes <= 20 * 60
-    return 9 * 60 + 30 <= minutes <= 16 * 60
+    open_dt = exchange_calendar.market_open(now.date())
+    close_dt = exchange_calendar.market_close(now.date())
+    if open_dt is None or close_dt is None:
+        return False
+    now_et = now if now.tzinfo else now.replace(tzinfo=ZoneInfo("America/New_York"))
+    return open_dt.astimezone(ZoneInfo("America/New_York")) <= now_et <= close_dt.astimezone(ZoneInfo("America/New_York"))
 
 
 async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):

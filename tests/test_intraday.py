@@ -800,6 +800,19 @@ def test_us_market_closed_at_night_and_on_weekend():
     assert _market_open(datetime(2026, 6, 13, 12, 0), extended=False) is False
 
 
+def test_us_market_closed_on_exchange_holiday():
+    # Thanksgiving 2026-11-26 (Donnerstag) → NYSE-Feiertag, auch innerhalb des alten
+    # festen 9:30-16:00-Fensters zu (DATA-002: Kalender statt reinem Wochentag-Check).
+    assert _market_open(datetime(2026, 11, 26, 12, 0), extended=False) is False
+    assert _market_open(datetime(2026, 11, 26, 12, 0), extended=True) is False
+
+
+def test_us_market_closed_after_early_close():
+    # Tag nach Thanksgiving 2026-11-27 → Frühschluss 13:00 ET statt regulär 16:00 ET.
+    assert _market_open(datetime(2026, 11, 27, 12, 0), extended=False) is True
+    assert _market_open(datetime(2026, 11, 27, 14, 0), extended=False) is False
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]
