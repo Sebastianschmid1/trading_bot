@@ -266,7 +266,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       nicht unrealisierte Verluste offener Positionen. Noch offen: Verdrahtung in
       `risk.py::pretrade_check` [Aufrufer muss den heutigen realisierten P&L ermitteln — noch
       keine Live-Anbindung]. Noch von KEINEM Live-Codepfad genutzt.)
-- [ ] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
+- [~] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
+      (Exposure-Limits erledigt: `stockbot/core/exposure.py` — vier reine `check_*`-Funktionen
+      [Einzel/Sektor/Korreliert/Täglich neu, je gegen die passenden `domain.RiskProfile`-Deckel]
+      + `evaluate_exposure(...)` als Bündelung in fester Reihenfolge. Sektor-/Korrelationsgruppe
+      sind ein Eingabe-String je Position [`ExposurePosition.sector`/`correlation_group`] — das
+      Modul berechnet KEINE Sektor-Klassifikation/Kurskorrelation selbst, das bleibt ein
+      separater Wiring-Schritt [z. B. `yfinance` `.info['sector']`]. Fehlt die Angabe für den
+      Kandidaten, wird der jeweilige Check übersprungen statt fälschlich zu blockieren. Noch
+      offen: „Post-Trade: offene Position ohne Schutzorder erkennen" [eigenes, separates Thema]
+      und die Verdrahtung in `risk.py::pretrade_check`. Noch von KEINEM Live-Codepfad genutzt.)
 - [ ] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
       `is_new_position_allowed`, `is_protective_exit_allowed`)
 - [ ] UI für Risikoeinstellungen; Ablehnungsgründe im UI sichtbar
