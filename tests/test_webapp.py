@@ -436,6 +436,18 @@ def test_settings_and_notify_channel_via_web():
     assert db.get_user(CHAT)["notify_channel"] == "web"
 
 
+def test_settings_page_shows_readonly_risk_parameters():
+    # UI für Risikoeinstellungen (PLAN_CHECKLIST.md Phase 3) — die serverseitigen
+    # Sicherheitsgrenzen müssen auf der Einstellungsseite sichtbar sein, auch schreibgeschützt.
+    fresh()
+    c = _client()
+    r = c.get("/app/settings")
+    assert r.status_code == 200
+    assert "Risiko-Parameter" in r.text
+    assert "Maximaler Hebel" in r.text
+    assert f"{webapp.config.MAX_LEVERAGE:g}×" in r.text
+
+
 def test_watchlist_add_remove_via_web():
     fresh()
     c = _client()

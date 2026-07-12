@@ -316,14 +316,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       fiel z. B. eine TSAFE-002-Hebel-Ablehnung im Trade-Status-Badge auf den unübersetzten
       Fallback „Leverage Blocked" zurück statt einen lesbaren Grund zu zeigen. Formulierung
       nach Stylekonzept.md §25.2 [„Durch Risikoregel blockiert" statt Ticket-ID/Fachjargon].
-      Test in `tests/test_webapp.py`. Noch offen: „UI für Risikoeinstellungen" [ein
-      Risk-Profile-Editor braucht laut Stylekonzept.md Style-Phase 4 eine eigene, größere
-      Umsetzung — und eine DB-Anbindung für `domain.RiskProfile`, die es laut PLAT-001 noch
-      nicht gibt; ein Kandidat für den nächsten Teilschritt ist eine schreibgeschützte
-      „Risiko-Parameter"-Karte in `settings.html` mit den aktuellen fest codierten Limits], und
-      die übrigen, noch nicht im Live-Pfad gesetzten `risk.py`-Ablehnungscodes [`signal_invalid`,
-      `strategy_not_allowed`, `liquidity_low` usw. — erst relevant, sobald `pretrade_check`
-      selbst live verdrahtet ist].)
+      Test in `tests/test_webapp.py`. Zweiter Teilschritt: schreibgeschützte
+      „Risiko-Parameter"-Karte auf `/app/settings` [neue Karte in `settings.html`, Werte aus
+      `webapp.py::app_settings` — Handelsmodus, maximaler Hebel, Optionen/Shorts/Margin
+      erlaubt/gesperrt, direkt aus `config.py` gelesen]; Test in `tests/test_webapp.py`. Noch
+      offen: ein echter, editierbarer Risk-Profile-Editor [braucht laut Stylekonzept.md
+      Style-Phase 4 eine eigene, größere Umsetzung — und eine DB-Anbindung für
+      `domain.RiskProfile`, die es laut PLAT-001 noch nicht gibt] und die übrigen, noch nicht
+      im Live-Pfad gesetzten `risk.py`-Ablehnungscodes [`signal_invalid`, `strategy_not_allowed`,
+      `liquidity_low` usw. — erst relevant, sobald `pretrade_check` selbst live verdrahtet
+      ist].)
 
 **Gate P3 (Abnahme):**
 - [ ] Keine Order umgeht den Risk Service; gleiche Inputs → gleiche RiskDecision

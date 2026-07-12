@@ -626,10 +626,18 @@ def app_settings(request: Request, msg: str = ""):
     ]
     if _alpaca_ready(user):
         toggles.append(("set_broker", "Echte Broker-Order (Alpaca)", user["broker_exec"]))
+    risk_params = [
+        ("Handelsmodus", "LIVE · ECHTES GELD" if config.LIVE_TRADING_ENABLED else "PAPER (kein echtes Geld)"),
+        ("Maximaler Hebel", f"{config.MAX_LEVERAGE:g}×"),
+        ("Optionen", "erlaubt" if config.ALLOW_OPTIONS else "gesperrt"),
+        ("Leerverkäufe (Shorts)", "erlaubt" if config.ALLOW_SHORTS else "gesperrt"),
+        ("Margin", "erlaubt" if config.ALLOW_MARGIN else "gesperrt"),
+    ]
     return _render("settings.html", request, user, active="settings", msg=msg,
                    universes=config.REGION_LABELS, sl_tp_modes=list(config.SL_TP_MODES),
                    has_alpaca=db.has_alpaca_credentials(user["user_id"]),
-                   strategies=strategies.all_strategies(), toggles=toggles)
+                   strategies=strategies.all_strategies(), toggles=toggles,
+                   risk_params=risk_params)
 
 
 @router.post("/app/settings/set")

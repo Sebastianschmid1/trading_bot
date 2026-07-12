@@ -88,6 +88,18 @@
 </div>
 
 <div class="card">
+  <h2>Risiko-Parameter (schreibgeschützt)</h2>
+  <p class="muted">Serverseitige Sicherheitsgrenzen — gelten für alle Nutzer und lassen sich
+    hier noch nicht bearbeiten (Konfiguration in <code>.env</code>, siehe TSAFE-001/TSAFE-002).</p>
+  {% for label, value in risk_params %}
+  <div class="row" style="margin:.3rem 0">
+    <span style="min-width:230px">{{ label }}</span>
+    <span class="muted">{{ value }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
   <h2>Alpaca-Verbindung (Broker)</h2>
   <p class="muted">
     {% if has_alpaca %}✅ API-Zugangsdaten hinterlegt. Damit lässt sich oben „Echte Broker-Order" aktivieren.
