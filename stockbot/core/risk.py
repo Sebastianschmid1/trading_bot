@@ -8,8 +8,9 @@ Stelle. Phase 3 (RISK-003) erweitert sie schrittweise um das volle Risikomodell 
 Signal gültig/nicht abgelaufen, Strategie erlaubt, Markt-offen (DATA-002), Quote-Frische/Spread
 (DATA-004), Liquidität, Tagesverlustlimit (RISK-004), max Positionen, bestehende
 Ticker-Position, Exposure/Sektor/Korreliert/Täglich-neu (RISK-005), risikobasiertes Sizing
-(RISK-002); Buying-Power/Brokerstatus folgen als eigene Schritte, sobald die dafür nötige
-Live-Broker-Abfrage angebunden ist.
+(RISK-002), Buying Power, Brokerstatus. Wie alle Live-Kontodaten-Checks bewusst nur als
+optionaler Parameter angebunden — der Aufrufer fragt den Broker ab (z. B.
+`broker.account_summary`) und übergibt das Ergebnis, statt dass dieses Modul selbst IO macht.
 
 Bewusst broker-/IO-frei und rein — nur Config + übergebene Werte, damit sie gut testbar ist und
 identisch für Telegram- und Web-Pfad gilt. Sie ENTSCHEIDET, führt aber selbst keine Order aus.
@@ -55,6 +56,7 @@ def pretrade_check(
     candidate_correlation_group: str | None = None,
     open_positions: tuple[ExposurePosition, ...] = (),
     entry_price: float | None = None, stop_price: float | None = None,
+    buying_power: float | None = None, broker_status: str | None = None,
     now: datetime | None = None,
 ) -> RiskDecision:
     """Prüft die Pre-Trade-Invarianten für eine NEUE Position, in fester Reihenfolge
@@ -85,11 +87,12 @@ def pretrade_check(
      14. risikobasiertes Sizing (delegiert an `risk_sizing.size_position` — nur geprüft, wenn
          `entry_price`+`stop_price`+`account_value`+`risk_profile` übergeben wurden; das
          Ergebnis [Stückzahl/Risikobetrag/Notional] hängt bei Erfolg als `sizing` an der
-         zurückgegebenen `RiskDecision`, damit der Aufrufer nicht doppelt rechnen muss).
-
-    Buying-Power/Brokerstatus sind noch NICHT Teil dieser Funktion — sie brauchen eine Live-
-    Broker-Abfrage, die den bislang reinen IO-freien Charakter dieses Seams sprengen würde; sie
-    folgen als eigene, separate Schritte.
+         zurückgegebenen `RiskDecision`, damit der Aufrufer nicht doppelt rechnen muss),
+     15. Buying Power (nur geprüft, wenn `buying_power` übergeben wurde; verglichen wird das
+         Notional aus Schritt 14 [`sizing.notional`], ersatzweise `candidate_notional`, falls
+         kein Sizing berechnet wurde),
+     16. Brokerstatus (nur geprüft, wenn `broker_status` übergeben wurde — alles außer
+         `"ACTIVE"` blockiert).
 
     Schutz-Exits (Verkäufe/Positionsschließungen) laufen NICHT über diese Funktion — sie bleiben
     erlaubt (vgl. Konzept §17.4).
@@ -153,12 +156,26 @@ def pretrade_check(
             candidate_correlation_group=candidate_correlation_group, positions=open_positions)
         if not d.ok:
             return RiskDecision(False, d.reason, d.code)
+    sizing_result: SizingResult | None = None
     if (entry_price is not None and stop_price is not None and account_value is not None
             and risk_profile is not None):
-        s = size_position(
+        sizing_result = size_position(
             account_value=account_value, entry_price=entry_price, stop_price=stop_price,
             risk_profile=risk_profile)
-        if not s.ok:
-            return RiskDecision(False, s.reason, s.code)
-        return RiskDecision(True, s.reason, s.code, sizing=s)
+        if not sizing_result.ok:
+            return RiskDecision(False, sizing_result.reason, sizing_result.code)
+    if buying_power is not None:
+        effective_notional = sizing_result.notional if sizing_result is not None else candidate_notional
+        if effective_notional is not None and effective_notional > buying_power:
+            return RiskDecision(
+                False,
+                f"Notional {effective_notional:.2f} über verfügbarer Buying Power "
+                f"{buying_power:.2f}.",
+                "insufficient_buying_power")
+    if broker_status is not None and broker_status != "ACTIVE":
+        return RiskDecision(
+            False, f"Brokerstatus „{broker_status}“ erlaubt keine neue Position.",
+            "broker_status_blocked")
+    if sizing_result is not None:
+        return RiskDecision(True, sizing_result.reason, sizing_result.code, sizing=sizing_result)
     return _ALLOW

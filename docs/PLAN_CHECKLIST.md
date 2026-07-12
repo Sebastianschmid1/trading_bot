@@ -247,7 +247,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
       „1× Exposure" ist keine RiskProfile-Feld-Konstante, sondern die Summenwirkung der Caps —
       wird durch `risk_sizing.size_position`s `max_position_pct`-Deckel je Einzelposition erzwungen,
       ein aggregierter Portfolio-Exposure-Deckel über mehrere offene Positionen folgt mit RISK-005.)
-- [~] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
+- [x] **RISK-003** Pre-Trade-Checks in fester Reihenfolge (Kill-Switch → Modus → Signal gültig → Strategie erlaubt →
       Markt offen → Quote frisch → Spread → Liquidität → Tagesverlustlimit → max Positionen → bestehende Ticker-Position →
       Exposure/Sektor → Sizing → Buying Power → Brokerstatus)
       (`stockbot/core/risk.py::pretrade_check` erweitert: nach Kill-Switch/Hebel/Optionen [Phase 0]
@@ -258,17 +258,21 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `min_average_dollar_volume`], Tagesverlustlimit [RISK-004, delegiert an
       `daily_loss_limit.check_daily_loss_limit`], max Positionen [`open_position_count` vs.
       `risk_profile.max_open_positions`], bestehende Ticker-Position
-      [`has_existing_ticker_position`] und Exposure [RISK-005, delegiert an
+      [`has_existing_ticker_position`], Exposure [RISK-005, delegiert an
       `exposure.evaluate_exposure` — Einzel/Sektor/Korreliert/Täglich neu über
-      `candidate_notional`/`candidate_sector`/`candidate_correlation_group`/`open_positions`]
-      und risikobasiertes Sizing [RISK-002, delegiert an `risk_sizing.size_position` über
-      `entry_price`/`stop_price`, Ergebnis hängt als `sizing`-Feld an der `RiskDecision`] —
-      feste Reihenfolge nach Plan.md §11.3, jeder Check optional [nur geprüft, wenn die nötige
-      Eingabe übergeben wurde]. Bewusst weiterhin broker-/IO-frei; neue Tests in
-      `tests/test_risk.py`. Noch offen: Buying Power/Brokerstatus — brauchen eine echte
-      Live-Broker-Abfrage [`broker/client.py`], die den bislang reinen IO-freien Charakter
-      dieses Seams sprengen würde; das ist der letzte verbleibende Baustein von RISK-003 und
-      bleibt bis dahin `[~]`. Noch von KEINEM Live-Codepfad genutzt.)
+      `candidate_notional`/`candidate_sector`/`candidate_correlation_group`/`open_positions`],
+      risikobasiertes Sizing [RISK-002, delegiert an `risk_sizing.size_position` über
+      `entry_price`/`stop_price`, Ergebnis hängt als `sizing`-Feld an der `RiskDecision`],
+      Buying Power [`buying_power` gegen das Sizing-Notional bzw. ersatzweise
+      `candidate_notional`] und Brokerstatus [`broker_status`, alles außer `"ACTIVE"`
+      blockiert] — feste Reihenfolge nach Plan.md §11.3, jeder Check optional [nur geprüft,
+      wenn die nötige Eingabe übergeben wurde]. Buying Power/Brokerstatus bleiben wie alle
+      anderen Live-Kontodaten-Checks als reine Parameter angebunden — der Aufrufer fragt den
+      Broker [`broker.account_summary`] ab und übergibt das Ergebnis, `pretrade_check` selbst
+      bleibt broker-/IO-frei; neue Tests in `tests/test_risk.py`. Damit sind alle 16 Schritte
+      der Plan.md-§11.3-Reihenfolge im Seam abgebildet. Noch von KEINEM Live-Codepfad genutzt —
+      das tatsächliche Verdrahten in Telegram-/Web-Aufrufstellen [die `pretrade_check` statt
+      der bisherigen Einzel-Gates aufrufen] ist ein eigener, separater Schritt.)
 - [x] **RISK-004** Tagesverlustlimit laufend fortschreiben; blockiert neue Positionen
       (`stockbot/core/daily_loss_limit.py::check_daily_loss_limit` — reine, zustandslose
       Entscheidungsfunktion nach demselben `ok`/`reason`/`code`-Muster; „laufend fortschreiben"

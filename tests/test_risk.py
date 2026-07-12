@@ -288,3 +288,49 @@ def test_exposure_wins_over_sizing():
         candidate_notional=2_000.0, entry_price=100.0, stop_price=95.0,
         account_value=10_000.0, risk_profile=profile)
     assert d.ok is False and d.code == "single_position_exposure"
+
+
+# ── RISK-003: Buying Power, Brokerstatus ─────────────────────────────────────
+
+def test_blocks_when_sized_notional_exceeds_buying_power():
+    profile = RiskProfile(user_id=1, account_risk_per_trade_pct=1.0, max_position_pct=100.0)
+    d = risk.pretrade_check(
+        entry_price=100.0, stop_price=95.0, account_value=10_000.0, risk_profile=profile,
+        buying_power=1_000.0)
+    assert d.ok is False and d.code == "insufficient_buying_power"
+
+
+def test_allows_when_sized_notional_within_buying_power():
+    profile = RiskProfile(user_id=1, account_risk_per_trade_pct=1.0, max_position_pct=100.0)
+    d = risk.pretrade_check(
+        entry_price=100.0, stop_price=95.0, account_value=10_000.0, risk_profile=profile,
+        buying_power=5_000.0)
+    assert d.ok is True and d.sizing is not None
+
+
+def test_blocks_on_buying_power_using_candidate_notional_without_sizing():
+    d = risk.pretrade_check(candidate_notional=2_000.0, buying_power=1_000.0)
+    assert d.ok is False and d.code == "insufficient_buying_power"
+
+
+def test_buying_power_check_skipped_when_not_provided():
+    assert risk.pretrade_check().ok is True
+
+
+def test_blocks_when_broker_status_not_active():
+    d = risk.pretrade_check(broker_status="ACCOUNT_UPDATED")
+    assert d.ok is False and d.code == "broker_status_blocked"
+
+
+def test_allows_when_broker_status_active():
+    assert risk.pretrade_check(broker_status="ACTIVE").ok is True
+
+
+def test_broker_status_check_skipped_when_not_provided():
+    assert risk.pretrade_check().ok is True
+
+
+def test_buying_power_wins_over_broker_status():
+    d = risk.pretrade_check(
+        candidate_notional=2_000.0, buying_power=1_000.0, broker_status="ACTIVE")
+    assert d.ok is False and d.code == "insufficient_buying_power"
