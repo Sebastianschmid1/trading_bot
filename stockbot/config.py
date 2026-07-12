@@ -69,12 +69,22 @@ HSTS_ENABLED = os.getenv("HSTS_ENABLED", str(COOKIE_SECURE)).strip().lower() in 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 SIGNAL_TIME_HOUR = 15      # Signale senden um...  (nach US-Eröffnung → Live-Kurse)
-SIGNAL_TIME_MIN  = 35      # ...15:35 Uhr (5 Min nach US-Open)
+SIGNAL_TIME_MIN  = 35      # ...15:35 Uhr (5 Min nach US-Open) — NUR Anzeigewert (Onboarding-Text)
+                            # für den in der Regel (EU/US-DST synchron) geltenden Berlin-Zeitpunkt;
+                            # der tatsächliche Job feuert über SIGNAL_OPEN_OFFSET_MIN (DATA-002).
 
 # Trades schließen NACH der US-Session (22:00 Berlin = 16:00 ET Börsenschluss),
 # damit eine echte Handelssession dazwischenliegt und SL/TP auslösen können.
-CLOSE_TIME_HOUR  = 22      # Trades schließen/auswerten um...
+CLOSE_TIME_HOUR  = 22      # Trades schließen/auswerten um... — nur Anzeigewert, siehe oben.
 CLOSE_TIME_MIN   = 15      # ...22:15 Uhr
+
+# DATA-002: Der Eröffnungs-Signal-Job und die Tagesauswertung feuern relativ zum tatsächlichen
+# NYSE/Nasdaq-Handelstag (stockbot/core/exchange_calendar), nicht mehr zu einer festen
+# Europe/Berlin-Uhrzeit — robust gegenüber Feiertagen, Frühschluss-Tagen und den seltenen
+# Wochen, in denen EU- und US-Sommerzeitumstellung nicht synchron sind.
+SIGNAL_OPEN_OFFSET_MIN = int(os.getenv("SIGNAL_OPEN_OFFSET_MIN", "5"))         # Min. nach Open
+CLOSE_AFTER_CLOSE_OFFSET_MIN = int(os.getenv("CLOSE_AFTER_CLOSE_OFFSET_MIN", "15"))  # Min. nach Close
+SESSION_TICK_INTERVAL_SEC = int(os.getenv("SESSION_TICK_INTERVAL_SEC", "60"))  # Prüfintervall
 
 # Tagesende-Schließung pro Nutzer:
 #   True  = alle Trades am Tagesende (22:15) schließen.

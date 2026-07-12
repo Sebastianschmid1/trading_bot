@@ -127,16 +127,22 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Uhrzeit für `is_early_close`]. Noch von keinem Live-Codepfad genutzt — Umstellung von
       `bot.py::_us_market_open`/Scheduler ist DATA-002.)
 - [~] **DATA-002** Scheduler umstellen: feste Berlin-Zeiten → relativ zu Open/Close; Reports separat in Europe/Berlin
-      (Erster Teilschritt erledigt: `bot._us_market_open` nutzt jetzt `stockbot/core/exchange_calendar`
-      statt reinem Wochentag+ET-Fenster-Check — Feiertage [z. B. Thanksgiving] und Frühschluss-Tage
-      [z. B. Black Friday, 9:30–13:00 ET] schließen den Markt jetzt korrekt, auch innerhalb des alten
-      festen 9:30–16:00-Fensters. Betrifft alle Aufrufer: Auto-Accept, `evaluate_active_trade`,
-      Order-Gates, `refill_pending`, `run_daily_lab_optimization`. Noch offen: die `job_queue.run_daily`-
-      Trigger in `_register_jobs` feuern weiterhin zu festen Europe/Berlin-Uhrzeiten [z. B. 15:35 für
-      Signale, 5 Min nach nominell angenommenem US-Open] statt dynamisch relativ zu
-      `exchange_calendar.market_open/close` — das driftet in den ca. 1–3 Wochen/Jahr auseinander, in
-      denen EU- und US-Sommerzeitumstellung nicht synchron sind. Ebenso offen: Reports explizit in
-      Europe/Berlin kennzeichnen/trennen.)
+      (Erledigt: `bot._us_market_open` nutzt `stockbot/core/exchange_calendar` statt reinem
+      Wochentag+ET-Fenster-Check — Feiertage [z. B. Thanksgiving] und Frühschluss-Tage [z. B. Black
+      Friday, 9:30–13:00 ET] schließen den Markt jetzt korrekt. Betrifft alle Aufrufer: Auto-Accept,
+      `evaluate_active_trade`, Order-Gates, `refill_pending`, `run_daily_lab_optimization`.
+      Zusätzlich: „Signalerzeugung relativ zum Open" + „Intraday-Exit relativ zum Close" (Plan.md §10.1)
+      umgesetzt — `send_daily_signals`/`close_and_evaluate` feuern nicht mehr über `job_queue.run_daily`
+      zu einer festen Berlin-Uhrzeit, sondern über einen neuen `_session_scheduler_tick`
+      [alle `SESSION_TICK_INTERVAL_SEC`], der `exchange_calendar.market_open/close` des jeweiligen
+      Handelstags + Offset [`SIGNAL_OPEN_OFFSET_MIN`/`CLOSE_AFTER_CLOSE_OFFSET_MIN`] auswertet — robust
+      gegenüber Feiertagen und den ca. 1–3 Wochen/Jahr, in denen EU-/US-Sommerzeitumstellung nicht
+      synchron sind. Toleranzfenster [`_SESSION_FIRE_WINDOW_MIN`] verhindert Nachfeuern Stunden nach
+      einem Neustart. `SMARTMONEY_SCAN_HOUR`/`BROKER_RECONCILE_HOUR`/`LAB_DAILY_HOUR` bleiben bewusst
+      auf fester Berlin-Zeit [nicht direkt session-gated bzw. bereits intern über `_us_market_open`
+      abgesichert — geringeres Risiko]. Noch offen: „Entry-Sperre relativ zum Close" [keine neuen
+      Positionen kurz vor Handelsschluss, Gate P2: „keine Intraday-Position nach Entry-Cutoff"] und
+      „Reports separat in Europe/Berlin" [Berlin-Zeit explizit auf Reports/Dashboards kennzeichnen].)
 - [ ] **DATA-003** `MarketDataProvider`-Interface (`get_bars/get_quote/stream_quotes/stream_trades/get_corporate_actions/get_market_status`)
 - [ ] **DATA-003** Implementierungen: `YFinanceResearchProvider`, `AlpacaPaperMarketDataProvider` (später `LicensedProductionProvider`)
 - [ ] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)

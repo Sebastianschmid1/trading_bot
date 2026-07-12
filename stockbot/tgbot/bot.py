@@ -19,7 +19,7 @@ import os
 import json
 import logging
 import asyncio
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -55,6 +55,7 @@ from stockbot.config import (
     SMARTMONEY_SCAN_HOUR, SMARTMONEY_SCAN_MIN,
     LAB_DAILY_OPTIMIZATION, LAB_DAILY_DAYS, LAB_DAILY_HOUR, LAB_DAILY_MIN,
     BROKER_RECONCILE_HOUR, BROKER_RECONCILE_MIN,
+    SIGNAL_OPEN_OFFSET_MIN, CLOSE_AFTER_CLOSE_OFFSET_MIN, SESSION_TICK_INTERVAL_SEC,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
@@ -2307,20 +2308,59 @@ async def run_daily_broker_reconcile(context: ContextTypes.DEFAULT_TYPE):
     log.info("🔄 Täglicher Alpaca↔Bot-Positionsabgleich beendet.")
 
 
+_last_signals_fire_date: date | None = None
+_last_close_fire_date: date | None = None
+# Toleranzfenster nach dem Zielzeitpunkt: verhindert, dass ein Neustart Stunden nach dem
+# eigentlichen Zeitpunkt (z. B. abends) den Job fälschlich sofort nachfeuert.
+_SESSION_FIRE_WINDOW_MIN = 10
+
+
+def _session_job_due(now_utc: datetime, target_utc: datetime, last_fired_date: date | None,
+                      today: date, window_min: int = _SESSION_FIRE_WINDOW_MIN) -> bool:
+    """Reine Entscheidungslogik (testbar ohne Job-Queue/Mocking): darf der Job jetzt feuern?"""
+    if last_fired_date == today:
+        return False
+    return target_utc <= now_utc < target_utc + timedelta(minutes=window_min)
+
+
+async def _session_scheduler_tick(context: ContextTypes.DEFAULT_TYPE):
+    """DATA-002: feuert Eröffnungssignale (`SIGNAL_OPEN_OFFSET_MIN` nach Open) und Tagesauswertung
+    (`CLOSE_AFTER_CLOSE_OFFSET_MIN` nach Close) relativ zum echten NYSE/Nasdaq-Handelstag statt zu
+    einer festen Europe/Berlin-Uhrzeit — läuft alle `SESSION_TICK_INTERVAL_SEC` Sekunden und feuert
+    jeden der beiden Jobs höchstens einmal pro Handelstag."""
+    global _last_signals_fire_date, _last_close_fire_date
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    if now_et.tzinfo is None:
+        now_et = now_et.replace(tzinfo=ZoneInfo("America/New_York"))
+    today = now_et.date()
+    if not exchange_calendar.is_trading_day(today):
+        return
+    now_utc = now_et.astimezone(timezone.utc)
+
+    open_dt = exchange_calendar.market_open(today)
+    if open_dt is not None:
+        signal_target = open_dt + timedelta(minutes=SIGNAL_OPEN_OFFSET_MIN)
+        if _session_job_due(now_utc, signal_target, _last_signals_fire_date, today):
+            _last_signals_fire_date = today
+            await send_daily_signals(context)
+
+    close_dt = exchange_calendar.market_close(today)
+    if close_dt is not None:
+        close_target = close_dt + timedelta(minutes=CLOSE_AFTER_CLOSE_OFFSET_MIN)
+        if _session_job_due(now_utc, close_target, _last_close_fire_date, today):
+            _last_close_fire_date = today
+            await close_and_evaluate(context)
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
     job_queue = app.job_queue
-    job_queue.run_daily(
-        send_daily_signals,
-        time=datetime.now(BERLIN_TZ).replace(
-            hour=SIGNAL_TIME_HOUR, minute=SIGNAL_TIME_MIN, second=0, microsecond=0).timetz(),
-        name="daily_signals")
-    job_queue.run_daily(
-        close_and_evaluate,
-        time=datetime.now(BERLIN_TZ).replace(
-            hour=CLOSE_TIME_HOUR, minute=CLOSE_TIME_MIN, second=0, microsecond=0).timetz(),
-        name="daily_close")
+    # DATA-002: Tagessignale + Tagesauswertung feuern relativ zu Open/Close (exchange_calendar),
+    # nicht mehr über run_daily zu einer festen Berlin-Uhrzeit.
+    job_queue.run_repeating(
+        _session_scheduler_tick, interval=SESSION_TICK_INTERVAL_SEC, first=10,
+        name="session_scheduler_tick")
     job_queue.run_daily(
         scan_smart_money,
         time=datetime.now(BERLIN_TZ).replace(

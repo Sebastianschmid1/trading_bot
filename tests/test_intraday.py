@@ -5,15 +5,18 @@ Tick-Verlauf und die Dashboard-Intraday-Daten. Offline (yfinance gemockt).
 Lauf:  python test_intraday.py   oder   pytest test_intraday.py
 """
 
+import asyncio
 import sys
 import tempfile
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 
 from stockbot.core import db
+from stockbot.core import exchange_calendar
 from stockbot.market import analyzer
 from stockbot.tgbot import bot
 from stockbot.web import dashboard
@@ -98,14 +101,18 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # zwei wiederkehrende Jobs: Intraday-Signal-Scan + Trade-Monitor
-    assert jq.run_repeating.call_count == 2
+    # drei wiederkehrende Jobs: Session-Scheduler-Tick (DATA-002) + Intraday-Signal-Scan + Trade-Monitor
+    assert jq.run_repeating.call_count == 3
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
     assert by_name["intraday_signals"].args[0] is bot.scan_intraday
     assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
-    assert jq.run_daily.call_count == 5                        # Signale, Auswertung, Smart-Money, Broker-Abgleich, Labor
+    assert by_name["session_scheduler_tick"].args[0] is bot._session_scheduler_tick
+    assert by_name["session_scheduler_tick"].kwargs["interval"] == config.SESSION_TICK_INTERVAL_SEC
+    # Signale + Tagesauswertung feuern seit DATA-002 relativ zu Open/Close über den
+    # Session-Scheduler-Tick, nicht mehr über run_daily — nur noch 3 feste Berlin-Zeit-Jobs.
+    assert jq.run_daily.call_count == 3                        # Smart-Money, Broker-Abgleich, Labor
     daily_by_name = {c.kwargs.get("name"): c for c in jq.run_daily.call_args_list}
     broker_job = daily_by_name["daily_broker_reconcile"]
     assert broker_job.args[0] is bot.run_daily_broker_reconcile
@@ -115,6 +122,47 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert lab_job.args[0] is bot.run_daily_lab_optimization
     assert lab_job.kwargs["days"] == config.LAB_DAILY_DAYS
     assert bot.run_weekly_lab_optimization is bot.run_daily_lab_optimization
+
+
+# ── _session_scheduler_tick: Signale/Auswertung relativ zu Open/Close (DATA-002) ─────
+
+def test_session_job_due_fires_once_within_window():
+    from datetime import timezone as _tz
+    target = datetime(2026, 6, 10, 13, 35, tzinfo=_tz.utc)
+    today = date(2026, 6, 10)
+    # vor dem Ziel: noch nicht faellig
+    assert bot._session_job_due(target - timedelta(minutes=1), target, None, today) is False
+    # innerhalb des Toleranzfensters nach dem Ziel: faellig
+    assert bot._session_job_due(target + timedelta(minutes=1), target, None, today) is True
+    # bereits heute gefeuert: nicht nochmal
+    assert bot._session_job_due(target + timedelta(minutes=1), target, today, today) is False
+    # weit nach dem Ziel (z. B. Neustart Stunden spaeter): nicht mehr nachfeuern
+    assert bot._session_job_due(target + timedelta(hours=3), target, None, today) is False
+
+
+def test_session_scheduler_tick_fires_signals_and_close_once_per_day():
+    from unittest.mock import AsyncMock
+    orig_signals, orig_close = bot.send_daily_signals, bot.close_and_evaluate
+    orig_last_signals, orig_last_close = bot._last_signals_fire_date, bot._last_close_fire_date
+    bot.send_daily_signals = AsyncMock()
+    bot.close_and_evaluate = AsyncMock()
+    bot._last_signals_fire_date = None
+    bot._last_close_fire_date = None
+    try:
+        open_dt = exchange_calendar.market_open(date(2026, 6, 10))
+        signal_time_et = (open_dt + timedelta(minutes=bot.SIGNAL_OPEN_OFFSET_MIN)).astimezone(
+            ZoneInfo("America/New_York"))
+        bot.datetime = _FixedClock(signal_time_et.replace(tzinfo=None))
+        asyncio.run(bot._session_scheduler_tick(object()))
+        bot.send_daily_signals.assert_awaited_once()
+        bot.close_and_evaluate.assert_not_awaited()
+        # ein zweiter Tick im selben Fenster feuert nicht erneut
+        asyncio.run(bot._session_scheduler_tick(object()))
+        bot.send_daily_signals.assert_awaited_once()
+    finally:
+        bot.datetime = datetime
+        bot.send_daily_signals, bot.close_and_evaluate = orig_signals, orig_close
+        bot._last_signals_fire_date, bot._last_close_fire_date = orig_last_signals, orig_last_close
 
 
 def test_broker_reconcile_enabled_for_own_alpaca_credentials_even_if_exec_off(monkeypatch):
