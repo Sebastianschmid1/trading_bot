@@ -335,7 +335,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 4 — Order Management System & Brokerzustände `P1` · Epic: OMS
 
-- [ ] **OMS-001** `TradeIntent`-Modell (user_id, signal_id, requested_action, accepted_exit_policy, source_channel, created_at, idempotency_key)
+- [x] **OMS-001** `TradeIntent`-Modell (user_id, signal_id, requested_action, accepted_exit_policy, source_channel, created_at, idempotency_key)
+      (Bereits mit PLAT-001 umgesetzt: `stockbot/core/domain.py::TradeIntent` trägt exakt diese
+      sieben Felder [Plan.md §12.1, wortgleich mit der Checklisten-Feldliste] — abgedeckt von
+      `tests/test_domain.py::test_trade_intent_has_exact_plan_fields`. War beim Schreiben von
+      PLAT-001 als Domänenobjekt bereits vollständig, wurde hier nur nachträglich als OMS-001
+      abgehakt statt neu implementiert [gleiches Muster wie RISK-001]. Wie der Rest von
+      `domain.py` noch NICHT an eine DB gebunden und von keinem Live-Codepfad genutzt — die
+      OMS-Pipeline, die es tatsächlich ERZEUGT/VERARBEITET, ist OMS-002.)
 - [ ] **OMS-002** OMS-Pipeline (Intent laden → Idempotency → Signal → Risk → Orderplan → persistieren → Broker senden → Broker-ID → Events → Nutzer informieren)
 - [ ] **OMS-003** Idempotency: Key pro Nutzeraktion, DB-Unique-Constraint, doppelte Callbacks/Requests erzeugen keine 2. Order; Client-Order-ID aus interner ID
 - [ ] **OMS-004** `BrokerAdapter`-Interface (submit/cancel/replace_order, close_position, get_order, list_open_orders, list_positions, stream_order_events, get_account)
