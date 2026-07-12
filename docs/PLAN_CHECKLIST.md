@@ -343,8 +343,8 @@ Ziel: Belastbares Zustands- und Datenmodell.
       abgehakt statt neu implementiert [gleiches Muster wie RISK-001]. Wie der Rest von
       `domain.py` noch NICHT an eine DB gebunden und von keinem Live-Codepfad genutzt — die
       OMS-Pipeline, die es tatsächlich ERZEUGT/VERARBEITET, ist OMS-002.)
-- [ ] **OMS-002** OMS-Pipeline (Intent laden → Idempotency → Signal → Risk → Orderplan → persistieren → Broker senden → Broker-ID → Events → Nutzer informieren)
-- [ ] **OMS-003** Idempotency: Key pro Nutzeraktion, DB-Unique-Constraint, doppelte Callbacks/Requests erzeugen keine 2. Order; Client-Order-ID aus interner ID
+- [x] **OMS-002** OMS-Pipeline — `stockbot/execution/oms.py` (Intent→Idempotency→Signal→risk.pretrade_check→sizing.plan_order→persistieren/Zustandsmaschine→Broker(Paper)→Broker-ID→Events→Notification-Hook), DI, tests/test_oms.py *(Sol-A)*
+- [x] **OMS-003** Idempotency — Key aus TradeIntent, DB-Unique-Constraint, gleicher Key ⇒ genau eine Order (Ergebnis wiederverwendet), Client-Order-ID deterministisch aus interner ID *(Sol-A)*
 - [ ] **OMS-004** `BrokerAdapter`-Interface (submit/cancel/replace_order, close_position, get_order, list_open_orders, list_positions, stream_order_events, get_account)
 - [ ] **OMS-005** Broker-Event-Worker (accepted, rejected, partial_fill, fill, cancelled, expired, replaced) — dedupliziert, persistiert, Zustandsübergang geprüft, in Positionen übertragen, auditiert, an Notification
 - [ ] **OMS-006** Partial Fills: Teilposition, Stopgröße an Fillmenge anpassen, Restorder-Timeout, keine doppelte Schutzorder
@@ -482,11 +482,11 @@ Visuelle Ebene über Web-App, Dashboard und Telegram. Dark Mode, risikoorientier
 Reihenfolge = Stylekonzept §29. Läuft parallel zu Phase 5/6 und den Web-/Telegram-Umbau-Paketen.
 
 **Style-Phase 1 — Designgrundlage:**
-- [ ] Design-Tokens zentral als CSS `:root` einbinden (Stylekonzept §27: `--bg-*`, `--text-*`, `--primary*`, semantische Farben, Border, Spacing, Radien, Schatten)
-- [ ] Typografie: Inter (UI) + JetBrains Mono (Zahlen/Kurse/IDs/Timestamps); Größenskala §6.2
-- [ ] Spacing- (4px-Basis), Radien- und Schatten-System verankern
-- [ ] Icon-Set festlegen (Lucide/Heroicons Outline) — **keine Emoji als Interface-Icons**
-- [ ] Statussystem + Modus-Badges (BACKTEST=Violett, SHADOW=Blau, PAPER=Gelb, LIVE=Rot; immer Text+Icon, nie nur Farbe)
+- [x] Design-Tokens zentral als CSS `:root` — `stockbot/web/static/tokens.css` (Stylekonzept §27) in base.html eingebunden *(Sol-B)*
+- [x] Typografie: Inter (UI) + JetBrains Mono — externe Google-Fonts-CDN entfernt (CSP-safe), reine System-Font-Stacks *(Sol-B)*
+- [x] Spacing- (4px-Basis), Radien- und Schatten-System als CSS-Variablen verankert *(Sol-B)*
+- [~] Icon-Set: Emoji als Interface-Icons entfernt (Brand + Badges → inline-SVG); volle Lucide/Heroicons-Adoption über alle Seiten noch offen *(Sol-B, Teil)*
+- [x] Statussystem + Modus-Badges — `mode_badge`-Makro (components.html): BACKTEST/SHADOW/PAPER/LIVE, immer Text+Icon (inline-SVG) *(Sol-B)*
 
 **Style-Phase 2 — Kernkomponenten:**
 - [ ] Button (Primär/Sekundär/Destruktiv/**Live-Order**), alle Zustände (Default/Hover/Active/Focus/Disabled/Loading/Success/Error; Loading blockt Doppelausführung)
