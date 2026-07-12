@@ -7,7 +7,7 @@ Phase 3 / RISK-003 — Markt offen + Quote-Frische/Spread (die übrigen Schritte
 from datetime import datetime, timedelta, timezone
 
 from stockbot.core import risk
-from stockbot.core.domain import SignalStatus
+from stockbot.core.domain import RiskProfile, SignalStatus
 from stockbot.core.market_data import Quote
 from stockbot import config
 
@@ -156,3 +156,32 @@ def test_liquidity_check_skipped_without_min_volume():
 def test_signal_invalid_wins_over_market_closed():
     d = risk.pretrade_check(signal_status=SignalStatus.EXPIRED, market_open=False)
     assert d.ok is False and d.code == "signal_invalid"
+
+
+# ── RISK-004: Tagesverlustlimit-Verdrahtung ──────────────────────────────────
+
+def test_blocks_when_daily_loss_limit_reached():
+    profile = RiskProfile(user_id=1, daily_loss_limit_pct=1.0)
+    d = risk.pretrade_check(
+        realized_pnl_today=-200.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is False and d.code == "daily_loss_limit_reached"
+
+
+def test_allows_when_daily_loss_limit_not_reached():
+    profile = RiskProfile(user_id=1, daily_loss_limit_pct=1.0)
+    d = risk.pretrade_check(
+        realized_pnl_today=-50.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is True
+
+
+def test_daily_loss_limit_check_skipped_when_not_fully_provided():
+    assert risk.pretrade_check(realized_pnl_today=-1_000_000.0).ok is True
+    assert risk.pretrade_check(account_value=10_000.0).ok is True
+
+
+def test_liquidity_wins_over_daily_loss_limit():
+    profile = RiskProfile(user_id=1, daily_loss_limit_pct=1.0)
+    d = risk.pretrade_check(
+        average_dollar_volume=50_000, min_average_dollar_volume=100_000,
+        realized_pnl_today=-200.0, account_value=10_000.0, risk_profile=profile)
+    assert d.ok is False and d.code == "liquidity_low"
