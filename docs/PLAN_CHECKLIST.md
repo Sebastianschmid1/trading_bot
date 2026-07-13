@@ -356,7 +356,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `stream_order_events` ebenso [noch kein Alpaca-`TradingStream`-Lifecycle]. 10 neue Tests,
       volle Suite 729 passed/4 skipped. Noch von KEINEM Live-Codepfad genutzt — Wiring in OMS/Bot/
       Webapp folgt mit OMS-005.)
-- [ ] **OMS-005** Broker-Event-Worker (accepted, rejected, partial_fill, fill, cancelled, expired, replaced) — dedupliziert, persistiert, Zustandsübergang geprüft, in Positionen übertragen, auditiert, an Notification
+- [x] **OMS-005** Broker-Event-Worker (accepted, rejected, partial_fill, fill, cancelled, expired, replaced) — dedupliziert, persistiert, Zustandsübergang geprüft, in Positionen übertragen, auditiert, an Notification
+      (`stockbot/execution/broker_event_worker.py::process_broker_event` [Sol] — dedupliziert über
+      `broker_event_id` [neuer Parameter bis in `order_events` durchgereicht, auch bei
+      Status-neutralen Events wie `replaced` via neue `db.record_oms_order_event`]; ruft
+      `oms.py::process_broker_event` für den geprüften Zustandsübergang auf; leitet bei
+      (Teil-)Fill ein reines `domain.Position`-Objekt ab [noch nicht DB-persistiert, wie der Rest
+      von `domain.py`]; schreibt einen `AuditLog`-Eintrag; ruft den optionalen Notifier auf.
+      11 neue Tests, volle Suite 740 passed/4 skipped.)
 - [ ] **OMS-006** Partial Fills: Teilposition, Stopgröße an Fillmenge anpassen, Restorder-Timeout, keine doppelte Schutzorder
 - [ ] **OMS-007** Reconciliation: Echtzeit (Stream primär) + periodisch (5–15 min: Orders/Positionen/Cash/Buying Power, unbekannte/fehlende Positionen) + täglicher Voll-Abgleich + Report
 
