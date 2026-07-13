@@ -364,7 +364,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (Teil-)Fill ein reines `domain.Position`-Objekt ab [noch nicht DB-persistiert, wie der Rest
       von `domain.py`]; schreibt einen `AuditLog`-Eintrag; ruft den optionalen Notifier auf.
       11 neue Tests, volle Suite 740 passed/4 skipped.)
-- [ ] **OMS-006** Partial Fills: Teilposition, Stopgröße an Fillmenge anpassen, Restorder-Timeout, keine doppelte Schutzorder
+- [x] **OMS-006** Partial Fills: Teilposition, Stopgröße an Fillmenge anpassen, Restorder-Timeout, keine doppelte Schutzorder
+      (`stockbot/execution/partial_fill_policy.py::decide_partial_fill_action` [Sol] — reine
+      Entscheidungsfunktion: `submit_protective` [Schutzorder fehlt → Größe = Fillmenge] /
+      `no_action_needed` [Schutzorder deckt Fillmenge] / `resize_needed` [bewusst nur Empfehlung,
+      kein automatisches Cancel+Submit — gleiche Sicherheitsentscheidung wie OMS-004
+      `replace_order`] / `cancel_restorder` [Restmenge älter als `PARTIAL_FILL_TIMEOUT_MIN`,
+      Default 15 Min]. Teilposition kommt aus OMS-005 `derive_position_from_fill`; Schutzorder-
+      Erkennung delegiert an RISK-005; Nutzerstatus über bestehenden OMS-Notifier. Noch von
+      KEINEM Live-Codepfad genutzt — Live-Orchestrierung [tatsächliches Cancel/Submit] folgt
+      separat. 5 neue Tests, volle Suite 745 passed/4 skipped.)
 - [ ] **OMS-007** Reconciliation: Echtzeit (Stream primär) + periodisch (5–15 min: Orders/Positionen/Cash/Buying Power, unbekannte/fehlende Positionen) + täglicher Voll-Abgleich + Report
 
 **Gate P4 (Abnahme):**
