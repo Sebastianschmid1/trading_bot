@@ -60,31 +60,29 @@ Ziel: Alle besonders riskanten Funktionen sind deaktiviert oder technisch blocki
 
 Ziel: Belastbares Zustands- und Datenmodell.
 
-- [!] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
-      (Lokaler Teil erledigt + verifiziert: `docker-compose.yml` für lokales Postgres,
-      `alembic.ini`/`migrations/` mit initialer Schema-Migration [Spiegel von
-      `docs/DB_SCHEMA_SQLITE.md`, 7 Tabellen] und `stockbot/core/db_pool.py`
-      [SQLAlchemy-Connection-Pool + `session_scope`-Transaktionsgrenze]; `tests/test_migrations.py`/
-      `tests/test_db_pool.py` laufen sowohl gegen SQLite als auch — wenn erreichbar — gegen ein
-      echtes lokales PostgreSQL unter `config.POSTGRES_DSN` [übersprungen, wenn keins läuft].
-      Modul wird von keinem Live-Codepfad genutzt — SQLite bleibt bis zum dokumentierten Cutover
-      Quelle der Wahrheit. Blockiert: eine echte Staging-Instanz [persistenter Server außerhalb
-      dieser Sandbox] bereitzustellen ist eine Infra-/Ops-Entscheidung, die ein Mensch mit
-      VPS-/Hosting-Zugriff treffen und ausführen muss — kein Code-Task und durch die
-      Kein-Deploy-Leitplanke dieser Session dauerhaft ausgeschlossen.)
+- [x] **PLAT-001** PostgreSQL lokal + Staging bereitstellen; Alembic (o.ä.) einführen; Connection Pool + Transaktionsgrenzen
+      (Lokaler Teil: `docker-compose.yml`, `alembic.ini`/`migrations/` [initiales Schema, 7
+      Tabellen], `stockbot/core/db_pool.py` [Pool + `session_scope`]; Tests laufen gegen SQLite
+      und — wenn erreichbar — echtes Postgres. Staging: Owner-Entscheidung 2026-07-13
+      [Docker auf dem VPS + Full Cutover]; Postgres 16 läuft seit 2026-07-13 auf dem VPS in
+      Docker [nur 127.0.0.1 gebunden, generiertes Passwort ausschließlich in der Server-`.env`
+      als `POSTGRES_DSN`, 2 GB Swap ergänzt]. SQLite bleibt Quelle der Wahrheit bis zum
+      Runtime-Cutover [siehe nächster Punkt].)
 - [x] **PLAT-001** Bestehendes SQLite-Schema dokumentieren + einfrieren; read-only Export aufbewahren
       (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
       `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen
       als JSON für den späteren Zeilen/Summen-Vergleich nach der Postgres-Migration.)
-- [!] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
-      (`stockbot/core/db_migrate.py` schreibt einen `db_export`-Snapshot in eine per Alembic
-      angelegte Zielengine und vergleicht danach Zeilenzahlen + Summen je Tabelle
-      [`tests/test_db_migrate.py`, Testmigration gegen eine Kopie]. Läuft zusätzlich zur
-      SQLite-Kopie gegen ein echtes lokales PostgreSQL, wenn erreichbar — hat dabei einen
-      echten Treiberunterschied aufgedeckt und fixiert [psycopg2 liefert `BYTEA` als
-      `memoryview`, nicht `bytes`]. Blockiert wie der Punkt darüber: echtes Staging-Postgres
-      befüllen (Schritt 6) + Paper-Laufzeit auf Postgres umstellen [Schritt 7] brauchen eine
-      echte, von einem Menschen bereitgestellte Staging-Instanz — kein Deploy aus dieser Session.)
+- [~] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
+      (Datenmigration + Testmigration + Vergleich: ERLEDIGT und auf ECHTEN Daten bewiesen —
+      2026-07-13 Testmigration einer Kopie der Live-DB [215.608 Zeilen: 2.970 trades, 203.713
+      trade_ticks, …] gegen das VPS-Postgres [separate DB `stockbot_migtest`]: „VERGLEICH OK",
+      Zeilenzahlen + Summen identisch. Deckte zwei echte Fehler auf, beide gefixt [Sol]:
+      Telegram-Chat-IDs sprengen `sa.Integer` auf Postgres → BigInteger für alle user_id-/
+      message_id-/wachsenden ID-Spalten + Regressionstest mit echter Telegram-ID; Float-
+      Summenvergleich brauchte relative Toleranz [1e-9] gegen Akkumulationsrauschen. OFFEN:
+      „Paper auf PostgreSQL umstellen" — der Full Cutover [Owner-Entscheidung] braucht den Port
+      der Laufzeit-DB-Schicht [`stockbot/core/db.py`, rohes sqlite3] auf die SQLAlchemy-/
+      Postgres-Engine. Das ist der nächste große, eigene Arbeitsschritt.)
 - [x] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
       (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;
@@ -437,7 +435,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `snapshot_from_registry()` für die 3 Produktionsstrategien. In-Prozess-Store — persistente
       Anbindung + Live-Verdrahtung der `Signal.strategy_version_id` folgen mit dem Postgres-
       Cutover [`docs/STRATEGY_VERSIONING.md`]. 12 neue Tests, volle Suite 775 passed/4 skipped.)
-- [ ] **STRAT-005** Strategiebezogene Exits je Familie (Momentum: Stop/Trailing/Momentumbruch/Timeout/Close-Exit · Swing: Stop/Strukturbruch/Trailing/Max-Haltedauer/Eventfilter · Mean Reversion: Mittelwert-Rückkehr/Stop/Zeit-Exit/Regimebruch)
+- [x] **STRAT-005** Strategiebezogene Exits je Familie (Momentum: Stop/Trailing/Momentumbruch/Timeout/Close-Exit · Swing: Stop/Strukturbruch/Trailing/Max-Haltedauer/Eventfilter · Mean Reversion: Mittelwert-Rückkehr/Stop/Zeit-Exit/Regimebruch)
+      (`stockbot/market/exit_policies.py` [Sol] — reine `ExitDecision`-Policies je
+      Produktionsfamilie: standard [ATR-Trailing, MACD-Momentumbruch + Kurs<MA20, Entry-Timeout
+      390 Handelsmin., Market-Close ≤15 Min], ai_adaptive [Eventfilter-Haken, ATR-Trailing,
+      SuperTrend-Strukturbruch/MA200, Max-Haltedauer 40 T], bb_revert [%B≥0.5/MA20-Rückkehr,
+      Zeit-Exit 10 T, MA200-Regimebruch]; Dispatcher `evaluate_strategy_exit`, Research-only ⇒
+      `no_policy`. SL/TP/Liquidation bleiben in `evaluate_active_trade`. Noch von KEINEM
+      Live-Codepfad genutzt — Verdrahtung = eigener Schritt mit Freigabe [ändert
+      Live-Trade-Verhalten]. 19 neue Tests, Suite 803/4.)
 
 **Gate P5 (Abnahme):**
 - [ ] Max. 3 produktive Familien; kein globaler Score entscheidet über Entry/Exit
@@ -448,7 +454,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
 ## Phase 6 — Portfolio-Allocator, Shadow & Reporting `P2` · Epic: STRAT/RES
 
 - [ ] **STRAT-006** Portfolio-Allocator (Inputs: Candidates, Positionen, offene Orders, Risikoprofil, Sektor/Korrelation, Kosten, Prioritäten → Auswahl + Ablehnungsgründe + reserviertes Budget)
-- [ ] **RES-001** Shadow-Modus: Signale auf Live-Daten, nicht ausführbar, simulierte Entry/Exit, getrennt ausgewertet
+- [x] **RES-001** Shadow-Modus: Signale auf Live-Daten, nicht ausführbar, simulierte Entry/Exit, getrennt ausgewertet
+      (`stockbot/research/shadow.py` [Sol] — `to_shadow_signal` prägt Strategie-Signale als
+      `Mode.SHADOW`; `simulate_entry` [adverse Slippage] / `simulate_exit` [konservativ
+      Liquidation→SL→TP, Backtest-Konvention]; `shadow_performance_snapshot` →
+      `build_mode_report(Mode.SHADOW)`. Per Test bewiesen: OMS lehnt Shadow-Signale mit
+      `paper_only` ab [nicht ausführbar, kein Brokeraufruf] und PAPER-Report wirft bei
+      Shadow-Daten ValueError [strukturell getrennt]. Scheduler-/Persistenz-Verdrahtung
+      [regelmäßige Shadow-Erzeugung] folgt separat. Suite 810 passed/4 skipped.)
 - [x] **RES-002** Moduskennzeichnung `backtest|shadow|paper|live` Pflicht auf Signal, Intent, Order, Fill, Position, Performance-Snapshot
       (Sol — alle sechs §14.3-Entitäten tragen `mode`: TradeIntent/Order mit dokumentiertem
       `Mode.PAPER`-Kompatibilitätsdefault, `Fill` Pflichtfeld, `PerformanceSnapshot` neu. OMS
