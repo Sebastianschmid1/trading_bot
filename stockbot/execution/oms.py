@@ -183,12 +183,16 @@ class OrderManagementSystem:
                                       "" if ok else "broker_rejected"))
 
     def process_broker_event(self, order_id: int, event_type: str,
-                             payload: Mapping[str, Any] | None = None) -> Order:
-        """Apply a later accepted/fill/partial-fill/reject/cancel/expire event."""
+                             payload: Mapping[str, Any] | None = None,
+                             *, broker_event_id: str | None = None) -> Order:
+        """Apply a later accepted/fill/partial-fill/reject/cancel/expire/replace event."""
         row = self.persistence.get_oms_order(order_id)
         if row is None:
             raise KeyError(f"Unknown OMS order {order_id}")
-        return self._apply_broker_status(_as_order(row), event_type.lower(), dict(payload or {}))
+        return self._apply_broker_status(
+            _as_order(row), event_type.lower(), dict(payload or {}),
+            broker_event_id=broker_event_id,
+        )
 
     @staticmethod
     def _validate_intent(intent: TradeIntent) -> OMSResult | None:
@@ -233,9 +237,23 @@ class OrderManagementSystem:
         return _as_order(row)
 
     def _apply_broker_status(self, order: Order, status: str,
-                             payload: Mapping[str, Any]) -> Order:
+                             payload: Mapping[str, Any],
+                             *, broker_event_id: str | None = None) -> Order:
         normalized = {"fill": "filled", "partial_fill": "partially_filled",
                       "canceled": "cancelled"}.get(status, status)
+        if normalized == "replaced":
+            if order.status not in {
+                OrderStatus.SUBMITTED, OrderStatus.ACCEPTED_BY_BROKER,
+                OrderStatus.PARTIALLY_FILLED, OrderStatus.CANCEL_REQUESTED,
+            }:
+                raise ValueError(f"Cannot replace order in terminal status {order.status.value}")
+            row = self.persistence.record_oms_order_event(
+                order.id, status=order.status.value, event_type="replaced",
+                broker_event_id=broker_event_id, payload=dict(payload),
+                broker_order_id=(str(payload.get("broker_order_id") or payload.get("id") or "")
+                                 or None),
+            )
+            return _as_order(row)
         target = {
             "accepted": OrderStatus.ACCEPTED_BY_BROKER,
             "new": OrderStatus.ACCEPTED_BY_BROKER,
@@ -246,7 +264,15 @@ class OrderManagementSystem:
             "cancelled": OrderStatus.CANCELLED,
             "expired": OrderStatus.EXPIRED,
         }.get(normalized)
-        if target is None or target == order.status:
+        if target is None:
+            return order
+        if target == order.status:
+            if broker_event_id:
+                row = self.persistence.record_oms_order_event(
+                    order.id, status=order.status.value, event_type=normalized,
+                    broker_event_id=broker_event_id, payload=dict(payload),
+                )
+                return _as_order(row)
             return order
         if order.status == OrderStatus.SUBMITTED and target in {
             OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,
@@ -258,7 +284,8 @@ class OrderManagementSystem:
         }:
             order = self._transition(order, OrderStatus.CANCEL_REQUESTED,
                                      event_type="cancel_requested", payload=dict(payload))
-        return self._transition(order, target, event_type=normalized, payload=dict(payload),
+        return self._transition(order, target, event_type=normalized,
+                                broker_event_id=broker_event_id, payload=dict(payload),
                                 rejection_reason=(str(payload.get("detail") or normalized)
                                                   if target == OrderStatus.REJECTED else None))
 

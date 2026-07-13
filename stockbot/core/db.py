@@ -511,6 +511,35 @@ def transition_oms_order(order_id: int, *, from_status: str, to_status: str,
     return dict(row)
 
 
+def record_oms_order_event(order_id: int, *, status: str, event_type: str,
+                           broker_event_id: str | None = None, payload: dict | None = None,
+                           broker_order_id: str | None = None) -> dict:
+    """Append a broker event which does not change the domain order status."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE orders
+               SET broker_order_id = COALESCE(?, broker_order_id),
+                   updated_at = datetime('now')
+               WHERE id = ? AND status = ?""",
+            (broker_order_id, order_id, status),
+        )
+        if cur.rowcount != 1:
+            current = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+            actual = current["status"] if current else "missing"
+            raise RuntimeError(
+                f"OMS order {order_id} event race: expected {status}, found {actual}"
+            )
+        conn.execute(
+            """INSERT INTO order_events
+               (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (order_id, event_type, status, status, broker_event_id,
+             json.dumps(payload or {}, default=str)),
+        )
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    return dict(row)
+
+
 def get_oms_order_events(order_id: int) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
