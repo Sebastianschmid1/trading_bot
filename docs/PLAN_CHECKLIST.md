@@ -368,7 +368,13 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 5 — Strategien & Signal-Engine vereinfachen `P2` · Epic: STRAT
 
-- [ ] **STRAT-001** Strategie-Inventur je Strategie (Zielidee, Timeframe, Haltedauer, Entry, Exit, Universum, Kostenempfindlichkeit, #Backtest-Trades, OOS-Status, Abhängigkeiten)
+- [x] **STRAT-001** Strategie-Inventur je Strategie (Zielidee, Timeframe, Haltedauer, Entry, Exit, Universum, Kostenempfindlichkeit, #Backtest-Trades, OOS-Status, Abhängigkeiten)
+      (`docs/STRATEGY_INVENTORY.md` [Sol] — alle 16 Registry-Strategien erfasst. Trade-/
+      Haltedauerzahlen aus dem bestehenden 3-Jahres-Report `data/reports/strategies_3y.json`
+      [keine erfundenen Werte]. OOS-Status ehrlich als „kein separater Walk-Forward-Report"
+      markiert; `ai_adaptive` hat ein OOS-Gate implementiert, aber keinen persistierten Lab-Run
+      in diesem Checkout. Enthält eine unverbindliche Beobachtung zu möglichen Familiengruppen —
+      Klassifizierung/V1-Auswahl bleibt ausdrücklich STRAT-002 vorbehalten.)
 - [ ] **STRAT-002** Klassifizieren + max. 3 V1-Familien wählen: **Intraday Momentum**, **Swing Trend**, **Mean Reversion** (Rest → research-only/deprecated)
 - [ ] **STRAT-004** Globalen 0–100-Score aus Entscheidungspfad entfernen; strategiespezifische Rohscores; UI-Beschriftung anpassen (keine Wahrscheinlichkeit ohne Kalibrierung)
 - [ ] **STRAT-003** Strategieversionierung (Parameter, Feature-Version, Universum, Entry/Exit-Regeln, Kostenmodell, Release-Status, Code-Commit — unveränderlich veröffentlicht)
