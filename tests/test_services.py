@@ -224,10 +224,21 @@ def test_apply_setting_dispatch_and_validation():
     assert db.get_user(CHAT)["trade_size_eur"] == 250.0
     settings_svc.apply_setting(CHAT, "set_lev", "999")       # TSAFE-002: in db hart auf 1× geclamped
     assert db.get_user(CHAT)["leverage"] == 1.0
-    settings_svc.apply_setting(CHAT, "set_strat", "adx_trend")
-    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
+    settings_svc.apply_setting(CHAT, "set_strat", "ai_adaptive")
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "ai_adaptive"}
     settings_svc.apply_setting(CHAT, "set_size", "keine-zahl")   # ungültig → ignoriert
     assert db.get_user(CHAT)["trade_size_eur"] == 250.0
+
+
+def test_research_strategy_cannot_be_newly_selected_but_legacy_value_survives():
+    fresh_db()
+    settings_svc.apply_setting(CHAT, "set_strat", "adx_trend")
+    assert db.get_user(CHAT)["strategies"] == ["standard"]
+
+    # Simuliert einen gespeicherten Wert aus der Zeit vor STRAT-002.
+    db.toggle_strategy(CHAT, "adx_trend")
+    settings_svc.apply_setting(CHAT, "set_size", "300")
+    assert db.get_user(CHAT)["strategies"] == ["standard", "adx_trend"]
 
 
 def test_apply_setting_broker_gated_by_alpaca_ready():

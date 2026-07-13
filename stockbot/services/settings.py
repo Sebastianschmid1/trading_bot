@@ -21,6 +21,25 @@ SETTING_ACTIONS = frozenset({
 })
 
 
+def toggle_strategy_selection(user_id: int, key: str) -> bool:
+    """Schaltet eine zulässige Nutzerstrategie um.
+
+    Research-only-Strategien dürfen nicht neu hinzukommen. Ist ein solcher Key bereits
+    gespeichert, bleibt er gültig und kann weiterhin bewusst entfernt werden. Damit werden
+    Bestandsnutzer weder migriert noch im laufenden Signalpfad unterbrochen.
+    """
+    strategy = strategies.REGISTRY.get(key)
+    user = db.get_user(user_id)
+    if strategy is None or user is None:
+        return False
+    active = user.get("strategies") or []
+    if key not in active and not strategies.is_selectable_for_new_users(key):
+        log.warning("[%s] Neue Research-only-Strategie abgelehnt: %s", user_id, key)
+        return False
+    db.toggle_strategy(user_id, key)
+    return True
+
+
 def apply_setting(user_id: int, action: str, value: str, *, alpaca_ready: bool = False) -> dict | None:
     """Wendet eine Einstellungs-Aktion an und gibt den aktualisierten Nutzer zurück (oder None).
 
@@ -50,8 +69,8 @@ def apply_setting(user_id: int, action: str, value: str, *, alpaca_ready: bool =
         db.set_auto_accept(user_id, value == "1")
     elif action == "set_uni":
         db.set_auto_universe(user_id, value == "1")
-    elif action == "set_strat" and value in strategies.REGISTRY:
-        db.toggle_strategy(user_id, value)
+    elif action == "set_strat":
+        toggle_strategy_selection(user_id, value)
     elif action == "set_llm":
         db.set_llm_rank(user_id, value == "1")
     elif action == "set_eod":
