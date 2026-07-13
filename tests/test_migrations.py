@@ -18,13 +18,22 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import BigInteger, create_engine, inspect
 
 from stockbot import config
 from stockbot.core import db_export
 from stockbot.paths import PROJECT_ROOT
 
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
+
+BIGINT_COLUMNS = {
+    "users": {"user_id"},
+    "trades": {"id", "user_id", "message_id"},
+    "trade_ticks": {"id", "user_id"},
+    "sessions": {"user_id"},
+    "notifications": {"id", "user_id"},
+    "trade_events": {"id", "trade_id", "user_id"},
+}
 
 
 def _postgres_available() -> bool:
@@ -55,6 +64,23 @@ def test_upgrade_head_creates_all_tables(tmp_path):
     tables = set(inspect(engine).get_table_names())
     for name in db_export.TABLES:
         assert name in tables
+
+
+def test_upgrade_head_uses_bigint_for_external_and_growing_ids(tmp_path):
+    sqlite_path = tmp_path / "migration_bigint_test.db"
+    command.upgrade(_alembic_config(sqlite_path), "head")
+
+    engine = create_engine(f"sqlite:///{sqlite_path}", future=True)
+    try:
+        schema = inspect(engine)
+        for table_name, expected_columns in BIGINT_COLUMNS.items():
+            columns = {column["name"]: column["type"] for column in schema.get_columns(table_name)}
+            assert {
+                name for name, column_type in columns.items()
+                if isinstance(column_type, BigInteger)
+            } == expected_columns
+    finally:
+        engine.dispose()
 
 
 def test_downgrade_base_drops_all_tables(tmp_path):

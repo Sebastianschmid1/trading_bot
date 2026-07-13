@@ -25,7 +25,7 @@ from stockbot.core import db, db_export, db_migrate
 from stockbot.paths import PROJECT_ROOT
 
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
-CHAT_A, CHAT_B = 4001, 4002
+CHAT_A, CHAT_B = 6_933_293_791, 4002
 
 
 def _alembic_config(sqlite_path: Path) -> Config:
@@ -76,6 +76,12 @@ def test_migrate_snapshot_row_and_sum_counts_match(tmp_path):
     assert inserted["trades"] == 2
     mismatches = db_migrate.compare_snapshot_to_engine(data, target_engine)
     assert mismatches == {}
+
+    with target_engine.connect() as conn:
+        migrated_user_id = conn.exec_driver_sql(
+            "SELECT user_id FROM users WHERE username=?", ("alice",)
+        ).scalar_one()
+    assert migrated_user_id == CHAT_A
 
 
 def test_migrate_detects_missing_row(tmp_path):
@@ -135,11 +141,12 @@ def test_migrate_snapshot_row_and_sum_counts_match_on_real_postgres(tmp_path):
 
         with target_engine.connect() as conn:
             row = conn.exec_driver_sql(
-                "SELECT broker_api_key FROM users WHERE user_id=%s", (CHAT_A,)
+                "SELECT user_id, broker_api_key FROM users WHERE user_id=%s", (CHAT_A,)
             ).fetchone()
+        assert row[0] == CHAT_A
         # psycopg2 liefert BYTEA als memoryview zurück, nicht als bytes (anders als SQLite).
-        assert isinstance(row[0], (bytes, bytearray, memoryview))
-        assert db.decrypt(bytes(row[0])) == "key-a"
+        assert isinstance(row[1], (bytes, bytearray, memoryview))
+        assert db.decrypt(bytes(row[1])) == "key-a"
     finally:
         target_engine.dispose()
         command.downgrade(pg_cfg, "base")
