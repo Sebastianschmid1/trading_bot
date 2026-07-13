@@ -86,6 +86,10 @@ SIGNAL_OPEN_OFFSET_MIN = int(os.getenv("SIGNAL_OPEN_OFFSET_MIN", "5"))         #
 CLOSE_AFTER_CLOSE_OFFSET_MIN = int(os.getenv("CLOSE_AFTER_CLOSE_OFFSET_MIN", "15"))  # Min. nach Close
 SESSION_TICK_INTERVAL_SEC = int(os.getenv("SESSION_TICK_INTERVAL_SEC", "60"))  # Prüfintervall
 
+# OMS-006: Wie lange die unausgefüllte Restmenge einer teilweise ausgeführten
+# Entry-Order offen bleiben darf, bevor die reine Policy eine Stornierung empfiehlt.
+PARTIAL_FILL_TIMEOUT_MIN = int(os.getenv("PARTIAL_FILL_TIMEOUT_MIN", "15"))
+
 # Plan.md §10.1 „Entry-Sperre relativ zum Close": in den letzten X Minuten vor Handelsschluss
 # werden KEINE neuen Positionen mehr eröffnet (zu wenig Zeit, damit sich eine Intraday-Position
 # noch entwickelt/verwaltet werden kann). Gilt zentral in stockbot/services/trades.py::accept_trade
