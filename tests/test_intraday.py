@@ -616,6 +616,9 @@ def test_sltp_off_warns_once_on_weak_signal():
     asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, trade, 98.0, 10.0))   # schwach → Warnung
     asyncio.run(bot._maybe_warn_sltp_off(fake_bot, 1, trade, 97.0, 8.0))    # gleiche Aktie/Tag → keine zweite
     assert fake_bot.send_message.await_count == 1
+    text = fake_bot.send_message.await_args.kwargs["text"]
+    assert "Strategie-Rohscore (Standard (Multi-Timeframe))" in text
+    assert "72/100" not in text and "keine Gewinnwahrscheinlichkeit" in text
 
 
 def test_sltp_off_no_warning_when_mode_on_or_strong():
@@ -686,6 +689,8 @@ def test_dashboard_includes_intraday():
     assert len(series) == 1
     assert len(series[0]["points"]) == 2
     assert series[0]["take_profit"] == 105.0
+    assert series[0]["strategy"] == "standard"
+    assert series[0]["strategy_label"] == "Standard (Multi-Timeframe)"
 
 
 def test_dashboard_filters_by_strategy():

@@ -142,17 +142,63 @@ def _user_regions(user: dict) -> list[str]:
 
 
 def _merge_ranked(lists: list) -> list[dict]:
-    """Führt mehrere (region-spezifische) Ranglisten zu einer zusammen: dedupliziert pro Ticker
-    und behält jeweils das stärkste Signal. So liefern mehrere Körbe gemeinsam die besten Treffer."""
+    """Vereinigt Regionslisten *derselben* Strategie nach deren internem Rohscore.
+
+    Diese Funktion darf nicht zum Zusammenführen verschiedener Strategien verwendet werden;
+    dafür existiert :func:`_interleave_strategy_rankings` ohne Skalenvergleich.
+    """
     best: dict[str, dict] = {}
     for lst in lists:
         for s in (lst or []):
             t = s.get("ticker")
             if not t:
                 continue
-            if t not in best or (s.get("strength", 0) or 0) > (best[t].get("strength", 0) or 0):
+            score = s.get("raw_score", s.get("strength", 0)) or 0
+            best_score = best.get(t, {}).get("raw_score", best.get(t, {}).get("strength", 0)) or 0
+            if t not in best or score > best_score:
                 best[t] = s
-    return list(best.values())
+    return sorted(best.values(),
+                  key=lambda s: s.get("raw_score", s.get("strength", 0)) or 0,
+                  reverse=True)
+
+
+def _interleave_strategy_rankings(rankings: dict[str, list[dict]],
+                                  limit: int | None = None) -> list[dict]:
+    """Führt strategiespezifische Ranglisten deterministisch im Rundlauf zusammen.
+
+    Die Listenreihenfolge ist der Rang *innerhalb* der jeweiligen Strategie. Kommt ein Ticker
+    mehrfach vor, gewinnt der kleinere Rangindex; bei gleichem Rang der alphabetisch erste
+    Strategie-Key. Rohscores verschiedener Strategien werden zu keinem Zeitpunkt verglichen.
+    """
+    clean = {key: [s for s in (rankings.get(key) or []) if s.get("ticker")]
+             for key in sorted(rankings)}
+    winner: dict[str, tuple[int, str]] = {}
+    for key, signals in clean.items():
+        for rank, signal in enumerate(signals):
+            candidate = (rank, key)
+            ticker = signal["ticker"]
+            if ticker not in winner or candidate < winner[ticker]:
+                winner[ticker] = candidate
+
+    merged: list[dict] = []
+    max_len = max((len(signals) for signals in clean.values()), default=0)
+    for rank in range(max_len):
+        for key, signals in clean.items():
+            if rank >= len(signals):
+                continue
+            signal = signals[rank]
+            if winner[signal["ticker"]] != (rank, key):
+                continue
+            merged.append(signal)
+            if limit is not None and len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _strategy_label(signal_or_key) -> str:
+    key = signal_or_key if isinstance(signal_or_key, str) else (signal_or_key or {}).get("strategy")
+    key = key or strategies.DEFAULT_STRATEGY
+    return strategies.get(key).label
 
 
 def _llm_enabled(user: dict) -> bool:
@@ -275,8 +321,8 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
     ticker = signal["ticker"]
     direction = signal["direction"]
     direction_emoji = "🟢 LONG" if direction == "long" else "🔴 SHORT"
-    filled = int(round(signal["strength"] / 10))
-    strength_bar = "█" * filled + "░" * (10 - filled)
+    raw_score = signal.get("raw_score", signal.get("strength"))
+    strategy_label = _strategy_label(signal)
     leverage = signal.get("leverage", 1.0) or 1.0
 
     if signal.get("stop_loss") and signal.get("take_profit"):
@@ -328,7 +374,7 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
         f"📊 *{ticker}* — {direction_emoji}{watch_badge}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Kurs: *${signal['price']:.2f}*\n"
-        f"📈 Signal-Stärke: {strength_bar} ({signal['strength']:.0f}/100)\n"
+        f"📈 Strategie-Rohscore ({strategy_label}): {raw_score:.0f} — keine Gewinnwahrscheinlichkeit\n"
         f"🔍 Begründung:\n"
         f"  • RSI: {signal['rsi']:.1f} → {signal['rsi_comment']}\n"
         f"  • MACD: {signal['macd_comment']}\n"
@@ -801,42 +847,57 @@ async def _run_signal_scan(context: ContextTypes.DEFAULT_TYPE, opening: bool):
 
         any_sent = False
         watchlist = set(_user_watchlist(u))
+        by_strategy: dict[str, list[dict]] = {}
+        watch_by_strategy: dict[str, list[dict]] = {}
         for strat_key in user_strats:
             strat = strategies.get(strat_key)
             ranked_lists = [ranked_by_key.get(_universe_key(r, _auto_uni(u), strat_key)) for r in regions]
             region_failed = all(rl is None for rl in ranked_lists)
             ranked = _merge_ranked([rl for rl in ranked_lists if rl is not None])
-            signals = smartmoney.rank(ranked, cap)
+            signals = smartmoney.rank(ranked, min(len(ranked), MAX_SIGNALS))
 
             # Watchlist-Treffer dieser Strategie immer zusätzlich anhängen (nie gekürzt).
+            extras = []
             if watchlist:
-                have = {s["ticker"] for s in signals}
                 extra = [sig for tkr, sig in watch_by_strat.get(strat_key, {}).items()
-                         if tkr in watchlist and tkr not in have]
+                         if tkr in watchlist]
                 if extra:
                     extra = smartmoney.rank(extra, len(extra))   # anreichern, NICHT kürzen
                     for sig in extra:
                         sig["watchlist"] = True
-                    signals = signals + extra
+                    extras = extra
 
             if not signals:
                 if opening and region_failed:
                     await bot.send_message(chat_id=chat_id, text=f"⚠️ Analyse-Fehler ({strat.label}).")
-                continue
-            if _llm_enabled(u):
+            elif _llm_enabled(u):
                 signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
-            if opening:   # im Intraday-Scan keine Strategie-Header (nur die neuen Karten)
-                await bot.send_message(chat_id=chat_id,
-                                       text=f"🧠 *Strategie: {strat.label}*", parse_mode="Markdown")
-            for signal in signals:
-                if await send_signal(bot, chat_id, signal, u["trade_size_eur"],
-                                     job_queue=context.job_queue, market_open=market_open,
-                                     sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                                     leverage=u.get("leverage", DEFAULT_LEVERAGE),
-                                     auto_accept=u.get("auto_accept", False),
-                                     expiry_min=expiry_min):
-                    any_sent = True
-                await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
+            by_strategy[strat_key] = signals
+            watch_by_strategy[strat_key] = extras
+
+        # Der globale Deckel gilt nach dem Rundlauf. Watchlist-Treffer bleiben wie bisher
+        # zusätzlich sichtbar, werden aber ebenfalls ohne Score-Quervergleich angeordnet.
+        signals = _interleave_strategy_rankings(by_strategy, limit=cap)
+        seen = {s["ticker"] for s in signals}
+        for extra in _interleave_strategy_rankings(watch_by_strategy):
+            if extra["ticker"] not in seen:
+                signals.append(extra)
+                seen.add(extra["ticker"])
+
+        if opening and signals:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"🧠 *Strategie-Rundlauf* — {len(signals)} Signale, Rohscores nicht vergleichbar",
+                parse_mode="Markdown")
+        for signal in signals:
+            if await send_signal(bot, chat_id, signal, u["trade_size_eur"],
+                                 job_queue=context.job_queue, market_open=market_open,
+                                 sl_tp_mode=u.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                 leverage=u.get("leverage", DEFAULT_LEVERAGE),
+                                 auto_accept=u.get("auto_accept", False),
+                                 expiry_min=expiry_min):
+                any_sent = True
+            await asyncio.sleep(1.5)  # kurze Pause zwischen Nachrichten
 
         if opening and not any_sent:
             await bot.send_message(chat_id=chat_id, text="⚠️ Heute keine klaren Signale gefunden.")
@@ -1007,7 +1068,7 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
 # ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────
 
 def _fmt_strength(v) -> str:
-    """Signalstärke (0–100) für Meldungen formatieren; '—' wenn unbekannt."""
+    """Kompatiblen Strategie-Rohscore formatieren; '—' wenn unbekannt."""
     return f"{v:.0f}" if v is not None else "—"
 
 
@@ -1018,7 +1079,7 @@ _weak_warned: set = set()
 async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, strength):
     """Bei SL/TP-Modus 'aus': der Trade wird NICHT automatisch geschlossen. Damit man nicht
     blind fährt, gibt es eine *einmalige* Heads-up-Meldung (mit Verkaufen-Button), sobald die
-    Signalstärke unter die Schwelle fällt."""
+    strategiespezifische Rohscore unter die Schwelle fällt."""
     sig = trade.get("signal", {})
     if sig.get("sl_tp_mode") != "aus":
         return
@@ -1029,10 +1090,12 @@ async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, st
         return
     _weak_warned.add(key)
     entry = trade.get("entry") or price
+    strategy_label = _strategy_label(sig)
     await bot.send_message(
         chat_id=uid,
-        text=(f"⚠️ *{trade['ticker']}* — Signal verschlechtert "
-              f"(Einstieg-Signal: {_fmt_strength(sig.get('strength'))} → jetzt: {_fmt_strength(strength)}).\n"
+        text=(f"⚠️ *{trade['ticker']}* — Strategie-Rohscore ({strategy_label}) gesunken "
+              f"(Einstieg: {_fmt_strength(sig.get('raw_score', sig.get('strength')))} → "
+              f"jetzt: {_fmt_strength(strength)}; keine Gewinnwahrscheinlichkeit).\n"
               f"Dein SL/TP-Modus ist *aus* → der Trade wird *nicht* automatisch geschlossen.\n"
               f"Einstieg ${entry:.2f} → aktuell ${price:.2f}. Bei Bedarf manuell schließen:"),
         parse_mode="Markdown",
@@ -1359,8 +1422,9 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                 context.bot, user,
                 (f"{emoji} *{trade['ticker']} automatisch geschlossen* — {reason}\n"
                  f"Einstieg ${entry:.2f} → Ausstieg ${exit_price:.2f} (Hebel {leverage:g}×)\n"
-                 f"Einstieg-Signal: {_fmt_strength(trade.get('signal', {}).get('strength'))} → "
-                 f"Ausstieg-Signal: {_fmt_strength(strength)}  ·  "
+                 f"Strategie-Rohscore ({_strategy_label(trade.get('signal', {}))}): "
+                 f"Einstieg {_fmt_strength(trade.get('signal', {}).get('raw_score', trade.get('signal', {}).get('strength')))} → "
+                 f"Ausstieg {_fmt_strength(strength)}  ·  "
                  f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
                 parse_mode="Markdown",
             )
@@ -1425,39 +1489,38 @@ def _us_market_open(extended: bool | None = None) -> bool:
 
 
 async def refill_pending(bot: Bot, chat_id: int, user: dict, job_queue):
-    """Füllt nach einer Entscheidung die offenen (pending) Signale wieder auf — *pro Strategie*
-    auf top_n, mit neuen Tickern aus der jeweiligen Kandidatenliste, ohne Duplikate (Punkt 6).
-    Bei Auto-Accept oder geschlossener Börse passiert nichts."""
+    """Füllt nach einer Entscheidung global bis ``top_n`` aus dem Strategie-Rundlauf nach.
+
+    Die Kandidaten bleiben je Strategie intern gerankt; zwischen Strategien findet kein
+    Rohscore-Vergleich statt. Bei Auto-Accept oder geschlossener Börse passiert nichts.
+    """
     if user.get("auto_accept") or not _us_market_open():
         return
     regions = _user_regions(user)
     top_n = user.get("top_n_signals") or TOP_N_SIGNALS
+    need = top_n - len(db.get_pending_trades(chat_id))
+    if need <= 0:
+        return
 
-    # offene (pending) Trades je Strategie zählen
-    pending_by_strat: dict[str, int] = {}
-    for t in db.get_pending_trades(chat_id):
-        s = t.get("signal", {}).get("strategy", "standard")
-        pending_by_strat[s] = pending_by_strat.get(s, 0) + 1
-
-    for strat_key in _user_strategies(user):
-        need = top_n - pending_by_strat.get(strat_key, 0)
+    rankings = {
+        strat_key: _merge_ranked([
+            _get_candidates(_universe_key(r, _auto_uni(user), strat_key)) for r in regions
+        ])
+        for strat_key in _user_strategies(user)
+    }
+    for signal in _interleave_strategy_rankings(rankings):
         if need <= 0:
+            break
+        if db.has_open_position(chat_id, signal["ticker"]):
             continue
-        candidates = _merge_ranked([_get_candidates(_universe_key(r, _auto_uni(user), strat_key))
-                                    for r in regions])
-        for signal in candidates:
-            if need <= 0:
-                break
-            if db.has_open_position(chat_id, signal["ticker"]):
-                continue
-            sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
-                                     job_queue=job_queue, market_open=True,
-                                     sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                                     leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                                     auto_accept=False,
-                                     expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None)
-            if sent:
-                need -= 1
+        sent = await send_signal(bot, chat_id, signal, user["trade_size_eur"],
+                                 job_queue=job_queue, market_open=True,
+                                 sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                                 leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                                 auto_accept=False,
+                                 expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None)
+        if sent:
+            need -= 1
 
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1498,8 +1561,9 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bis zur nächsten Session ändern sich die Signale nicht.",
             parse_mode="Markdown")
 
-    # Pro gewählter Strategie eigene top_n Signale (Dedup über has_trade_today)
+    # Jede Strategie rankt intern; erst danach folgt ein global gedeckelter Rundlauf.
     total_sent = 0
+    by_strategy: dict[str, list[dict]] = {}
     for strat_key in user_strats:
         strat = strategies.get(strat_key)
         try:
@@ -1509,7 +1573,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _cache_candidates(_universe_key(r, auto, strat.key), rl)   # Kandidaten fürs Nachrücken (je Korb)
                 per_region.append(rl)
             ranked = _merge_ranked(per_region)
-            signals = smartmoney.rank(ranked, top_n)
+            signals = smartmoney.rank(ranked, min(len(ranked), MAX_SIGNALS))
             if _llm_enabled(user):
                 signals = await asyncio.to_thread(llm_ranker.rank_signals, signals)
         except Exception as e:
@@ -1519,19 +1583,24 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"🧠 *{strat.label}*: heute keine klaren Signale.",
                                             parse_mode="Markdown")
             continue
+        by_strategy[strat_key] = signals
+
+    signals = _interleave_strategy_rankings(by_strategy, limit=top_n)
+    if signals:
         as_of = signals[0].get("as_of", "?")
         await update.message.reply_text(
-            f"🧠 *Strategie: {strat.label}* — {len(signals)} Signale (Datenstand: {as_of})",
+            f"🧠 *Strategie-Rundlauf* — {len(signals)} Signale (Datenstand: {as_of}); "
+            "Rohscores werden nicht verglichen.",
             parse_mode="Markdown")
-        for signal in signals:
-            if await send_signal(bot, chat_id, signal, user["trade_size_eur"],
-                                 job_queue=context.job_queue, market_open=market_open,
-                                 sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
-                                 leverage=user.get("leverage", DEFAULT_LEVERAGE),
-                                 auto_accept=user.get("auto_accept", False),
-                                 expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None):
-                total_sent += 1
-            await asyncio.sleep(1)
+    for signal in signals:
+        if await send_signal(bot, chat_id, signal, user["trade_size_eur"],
+                             job_queue=context.job_queue, market_open=market_open,
+                             sl_tp_mode=user.get("sl_tp_mode", DEFAULT_SL_TP_MODE),
+                             leverage=user.get("leverage", DEFAULT_LEVERAGE),
+                             auto_accept=user.get("auto_accept", False),
+                             expiry_min=TRADE_ACTIVATION_WINDOW_MIN if user.get("signal_window") else None):
+            total_sent += 1
+        await asyncio.sleep(1)
 
     if market_open and total_sent == 0:
         await update.message.reply_text(
@@ -1550,10 +1619,12 @@ def _unrealized_pnl(trade: dict, trade_size_eur: float):
 
 def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
     """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade.
-    `current_strength` = aktuelle Signalstärke (z. B. letzter 60s-Tick); None → unbekannt."""
+    `current_strength` = aktueller Strategie-Rohscore (z. B. letzter 60s-Tick); None → unbekannt."""
     ticker = trade["ticker"]
     leverage = effective_leverage(trade.get("signal", {}))
-    entry_strength = trade.get("signal", {}).get("strength")
+    signal = trade.get("signal", {})
+    entry_strength = signal.get("raw_score", signal.get("strength"))
+    strategy_label = _strategy_label(signal)
     current, pnl_pct, pnl_eur = _unrealized_pnl(trade, trade_size_eur)
     emoji = "🟢" if pnl_eur > 0 else ("🔴" if pnl_eur < 0 else "⚪")
     sign = "+" if pnl_eur >= 0 else ""
@@ -1562,7 +1633,8 @@ def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Einstieg: ${trade['entry']:.2f}\n"
         f"📈 Aktuell: ${current:.2f}\n"
-        f"📶 Signal: Einstieg {_fmt_strength(entry_strength)} → jetzt {_fmt_strength(current_strength)}\n"
+        f"📶 Strategie-Rohscore ({strategy_label}): Einstieg {_fmt_strength(entry_strength)} → "
+        f"jetzt {_fmt_strength(current_strength)} (keine Gewinnwahrscheinlichkeit)\n"
         f"{emoji} Unrealisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"
     )
     keyboard = InlineKeyboardMarkup([
@@ -1967,7 +2039,7 @@ async def cmd_brokercheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 INFO_TEXT = (
     "📖 *So entstehen die Signale*\n"
     "Jede Aktie wird mit mehreren technischen Indikatoren über mehrere Zeiträume geprüft. "
-    "Stimmen sie überein, entsteht ein Long-Signal mit einer Stärke von 0–100.\n"
+    "Stimmen sie überein, entsteht ein Long-Signal mit einem Rohscore der gewählten Strategie.\n"
     "━━━━━━━━━━━━━━━━━━\n"
     "📉 *RSI (Relative Strength Index)*\n"
     "Misst, ob eine Aktie über- oder unterverkauft ist (0–100). Unter ~35 = überverkauft "
@@ -1994,9 +2066,9 @@ INFO_TEXT = (
     "Netto-Käufe & aufstockende Fonds → hoher Score (0–100). Fließt ins Signal-Ranking ein; "
     "Details siehe /top5trade.\n"
     "━━━━━━━━━━━━━━━━━━\n"
-    "⭐ *Signal-Stärke 0–100*: gewichtetes Mittel mehrerer Zeiträume (5m/15m/1h/1d) — "
-    "aktuellere Zeiträume zählen mehr. Aktive Trades werden alle 60s neu bewertet und bei "
-    "Stark-Verfall, Stop-Loss oder Take-Profit automatisch geschlossen.\n"
+    "⭐ *Strategie-Rohscore*: strategiespezifische Ranghilfe; Werte verschiedener Strategien "
+    "sind nicht vergleichbar und keine Gewinnwahrscheinlichkeit. Aktive Trades werden alle 60s "
+    "neu bewertet; automatisch geschlossen wird nur nach den konfigurierten Risiko-/Exitregeln.\n"
     "🛑 *Stop-Loss / 🎯 Take-Profit*: aus der Schwankungsbreite (ATR) — je nach SL/TP-Modus "
     "(*aus* keine Grenzen / *passiv* eng / *normal* / *aggressiv* weit), einstellbar in /settings.\n"
     "⚡ *Hebel*: 1–10× (Profil-Default in /settings, pro Signal per Button änderbar). Höherer Hebel = "
@@ -2241,8 +2313,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 (query.message.text or "") +
                 f"\n\n⏳ *Verkauf läuft* — Einstieg ${entry:.2f} → angefragt bei Alpaca (Hebel {leverage:g}×)\n"
-                f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
-                f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
+                f"Strategie-Rohscore ({_strategy_label(result['trade'].get('signal', {}))}): "
+                f"Einstieg {_fmt_strength(result['entry_strength'])} → "
+                f"Ausstieg {_fmt_strength(result['exit_strength'])}  ·  "
                 f"Vorläufig: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
                 parse_mode="Markdown"
             )
@@ -2267,8 +2340,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 (query.message.text or "") +
                 f"\n\n{emoji} *Verkauft* — Einstieg ${entry:.2f} → Ausstieg ${current:.2f} (Hebel {leverage:g}×)\n"
-                f"Einstieg-Signal: {_fmt_strength(result['entry_strength'])} → "
-                f"Ausstieg-Signal: {_fmt_strength(result['exit_strength'])}  ·  "
+                f"Strategie-Rohscore ({_strategy_label(result['trade'].get('signal', {}))}): "
+                f"Einstieg {_fmt_strength(result['entry_strength'])} → "
+                f"Ausstieg {_fmt_strength(result['exit_strength'])}  ·  "
                 f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
                 parse_mode="Markdown"
             )

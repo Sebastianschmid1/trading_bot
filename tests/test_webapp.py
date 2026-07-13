@@ -612,6 +612,8 @@ def test_scan_populates_cards_and_accept_starts_trade(monkeypatch):
     r = c.get("/app")
     assert "Angeforderte Signale" in r.text and "NVDA" in r.text
     assert "Bullish Crossover" in r.text and "<polyline" in r.text       # volle Infos + Mini-Chart
+    assert "Strategie-Rohscore (Standard (Multi-Timeframe)): 72" in r.text
+    assert "72/100" not in r.text and "keine Gewinnwahrscheinlichkeit" in r.text
     c.post("/app/scan/accept", data={"ticker": "NVDA"}, follow_redirects=False)
     act = db.get_active_trades(CHAT)
     assert act and act[0]["ticker"] == "NVDA"
@@ -633,7 +635,7 @@ def test_scan_with_asset_switches_class_and_shows_it(monkeypatch):
     assert "BTC-USD" in r.text and "Krypto" in r.text and "Alle" in r.text   # Dropdown hat 'Alle'
 
 
-def test_scan_all_merges_classes_by_strength(monkeypatch):
+def test_scan_all_ranks_asset_classes_by_standard_raw_score(monkeypatch):
     fresh()
     from stockbot.market import analyzer, asset_classes
     monkeypatch.setattr(asset_classes.universes, "get_tickers", lambda region, auto=True: ["NVDA"])
@@ -646,7 +648,7 @@ def test_scan_all_merges_classes_by_strength(monkeypatch):
     c.post("/app/scan", data={"asset": "all"}, follow_redirects=False)
     assert db.get_user(CHAT)["asset_pref"] == "all"
     r = c.get("/app")
-    assert "BTC-USD" in r.text and "Krypto" in r.text          # stärkster Treffer quer über alle Klassen
+    assert "BTC-USD" in r.text and "Krypto" in r.text  # gleiche Standard-Strategie über alle Klassen
 
 
 def test_scan_applies_user_sl_tp_mode(monkeypatch):
@@ -839,6 +841,8 @@ def test_signal_card_window_is_optional():
            "sr_comment": "-", "weekly_comment": "-"}
     perm, _ = bot._signal_card(dict(sig), 100.0, True, None)
     assert "Jederzeit annehmbar" in perm and "innerhalb von" not in perm
+    assert "Strategie-Rohscore (Standard (Multi-Timeframe)): 70" in perm
+    assert "70/100" not in perm and "keine Gewinnwahrscheinlichkeit" in perm
     win, _ = bot._signal_card(dict(sig), 100.0, True, 15)
     assert "innerhalb von 15 Minuten" in win
 

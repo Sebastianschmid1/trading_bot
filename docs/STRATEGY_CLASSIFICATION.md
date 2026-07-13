@@ -41,3 +41,21 @@ Signalerzeugung herausgefiltert. Bestandsnutzer laufen deshalb ohne stillen Stra
 und können einen solchen Key weiterhin ausdrücklich per `/addstrat <key>` entfernen. Diese
 Grandfathering-Regel ist eine bewusste Übergangslücke; eine spätere Zwangsmigration wäre ein eigener,
 größerer Produktschritt.
+
+## Strategiespezifische Rohscores (STRAT-004)
+
+Neue Signal-Dicts führen den von der jeweiligen Strategie berechneten Wert als `raw_score`.
+`strength` bleibt als kompatibler Alias erhalten, damit historische `signal_json`-Daten,
+Intraday-Ticks und Exporte ohne Migration lesbar bleiben. Ein Rohscore ordnet Kandidaten nur
+innerhalb derselben Strategie; insbesondere ist etwa der Wert 60 von `bb_revert` nicht mit 60 von
+`standard` gleichzusetzen.
+
+Werden mehrere Strategien aktiviert, führt der Live-Pfad ihre intern gerankten Listen im Rundlauf
+zusammen. Bei einem Ticker-Duplikat gewinnt der bessere Rangplatz in der eigenen Strategieliste,
+bei gleichem Platz der alphabetisch erste Strategie-Key. Damit entscheidet kein universeller
+Zahlenvergleich über die Cross-Strategie-Auswahl.
+
+Telegram und Web zeigen die Werte deshalb als Strategie-Rohscore mit Strategiebezug und ohne
+`/100`-Wahrscheinlichkeitsanmutung. Eine Umrechnung in echte Eintritts- oder
+Gewinnwahrscheinlichkeiten setzt eine gesonderte, empirisch validierte Kalibrierung voraus und ist
+nicht Bestandteil dieser Phase.

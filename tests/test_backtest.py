@@ -208,6 +208,7 @@ def test_adx_fires_on_trend_with_expansion():
     assert found["direction"] == "long"
     assert found["stop_loss"] < found["price"] < found["take_profit"]
     assert 0 <= found["strength"] <= 100
+    assert found["raw_score"] == found["strength"]
     assert found["strategy"] == "adx_trend"
 
 

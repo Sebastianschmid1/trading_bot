@@ -31,7 +31,7 @@
 <div class="card">
   <div class="row">
     <strong>{{ s.ticker }}</strong>
-    <span class="muted">{% if s.asset_label %}{{ s.asset_label }} · {% endif %}{{ s.direction|upper }} · Stärke {{ '%.0f'|format(s.strength or 0) }}/100</span>
+    <span class="muted">{% if s.asset_label %}{{ s.asset_label }} · {% endif %}{{ s.direction|upper }} · Strategie-Rohscore ({{ s.strategy_label }}): {{ '%.0f'|format(s.raw_score or 0) }} · keine Gewinnwahrscheinlichkeit</span>
     <span class="spacer"></span>
     <span class="muted">${{ '%.2f'|format(s.price) }}</span>
   </div>
@@ -71,7 +71,7 @@
   <div class="row">
     <strong>{{ s.ticker }}</strong>
     <span class="dir {{ 'long' if s.direction == 'long' else 'short' }}">{{ s.direction|upper }}</span>
-    <span class="muted">Stärke {{ '%.0f'|format(s.strength or 0) }}/100 · {{ '%.1f'|format(s.leverage) }}×</span>
+    <span class="muted">Strategie-Rohscore ({{ s.strategy_label }}): {{ '%.0f'|format(s.raw_score or 0) }} · keine Gewinnwahrscheinlichkeit · {{ '%.1f'|format(s.leverage) }}×</span>
     <span class="spacer"></span>
     <span class="muted">${{ '%.2f'|format(s.price) }}</span>
   </div>

@@ -369,6 +369,9 @@ def _scanned_for(user: dict) -> list:
     out = []
     for s in entry["signals"]:
         card = dict(s)
+        key = card.get("strategy") or strategies.DEFAULT_STRATEGY
+        card["strategy_label"] = strategies.get(key).label
+        card["raw_score"] = card.get("raw_score", card.get("strength"))
         card["spark"] = _sparkline(s.get("spark_closes") or [])
         out.append(card)
     return out
@@ -438,6 +441,8 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
             "direction": t.get("direction") or sig.get("direction", "long"),
             "price": sig.get("price") or t.get("entry") or 0.0,
             "strength": sig.get("strength"),
+            "raw_score": sig.get("raw_score", sig.get("strength")),
+            "strategy_label": strategies.get(sig.get("strategy") or strategies.DEFAULT_STRATEGY).label,
             "leverage": sig.get("leverage", 1.0) or 1.0,
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
@@ -499,7 +504,8 @@ def app_set_asset(request: Request, asset: str = Form(...)):
 async def app_scan(request: Request, asset: str = Form(None)):
     """Wählt die Anlageklasse (persistiert) UND fordert live Signale dafür an — in einem
     Schritt (kein JS nötig). `asset='all'` scannt ALLE Klassen mit ihrem jeweiligen Profil
-    und mischt die Treffer nach Stärke. Ergebnis (inkl. 7-Tage-Mini-Chart) wird kurz gecacht."""
+    und rankt die Treffer innerhalb der Standard-Strategie. Ergebnis (inkl. 7-Tage-Mini-Chart)
+    wird kurz gecacht."""
     user = auth.current_user(request)
     if not user:
         return _redirect("/login")
@@ -524,9 +530,13 @@ async def app_scan(request: Request, asset: str = Form(None)):
                 continue
             for s in analyzer.analyze_universe(tickers, profile=cls.profile):
                 analyzer.apply_sl_tp_mode(s, sl_tp_mode)     # gewählter SL/TP-Modus wirkt auf alle Strategien
+                s.setdefault("strategy", strategies.DEFAULT_STRATEGY)
+                s.setdefault("raw_score", s.get("strength"))
                 s["asset_label"] = cls.label
                 merged.append(s)
-        merged.sort(key=lambda s: s.get("strength", 0) or 0, reverse=True)
+        # Alle Anlageklassen verwenden hier dieselbe Standard-Strategie und damit dieselbe
+        # interne Rohscore-Definition; dies ist ausdrücklich kein Cross-Strategie-Vergleich.
+        merged.sort(key=lambda s: s.get("raw_score", s.get("strength", 0)) or 0, reverse=True)
         top = merged[: max(1, int(user.get("top_n_signals") or 5))]
         spark = analyzer.price_history_batch([s["ticker"] for s in top], days=7)
         for s in top:
