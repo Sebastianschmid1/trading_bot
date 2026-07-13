@@ -418,7 +418,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       noch produktive Keys. Bestandsnutzer mit Research-only-Keys laufen unverändert weiter [keine
       Zwangsmigration — bewusste Lücke, dokumentiert]. Doku: `docs/STRATEGY_CLASSIFICATION.md`.
       Volle Suite 747 passed/4 skipped.)
-- [ ] **STRAT-004** Globalen 0–100-Score aus Entscheidungspfad entfernen; strategiespezifische Rohscores; UI-Beschriftung anpassen (keine Wahrscheinlichkeit ohne Kalibrierung)
+- [x] **STRAT-004** Globalen 0–100-Score aus Entscheidungspfad entfernen; strategiespezifische Rohscores; UI-Beschriftung anpassen (keine Wahrscheinlichkeit ohne Kalibrierung)
+      (Sol — Signale führen `raw_score` [strategiespezifischer Rohwert; `strength` bleibt als
+      kompatibler Alt-Key, keine DB-Migration]. Kern: kein Skalen-Quervergleich zwischen
+      Strategien mehr — jede rankt intern auf eigener Skala, Zusammenführung als deterministischer
+      Rundlauf [`_interleave_strategy_rankings`: alphabetische Strategie-Reihenfolge, bei
+      Ticker-Duplikat gewinnt der bessere interne Rang]. Globaler top_n-Deckel gilt NACH dem
+      Rundlauf [vorher je Strategie — Verhaltesänderung für Multi-Strategie-Nutzer, bewusst].
+      UI: „Signal-Stärke X/100" + Balken ersetzt durch „Strategie-Rohscore (<Label>): X — keine
+      Gewinnwahrscheinlichkeit" [Telegram + Web + Dashboard; Dashboard mittelt keine Rohscores
+      mehr]. `MIN_SIGNAL_STRENGTH` bleibt als strategieINTERNES Gate der Standard-Strategie.
+      Volle Suite 763 passed/4 skipped.)
 - [ ] **STRAT-003** Strategieversionierung (Parameter, Feature-Version, Universum, Entry/Exit-Regeln, Kostenmodell, Release-Status, Code-Commit — unveränderlich veröffentlicht)
 - [ ] **STRAT-005** Strategiebezogene Exits je Familie (Momentum: Stop/Trailing/Momentumbruch/Timeout/Close-Exit · Swing: Stop/Strukturbruch/Trailing/Max-Haltedauer/Eventfilter · Mean Reversion: Mittelwert-Rückkehr/Stop/Zeit-Exit/Regimebruch)
 
