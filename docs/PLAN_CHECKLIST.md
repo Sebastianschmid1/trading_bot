@@ -429,7 +429,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Gewinnwahrscheinlichkeit" [Telegram + Web + Dashboard; Dashboard mittelt keine Rohscores
       mehr]. `MIN_SIGNAL_STRENGTH` bleibt als strategieINTERNES Gate der Standard-Strategie.
       Volle Suite 763 passed/4 skipped.)
-- [ ] **STRAT-003** Strategieversionierung (Parameter, Feature-Version, Universum, Entry/Exit-Regeln, Kostenmodell, Release-Status, Code-Commit — unveränderlich veröffentlicht)
+- [x] **STRAT-003** Strategieversionierung (Parameter, Feature-Version, Universum, Entry/Exit-Regeln, Kostenmodell, Release-Status, Code-Commit — unveränderlich veröffentlicht)
+      (`stockbot/core/strategy_registry.py::StrategyVersionRegistry` [Sol] — append-only wie
+      `AuditLog`: `publish()` vergibt fortlaufende Versionen und friert tief ein [immutable
+      Params/Kostenmodell, kein update/delete-API]; `promote()` nur vorwärts draft→candidate→
+      shadow→paper→live [+ archived], Pflicht-`actor`, append-only Statushistorie;
+      `snapshot_from_registry()` für die 3 Produktionsstrategien. In-Prozess-Store — persistente
+      Anbindung + Live-Verdrahtung der `Signal.strategy_version_id` folgen mit dem Postgres-
+      Cutover [`docs/STRATEGY_VERSIONING.md`]. 12 neue Tests, volle Suite 775 passed/4 skipped.)
 - [ ] **STRAT-005** Strategiebezogene Exits je Familie (Momentum: Stop/Trailing/Momentumbruch/Timeout/Close-Exit · Swing: Stop/Strukturbruch/Trailing/Max-Haltedauer/Eventfilter · Mean Reversion: Mittelwert-Rückkehr/Stop/Zeit-Exit/Regimebruch)
 
 **Gate P5 (Abnahme):**
@@ -442,8 +449,19 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 - [ ] **STRAT-006** Portfolio-Allocator (Inputs: Candidates, Positionen, offene Orders, Risikoprofil, Sektor/Korrelation, Kosten, Prioritäten → Auswahl + Ablehnungsgründe + reserviertes Budget)
 - [ ] **RES-001** Shadow-Modus: Signale auf Live-Daten, nicht ausführbar, simulierte Entry/Exit, getrennt ausgewertet
-- [ ] **RES-002** Moduskennzeichnung `backtest|shadow|paper|live` Pflicht auf Signal, Intent, Order, Fill, Position, Performance-Snapshot
-- [ ] **RES-002** Getrennte Reports/Dashboards je Modus (Netto-P&L, Kosten, Slippage, Drawdown, #Trades, Profitfaktor, Erwartungswert, offene Risiken, Strategieversion)
+- [x] **RES-002** Moduskennzeichnung `backtest|shadow|paper|live` Pflicht auf Signal, Intent, Order, Fill, Position, Performance-Snapshot
+      (Sol — alle sechs §14.3-Entitäten tragen `mode`: TradeIntent/Order mit dokumentiertem
+      `Mode.PAPER`-Kompatibilitätsdefault, `Fill` Pflichtfeld, `PerformanceSnapshot` neu. OMS
+      prüft Intent/Signal-Konsistenz und vererbt den Signalmodus an die Order [`paper_only`-Gate
+      unverändert]; Fill→Position lehnt Modus-Mismatch ab. Keine SQLite-Migration — Domain-Ebene;
+      DB-Spalten folgen mit dem Postgres-Cutover.)
+- [~] **RES-002** Getrennte Reports/Dashboards je Modus (Netto-P&L, Kosten, Slippage, Drawdown, #Trades, Profitfaktor, Erwartungswert, offene Risiken, Strategieversion)
+      (Berechnungsschicht fertig [Sol]: `stockbot/core/mode_report.py::build_mode_report` —
+      validiert alle Eingaben auf EINEN Modus [fremder Modus ⇒ ValueError; Backtest-Daten können
+      strukturell nicht in Live-Kennzahlen landen] und liefert Netto-P&L, Kosten, Drawdown,
+      #Trades, Profitfaktor, Erwartungswert, offenes Risiko, Strategieversionen; Slippage ehrlich
+      None [nicht im Domain-Modell]. Volle Suite 784 passed/4 skipped. Offen: die getrennten
+      Dashboard-ANSICHTEN je Modus — folgen mit dem Web-App-Umbau/Design-System.)
 - [ ] Signaltreue: alle Signale (veröffentlicht/abgelehnt/abgelaufen/risk-blockiert/nicht gefüllt) bleiben gespeichert — keine nachträgliche Löschung aus Performance
 
 **Gate P6 (Abnahme):**
