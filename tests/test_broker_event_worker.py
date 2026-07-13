@@ -4,14 +4,29 @@ import pytest
 
 from stockbot.core import db
 from stockbot.core.audit_log import AuditLog
-from stockbot.core.domain import Mode, OrderStatus, PositionStatus, Signal, SignalStatus, TradeIntent
-from stockbot.execution.broker_event_worker import process_broker_event
+from stockbot.core.domain import (
+    Mode, Order, OrderStatus, PositionStatus, Signal, SignalStatus, TradeIntent,
+)
+from stockbot.execution.broker_event_worker import derive_position_from_fill, process_broker_event
 from stockbot.execution.oms import OMS
 
 
 class AcceptingBroker:
     def submit_buy(self, symbol, **kwargs):
         return {"ok": True, "id": "paper-original", "status": "accepted"}
+
+
+def test_position_derivation_rejects_order_mode_mismatch():
+    order = Order(
+        id=1, trade_intent_id=2, user_id=3, ticker="AAPL", side="buy",
+        mode=Mode.LIVE, qty=1.0,
+    )
+
+    with pytest.raises(ValueError, match="Position mode must match order mode"):
+        derive_position_from_fill(
+            order, event_type="fill", payload={"filled_qty": 1},
+            strategy_version_id=4, mode=Mode.PAPER,
+        )
 
 
 @pytest.fixture

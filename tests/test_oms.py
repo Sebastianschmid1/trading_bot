@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import sqlite3
 
@@ -49,6 +50,7 @@ def test_happy_path_persists_state_machine_and_broker_id(oms_db):
 
     assert result.ok is True
     assert result.order.status == OrderStatus.FILLED
+    assert result.order.mode is _signal().mode
     assert result.order.broker_order_id == "paper-123"
     assert result.order.client_order_id == f"oms-{result.order.id}"
     assert broker.submissions[0][1]["client_order_id"] == result.order.client_order_id
@@ -56,6 +58,17 @@ def test_happy_path_persists_state_machine_and_broker_id(oms_db):
         "created", "validated", "submitted", "accepted_by_broker", "filled",
     ]
     assert notifications == [result]
+
+
+def test_intent_mode_must_match_signal(oms_db):
+    intent = replace(_intent(), mode=Mode.SHADOW)
+
+    result = OMS(signal_loader=lambda signal_id: _signal(), broker_client=FakeBroker()).submit_intent(
+        intent, price=200.0, trade_size=1000.0,
+    )
+
+    assert result.ok is False
+    assert result.code == "mode_mismatch"
 
 
 def test_risk_rejection_creates_no_order(oms_db):
