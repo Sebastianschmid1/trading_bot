@@ -391,7 +391,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       markiert; `ai_adaptive` hat ein OOS-Gate implementiert, aber keinen persistierten Lab-Run
       in diesem Checkout. Enthält eine unverbindliche Beobachtung zu möglichen Familiengruppen —
       Klassifizierung/V1-Auswahl bleibt ausdrücklich STRAT-002 vorbehalten.)
-- [ ] **STRAT-002** Klassifizieren + max. 3 V1-Familien wählen: **Intraday Momentum**, **Swing Trend**, **Mean Reversion** (Rest → research-only/deprecated)
+- [x] **STRAT-002** Klassifizieren + max. 3 V1-Familien wählen: **Intraday Momentum**, **Swing Trend**, **Mean Reversion** (Rest → research-only/deprecated)
+      (Owner-Entscheidung 2026-07-13: `standard` [intraday_momentum] · `ai_adaptive` [swing_trend;
+      `supertrend` bleibt dessen Seed-/Referenzcode] · `bb_revert` [mean_reversion]. Übrige 13
+      Registry-Keys → research_only [Backtest/Labor weiter möglich, keine neue Live-/Paper-Auswahl].
+      Umsetzung [Sol]: `Strategy.family`/`Strategy.production` in der Registry,
+      `production_strategies()`/`is_selectable_for_new_users()`, serverseitiges Gate
+      `services/settings.toggle_strategy_selection` [lehnt neue Research-only-Auswahl ab, auch für
+      manipulierte Requests], Telegram `/strategies`/`/addstrat`/Settings + Web-Settings zeigen nur
+      noch produktive Keys. Bestandsnutzer mit Research-only-Keys laufen unverändert weiter [keine
+      Zwangsmigration — bewusste Lücke, dokumentiert]. Doku: `docs/STRATEGY_CLASSIFICATION.md`.
+      Volle Suite 747 passed/4 skipped.)
 - [ ] **STRAT-004** Globalen 0–100-Score aus Entscheidungspfad entfernen; strategiespezifische Rohscores; UI-Beschriftung anpassen (keine Wahrscheinlichkeit ohne Kalibrierung)
 - [ ] **STRAT-003** Strategieversionierung (Parameter, Feature-Version, Universum, Entry/Exit-Regeln, Kostenmodell, Release-Status, Code-Commit — unveränderlich veröffentlicht)
 - [ ] **STRAT-005** Strategiebezogene Exits je Familie (Momentum: Stop/Trailing/Momentumbruch/Timeout/Close-Exit · Swing: Stop/Strukturbruch/Trailing/Max-Haltedauer/Eventfilter · Mean Reversion: Mittelwert-Rückkehr/Stop/Zeit-Exit/Regimebruch)
