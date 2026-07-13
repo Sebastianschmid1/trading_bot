@@ -348,7 +348,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       OMS-Pipeline, die es tatsächlich ERZEUGT/VERARBEITET, ist OMS-002.)
 - [x] **OMS-002** OMS-Pipeline — `stockbot/execution/oms.py` (Intent→Idempotency→Signal→risk.pretrade_check→sizing.plan_order→persistieren/Zustandsmaschine→Broker(Paper)→Broker-ID→Events→Notification-Hook), DI, tests/test_oms.py *(Sol-A)*
 - [x] **OMS-003** Idempotency — Key aus TradeIntent, DB-Unique-Constraint, gleicher Key ⇒ genau eine Order (Ergebnis wiederverwendet), Client-Order-ID deterministisch aus interner ID *(Sol-A)*
-- [ ] **OMS-004** `BrokerAdapter`-Interface (submit/cancel/replace_order, close_position, get_order, list_open_orders, list_positions, stream_order_events, get_account)
+- [x] **OMS-004** `BrokerAdapter`-Interface (submit/cancel/replace_order, close_position, get_order, list_open_orders, list_positions, stream_order_events, get_account)
+      (`stockbot/execution/broker_adapter.py::BrokerAdapter` [ABC, alle neun Methoden aus Plan.md
+      §12.4] + `AlpacaBrokerAdapter`, delegiert an bestehende `stockbot.broker.client`-Funktionen
+      [Sol]. Neu: `client.list_open_orders` [OPEN-Filter]. `replace_order` lehnt bewusst mit
+      `NotImplementedError` ab [Cancel+Submit wäre bei parallelen Fills unsicher];
+      `stream_order_events` ebenso [noch kein Alpaca-`TradingStream`-Lifecycle]. 10 neue Tests,
+      volle Suite 729 passed/4 skipped. Noch von KEINEM Live-Codepfad genutzt — Wiring in OMS/Bot/
+      Webapp folgt mit OMS-005.)
 - [ ] **OMS-005** Broker-Event-Worker (accepted, rejected, partial_fill, fill, cancelled, expired, replaced) — dedupliziert, persistiert, Zustandsübergang geprüft, in Positionen übertragen, auditiert, an Notification
 - [ ] **OMS-006** Partial Fills: Teilposition, Stopgröße an Fillmenge anpassen, Restorder-Timeout, keine doppelte Schutzorder
 - [ ] **OMS-007** Reconciliation: Echtzeit (Stream primär) + periodisch (5–15 min: Orders/Positionen/Cash/Buying Power, unbekannte/fehlende Positionen) + täglicher Voll-Abgleich + Report
