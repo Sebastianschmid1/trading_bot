@@ -101,6 +101,40 @@ def test_migrate_detects_missing_row(tmp_path):
     assert mismatches["trades"]["row_count"]["actual"] == 1
 
 
+def test_compare_float_sums_tolerates_relative_accumulation_noise(tmp_path):
+    _seed_source_db(tmp_path)
+    snapshot = db_export.export_snapshot(tmp_path / "exports", stamp="20260713T000001Z")
+    data = db_migrate.load_snapshot(snapshot)
+
+    target_engine = _new_target_engine(tmp_path, "target_float_noise.db")
+    db_migrate.migrate_snapshot_to_engine(data, target_engine)
+    expected_sum = sum(row["trade_size_eur"] for row in data["tables"]["users"])
+    with target_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE users SET trade_size_eur = trade_size_eur + ? WHERE user_id = ?",
+            (expected_sum * 1e-13, CHAT_A),
+        )
+
+    assert db_migrate.compare_snapshot_to_engine(data, target_engine) == {}
+
+
+def test_compare_float_sums_detects_material_difference(tmp_path):
+    _seed_source_db(tmp_path)
+    snapshot = db_export.export_snapshot(tmp_path / "exports", stamp="20260713T000002Z")
+    data = db_migrate.load_snapshot(snapshot)
+
+    target_engine = _new_target_engine(tmp_path, "target_wrong_sum.db")
+    db_migrate.migrate_snapshot_to_engine(data, target_engine)
+    with target_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE users SET trade_size_eur = trade_size_eur + 1 WHERE user_id = ?",
+            (CHAT_A,),
+        )
+
+    mismatches = db_migrate.compare_snapshot_to_engine(data, target_engine)
+    assert "sum_trade_size_eur" in mismatches["users"]
+
+
 def test_migrate_keeps_broker_credentials_decodable(tmp_path):
     _seed_source_db(tmp_path)
     snapshot = db_export.export_snapshot(tmp_path / "exports", stamp="20260711T000005Z")
