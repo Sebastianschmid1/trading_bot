@@ -215,6 +215,47 @@ def get_order_status(order_id: str, client=None) -> dict:
         return {"ok": False, "status": "unknown", "detail": f"{type(e).__name__}: {e}"}
 
 
+def list_open_orders(client=None) -> list[dict]:
+    """Alle aktuell offenen Orders als kompakte, SDK-unabhängige Dictionaries.
+
+    Der explizite OPEN-Filter verhindert, dass historische/abgeschlossene Orders versehentlich
+    in die OMS-Reconciliation einfließen. Wie die übrigen lesenden Listenfunktionen liefert die
+    Funktion bei deaktiviertem Broker oder API-Fehlern eine leere Liste.
+    """
+    client = _get_client(client)
+    if client is None:
+        return []
+    try:
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
+        out = []
+        for order in orders:
+            status = getattr(order, "status", "")
+            side = getattr(order, "side", "")
+            out.append({
+                "id": str(getattr(order, "id", "")),
+                "client_order_id": str(getattr(order, "client_order_id", "") or ""),
+                "symbol": str(getattr(order, "symbol", "")),
+                "side": str(getattr(side, "value", None) or side).split(".")[-1].lower(),
+                "status": str(getattr(status, "value", None) or status).split(".")[-1].lower(),
+                "qty": float(getattr(order, "qty", 0) or 0),
+                "notional": (float(order.notional) if getattr(order, "notional", None) is not None
+                             else None),
+                "limit_price": (float(order.limit_price)
+                                if getattr(order, "limit_price", None) is not None else None),
+                "filled_qty": float(getattr(order, "filled_qty", 0) or 0),
+                "filled_avg_price": (float(order.filled_avg_price)
+                                     if getattr(order, "filled_avg_price", None) is not None
+                                     else None),
+            })
+        return out
+    except Exception as e:
+        log.warning(f"Offene Alpaca-Orders nicht abrufbar: {e}")
+        return []
+
+
 def list_positions(client=None) -> list[dict]:
     client = _get_client(client)
     if client is None:
