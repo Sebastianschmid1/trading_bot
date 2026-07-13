@@ -374,11 +374,27 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Erkennung delegiert an RISK-005; Nutzerstatus über bestehenden OMS-Notifier. Noch von
       KEINEM Live-Codepfad genutzt — Live-Orchestrierung [tatsächliches Cancel/Submit] folgt
       separat. 5 neue Tests, volle Suite 745 passed/4 skipped.)
-- [ ] **OMS-007** Reconciliation: Echtzeit (Stream primär) + periodisch (5–15 min: Orders/Positionen/Cash/Buying Power, unbekannte/fehlende Positionen) + täglicher Voll-Abgleich + Report
+- [x] **OMS-007** Reconciliation: Echtzeit (Stream primär) + periodisch (5–15 min: Orders/Positionen/Cash/Buying Power, unbekannte/fehlende Positionen) + täglicher Voll-Abgleich + Report
+      (`stockbot/execution/reconciliation.py` [Sol] — rein erkennend/berichtend gegen das
+      `BrokerAdapter`-Interface: `reconcile_positions`/`reconcile_orders`/`reconcile_account`
+      [Float-/Prozent-Toleranzen], `run_periodic_reconciliation` [für den 5–15-Min-Takt;
+      Scheduler-Verdrahtung separat] und `run_daily_full_reconciliation` mit menschenlesbarem
+      Report. Findings: unbekannte/fehlende Positionen und Orders, Mengen-/Status-/Cash-/
+      Buying-Power-Abweichungen. Bewusst KEINE Heil-Automatik; Echtzeit-Ebene = OMS-005-Worker,
+      sobald der Alpaca-TradingStream-Lifecycle existiert [kein emulierter Stream]. Legacy
+      `broker/reconcile.py` bleibt unverändert aktiv. 13 neue Tests, volle Suite 760 passed/
+      4 skipped.)
 
 **Gate P4 (Abnahme):**
-- [ ] Doppelklicks → keine doppelten Orders; Orderstatus = Brokerereignisse
-- [ ] Partial Fills korrekt; Abweichungen erkannt + alarmiert; jede Order hat vollständige Ereignishistorie
+- [~] Doppelklicks → keine doppelten Orders; Orderstatus = Brokerereignisse
+      (Idempotency-Teil bewiesen: `tests/test_oms.py` [OMS-003, gleicher Key ⇒ genau eine Order]
+      + OMS-005-Dedup über `broker_event_id`. Offen bleibt der End-to-End-Nachweis über die
+      LIVE-verdrahteten UI-Pfade, sobald OMS-004–007 in bot.py/webapp.py orchestriert sind.)
+- [~] Partial Fills korrekt; Abweichungen erkannt + alarmiert; jede Order hat vollständige Ereignishistorie
+      (Bausteine da: OMS-006-Policy [Partial Fills], OMS-007 [Abweichungen erkannt + Report],
+      `order_events` [Ereignishistorie je Order, inkl. Status-neutraler Events]. Offen bleibt
+      „alarmiert" im Live-Betrieb: die Reconciliation-Reports sind noch an keinen Scheduler/
+      Notification-Kanal angeschlossen — Teil der späteren Live-Orchestrierung.)
 
 ---
 
