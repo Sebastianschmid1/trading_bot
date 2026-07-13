@@ -5,6 +5,10 @@ Spiegelt 1:1 das eingefrorene SQLite-Schema aus docs/DB_SCHEMA_SQLITE.md (Stand
 Transformation → Testmigration → Zeilen/Summen-Vergleich) ist ein eigener,
 späterer Checklisten-Punkt (docs/PLAN_CHECKLIST.md Phase 1).
 
+Die BigInteger-Korrektur für Telegram-IDs und wachsende interne IDs wird direkt
+hier gepflegt: Diese initiale Migration wurde noch auf keiner produktiven
+PostgreSQL-Instanz angewendet, daher ist keine nachgelagerte Korrekturrevision nötig.
+
 Revision ID: a1b2c3d4e5f6
 Revises:
 Create Date: 2026-07-11
@@ -24,7 +28,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         "users",
-        sa.Column("user_id", sa.Integer(), primary_key=True),
+        sa.Column("user_id", sa.BigInteger(), primary_key=True),
         sa.Column("username", sa.Text(), nullable=True),
         sa.Column("trade_size_eur", sa.Float(), nullable=False, server_default="25.0"),
         sa.Column("broker_platform", sa.Text(), nullable=True),
@@ -53,13 +57,13 @@ def upgrade() -> None:
 
     op.create_table(
         "trades",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.user_id"), nullable=False),
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
         sa.Column("direction", sa.Text(), nullable=True),
         sa.Column("signal_json", sa.Text(), nullable=True),
-        sa.Column("message_id", sa.Integer(), nullable=True),
+        sa.Column("message_id", sa.BigInteger(), nullable=True),
         sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
         sa.Column("entry", sa.Float(), nullable=True),
         sa.Column("exit", sa.Float(), nullable=True),
@@ -79,8 +83,8 @@ def upgrade() -> None:
 
     op.create_table(
         "trade_ticks",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
         sa.Column("ts", sa.Text(), nullable=True),
@@ -94,15 +98,15 @@ def upgrade() -> None:
     op.create_table(
         "sessions",
         sa.Column("token", sa.Text(), primary_key=True),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.user_id"), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
         sa.Column("created_at", sa.Text(), nullable=True),
         sa.Column("expires_at", sa.Text(), nullable=False),
     )
 
     op.create_table(
         "notifications",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("ts", sa.Text(), nullable=True),
         sa.Column("type", sa.Text(), nullable=False, server_default="info"),
         sa.Column("title", sa.Text(), nullable=False),
@@ -123,9 +127,9 @@ def upgrade() -> None:
 
     op.create_table(
         "trade_events",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("trade_id", sa.Integer(), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("trade_id", sa.BigInteger(), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("from_status", sa.Text(), nullable=True),
