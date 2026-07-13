@@ -285,8 +285,8 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Aufrufer [Telegram/Web] muss den heutigen realisierten P&L weiterhin selbst live ermitteln
       und übergeben — das bleibt ein separater Wiring-Schritt an den konkreten Aufrufstellen.
       Noch von KEINEM Live-Codepfad genutzt.)
-- [~] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
-      (Exposure-Limits erledigt: `stockbot/core/exposure.py` — vier reine `check_*`-Funktionen
+- [x] **RISK-005** Exposure-Limits (Einzel/Sektor/korreliert/täglich neu); Post-Trade: offene Position ohne Schutzorder erkennen
+      (Exposure-Limits: `stockbot/core/exposure.py` — vier reine `check_*`-Funktionen
       [Einzel/Sektor/Korreliert/Täglich neu, je gegen die passenden `domain.RiskProfile`-Deckel]
       + `evaluate_exposure(...)` als Bündelung in fester Reihenfolge. Sektor-/Korrelationsgruppe
       sind ein Eingabe-String je Position [`ExposurePosition.sector`/`correlation_group`] — das
@@ -295,9 +295,12 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Kandidaten, wird der jeweilige Check übersprungen statt fälschlich zu blockieren. In
       `risk.py::pretrade_check` verdrahtet [Schritt 13 der Plan.md-§11.3-Reihenfolge — nur
       geprüft, wenn `candidate_notional`+`account_value`+`risk_profile` übergeben wurden].
-      Noch offen: „Post-Trade: offene Position ohne Schutzorder erkennen" — eigenes, separates
-      Thema, gehört inhaltlich zu Plan.md §11.4 (Post-Trade-Risk), nicht zum Pre-Trade-Seam.
-      Noch von KEINEM Live-Codepfad genutzt.)
+      Post-Trade [Plan.md §11.4]: `stockbot/core/post_trade_risk.py::
+      check_open_position_has_protective_order` (Sol) — reine, IO-freie Prüfung, ob eine offene
+      Position durch mindestens eine aktive Gegenseiten-Order [Sell bei Long, Buy bei Short]
+      desselben Users/Tickers geschützt ist; terminale/nur lokal validierte Orders zählen nicht.
+      21 neue Tests, volle Suite 719 passed/4 skipped. Noch von KEINEM Live-Codepfad genutzt —
+      Verdrahtung [z. B. periodischer Post-Trade-Scan] ist ein separater, noch offener Schritt.)
 - [x] **RISK-006** Kill-Switch-Service (`activate/deactivate_global`, `activate/deactivate_user`,
       `is_new_position_allowed`, `is_protective_exit_allowed`)
       (`stockbot/core/kill_switch.py::KillSwitchService` — reiner In-Prozess-Store für
