@@ -160,12 +160,12 @@
     <span class="meta" id="generated"></span>
   </div>
 
-  <!-- KPI-Hero: Signal-Stärke-Instrument (Signatur) + Kennzahlen -->
+  <!-- KPI-Hero: strategiespezifisches Rohscore-Instrument + Kennzahlen -->
   <div class="hero">
     <div class="gauge-wrap">
-      <canvas id="signalGauge" width="150" height="108" aria-label="Signal-Stärke"></canvas>
+      <canvas id="signalGauge" width="150" height="108" aria-label="Strategie-Rohscore"></canvas>
       <div class="gauge-cap"><span class="v" id="gaugeVal">—</span>
-        <div class="marklabel" id="gaugeCap">Signal-Stärke Ø</div></div>
+        <div class="marklabel" id="gaugeCap">Strategie-Rohscore Ø</div></div>
     </div>
     <div class="cards" id="cards"></div>
   </div>
@@ -213,9 +213,9 @@
       </section>
 
       <section class="panel" data-panel="strength">
-        <div class="panel-head"><h2>📶 Signal-Stärke heute</h2><span class="caret">▾</span></div>
+        <div class="panel-head"><h2>📶 Strategie-Rohscore heute</h2><span class="caret">▾</span></div>
         <div class="panel-body">
-          <div class="desc">Klick auf einen Ticker in der Legende blendet ihn aus/ein.</div>
+          <div class="desc">Rohwerte gelten nur innerhalb der genannten Strategie und sind keine Gewinnwahrscheinlichkeit. Klick auf einen Ticker in der Legende blendet ihn aus/ein.</div>
           <canvas id="strengthChart"></canvas>
         </div>
       </section>
@@ -470,7 +470,7 @@
     }
 
     // ── Haupt-Render ────────────────────────────────────────────────────────
-    // ── Signatur: Signal-Stärke als Rundinstrument (Nadel + Zonenbogen, Phosphor-Glow) ──
+    // ── Signatur: Rohscore EINER Strategie als Rundinstrument ──
     const GAUGE_A0 = Math.PI * 0.75, GAUGE_A1 = Math.PI * 2.25;   // 135°→405°, 270°-Sweep über oben
     function drawSignalGauge(value) {
       const c = document.getElementById("signalGauge"); if (!c) return;
@@ -498,14 +498,15 @@
       ctx.beginPath(); ctx.fillStyle = "#E9E6DD"; ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill();
     }
     function renderSignalGauge(d) {
-      // Wert = Ø aktuelle Signal-Stärke der offenen Trades; ohne offene Trades → Trefferquote.
+      // Nur Rohscores derselben Strategie mitteln; bei mehreren Strategien keine Mischskala bilden.
       const series = (d.intraday || []).filter(s => s.points && s.points.length);
-      let gv = null, cap = "Signal-Stärke Ø";
-      if (series.length) {
+      const strategyKeys = [...new Set(series.map(s => s.strategy || "standard"))];
+      let gv = null, cap = strategyKeys.length > 1 ? "Strategie wählen" : "Strategie-Rohscore Ø";
+      if (series.length && strategyKeys.length <= 1) {
         const last = series.map(s => s.points[s.points.length - 1].strength).filter(x => x != null);
         if (last.length) gv = last.reduce((a, b) => a + b, 0) / last.length;
+        if (series[0].strategy_label) cap = `Rohscore Ø · ${series[0].strategy_label}`;
       }
-      if (gv == null && d.summary) { gv = d.summary.win_rate; cap = "Trefferquote"; }
       drawSignalGauge(gv);
       document.getElementById("gaugeVal").textContent = gv == null ? "—" : Math.round(gv);
       document.getElementById("gaugeCap").textContent = cap;
@@ -720,7 +721,7 @@
       if (state.data) renderTradesCurves(state.data, NO_TRADES);
     });
 
-    // ── Intraday: Stärke (alle) + Kursverlauf (Dropdown) ────────────────────
+    // ── Intraday: strategiespezifische Rohscores + Kursverlauf ─────────────
     const palette = ["#74C7FF", "#3ECF8E", "#E7B24C", "#B98CFF", "#E85C4A", "#4FD0C0"];
     function renderIntraday(d) {
       const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
@@ -731,7 +732,7 @@
         upsertChart("strengthChart", {
           type: "line",
           data: { labels: intraday[0].points.map(p => p.t), datasets: intraday.map((s, i) => ({
-            label: s.ticker, data: s.points.map(p => p.strength),
+            label: `${s.ticker} · ${s.strategy_label || s.strategy || "Standard"}`, data: s.points.map(p => p.strength),
             borderColor: palette[i % palette.length], backgroundColor: "transparent", tension: .25, pointRadius: 0 })) },
           options: {
             interaction: { mode: "index", intersect: false },

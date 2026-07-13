@@ -267,6 +267,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
     # Offene/aktive Trades (inkl. aktuellem Kurs + unrealisiertem P&L)
     size = user["trade_size_eur"] or 1.0
     active_view = []
+    strategy_labels = {s.key: s.label for s in strategies.all_strategies()}
     for t in active:
         cur = _current_price(t)
         leverage = effective_leverage(t["signal"])   # realisierter Hebel (Aktien-Fallback → 1×)
@@ -287,14 +288,18 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "pnl_eur":     round(pnl_eur, 2),
             "stop_loss":   t["signal"].get("stop_loss"),
             "take_profit": t["signal"].get("take_profit"),
+            "strategy":    _trade_strategy(t),
+            "strategy_label": strategy_labels.get(_trade_strategy(t), _trade_strategy(t)),
         })
 
-    # Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker — aus den 60s-Ticks
+    # Intraday-Verlauf (strategiespezifischer Rohscore + Kurs) je aktivem Ticker — aus 60s-Ticks
     intraday = []
     for t in active:
         pts = ticks.get(t["ticker"], [])
         intraday.append({
             "ticker": t["ticker"],
+            "strategy": _trade_strategy(t),
+            "strategy_label": strategy_labels.get(_trade_strategy(t), _trade_strategy(t)),
             "entry": t["entry"],
             "stop_loss": t["signal"].get("stop_loss"),
             "take_profit": t["signal"].get("take_profit"),
@@ -309,7 +314,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
     # x = echter Zeitpunkt (Epoch-ms, UTC-Instant → der Browser zeigt Berliner Zeit), y = % ab
     # Einstieg (mit Hebel). Ein geschlossener Trade endet an seinem Ausstiegs-Zeitpunkt und wird
     # NICHT weiter gezeichnet; ein offener Trade läuft bis "jetzt" (rechter Rand).
-    _strat_label = {s.key: s.label for s in strategies.all_strategies()}
+    _strat_label = strategy_labels
     events_by_trade = db.get_events_by_trade(user_id)
     now_ms = datetime.now(timezone.utc).timestamp() * 1000.0
     _TERMINAL = ("closed", "broker_failed", "rejected", "expired")

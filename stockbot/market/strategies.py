@@ -236,6 +236,7 @@ def adx_trend_signal(ticker: str, tf_data: dict, p: dict | None = None) -> dict 
         "as_of":          str(df.index[-1].date()),
         "direction":      "long",
         "strength":       strength,
+        "raw_score":      strength,
         "strategy":       "adx_trend",
         "adx":            adx_val,
         "rsi":            rsi,
@@ -285,7 +286,8 @@ def _make_signal(ticker: str, df, key: str, strength: float,
         "Aufwärts 📈" if price > ma50 else "Abwärts/Seitwärts ↔")
     return {
         "ticker": ticker, "price": price, "as_of": str(df.index[-1].date()),
-        "direction": "long", "strength": round(strength, 1), "strategy": key,
+        "direction": "long", "strength": round(strength, 1),
+        "raw_score": round(strength, 1), "strategy": key,
         "rsi": rsi, "rsi_comment": f"{rsi:.1f}",
         "macd_comment": "Bullish ✅" if (macd_hist > 0 and macd_line > macd_signal) else "Neutral",
         "trend_comment": trend, "weekly_comment": "—",
@@ -767,6 +769,7 @@ def _standard_generate(ticker: str, tf_data: dict) -> dict | None:
     sig = analyzer.analyze_ticker(ticker, tf_data)
     if sig is not None:
         sig.setdefault("strategy", "standard")
+        sig.setdefault("raw_score", sig.get("strength"))
     return sig
 
 

@@ -286,14 +286,14 @@ def test_overnight_trade_is_managed_across_days():
     assert row["status"] == "closed" and row["pnl_eur"] == 21.25
 
 
-# ── _merge_ranked: mehrere Körbe zu einer Rangliste zusammenführen ───────────
+# ── Ranglisten zusammenführen ────────────────────────────────────────────────
 
-def test_merge_ranked_dedups_keeping_strongest():
+def test_merge_ranked_same_strategy_dedups_keeping_highest_raw_score():
     a = [{"ticker": "NVDA", "strength": 60}, {"ticker": "AAPL", "strength": 50}]
     b = [{"ticker": "NVDA", "strength": 80}, {"ticker": "MSFT", "strength": 40}]
     merged = bot._merge_ranked([a, b])
     by_ticker = {s["ticker"]: s["strength"] for s in merged}
-    # NVDA kommt in beiden Körben vor → das stärkere Signal (80) gewinnt
+    # Regionslisten derselben Strategie dürfen intern nach deren Rohscore zusammengeführt werden.
     assert by_ticker == {"NVDA": 80, "AAPL": 50, "MSFT": 40}
 
 
@@ -301,6 +301,59 @@ def test_merge_ranked_ignores_none_lists_and_tickerless_entries():
     merged = bot._merge_ranked([None, [{"strength": 99}], [{"ticker": "T", "strength": 10}]])
     # None-Liste und Einträge ohne Ticker werden übersprungen (kein Absturz)
     assert [s["ticker"] for s in merged] == ["T"]
+
+
+def test_interleave_strategy_rankings_is_deterministic_without_score_comparison():
+    rankings = {
+        "standard": [
+            {"ticker": "STD1", "strategy": "standard", "raw_score": 99},
+            {"ticker": "STD2", "strategy": "standard", "raw_score": 98},
+        ],
+        "bb_revert": [
+            {"ticker": "BB1", "strategy": "bb_revert", "raw_score": 5},
+            {"ticker": "BB2", "strategy": "bb_revert", "raw_score": 4},
+        ],
+    }
+    # Strategie-Keys laufen alphabetisch; die 5 wird nicht hinter die 98 sortiert.
+    merged = bot._interleave_strategy_rankings(rankings)
+    assert [s["ticker"] for s in merged] == ["BB1", "STD1", "BB2", "STD2"]
+    assert [s["ticker"] for s in bot._interleave_strategy_rankings(rankings, limit=3)] == [
+        "BB1", "STD1", "BB2",
+    ]
+
+
+def test_interleave_duplicate_uses_own_rank_then_alphabetical_strategy():
+    rankings = {
+        "standard": [{"ticker": "S1"}, {"ticker": "DUP"}, {"ticker": "S3"}],
+        "bb_revert": [{"ticker": "B1"}, {"ticker": "B2"}, {"ticker": "DUP"}],
+        "ai_adaptive": [{"ticker": "DUP"}, {"ticker": "A2"}],
+    }
+    merged = bot._interleave_strategy_rankings(rankings)
+    dup = [s for s in merged if s["ticker"] == "DUP"]
+    assert len(dup) == 1 and dup[0] is rankings["ai_adaptive"][0]  # Rang 1 gewinnt
+
+    bb_dup = {"ticker": "DUP", "strategy": "bb_revert", "raw_score": 1}
+    tied = bot._interleave_strategy_rankings({
+        "standard": [{"ticker": "DUP", "strategy": "standard", "raw_score": 100}],
+        "bb_revert": [bb_dup],
+    })
+    assert tied == [bb_dup]  # gleicher Rang: alphabetisch bb_revert vor standard
+
+
+def test_trade_card_labels_strategy_raw_score_without_probability_scale():
+    trade = {
+        "ticker": "NVDA", "direction": "long", "entry": 100.0,
+        "signal": {"strategy": "bb_revert", "raw_score": 61.0, "strength": 61.0,
+                   "leverage": 1.0},
+    }
+    original = bot._unrealized_pnl
+    bot._unrealized_pnl = lambda trade, size: (101.0, 1.0, 1.0)
+    try:
+        text, _ = bot._trade_card(trade, 100.0, current_strength=55.0)
+    finally:
+        bot._unrealized_pnl = original
+    assert "Strategie-Rohscore (Bollinger %B Mean-Reversion)" in text
+    assert "61/100" not in text and "keine Gewinnwahrscheinlichkeit" in text
 
 
 # ── Auto-Accept: still kaufen + EIN Tagesreport nach Börsenschluss ───────────

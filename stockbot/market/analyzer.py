@@ -524,6 +524,10 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None,
             "as_of":          as_of,
             "direction":      direction,
             "strength":       strength,
+            # ``strength`` bleibt für gespeicherte Signale/Ticks kompatibel. Neue Aufrufer
+            # verwenden ``raw_score`` und interpretieren den Wert nur innerhalb von ``standard``.
+            "raw_score":      strength,
+            "strategy":       "standard",
             "tf_scores":      tf_scores,
             "rsi":            rsi,
             "rsi_comment":    rsi_comment,
@@ -610,7 +614,9 @@ def _tf_data_for(downloads: dict, ticker: str) -> dict:
 def analyze_universe(tickers: list[str], generate=None, profile=None) -> list[dict]:
     """
     Analysiert eine Ticker-Liste über ALLE konfigurierten Timeframes und gibt alle
-    gefundenen Signale absteigend nach Stärke zurück (Aufrufer schneidet auf top_n).
+    gefundenen Signale absteigend nach dem Rohscore der jeweils übergebenen Strategie zurück
+    (Aufrufer schneidet auf top_n). Diese Sortierung ist nur innerhalb einer Strategie zulässig;
+    mehrere Strategieranglisten müssen ohne Score-Quervergleich zusammengeführt werden.
     Pro Timeframe ein Batch-Download (yfinance fügt intern threadsicher zusammen).
 
     `generate(ticker, tf_data) -> signal|None` erlaubt eine andere Strategie als die
@@ -636,9 +642,13 @@ def analyze_universe(tickers: list[str], generate=None, profile=None) -> list[di
             continue
         result = gen(ticker, tf_data)
         if result:
+            # Additives Kompatibilitätsfeld: alte signal_json-Leser behalten ``strength``;
+            # ``raw_score`` macht die strategiespezifische Semantik für neue Pfade explizit.
+            result.setdefault("raw_score", result.get("strength"))
             results.append(result)
 
-    results.sort(key=lambda x: (x["strength"], abs(x["rsi"] - 50)), reverse=True)
+    results.sort(key=lambda x: (x.get("raw_score", x.get("strength", 0)),
+                                abs(x.get("rsi", 50) - 50)), reverse=True)
     log.info(f"{len(results)} Signale gefunden: {[s['ticker'] for s in results]}")
     return results
 
@@ -674,7 +684,7 @@ def price_history_batch(tickers: list[str], days: int = 7) -> dict:
 
 
 def get_top_signals(tickers: list[str] | None = None, top_n: int = TOP_N_SIGNALS) -> list[dict]:
-    """Analysiert das Universum (Default: WATCHLIST) und gibt die top_n stärksten Signale zurück."""
+    """Top-N der Standard-Strategie; ihr Rohscore wird nur innerhalb derselben Skala sortiert."""
     ranked = analyze_universe(tickers if tickers is not None else WATCHLIST)
     return ranked[:top_n]
 

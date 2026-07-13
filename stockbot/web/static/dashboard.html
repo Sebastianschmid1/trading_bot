@@ -120,7 +120,8 @@
     </div>
 
     <div class="panel">
-      <h2>📶 Signal-Stärke heute (aktive Trades)</h2>
+      <h2>📶 Strategie-Rohscore heute (aktive Trades)</h2>
+      <div class="meta">Rohwerte gelten nur innerhalb der genannten Strategie und sind keine Gewinnwahrscheinlichkeit.</div>
       <canvas id="strengthChart" height="90"></canvas>
     </div>
 
@@ -387,11 +388,11 @@
           </table></div>`;
       }
 
-      // Intraday-Verlauf (Stärke + Kurs) je aktivem Ticker
+      // Intraday-Verlauf (strategiespezifischer Rohscore + Kurs) je aktivem Ticker
       const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
       const palette = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c"];
 
-      // #5 Signal-Stärke heute — eine Linie je Ticker, y 0-100
+      // #5 Strategie-Rohscore heute — eine Linie je Ticker/Strategie
       if (!intraday.length) {
         replaceCanvas("strengthChart", "Noch keine aktiven Trades / Verlaufsdaten heute.");
       } else {
@@ -401,7 +402,7 @@
           data: {
             labels,
             datasets: intraday.map((s, i) => ({
-              label: s.ticker,
+              label: `${s.ticker} · ${s.strategy_label || s.strategy || "Standard"}`,
               data: s.points.map(p => p.strength),
               borderColor: palette[i % palette.length],
               backgroundColor: "transparent", tension: .25, pointRadius: 0,
