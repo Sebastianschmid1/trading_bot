@@ -6,6 +6,8 @@ vorgegebenen Zustandsmaschinen. Keine DB, kein IO — die Objekte sind noch nich
 Persistenz gebunden (folgt mit den nächsten Checklisten-Punkten).
 """
 
+import inspect
+
 from stockbot.core import domain
 
 
@@ -59,6 +61,50 @@ def test_trade_intent_has_exact_plan_fields():
     assert ti.user_id == 1 and ti.signal_id == 2
     assert ti.source_channel == "telegram"
     assert ti.idempotency_key == "abc-123"
+    assert ti.mode is domain.Mode.PAPER
+
+
+def test_all_res002_entities_carry_mode():
+    signal = domain.Signal(
+        id=None, strategy_version_id=1, ticker="AAPL", direction="long",
+        mode=domain.Mode.SHADOW,
+    )
+    intent = domain.TradeIntent(
+        user_id=1, signal_id=2, requested_action="accept",
+        accepted_exit_policy="strategy-default", source_channel="web",
+        created_at="2026-07-13T00:00:00Z", idempotency_key="intent-1",
+        mode=domain.Mode.SHADOW,
+    )
+    order = domain.Order(
+        id=None, trade_intent_id=1, user_id=1, ticker="AAPL", side="buy",
+        mode=domain.Mode.SHADOW,
+    )
+    fill = domain.Fill(
+        id=None, order_id=1, qty=1.0, price=100.0,
+        filled_at="2026-07-13T00:01:00Z", mode=domain.Mode.SHADOW,
+    )
+    position = domain.Position(
+        id=None, user_id=1, ticker="AAPL", strategy_version_id=1,
+        mode=domain.Mode.SHADOW,
+    )
+    snapshot = domain.PerformanceSnapshot(
+        id=None, strategy_version_id=1, mode=domain.Mode.SHADOW,
+        captured_at="2026-07-13T00:02:00Z",
+    )
+
+    assert all(entity.mode is domain.Mode.SHADOW for entity in (
+        signal, intent, order, fill, position, snapshot,
+    ))
+
+
+def test_new_mode_fields_are_required_and_legacy_paths_default_to_paper():
+    for entity_type in (
+        domain.Signal, domain.Fill, domain.Position, domain.PerformanceSnapshot,
+    ):
+        assert inspect.signature(entity_type).parameters["mode"].default is inspect.Parameter.empty
+
+    for entity_type in (domain.TradeIntent, domain.Order):
+        assert inspect.signature(entity_type).parameters["mode"].default is domain.Mode.PAPER
 
 
 def test_audit_event_has_exact_plan_fields():

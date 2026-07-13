@@ -51,6 +51,10 @@ def derive_position_from_fill(
         existing_position.user_id != order.user_id or existing_position.ticker != order.ticker
     ):
         raise ValueError("Existing position does not belong to the order")
+    if order.mode != mode:
+        raise ValueError("Position mode must match order mode")
+    if existing_position and existing_position.mode != order.mode:
+        raise ValueError("Existing position mode must match order mode")
 
     filled_qty = _number(payload, "filled_qty", "cumulative_filled_qty")
     if filled_qty is None:

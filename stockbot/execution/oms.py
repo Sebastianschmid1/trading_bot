@@ -40,10 +40,16 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     return parsed
 
 
-def _as_order(row: Mapping[str, Any]) -> Order:
+def _as_order(row: Mapping[str, Any], *, mode: Mode = Mode.PAPER) -> Order:
+    """Map a legacy SQLite row to an Order without migrating SQLite for RES-002.
+
+    Existing SQLite rows are Paper unless the caller carries a known domain mode.
+    The persistent mode column follows with the documented Postgres cutover.
+    """
     return Order(
         id=int(row["id"]), trade_intent_id=int(row["trade_intent_id"]),
         user_id=int(row["user_id"]), ticker=str(row["ticker"]), side=str(row["side"]),
+        mode=Mode(row.get("mode", mode)),
         qty=row.get("qty"), notional=row.get("notional"), limit_price=row.get("limit_price"),
         status=OrderStatus(row["status"]), broker_order_id=row.get("broker_order_id"),
         client_order_id=row.get("client_order_id"), idempotency_key=row.get("idempotency_key"),
@@ -138,7 +144,7 @@ class OrderManagementSystem:
         if not created:
             return self._finish(self._existing_result(row))
 
-        order = _as_order(row)
+        order = _as_order(row, mode=signal.mode)
         order = self._transition(order, OrderStatus.VALIDATED)
         order = self._transition(order, OrderStatus.SUBMITTED)
         submit_kwargs: dict[str, Any] = {"client_order_id": order.client_order_id}
@@ -218,6 +224,9 @@ class OrderManagementSystem:
             return OMSResult(False, reason="Short-Orders sind deaktiviert.", code="short_blocked")
         if signal.mode != Mode.PAPER:
             return OMSResult(False, reason="Nur Paper-Signale duerfen ausgefuehrt werden.", code="paper_only")
+        if intent.mode != signal.mode:
+            return OMSResult(False, reason="Intent- und Signalmodus stimmen nicht ueberein.",
+                             code="mode_mismatch")
         if signal.status != SignalStatus.ACCEPTED:
             return OMSResult(False, reason=f"Signalstatus {signal.status.value} ist nicht ausfuehrbar.",
                              code="signal_invalid")
@@ -234,7 +243,7 @@ class OrderManagementSystem:
         row = self.persistence.transition_oms_order(
             order.id, from_status=order.status.value, to_status=target.value, **event
         )
-        return _as_order(row)
+        return _as_order(row, mode=order.mode)
 
     def _apply_broker_status(self, order: Order, status: str,
                              payload: Mapping[str, Any],
@@ -253,7 +262,7 @@ class OrderManagementSystem:
                 broker_order_id=(str(payload.get("broker_order_id") or payload.get("id") or "")
                                  or None),
             )
-            return _as_order(row)
+            return _as_order(row, mode=order.mode)
         target = {
             "accepted": OrderStatus.ACCEPTED_BY_BROKER,
             "new": OrderStatus.ACCEPTED_BY_BROKER,
@@ -272,7 +281,7 @@ class OrderManagementSystem:
                     order.id, status=order.status.value, event_type=normalized,
                     broker_event_id=broker_event_id, payload=dict(payload),
                 )
-                return _as_order(row)
+                return _as_order(row, mode=order.mode)
             return order
         if order.status == OrderStatus.SUBMITTED and target in {
             OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,

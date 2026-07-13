@@ -185,7 +185,12 @@ class Signal:
 
 @dataclass(frozen=True)
 class TradeIntent:
-    """Felder exakt nach Plan.md §12.1 — einziges Artefakt, das Web/Telegram erzeugen."""
+    """Einziges Artefakt, das Web/Telegram erzeugen (Plan.md §12.1).
+
+    ``mode`` hat vorübergehend den Default ``PAPER``, weil alle bestehenden UI-Aufrufer
+    den durch TSAFE-001 erzwungenen Paper-Pfad abbilden. Neue Aufrufer sollen den Modus
+    explizit setzen; der Default kann mit dem Postgres-/UI-Cutover entfallen.
+    """
     user_id: int
     signal_id: int
     requested_action: str
@@ -193,11 +198,17 @@ class TradeIntent:
     source_channel: str
     created_at: str
     idempotency_key: str
+    mode: Mode = Mode.PAPER
 
 
 @dataclass(frozen=True)
 class Order:
-    """`status` folgt der Zustandsmaschine in Plan.md §9.3."""
+    """`status` folgt der Zustandsmaschine in Plan.md §9.3.
+
+    ``mode`` defaultet übergangsweise auf ``PAPER``, da die bestehende SQLite-
+    ``orders``-Tabelle keine Modusspalte besitzt und alle produktiven Pfade durch
+    TSAFE-001 Paper sind. Die Spalte folgt erst mit dem dokumentierten Postgres-Cutover.
+    """
     id: int | None
     trade_intent_id: int
     user_id: int
@@ -212,6 +223,7 @@ class Order:
     idempotency_key: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    mode: Mode = Mode.PAPER
 
 
 @dataclass(frozen=True)
@@ -227,11 +239,17 @@ class OrderEvent:
 
 @dataclass(frozen=True)
 class Fill:
+    """Broker-Ausführung mit verpflichtender Moduskennzeichnung (RES-002).
+
+    Ein Fill enthält derzeit keine realisierte P&L und keine Slippage. Reports dürfen
+    daher aus diesem Typ nur die explizit gespeicherte Gebühr ableiten.
+    """
     id: int | None
     order_id: int
     qty: float
     price: float
     filled_at: str
+    mode: Mode
     fee: float = 0.0
     broker_fill_id: str | None = None
 
@@ -249,6 +267,23 @@ class Position:
     avg_entry_price: float | None = None
     opened_at: str | None = None
     closed_at: str | None = None
+
+
+@dataclass(frozen=True)
+class PerformanceSnapshot:
+    """Eine explizite Netto-P&L-Beobachtung für einen Modus und eine Strategieversion.
+
+    Die Beobachtungen können beispielsweise je geschlossenem Trade erzeugt werden. Das
+    Reporting summiert nur vorhandene ``net_pnl``-Werte; fehlende Werte werden nicht
+    geschätzt. ``open_risk`` ist ebenfalls explizit, weil es ohne Stop-/Risikobudget im
+    heutigen ``Position``-Modell nicht seriös aus der Position berechnet werden kann.
+    """
+    id: int | None
+    strategy_version_id: int
+    mode: Mode
+    captured_at: str
+    net_pnl: float | None = None
+    open_risk: float | None = None
 
 
 @dataclass(frozen=True)
