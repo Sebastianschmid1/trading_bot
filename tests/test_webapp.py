@@ -485,8 +485,10 @@ def test_settings_and_notify_channel_via_web():
     c = _client()
     c.post("/app/settings/set", data={"action": "set_size", "value": "250"}, follow_redirects=False)
     assert db.get_user(CHAT)["trade_size_eur"] == 250.0
+    c.post("/app/settings/set", data={"action": "set_strat", "value": "bb_revert"}, follow_redirects=False)
+    assert "bb_revert" in db.get_user(CHAT)["strategies"]
     c.post("/app/settings/set", data={"action": "set_strat", "value": "adx_trend"}, follow_redirects=False)
-    assert "adx_trend" in db.get_user(CHAT)["strategies"]
+    assert "adx_trend" not in db.get_user(CHAT)["strategies"]
     c.post("/app/settings/notify", data={"value": "web"}, follow_redirects=False)
     assert db.get_user(CHAT)["notify_channel"] == "web"
 
@@ -501,6 +503,10 @@ def test_settings_page_shows_readonly_risk_parameters():
     assert "Risiko-Parameter" in r.text
     assert "Maximaler Hebel" in r.text
     assert f"{webapp.config.MAX_LEVERAGE:g}×" in r.text
+    assert "Standard (Multi-Timeframe)" in r.text
+    assert "Bollinger %B Mean-Reversion" in r.text
+    assert "KI-Strategie (selbst-lernend)" in r.text
+    assert "ADX-Trendfolge" not in r.text
 
 
 def test_watchlist_add_remove_via_web():

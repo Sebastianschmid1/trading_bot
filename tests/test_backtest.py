@@ -79,6 +79,24 @@ def test_registry_has_two_strategies():
     assert {"standard", "adx_trend"} <= keys
 
 
+def test_registry_has_exact_v1_production_classification():
+    assert len(strategies.REGISTRY) == 16
+    production = {s.key: s.family for s in strategies.production_strategies()}
+    assert production == {
+        "standard": "intraday_momentum",
+        "ai_adaptive": "swing_trend",
+        "bb_revert": "mean_reversion",
+    }
+    assert all(s.family in {
+        "intraday_momentum", "swing_trend", "mean_reversion", "research_only",
+    } for s in strategies.all_strategies())
+    assert all(s.family == "research_only" and not s.production
+               for s in strategies.all_strategies() if s.key not in production)
+    assert strategies.is_selectable_for_new_users("standard") is True
+    assert strategies.is_selectable_for_new_users("supertrend") is False
+    assert strategies.is_selectable_for_new_users("does_not_exist") is False
+
+
 def test_get_falls_back_to_default():
     assert strategies.get("gibts_nicht").key == strategies.DEFAULT_STRATEGY
     assert strategies.get("adx_trend").key == "adx_trend"

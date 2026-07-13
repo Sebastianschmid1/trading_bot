@@ -759,6 +759,8 @@ class Strategy:
     generate: Callable                  # (ticker, tf_data) -> signal dict | None  (Einstiegs-Trigger)
     score: Callable | None = None       # (tf_data) -> float | None  (fortlaufender Health-Score; None → Standard)
     description: str = ""
+    family: str = "research_only"
+    production: bool = False
 
 
 def _standard_generate(ticker: str, tf_data: dict) -> dict | None:
@@ -773,37 +775,44 @@ REGISTRY: dict[str, Strategy] = {
         "standard", "Standard (Multi-Timeframe)",
         _standard_generate, standard_score,
         "Multi-Timeframe-Momentum: RSI/MACD/Trend/Volumen über 5m–1d, Stärke 0–100, ATR-SL/TP.",
+        family="intraday_momentum", production=True,
     ),
     "adx_trend": Strategy(
         "adx_trend", "ADX-Trendfolge (trader-dev Port)",
         adx_trend_signal, adx_trend_score,
         "Trendfolge: Kurs>EMA200 + ADX(14)-Trend + Volatilitäts-Expansion & Velocity. ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "rsi_revert": Strategy(
         "rsi_revert", "Mean-Reversion (RSI-Dip)",
         rsi_revert_signal, rsi_revert_score,
         "Kauft Rücksetzer: RSI(14)<30 im langfristigen Aufwärtstrend (Kurs>MA200). ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "breakout": Strategy(
         "breakout", "Donchian-Ausbruch (20T)",
         breakout_signal, breakout_score,
         "Kauft den Ausbruch über das 20-Tage-Hoch (Trendfilter >MA50, Volumen). Weite ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "ma_trend": Strategy(
         "ma_trend", "Trend-Ausrichtung (MA20>50>200)",
         ma_trend_signal, ma_trend_score,
         "Kauft nur bei voll gestapeltem Aufwärtstrend (Kurs>MA20>MA50>MA200) + bullishem MACD.",
+        family="research_only", production=False,
     ),
     "high52": Strategy(
         "high52", "Momentum 52W-Hoch (streng)",
         high52_signal, high52_score,
         "Kauft Stärke nahe dem 52-Wochen-Hoch (≥98 %) im Aufwärtstrend (>MA50). Weite ATR-SL/TP. "
         "Im Backtest robust besser als die übrigen.",
+        family="research_only", production=False,
     ),
     "high52_wide": Strategy(
         "high52_wide", "Momentum 52W-Hoch (aktiv)",
         high52_wide_signal, high52_score,
         "Wie streng, aber schon ab ≥95 % des 52-Wochen-Hochs → mehr Signale, höhere Gesamtrendite.",
+        family="research_only", production=False,
     ),
     # ── Akademische Faktor-Strategien (aus der Finanzmarktforschung) ──────────
     "tsmom": Strategy(
@@ -811,29 +820,34 @@ REGISTRY: dict[str, Strategy] = {
         tsmom_signal, None,
         "Moskowitz–Ooi–Pedersen (2012): long bei positiver 12-Monats-Rendite (jüngsten Monat "
         "ausgelassen) über der MA200. ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "lowvol": Strategy(
         "lowvol", "Low-Volatility-Anomalie (BAB)",
         lowvol_signal, None,
         "Baker et al. (2011) / Frazzini–Pedersen (2014): ruhige Aufwärtstrend-Aktien, Stärke invers "
         "zur realisierten Vola (Top-N = ruhigste Werte). ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "faber": Strategy(
         "faber", "Faber-Tactical (10-Monats-SMA)",
         faber_signal, None,
         "Faber (2007): long beim Überkreuzen des ≈200-Tage-SMA von unten. Trendtreu, geringe DDs.",
+        family="research_only", production=False,
     ),
     "streversal": Strategy(
         "streversal", "Short-Term-Reversal (1M)",
         streversal_signal, None,
         "Jegadeesh (1990) / Lehmann (1990): kauft kurzfristige Verlierer (1-Monats-Rücksetzer) im "
         "Aufwärtstrend (>MA200). ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "frog": Strategy(
         "frog", "Frog-in-the-Pan-Momentum",
         frog_signal, None,
         "Da–Gurun–Warachka (2014): Momentum mit kontinuierlicher Information (viele kleine "
         "Aufwärtstage) läuft stärker weiter. 6-Monats-Momentum + hoher Aufwärtstage-Anteil.",
+        family="research_only", production=False,
     ),
     # ── Aus dem TradingView-Toolkit abgeleitete Strategien ────────────────────
     "bb_revert": Strategy(
@@ -841,18 +855,21 @@ REGISTRY: dict[str, Strategy] = {
         bb_revert_signal, None,
         "Bollinger (1980er): kauft den Rücksetzer ans/unter das untere Bollinger-Band (%B ≤ 0,10) "
         "im Aufwärtstrend (>MA200). Enge ATR-SL/TP.",
+        family="mean_reversion", production=True,
     ),
     "adx_mfi": Strategy(
         "adx_mfi", "ADX+MFI Trend-Confirmed",
         adx_mfi_signal, None,
         "Wilder ADX/DMI (1978) + Money-Flow-Index (1989): long nur bei echtem Trend (ADX≥20, "
         "+DI>−DI), Kurs>MA50 und positivem Geldfluss (MFI≥50). ATR-SL/TP.",
+        family="research_only", production=False,
     ),
     "supertrend": Strategy(
         "supertrend", "SuperTrend Trend-Follow",
         supertrend_signal, None,
         "SuperTrend (Seban): long solange die SuperTrend-Richtung bullish & Kurs>MA200; weites "
         "Take-Profit lässt Gewinner laufen (Trailing-Ersatz im Fix-SL/TP-Backtest).",
+        family="research_only", production=False,
     ),
     # ── Selbst-lernende KI-Strategie (Lab-Loop tunt die Parameter) ────────────
     "ai_adaptive": Strategy(
@@ -862,6 +879,7 @@ REGISTRY: dict[str, Strategy] = {
         "Parameter walk-forward mit Out-of-Sample-Gate (Ziel MAR = Rendite je Risiko); Übernahme "
         "erst nach Freigabe im Reiter „Strategie-Labor“. Läuft im selben Top-N-Portfolio wie die "
         "fixen Strategien — direkter Vergleich „KI vs. fix“.",
+        family="swing_trend", production=True,
     ),
 }
 
@@ -874,6 +892,17 @@ def get(key: str | None) -> Strategy:
 
 def all_strategies() -> list[Strategy]:
     return list(REGISTRY.values())
+
+
+def production_strategies() -> list[Strategy]:
+    """Strategien, die Endnutzer in V1 neu auswählen dürfen."""
+    return [strategy for strategy in REGISTRY.values() if strategy.production]
+
+
+def is_selectable_for_new_users(key: str) -> bool:
+    """Ob ``key`` als neue Live-/Paper-Auswahl angeboten und angenommen werden darf."""
+    strategy = REGISTRY.get(key)
+    return bool(strategy and strategy.production)
 
 
 def live_scores(pairs) -> dict:

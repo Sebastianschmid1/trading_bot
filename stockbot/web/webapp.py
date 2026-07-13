@@ -669,7 +669,7 @@ def app_settings(request: Request, msg: str = ""):
     return _render("settings.html", request, user, active="settings", msg=msg,
                    universes=config.REGION_LABELS, sl_tp_modes=list(config.SL_TP_MODES),
                    has_alpaca=db.has_alpaca_credentials(user["user_id"]),
-                   strategies=strategies.all_strategies(), toggles=toggles,
+                   strategies=strategies.production_strategies(), toggles=toggles,
                    risk_params=risk_params)
 
 

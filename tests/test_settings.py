@@ -173,10 +173,20 @@ def test_strategy_default_and_toggle():
 def test_set_strat_button_toggles_multiselect():
     fresh_db()
     db.get_or_create_user(CHAT)
-    update, query = _fake_settings_query("set_strat:adx_trend")
+    update, query = _fake_settings_query("set_strat:bb_revert")
     asyncio.run(bot.button_handler(update, MagicMock()))
-    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}   # beide aktiv
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "bb_revert"}  # beide aktiv
     query.edit_message_text.assert_awaited()
+    _, keyboard = bot._settings_view(db.get_user(CHAT))
+    strategy_callbacks = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data.startswith("set_strat:")
+    }
+    assert strategy_callbacks == {
+        "set_strat:standard", "set_strat:ai_adaptive", "set_strat:bb_revert",
+    }
 
 
 def test_set_strat_button_ignores_unknown():
@@ -377,13 +387,17 @@ def test_addstrat_command_adds_and_validates():
     db.get_or_create_user(CHAT, "tester")
     db.save_profile(CHAT, trade_size_eur=25.0)   # Onboarding abschließen (sonst greift /addstrat nicht)
     # gültige Strategie hinzufügen
+    update, ctx = _fake_cmd(["ai_adaptive"])
+    asyncio.run(bot.cmd_addstrat(update, ctx))
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "ai_adaptive"}
+    # Research-only-Strategie darf nicht neu hinzukommen.
     update, ctx = _fake_cmd(["adx_trend"])
     asyncio.run(bot.cmd_addstrat(update, ctx))
-    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "ai_adaptive"}
     # ungültige Strategie → unverändert
     update, ctx = _fake_cmd(["quatsch"])
     asyncio.run(bot.cmd_addstrat(update, ctx))
-    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "adx_trend"}
+    assert set(db.get_user(CHAT)["strategies"]) == {"standard", "ai_adaptive"}
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────

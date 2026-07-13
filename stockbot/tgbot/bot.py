@@ -1679,7 +1679,7 @@ def _settings_view(user: dict):
     # Strategien: 2 pro Reihe (statt alle in einer überfüllten Zeile)
     strat_btns = [InlineKeyboardButton(("✅ " if s.key in strat_keys else "") + s.label,
                                        callback_data=f"set_strat:{s.key}")
-                  for s in strategies.all_strategies()]
+                  for s in strategies.production_strategies()]
     strat_rows = [strat_btns[i:i + 2] for i in range(0, len(strat_btns), 2)]
     # Boolesche Schalter gesammelt, je 2 pro Reihe
     toggles = [_toggle("Auto-Accept", auto, "set_auto"),
@@ -1742,10 +1742,14 @@ async def cmd_strategies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
         return
     cur = _user_strategies(user)
-    lines = ["🧠 *Verfügbare Strategien* (mehrere gleichzeitig möglich)", ""]
-    for s in strategies.all_strategies():
+    lines = ["🧠 *Produktive Strategien* (mehrere gleichzeitig möglich)", ""]
+    for s in strategies.production_strategies():
         mark = "✅" if s.key in cur else "▫️"
         lines.append(f"{mark} *{s.label}*  (`{s.key}`)\n   {s.description}")
+    legacy = [strategies.get(key) for key in cur if not strategies.get(key).production]
+    if legacy:
+        lines.append("\n🔬 *Bestehende Research-only-Auswahl* (bleibt aktiv):")
+        lines.extend(f"✅ *{s.label}*  (`{s.key}`)" for s in legacy)
     lines.append("\nHinzufügen/Entfernen: `/addstrat <name>` oder über /settings.\nKennzahlen: /teststrat")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -1757,7 +1761,7 @@ async def cmd_addstrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         await update.message.reply_text("⚠️ Du bist noch nicht eingerichtet. Sende zuerst /start.")
         return
-    keys = ", ".join(f"`{s.key}`" for s in strategies.all_strategies())
+    keys = ", ".join(f"`{s.key}`" for s in strategies.production_strategies())
     if not context.args:
         await update.message.reply_text(
             f"Nutzung: `/addstrat <name>`\nVerfügbar: {keys}\nÜbersicht: /strategies",
@@ -1768,7 +1772,12 @@ async def cmd_addstrat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"⚠️ Unbekannte Strategie `{key}`.\nVerfügbar: {keys}", parse_mode="Markdown")
         return
-    active = db.toggle_strategy(chat_id, key)
+    if not settings_svc.toggle_strategy_selection(chat_id, key):
+        await update.message.reply_text(
+            f"⚠️ `{key}` ist Research-only und kann nicht neu aktiviert werden.\n"
+            f"Produktiv verfügbar: {keys}", parse_mode="Markdown")
+        return
+    active = _user_strategies(db.get_user(chat_id) or {})
     log.info(f"[{chat_id}] Strategie-Auswahl geändert: {key} → {active}")
     labels = ", ".join(strategies.get(k).label for k in active)
     await update.message.reply_text(
