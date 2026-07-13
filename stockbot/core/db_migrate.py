@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import MetaData, Table, func, select
+from sqlalchemy import Float, MetaData, Table, func, select
 from sqlalchemy.engine import Engine
 
 from stockbot.core.db_export import TABLES
@@ -33,6 +34,8 @@ _SUM_COLUMNS = {
     "trades": ("pnl_eur", "pnl_pct"),
     "trade_ticks": ("price", "strength"),
 }
+
+_FLOAT_SUM_REL_TOL = 1e-9
 
 
 def load_snapshot(path: Path) -> dict[str, Any]:
@@ -72,6 +75,12 @@ def migrate_snapshot_to_engine(snapshot: dict[str, Any], engine: Engine) -> dict
 def compare_snapshot_to_engine(snapshot: dict[str, Any], engine: Engine) -> dict[str, dict]:
     """Vergleicht Zeilenzahlen + Summen (Migrationsstrategie Schritt 5).
 
+    Zeilenzahlen und Summen exakter Zahlentypen werden exakt verglichen. Bei Float-Summen
+    gilt eine relative Toleranz von 1e-9: Das ist groß genug für Akkumulationsrauschen durch
+    unterschiedliche Summierreihenfolgen in SQLite und PostgreSQL, aber streng genug, um
+    echte Datenfehler zu erkennen. Schon eine fehlende/duplizierte Zeile oder ein
+    verfälschter Wert verändert typische Summen um viele Größenordnungen mehr.
+
     Gibt für jede abweichende Tabelle `{"row_count": {"expected": .., "actual": ..}, ...}`
     zurück; ein leeres Dict bedeutet: Snapshot und Ziel stimmen vollständig überein.
     """
@@ -87,10 +96,21 @@ def compare_snapshot_to_engine(snapshot: dict[str, Any], engine: Engine) -> dict
             if expected_count != actual_count:
                 table_diff["row_count"] = {"expected": expected_count, "actual": actual_count}
             for col in _SUM_COLUMNS.get(name, ()):
-                expected_sum = sum(float(r[col]) for r in expected_rows if r.get(col) is not None)
-                actual_sum = conn.execute(select(func.sum(table.c[col]))).scalar_one() or 0.0
-                if abs(expected_sum - float(actual_sum)) > 1e-9:
-                    table_diff[f"sum_{col}"] = {"expected": expected_sum, "actual": float(actual_sum)}
+                expected_sum = sum(r[col] for r in expected_rows if r.get(col) is not None)
+                actual_sum = conn.execute(select(func.sum(table.c[col]))).scalar_one() or 0
+                if isinstance(table.c[col].type, Float):
+                    expected_sum = float(expected_sum)
+                    actual_sum = float(actual_sum)
+                    sums_match = math.isclose(
+                        expected_sum, actual_sum, rel_tol=_FLOAT_SUM_REL_TOL
+                    )
+                else:
+                    sums_match = expected_sum == actual_sum
+                if not sums_match:
+                    table_diff[f"sum_{col}"] = {
+                        "expected": expected_sum,
+                        "actual": actual_sum,
+                    }
             if table_diff:
                 mismatches[name] = table_diff
     return mismatches
