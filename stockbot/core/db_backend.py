@@ -50,7 +50,8 @@ class _SqliteTransaction:
         return self._connection.execute(statement, params or {}).rowcount
 
     def insert_id(self, statement: str, params: Mapping[str, Any]) -> int:
-        return int(self._connection.execute(statement, params).lastrowid)
+        result = self._connection.execute(statement, params)
+        return int(result.lastrowid) if result.rowcount == 1 else 0
 
 
 class SqliteDatabase:
@@ -79,7 +80,8 @@ class _PostgresTransaction:
         return self._connection.execute(text(statement), params or {}).rowcount
 
     def insert_id(self, statement: str, params: Mapping[str, Any]) -> int:
-        return int(self._connection.execute(text(f"{statement} RETURNING id"), params).scalar_one())
+        value = self._connection.execute(text(f"{statement} RETURNING id"), params).scalar_one_or_none()
+        return int(value) if value is not None else 0
 
 
 class PostgresDatabase:

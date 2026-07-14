@@ -1,4 +1,11 @@
 """
+Laufzeit-Persistenz für Multi-User-Betrieb (SQLite/PostgreSQL).
+
+Trade-Lifecycle-Übergänge setzen zunächst READ COMMITTED voraus und schützen den Zustand
+mit Compare-and-set-Updates (statusbewachtes ``UPDATE`` + ``rowcount``). Statusänderung und
+Trade-Event teilen stets dieselbe Seam-Transaktion; Row Locks werden nicht eingesetzt, wo
+CAS den einzigen Gewinner bereits eindeutig bestimmt.
+
 SQLite-Persistenz für Multi-User-Betrieb
 Ersetzt tracker.py — speichert Nutzerprofile (inkl. verschlüsselter
 Broker-Zugangsdaten) und Demo-Trades, jeweils pro user_id (== Telegram chat_id).
@@ -591,7 +598,7 @@ def get_oms_order_events(order_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _log_event(conn: sqlite3.Connection, *, trade_id: int, user_id: int, ticker: str,
+def _log_event(transaction: db_backend.DbTransaction, *, trade_id: int, user_id: int, ticker: str,
                trade_date: str, from_status: str | None, to_status: str,
                broker_status: str | None = None, note: str | None = None) -> None:
     """Schreibt einen Status-Übergang in `trade_events` — in DERSELBEN Transaktion wie der
@@ -599,11 +606,14 @@ def _log_event(conn: sqlite3.Connection, *, trade_id: int, user_id: int, ticker:
     der periodische Monitor (broker_pending→broker_pending) den Log nicht zumüllt."""
     if from_status == to_status:
         return
-    conn.execute(
+    transaction.execute(
         """INSERT INTO trade_events (trade_id, user_id, ticker, trade_date,
                                      from_status, to_status, broker_status, note)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (trade_id, user_id, ticker, trade_date, from_status, to_status, broker_status, note),
+           VALUES (:trade_id, :user_id, :ticker, :trade_date, :from_status, :to_status,
+                   :broker_status, :note)""",
+        {"trade_id": trade_id, "user_id": user_id, "ticker": ticker,
+         "trade_date": trade_date, "from_status": from_status, "to_status": to_status,
+         "broker_status": broker_status, "note": note},
     )
 
 
@@ -1093,8 +1103,9 @@ def reset_user_trades(user_id: int) -> int:
     keine Performance-Daten. Profil, Einstellungen und Broker-Zugangsdaten bleiben erhalten.
     Gibt die Zahl der aus den Live-Tabellen entfernten Zeilen zurück.
     """
-    with _connect() as conn:
-        conn.execute(
+    archived_at = _utc_timestamp()
+    with _database().transaction() as transaction:
+        transaction.execute(
             """INSERT INTO trades_archive
                (id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
                 entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
@@ -1103,22 +1114,23 @@ def reset_user_trades(user_id: int) -> int:
                SELECT id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
                       entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
                       broker_filled_qty, broker_filled_avg_price, broker_updated_at, created_at,
-                      datetime('now'), 'user_reset'
-                 FROM trades WHERE user_id = ?""",
-            (user_id,),
+                      :archived_at, 'user_reset'
+                 FROM trades WHERE user_id = :user_id""",
+            {"user_id": user_id, "archived_at": archived_at},
         )
-        conn.execute(
+        transaction.execute(
             """INSERT INTO trade_ticks_archive
                (id, user_id, trade_date, ticker, ts, price, strength, archived_at, archive_reason)
                SELECT id, user_id, trade_date, ticker, ts, price, strength,
-                      datetime('now'), 'user_reset'
-                 FROM trade_ticks WHERE user_id = ?""",
-            (user_id,),
+                      :archived_at, 'user_reset'
+                 FROM trade_ticks WHERE user_id = :user_id""",
+            {"user_id": user_id, "archived_at": archived_at},
         )
         total = 0
         for table in ("trades", "trade_ticks", "notifications"):
-            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
-            total += cur.rowcount
+            total += transaction.execute(
+                f"DELETE FROM {table} WHERE user_id = :user_id", {"user_id": user_id}
+            )
     log.info(
         f"Reset: user_id={user_id} — Trades/Ticks archiviert; "
         f"{total} Live-/UI-Zeile(n) entfernt."
@@ -1318,18 +1330,21 @@ def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
     """Fügt einen vorgemerkten Trade hinzu. Gibt True zurück, wenn neu angelegt;
     False, wenn für diese Aktie heute bereits ein Datensatz existiert (Duplikat-Schutz —
     ein bereits aktiver/abgeschlossener Trade wird NICHT auf 'pending' zurückgesetzt)."""
-    ticker = signal["ticker"]
-    with _connect() as conn:
-        cur = conn.execute(
+    ticker, trade_date = signal["ticker"], _today()
+    with _database().transaction() as transaction:
+        trade_id = transaction.insert_id(
             """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, message_id, status)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending')
+               VALUES (:user_id, :trade_date, :ticker, :direction, :signal_json, :message_id,
+                       'pending')
                ON CONFLICT (user_id, trade_date, ticker) DO NOTHING""",
-            (user_id, _today(), ticker, signal["direction"], json.dumps(signal, default=str), message_id),
+            {"user_id": user_id, "trade_date": trade_date, "ticker": ticker,
+             "direction": signal["direction"], "signal_json": json.dumps(signal, default=str),
+             "message_id": message_id},
         )
-        created = cur.rowcount > 0
+        created = trade_id > 0
         if created:
-            _log_event(conn, trade_id=cur.lastrowid, user_id=user_id, ticker=ticker,
-                       trade_date=_today(), from_status=None, to_status="pending")
+            _log_event(transaction, trade_id=trade_id, user_id=user_id, ticker=ticker,
+                       trade_date=trade_date, from_status=None, to_status="pending")
     if created:
         log.info(f"Trade vorgemerkt: user_id={user_id} {ticker}")
     else:
@@ -1345,27 +1360,30 @@ def activate_trade(user_id: int, ticker: str, status: str = "active") -> dict | 
     """
     if status not in ("active", "broker_pending"):
         raise ValueError(f"Ungültiger Aktivierungsstatus: {status}")
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
-            (user_id, _today(), ticker),
-        ).fetchone()
+    trade_date = _today()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT * FROM trades WHERE user_id = :user_id AND trade_date = :trade_date "
+            "AND ticker = :ticker",
+            {"user_id": user_id, "trade_date": trade_date, "ticker": ticker},
+        )
         if not row or row["status"] != "pending":
             return None
-
         signal = json.loads(row["signal_json"])
-        try:
-            info = yf.Ticker(ticker).fast_info
-            entry_price = float(info.last_price)
-        except Exception:
-            entry_price = float(signal["price"])
-
-        conn.execute(
-            "UPDATE trades SET status = ?, entry = ? WHERE id = ?",
-            (status, entry_price, row["id"]),
+    try:
+        entry_price = float(yf.Ticker(ticker).fast_info.last_price)
+    except Exception:
+        entry_price = float(signal["price"])
+    with _database().transaction() as transaction:
+        changed = transaction.execute(
+            "UPDATE trades SET status = :status, entry = :entry WHERE id = :trade_id "
+            "AND status = 'pending'",
+            {"status": status, "entry": entry_price, "trade_id": row["id"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
-                   trade_date=row["trade_date"], from_status=row["status"], to_status=status)
+        if changed != 1:
+            return None
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
+                   trade_date=row["trade_date"], from_status="pending", to_status=status)
     log.info(f"Trade aktiviert: user_id={user_id} {ticker} @ ${entry_price:.2f} ({status})")
     return get_trade(user_id, ticker)
 
@@ -1373,12 +1391,13 @@ def activate_trade(user_id: int, ticker: str, status: str = "active") -> dict | 
 def set_active_entry(user_id: int, ticker: str, entry: float) -> bool:
     """Setzt den Einstiegskurs eines aktiven Trades neu (z. B. Reparatur eines fehlerhaft
     übernommenen Options-Trades, dessen entry die Prämie statt des Underlying-Kurses war)."""
-    with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE trades SET entry = ? WHERE user_id = ? AND ticker = ? AND status = 'active'",
-            (float(entry), user_id, ticker),
+    with _database().transaction() as transaction:
+        changed = transaction.execute(
+            "UPDATE trades SET entry = :entry WHERE user_id = :user_id AND ticker = :ticker "
+            "AND status = 'active'",
+            {"entry": float(entry), "user_id": user_id, "ticker": ticker},
         )
-        return cur.rowcount > 0
+        return changed > 0
 
 
 def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
@@ -1434,22 +1453,26 @@ def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
 
 def mark_broker_pending(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
     """Speichert, dass die Broker-Order angenommen, aber noch nicht gefüllt ist."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, status, trade_date FROM trades WHERE user_id = ? AND ticker = ? "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, status, trade_date FROM trades WHERE user_id = :user_id AND ticker = :ticker "
             "AND status IN ('broker_pending', 'active') ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return False
-        conn.execute(
+        changed = transaction.execute(
             """UPDATE trades
-               SET status = 'broker_pending', broker_order_id = ?, broker_status = ?,
-                   broker_updated_at = datetime('now')
-               WHERE id = ?""",
-            (order_id, broker_status, row["id"]),
+               SET status = 'broker_pending', broker_order_id = :order_id,
+                   broker_status = :broker_status,
+                   broker_updated_at = :updated_at
+               WHERE id = :trade_id AND status = :expected_status""",
+            {"order_id": order_id, "broker_status": broker_status, "updated_at": _utc_timestamp(),
+             "trade_id": row["id"], "expected_status": row["status"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
                    trade_date=row["trade_date"], from_status=row["status"],
                    to_status="broker_pending", broker_status=broker_status)
         return True
@@ -1458,12 +1481,12 @@ def mark_broker_pending(user_id: int, ticker: str, *, order_id: str | None, brok
 def mark_broker_filled(user_id: int, ticker: str, *, broker_status: str = "filled",
                        filled_qty: float | None = None, filled_avg_price: float | None = None) -> bool:
     """Macht aus einer broker_pending-Order erst nach tatsächlichem Fill einen aktiven Trade."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, entry, trade_date FROM trades WHERE user_id = ? AND ticker = ? AND status = 'broker_pending' "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, entry, trade_date FROM trades WHERE user_id = :user_id AND ticker = :ticker AND status = 'broker_pending' "
             "ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return False
         # Fill-Preis nur dann als Einstieg übernehmen, wenn er plausibel ist. Ein absurder
@@ -1481,35 +1504,44 @@ def mark_broker_filled(user_id: int, ticker: str, *, broker_status: str = "fille
                     f"[{user_id}] {ticker}: unplausibler Fill-Preis {fp:g} (erwartet ~{expected:g}) "
                     f"— Signalkurs als Einstieg behalten, um Fake-P&L zu vermeiden."
                 )
-        cur = conn.execute(
+        changed = transaction.execute(
             """UPDATE trades
-               SET status = 'active', entry = ?, broker_status = ?, broker_filled_qty = ?,
-                   broker_filled_avg_price = ?, broker_updated_at = datetime('now')
-               WHERE id = ?""",
-            (entry, broker_status, filled_qty, filled_avg_price, row["id"]),
+               SET status = 'active', entry = :entry, broker_status = :broker_status,
+                   broker_filled_qty = :filled_qty,
+                   broker_filled_avg_price = :filled_avg_price, broker_updated_at = :updated_at
+               WHERE id = :trade_id AND status = 'broker_pending'""",
+            {"entry": entry, "broker_status": broker_status, "filled_qty": filled_qty,
+             "filled_avg_price": filled_avg_price, "updated_at": _utc_timestamp(),
+             "trade_id": row["id"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
                    trade_date=row["trade_date"], from_status="broker_pending",
                    to_status="active", broker_status=broker_status)
-        return cur.rowcount > 0
+        return True
 
 
 def mark_broker_failed(user_id: int, ticker: str, *, broker_status: str | None) -> bool:
     """Markiert eine nicht ausgeführte Broker-Order; sie darf nicht als aktiver Trade erscheinen."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, status, trade_date FROM trades WHERE user_id = ? AND ticker = ? "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, status, trade_date FROM trades WHERE user_id = :user_id AND ticker = :ticker "
             "AND status IN ('broker_pending', 'active') ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return False
-        conn.execute(
-            """UPDATE trades SET status = 'broker_failed', broker_status = ?,
-                                 broker_updated_at = datetime('now') WHERE id = ?""",
-            (broker_status, row["id"]),
+        changed = transaction.execute(
+            """UPDATE trades SET status = 'broker_failed', broker_status = :broker_status,
+                                 broker_updated_at = :updated_at
+               WHERE id = :trade_id AND status = :expected_status""",
+            {"broker_status": broker_status, "updated_at": _utc_timestamp(),
+             "trade_id": row["id"], "expected_status": row["status"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
                    trade_date=row["trade_date"], from_status=row["status"],
                    to_status="broker_failed", broker_status=broker_status)
         return True
@@ -1517,22 +1549,25 @@ def mark_broker_failed(user_id: int, ticker: str, *, broker_status: str | None) 
 
 def mark_broker_closing(user_id: int, ticker: str, *, order_id: str | None, broker_status: str | None) -> bool:
     """Speichert, dass eine Broker-Schließung angestoßen wurde, die Position aber noch offen ist."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, status, trade_date FROM trades WHERE user_id = ? AND ticker = ? "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, status, trade_date FROM trades WHERE user_id = :user_id AND ticker = :ticker "
             "AND status IN ('active', 'broker_closing') ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return False
-        conn.execute(
+        changed = transaction.execute(
             """UPDATE trades
-               SET status = 'broker_closing', broker_order_id = ?, broker_status = ?,
-                   broker_updated_at = datetime('now')
-               WHERE id = ?""",
-            (order_id, broker_status, row["id"]),
+               SET status = 'broker_closing', broker_order_id = :order_id,
+                   broker_status = :broker_status, broker_updated_at = :updated_at
+               WHERE id = :trade_id AND status = :expected_status""",
+            {"order_id": order_id, "broker_status": broker_status, "updated_at": _utc_timestamp(),
+             "trade_id": row["id"], "expected_status": row["status"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
                    trade_date=row["trade_date"], from_status=row["status"],
                    to_status="broker_closing", broker_status=broker_status)
         return True
@@ -1540,20 +1575,24 @@ def mark_broker_closing(user_id: int, ticker: str, *, order_id: str | None, brok
 
 def mark_broker_close_failed(user_id: int, ticker: str, *, broker_status: str | None) -> bool:
     """Bringt einen fehlgeschlagenen Sell-Versuch wieder in den aktiven Zustand zurück."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, status, trade_date FROM trades WHERE user_id = ? AND ticker = ? "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, status, trade_date FROM trades WHERE user_id = :user_id AND ticker = :ticker "
             "AND status = 'broker_closing' ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return False
-        conn.execute(
-            """UPDATE trades SET status = 'active', broker_status = ?,
-                                 broker_updated_at = datetime('now') WHERE id = ?""",
-            (broker_status, row["id"]),
+        changed = transaction.execute(
+            """UPDATE trades SET status = 'active', broker_status = :broker_status,
+                                 broker_updated_at = :updated_at
+               WHERE id = :trade_id AND status = 'broker_closing'""",
+            {"broker_status": broker_status, "updated_at": _utc_timestamp(),
+             "trade_id": row["id"]},
         )
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
                    trade_date=row["trade_date"], from_status="broker_closing",
                    to_status="active", broker_status=broker_status, note="close_failed")
         return True
@@ -1575,35 +1614,49 @@ def adopt_active_trade(user_id: int, ticker: str, *, entry: float, signal: dict,
     Gibt `True` zurück, wenn übernommen wurde."""
     direction = signal.get("direction", "long")
     payload = json.dumps(signal, default=str)
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, status FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
-            (user_id, _today(), ticker),
-        ).fetchone()
+    trade_date = _today()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, status FROM trades WHERE user_id = :user_id AND trade_date = :trade_date "
+            "AND ticker = :ticker",
+            {"user_id": user_id, "trade_date": trade_date, "ticker": ticker},
+        )
         if row and row["status"] in ("active", "broker_pending", "broker_closing"):
             return False
         if row:
-            conn.execute(
+            changed = transaction.execute(
                 """UPDATE trades
-                   SET status = 'active', direction = ?, entry = ?, signal_json = ?,
+                   SET status = 'active', direction = :direction, entry = :entry,
+                       signal_json = :signal_json,
                        exit = NULL, pnl_eur = NULL, pnl_pct = NULL,
-                       broker_order_id = ?, broker_filled_qty = ?,
-                       broker_status = 'adopted_orphan', broker_updated_at = datetime('now')
-                   WHERE id = ?""",
-                (direction, entry, payload, broker_order_id, filled_qty, row["id"]),
+                       broker_order_id = :broker_order_id, broker_filled_qty = :filled_qty,
+                       broker_status = 'adopted_orphan', broker_updated_at = :updated_at
+                   WHERE id = :trade_id AND status = :expected_status""",
+                {"direction": direction, "entry": entry, "signal_json": payload,
+                 "broker_order_id": broker_order_id, "filled_qty": filled_qty,
+                 "updated_at": _utc_timestamp(), "trade_id": row["id"],
+                 "expected_status": row["status"]},
             )
+            if changed != 1:
+                return False
             trade_id, from_status = row["id"], row["status"]
         else:
-            cur = conn.execute(
+            trade_id = transaction.insert_id(
                 """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json,
                                        message_id, status, entry, broker_order_id,
                                        broker_filled_qty, broker_status)
-                   VALUES (?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, 'adopted_orphan')""",
-                (user_id, _today(), ticker, direction, payload, entry, broker_order_id, filled_qty),
+                   VALUES (:user_id, :trade_date, :ticker, :direction, :signal_json, 0,
+                           'active', :entry, :broker_order_id, :filled_qty, 'adopted_orphan')
+                   ON CONFLICT (user_id, trade_date, ticker) DO NOTHING""",
+                {"user_id": user_id, "trade_date": trade_date, "ticker": ticker,
+                 "direction": direction, "signal_json": payload, "entry": entry,
+                 "broker_order_id": broker_order_id, "filled_qty": filled_qty},
             )
-            trade_id, from_status = cur.lastrowid, None
-        _log_event(conn, trade_id=trade_id, user_id=user_id, ticker=ticker,
-                   trade_date=_today(), from_status=from_status, to_status="active",
+            if not trade_id:
+                return False
+            from_status = None
+        _log_event(transaction, trade_id=trade_id, user_id=user_id, ticker=ticker,
+                   trade_date=trade_date, from_status=from_status, to_status="active",
                    broker_status="adopted_orphan", note="adopted_orphan")
     log.warning(f"Verwaiste Broker-Position übernommen: user_id={user_id} {ticker} @ ${entry:.2f}")
     return True
@@ -1627,33 +1680,47 @@ def expire_stale_pending(cutoff_date: str | None = None) -> int:
     ältere blieben sonst als Karteileichen liegen (beobachteter Pending-Stau). Setzt Status
     'expired' + Event je Datensatz; gibt die Anzahl bereinigter Trades zurück."""
     cutoff = cutoff_date or _today()
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             "SELECT id, user_id, ticker, trade_date FROM trades "
-            "WHERE status = 'pending' AND trade_date < ?",
-            (cutoff,),
-        ).fetchall()
+            "WHERE status = 'pending' AND trade_date < :cutoff",
+            {"cutoff": cutoff},
+        )
+        changed_count = 0
         for r in rows:
-            conn.execute("UPDATE trades SET status = 'expired' WHERE id = ?", (r["id"],))
-            _log_event(conn, trade_id=r["id"], user_id=r["user_id"], ticker=r["ticker"],
+            changed = transaction.execute(
+                "UPDATE trades SET status = 'expired' WHERE id = :trade_id AND status = 'pending'",
+                {"trade_id": r["id"]},
+            )
+            if changed != 1:
+                continue
+            changed_count += 1
+            _log_event(transaction, trade_id=r["id"], user_id=r["user_id"], ticker=r["ticker"],
                        trade_date=r["trade_date"], from_status="pending", to_status="expired")
-    if rows:
-        log.info(f"Stale-Pending bereinigt: {len(rows)} liegengebliebene Signale abgelaufen (< {cutoff}).")
-    return len(rows)
+    if changed_count:
+        log.info(f"Stale-Pending bereinigt: {changed_count} liegengebliebene Signale abgelaufen (< {cutoff}).")
+    return changed_count
 
 
 def _terminate_pending(user_id: int, ticker: str, to_status: str) -> bool:
     """Setzt den heutigen pendenten Trade auf einen Endstatus (rejected/expired) + Event."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ? AND status = 'pending'",
-            (user_id, _today(), ticker),
-        ).fetchone()
+    trade_date = _today()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id FROM trades WHERE user_id = :user_id AND trade_date = :trade_date "
+            "AND ticker = :ticker AND status = 'pending'",
+            {"user_id": user_id, "trade_date": trade_date, "ticker": ticker},
+        )
         if not row:
             return False
-        conn.execute("UPDATE trades SET status = ? WHERE id = ?", (to_status, row["id"]))
-        _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=ticker,
-                   trade_date=_today(), from_status="pending", to_status=to_status)
+        changed = transaction.execute(
+            "UPDATE trades SET status = :to_status WHERE id = :trade_id AND status = 'pending'",
+            {"to_status": to_status, "trade_id": row["id"]},
+        )
+        if changed != 1:
+            return False
+        _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=ticker,
+                   trade_date=trade_date, from_status="pending", to_status=to_status)
         return True
 
 
@@ -1724,23 +1791,30 @@ def close_all(user_id: int, results: list[dict], *, broker_status: str | None = 
 
     Optional kann ein `broker_status` mitgeschrieben werden, z. B. für Reconcile-Fälle.
     """
-    with _connect() as conn:
+    with _database().transaction() as transaction:
         for r in results:
-            row = conn.execute(
-                "SELECT id, status, trade_date FROM trades WHERE user_id = ? AND ticker = ? "
+            row = transaction.one(
+                "SELECT id, status, trade_date FROM trades WHERE user_id = :user_id "
+                "AND ticker = :ticker "
                 "AND status IN ('active', 'broker_closing') ORDER BY trade_date DESC, id DESC LIMIT 1",
-                (user_id, r["ticker"]),
-            ).fetchone()
+                {"user_id": user_id, "ticker": r["ticker"]},
+            )
             if not row:
                 continue
-            conn.execute(
-                """UPDATE trades SET status = 'closed', exit = ?, pnl_eur = ?, pnl_pct = ?,
-                                      broker_status = COALESCE(?, broker_status),
-                                      broker_updated_at = CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE broker_updated_at END
-                   WHERE id = ?""",
-                (r["exit"], r["pnl_eur"], r["pnl_pct"], broker_status, broker_status, row["id"]),
+            changed = transaction.execute(
+                """UPDATE trades SET status = 'closed', exit = :exit, pnl_eur = :pnl_eur,
+                                      pnl_pct = :pnl_pct,
+                                      broker_status = COALESCE(:broker_status, broker_status),
+                                      broker_updated_at = CASE WHEN :broker_status IS NOT NULL
+                                          THEN :updated_at ELSE broker_updated_at END
+                   WHERE id = :trade_id AND status = :expected_status""",
+                {"exit": r["exit"], "pnl_eur": r["pnl_eur"], "pnl_pct": r["pnl_pct"],
+                 "broker_status": broker_status, "updated_at": _utc_timestamp(),
+                 "trade_id": row["id"], "expected_status": row["status"]},
             )
-            _log_event(conn, trade_id=row["id"], user_id=user_id, ticker=r["ticker"],
+            if changed != 1:
+                continue
+            _log_event(transaction, trade_id=row["id"], user_id=user_id, ticker=r["ticker"],
                        trade_date=row["trade_date"], from_status=row["status"],
                        to_status="closed", broker_status=broker_status)
     log.info(f"user_id={user_id}: {len(results)} Trades geschlossen.")

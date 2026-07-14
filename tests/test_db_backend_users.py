@@ -1,4 +1,9 @@
-"""Backend-parity contracts for the first PLAT-001 users read slice."""
+"""Backend-parity contracts for PLAT-001 runtime slices.
+
+Lifecycle races are exercised as sequential CAS attempts here. True concurrent processes are
+intentionally left to VPS integration tests because process scheduling and PostgreSQL access are
+not reliable in the sandbox.
+"""
 
 import json
 from datetime import datetime, timedelta, timezone
@@ -236,6 +241,104 @@ def test_tick_explicit_utc_timestamp_and_order_contract(users_backend, monkeypat
         {"ts": "2026-07-14 12:00:01", "price": None, "strength": 0.25},
         {"ts": "2026-07-14 12:00:02", "price": 12.5, "strength": None},
     ]}
+
+
+def test_trade_lifecycle_events_and_sequential_cas_contract(users_backend, monkeypatch):
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-14")
+    monkeypatch.setattr(db.yf, "Ticker", lambda ticker: type(
+        "Quote", (), {"fast_info": type("Info", (), {"last_price": 101.25})()}
+    )())
+    signal = {"ticker": "LIFE", "direction": "long", "price": 100.0}
+
+    assert db.add_pending(CHAT, signal, 41) is True
+    assert db.add_pending(CHAT, signal, 42) is False
+    assert db.activate_trade(CHAT, "LIFE")["status"] == "active"
+    assert db.activate_trade(CHAT, "LIFE") is None
+    db.close_all(CHAT, [{"ticker": "LIFE", "exit": 110.0,
+                         "pnl_eur": 8.75, "pnl_pct": 8.64}])
+    db.close_all(CHAT, [{"ticker": "LIFE", "exit": 111.0,
+                         "pnl_eur": 9.0, "pnl_pct": 9.0}])
+
+    trade = db.get_trade(CHAT, "LIFE")
+    events = db.get_trade_events(trade["id"])
+    assert trade["status"] == "closed"
+    assert [(event["from_status"], event["to_status"], event["broker_status"], event["note"])
+            for event in events] == [
+        (None, "pending", None, None),
+        ("pending", "active", None, None),
+        ("active", "closed", None, None),
+    ]
+
+
+def test_lifecycle_update_and_event_rollback_together(users_backend, monkeypatch):
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-14")
+    signal = {"ticker": "ROLL", "direction": "long", "price": 10.0}
+    assert db.add_pending(CHAT, signal, 1)
+    monkeypatch.setattr(db.yf, "Ticker", lambda ticker: type(
+        "Quote", (), {"fast_info": type("Info", (), {"last_price": 10.5})()}
+    )())
+    original = db._log_event
+
+    def fail_after_trade_write(*args, **kwargs):
+        raise RuntimeError("injected event failure")
+
+    monkeypatch.setattr(db, "_log_event", fail_after_trade_write)
+    with pytest.raises(RuntimeError, match="injected event failure"):
+        db.activate_trade(CHAT, "ROLL")
+    monkeypatch.setattr(db, "_log_event", original)
+
+    trade = db.get_trade(CHAT, "ROLL")
+    assert trade["status"] == "pending"
+    with db._database().transaction() as transaction:
+        events = transaction.all(
+            "SELECT to_status FROM trade_events WHERE user_id = :user_id AND ticker = :ticker",
+            {"user_id": CHAT, "ticker": "ROLL"},
+        )
+    assert events == [{"to_status": "pending"}]
+
+
+def test_broker_status_transitions_contract(users_backend, monkeypatch):
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-14")
+    signal = {"ticker": "BROKER", "direction": "long", "price": 50.0}
+    assert db.add_pending(CHAT, signal, 1)
+    monkeypatch.setattr(db.yf, "Ticker", lambda ticker: type(
+        "Quote", (), {"fast_info": type("Info", (), {"last_price": 50.0})()}
+    )())
+    assert db.activate_trade(CHAT, "BROKER", "broker_pending")
+    assert db.mark_broker_filled(CHAT, "BROKER", filled_qty=2, filled_avg_price=51.0)
+    assert not db.mark_broker_filled(CHAT, "BROKER", filled_qty=2, filled_avg_price=51.0)
+    assert db.mark_broker_closing(CHAT, "BROKER", order_id="sell-1", broker_status="accepted")
+    assert db.mark_broker_close_failed(CHAT, "BROKER", broker_status="rejected")
+    assert db.mark_broker_pending(CHAT, "BROKER", order_id="buy-2", broker_status="accepted")
+    assert db.mark_broker_failed(CHAT, "BROKER", broker_status="canceled")
+
+    trade = db.get_trade(CHAT, "BROKER")
+    assert trade["status"] == "broker_failed"
+    assert [event["to_status"] for event in db.get_trade_events(trade["id"])] == [
+        "pending", "broker_pending", "active", "broker_closing", "active",
+        "broker_pending", "broker_failed",
+    ]
+
+
+def test_reset_archives_and_deletes_in_one_transaction(users_backend, monkeypatch):
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-14")
+    assert db.add_pending(CHAT, {"ticker": "ARCH", "direction": "long", "price": 20.0}, 1)
+    db.add_tick(CHAT, "ARCH", 20.5, 0.7)
+    db.add_notification(CHAT, "info", "reset me")
+
+    assert db.reset_user_trades(CHAT) == 3
+    assert db.get_all_trades(CHAT) == []
+    with db._database().transaction() as transaction:
+        trade = transaction.one(
+            "SELECT ticker, archive_reason FROM trades_archive WHERE user_id = :user_id",
+            {"user_id": CHAT},
+        )
+        tick = transaction.one(
+            "SELECT ticker, archive_reason FROM trade_ticks_archive WHERE user_id = :user_id",
+            {"user_id": CHAT},
+        )
+    assert trade == {"ticker": "ARCH", "archive_reason": "user_reset"}
+    assert tick == {"ticker": "ARCH", "archive_reason": "user_reset"}
 
 
 def test_get_or_create_user_is_idempotent(users_backend):
