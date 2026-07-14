@@ -15,6 +15,8 @@ class DbTransaction(Protocol):
 
     def all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict]: ...
 
+    def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int: ...
+
 
 class Database(Protocol):
     def transaction(self) -> AbstractContextManager[DbTransaction]: ...
@@ -42,6 +44,9 @@ class _SqliteTransaction:
         rows = self._connection.execute(statement, params or {}).fetchall()
         return [_normalise_row(row) for row in rows]
 
+    def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:
+        return self._connection.execute(statement, params or {}).rowcount
+
 
 class SqliteDatabase:
     def __init__(self, connection_factory: Callable[[], AbstractContextManager[Any]]):
@@ -64,6 +69,9 @@ class _PostgresTransaction:
     def all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict]:
         rows = self._connection.execute(text(statement), params or {}).mappings().all()
         return [_normalise_row(row) for row in rows]
+
+    def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:
+        return self._connection.execute(text(statement), params or {}).rowcount
 
 
 class PostgresDatabase:

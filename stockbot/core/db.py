@@ -10,7 +10,7 @@ import hashlib
 import logging
 import secrets
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
 import yfinance as yf
@@ -619,6 +619,50 @@ def decrypt(ciphertext: bytes) -> str:
     return _fernet.decrypt(bytes(ciphertext)).decode("utf-8")
 
 
+def _utc_timestamp(moment: datetime | None = None) -> str:
+    """SQLite-compatible UTC TEXT timestamp (seconds precision)."""
+    return (moment or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _database():
+    return db_backend.get_database(config.DB_BACKEND, _connect)
+
+
+def _update_user(statement: str, **params) -> int:
+    params.setdefault("updated_at", _utc_timestamp())
+    with _database().transaction() as transaction:
+        return transaction.execute(statement, params)
+
+
+def _mutate_user_text(user_id: int, column: str, mutate) -> str | None:
+    """Optimistic CAS for user list fields, avoiding PostgreSQL lost updates.
+
+    The guarded update is dialect-neutral and retries if another writer changed the
+    value after our read. Five collisions indicate abnormal contention and are made
+    visible instead of silently overwriting another update.
+    """
+    if column not in {"market_region", "strategy", "watchlist"}:
+        raise ValueError(f"Unsupported user text column: {column}")
+    for _ in range(5):
+        with _database().transaction() as transaction:
+            row = transaction.one(
+                f"SELECT {column} FROM users WHERE user_id = :user_id", {"user_id": user_id}
+            )
+            if row is None:
+                return mutate(None)
+            old_value = row[column]
+            new_value = mutate(old_value)
+            changed = transaction.execute(
+                f"""UPDATE users SET {column} = :new_value, updated_at = :updated_at
+                    WHERE user_id = :user_id AND {column} = :old_value""",
+                {"new_value": new_value, "updated_at": _utc_timestamp(),
+                 "user_id": user_id, "old_value": old_value},
+            )
+            if changed == 1:
+                return new_value
+    raise RuntimeError(f"Concurrent user update did not converge: {column}")
+
+
 # ── User-Profile ────────────────────────────────────────────────────────────
 
 def _user_to_dict(row: sqlite3.Row) -> dict:
@@ -667,15 +711,15 @@ def _parse_regions(raw: str | None) -> list[str]:
 
 def get_or_create_user(user_id: int, username: str | None = None) -> dict:
     """Holt das Nutzerprofil, legt bei Bedarf einen neuen 'in_progress'-Datensatz an."""
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        if row is None:
-            conn.execute(
-                "INSERT INTO users (user_id, username, onboarding_state) VALUES (?, ?, 'in_progress')",
-                (user_id, username),
-            )
-            row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        return _user_to_dict(row)
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """INSERT INTO users (user_id, username, onboarding_state)
+               VALUES (:user_id, :username, 'in_progress')
+               ON CONFLICT (user_id) DO NOTHING""",
+            {"user_id": user_id, "username": username},
+        )
+        row = transaction.one("SELECT * FROM users WHERE user_id = :user_id", {"user_id": user_id})
+    return _user_to_dict(row)
 
 
 def get_user(user_id: int) -> dict | None:
@@ -694,14 +738,16 @@ def save_profile(user_id: int, *, trade_size_eur: float,
     key_enc    = encrypt(broker_api_key) if broker_api_key else None
     secret_enc = encrypt(broker_api_secret) if broker_api_secret else None
 
-    with _connect() as conn:
-        conn.execute(
+    with _database().transaction() as transaction:
+        transaction.execute(
             """UPDATE users
-               SET trade_size_eur = ?, broker_platform = ?, broker_api_key = ?,
-                   broker_api_secret = ?, onboarding_state = 'complete',
-                   updated_at = datetime('now')
-               WHERE user_id = ?""",
-            (trade_size_eur, broker_platform, key_enc, secret_enc, user_id),
+               SET trade_size_eur = :trade_size_eur, broker_platform = :broker_platform,
+                   broker_api_key = :broker_api_key, broker_api_secret = :broker_api_secret,
+                   onboarding_state = 'complete', updated_at = :updated_at
+               WHERE user_id = :user_id""",
+            {"trade_size_eur": trade_size_eur, "broker_platform": broker_platform,
+             "broker_api_key": key_enc, "broker_api_secret": secret_enc,
+             "updated_at": _utc_timestamp(), "user_id": user_id},
         )
     log.info(f"Profil gespeichert: user_id={user_id} (Broker: {broker_platform or '—'})")
 
@@ -731,165 +777,121 @@ def list_active_users() -> list[dict]:
 
 def set_user_active(user_id: int, active: bool):
     """Aktiviert/deaktiviert einen Nutzer (z. B. für ein künftiges /stop)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET is_active = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if active else 0, user_id),
-        )
+    _update_user("UPDATE users SET is_active = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if active else 0, user_id=user_id)
 
 
 def set_market_region(user_id: int, region: str):
     """Setzt den Markt-Bereich des Nutzers auf genau einen Korb (ersetzt die Auswahl)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET market_region = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (region, user_id),
-        )
+    _update_user("UPDATE users SET market_region = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=region, user_id=user_id)
 
 
 def toggle_region(user_id: int, key: str) -> list[str]:
     """Schaltet einen Markt-Korb in der Auswahl des Nutzers an/aus (mind. einer bleibt aktiv).
     Gibt die neue Liste zurück."""
-    with _connect() as conn:
-        row = conn.execute("SELECT market_region FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        keys = _parse_regions(row["market_region"] if row else None)
+    def mutate(raw):
+        keys = _parse_regions(raw)
         if key in keys:
             if len(keys) > 1:          # der letzte Korb bleibt erhalten
                 keys.remove(key)
         else:
             keys.append(key)
-        conn.execute(
-            "UPDATE users SET market_region = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (",".join(keys), user_id),
-        )
-    return keys
+        return ",".join(keys)
+    value = _mutate_user_text(user_id, "market_region", mutate)
+    return _parse_regions(value)
 
 
 def set_trade_size(user_id: int, eur: float) -> float:
     """Setzt die Demo-Trade-Größe in € (auf 1..1.000.000 begrenzt). Gibt den gespeicherten Wert zurück."""
     eur = max(1.0, min(1_000_000.0, float(eur)))
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET trade_size_eur = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (eur, user_id),
-        )
+    _update_user("UPDATE users SET trade_size_eur = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=eur, user_id=user_id)
     return eur
 
 
 def set_top_n(user_id: int, n: int):
     """Setzt die gewünschte Anzahl täglicher Signale (auf 1..20 begrenzt)."""
     n = max(1, min(20, int(n)))
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET top_n_signals = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (n, user_id),
-        )
+    _update_user("UPDATE users SET top_n_signals = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=n, user_id=user_id)
 
 
 def set_sl_tp_mode(user_id: int, mode: str):
     """Setzt den SL/TP-Modus des Nutzers ('aus' | 'passiv' | 'normal' | 'aggressiv')."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET sl_tp_mode = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (mode, user_id),
-        )
+    _update_user("UPDATE users SET sl_tp_mode = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=mode, user_id=user_id)
 
 
 def set_leverage(user_id: int, leverage: float):
     """Setzt den Standard-Hebel des Nutzers — serverseitig hart auf `MAX_LEVERAGE` begrenzt
     (TSAFE-002: kein UI-/Telegram-Wert kann das umgehen, Default 1×)."""
     leverage = max(1.0, min(MAX_LEVERAGE, float(leverage)))
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET leverage = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (leverage, user_id),
-        )
+    _update_user("UPDATE users SET leverage = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=leverage, user_id=user_id)
 
 
 def set_auto_accept(user_id: int, on: bool):
     """Aktiviert/deaktiviert das automatische Annehmen neuer Signale."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET auto_accept = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET auto_accept = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_auto_universe(user_id: int, on: bool):
     """Schaltet das Voll-Universum (automatisch geladene Vollliste) an/aus.
     Aus → es wird der kuratierte Korb aus config.py genutzt (schnellere Analyse)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET auto_universe = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET auto_universe = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_strategy(user_id: int, strategy: str):
     """Setzt die aktiven Signal-Strategien des Nutzers (ein Schlüssel oder kommagetrennte Liste)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (strategy, user_id),
-        )
+    _update_user("UPDATE users SET strategy = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=strategy, user_id=user_id)
 
 
 def set_llm_rank(user_id: int, on: bool):
     """Aktiviert/deaktiviert das LLM-Ranking (Claude Haiku) für den Nutzer."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET llm_rank = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET llm_rank = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_eod_close(user_id: int, on: bool):
     """Tagesende-Schließung an/aus. Aus → Trades über Nacht halten (nur SL/TP schließt)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET eod_close = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET eod_close = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_signal_window(user_id: int, on: bool):
     """15-Minuten-Annahmefenster an/aus. Aus (Default) → Signale bleiben den ganzen Handelstag annehmbar."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET signal_window = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET signal_window = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_broker_exec(user_id: int, on: bool):
     """Echte (Paper-)Order-Ausführung über Alpaca an/aus (Default aus = nur Demo)."""
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET broker_exec = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (1 if on else 0, user_id),
-        )
+    _update_user("UPDATE users SET broker_exec = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=1 if on else 0, user_id=user_id)
 
 
 def set_alpaca_credentials(user_id: int, api_key: str, api_secret: str):
     """Speichert die Alpaca-API-Zugangsdaten des Nutzers verschlüsselt (broker_platform='alpaca')."""
-    with _connect() as conn:
-        conn.execute(
-            """UPDATE users SET broker_platform = 'alpaca', broker_api_key = ?,
-                   broker_api_secret = ?, updated_at = datetime('now') WHERE user_id = ?""",
-            (encrypt(api_key), encrypt(api_secret), user_id),
-        )
+    _update_user(
+        """UPDATE users SET broker_platform = 'alpaca', broker_api_key = :api_key,
+           broker_api_secret = :api_secret, updated_at = :updated_at
+           WHERE user_id = :user_id""",
+        api_key=encrypt(api_key), api_secret=encrypt(api_secret), user_id=user_id,
+    )
     log.info(f"Alpaca-Zugangsdaten gesetzt: user_id={user_id}")
 
 
 def clear_alpaca_credentials(user_id: int):
     """Entfernt die Alpaca-Zugangsdaten und schaltet die Broker-Ausführung ab."""
-    with _connect() as conn:
-        conn.execute(
-            """UPDATE users SET broker_platform = NULL, broker_api_key = NULL,
-                   broker_api_secret = NULL, broker_exec = 0,
-                   updated_at = datetime('now') WHERE user_id = ?""",
-            (user_id,),
-        )
+    _update_user(
+        """UPDATE users SET broker_platform = NULL, broker_api_key = NULL,
+           broker_api_secret = NULL, broker_exec = 0, updated_at = :updated_at
+           WHERE user_id = :user_id""", user_id=user_id,
+    )
     log.info(f"Alpaca-Zugangsdaten entfernt: user_id={user_id}")
 
 
@@ -907,47 +909,33 @@ def has_alpaca_credentials(user_id: int) -> bool:
 def toggle_strategy(user_id: int, key: str) -> list[str]:
     """Schaltet eine Strategie in der Auswahl des Nutzers an/aus (mind. eine bleibt aktiv).
     Gibt die neue Liste zurück."""
-    with _connect() as conn:
-        row = conn.execute("SELECT strategy FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        keys = _parse_strategies(row["strategy"] if row else None)
+    def mutate(raw):
+        keys = _parse_strategies(raw)
         if key in keys:
             if len(keys) > 1:          # die letzte Strategie nicht abschaltbar
                 keys.remove(key)
         else:
             keys.append(key)
-        conn.execute(
-            "UPDATE users SET strategy = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (",".join(keys), user_id),
-        )
-    return keys
+        return ",".join(keys)
+    return _parse_strategies(_mutate_user_text(user_id, "strategy", mutate))
 
 
 def add_watchlist_tickers(user_id: int, tickers: list[str]) -> list[str]:
     """Fügt Symbole zur persönlichen Watchlist hinzu (dedupliziert, großgeschrieben, sortiert).
     Gibt die neue Liste zurück."""
-    with _connect() as conn:
-        row = conn.execute("SELECT watchlist FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        current = set(_parse_watchlist(row["watchlist"] if row else None))
+    def mutate(raw):
+        current = set(_parse_watchlist(raw))
         current.update(t.strip().upper() for t in tickers if t.strip())
-        new_list = sorted(current)
-        conn.execute(
-            "UPDATE users SET watchlist = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (",".join(new_list), user_id),
-        )
-    return new_list
+        return ",".join(sorted(current))
+    return _parse_watchlist(_mutate_user_text(user_id, "watchlist", mutate))
 
 
 def remove_watchlist_ticker(user_id: int, ticker: str) -> list[str]:
     """Entfernt ein Symbol aus der persönlichen Watchlist. Gibt die neue Liste zurück."""
     target = ticker.strip().upper()
-    with _connect() as conn:
-        row = conn.execute("SELECT watchlist FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        new_list = [t for t in _parse_watchlist(row["watchlist"] if row else None) if t != target]
-        conn.execute(
-            "UPDATE users SET watchlist = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (",".join(new_list), user_id),
-        )
-    return new_list
+    def mutate(raw):
+        return ",".join(t for t in _parse_watchlist(raw) if t != target)
+    return _parse_watchlist(_mutate_user_text(user_id, "watchlist", mutate))
 
 
 def set_trade_leverage(user_id: int, ticker: str, leverage: float):
@@ -993,22 +981,25 @@ def merge_active_trade_signal(user_id: int, ticker: str, extra: dict) -> None:
 
 def get_or_create_dashboard_token(user_id: int) -> str:
     """Gibt den persönlichen Dashboard-Token zurück, erzeugt ihn bei Bedarf."""
-    with _connect() as conn:
-        row = conn.execute("SELECT dashboard_token FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        if row and row["dashboard_token"]:
-            return row["dashboard_token"]
-        token = secrets.token_urlsafe(24)
-        conn.execute("UPDATE users SET dashboard_token = ? WHERE user_id = ?", (token, user_id))
-    return token
+    candidate = secrets.token_urlsafe(24)
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """UPDATE users SET dashboard_token = :token
+               WHERE user_id = :user_id AND dashboard_token IS NULL""",
+            {"token": candidate, "user_id": user_id},
+        )
+        row = transaction.one(
+            "SELECT dashboard_token FROM users WHERE user_id = :user_id", {"user_id": user_id}
+        )
+    return row["dashboard_token"] if row else candidate
 
 
 def rotate_dashboard_token(user_id: int) -> str:
     """Erzeugt einen NEUEN Dashboard-Token (der alte Link wird sofort ungültig).
     Für den Fall, dass ein Token-Link geleakt ist (Logs, Browser-Verlauf, Weitergabe)."""
     token = secrets.token_urlsafe(24)
-    with _connect() as conn:
-        conn.execute("UPDATE users SET dashboard_token = ?, updated_at = datetime('now') "
-                     "WHERE user_id = ?", (token, user_id))
+    _update_user("UPDATE users SET dashboard_token = :token, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", token=token, user_id=user_id)
     return token
 
 
@@ -1042,11 +1033,14 @@ def _is_token_hash(value: str | None) -> bool:
 def create_session(user_id: int, days: int = 30) -> str:
     """Legt eine Web-Session an und gibt das Session-Token (für das Cookie) zurück."""
     token = secrets.token_urlsafe(32)
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO sessions (token, user_id, expires_at) "
-            "VALUES (?, ?, datetime('now', ?))",
-            (_hash_token(token), user_id, f"{int(days):+d} days"),
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=int(days))
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """INSERT INTO sessions (token, user_id, expires_at, created_at)
+               VALUES (:token, :user_id, :expires_at, :created_at)""",
+            {"token": _hash_token(token), "user_id": user_id,
+             "expires_at": _utc_timestamp(expires_at), "created_at": _utc_timestamp(now)},
         )
     return token
 
@@ -1055,11 +1049,12 @@ def user_id_for_session(token: str) -> int | None:
     """Gibt die user_id einer gültigen (nicht abgelaufenen) Session zurück, sonst None."""
     if not token:
         return None
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > datetime('now')",
-            (_hash_token(token),),
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            """SELECT user_id FROM sessions
+               WHERE token = :token AND expires_at > :now""",
+            {"token": _hash_token(token), "now": _utc_timestamp()},
+        )
     return row["user_id"] if row else None
 
 
@@ -1067,22 +1062,22 @@ def delete_session(token: str):
     """Beendet eine Session (Logout)."""
     if not token:
         return
-    with _connect() as conn:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (_hash_token(token),))
+    with _database().transaction() as transaction:
+        transaction.execute("DELETE FROM sessions WHERE token = :token", {"token": _hash_token(token)})
 
 
 def delete_user_sessions(user_id: int) -> int:
     """Beendet ALLE Web-Sessions eines Nutzers ('überall abmelden'). Gibt die Anzahl zurück."""
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-        return cur.rowcount
+    with _database().transaction() as transaction:
+        return transaction.execute("DELETE FROM sessions WHERE user_id = :user_id", {"user_id": user_id})
 
 
 def delete_expired_sessions() -> int:
     """Räumt abgelaufene Sessions auf. Gibt die Anzahl gelöschter Zeilen zurück."""
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
-        return cur.rowcount
+    with _database().transaction() as transaction:
+        return transaction.execute(
+            "DELETE FROM sessions WHERE expires_at <= :now", {"now": _utc_timestamp()}
+        )
 
 
 def reset_user_trades(user_id: int) -> int:
@@ -1133,22 +1128,16 @@ def reset_user_trades(user_id: int) -> int:
 def set_notify_channel(user_id: int, channel: str) -> str:
     """Setzt den Benachrichtigungs-Kanal ('telegram' | 'web' | 'both'). Gibt den gültigen Wert zurück."""
     channel = channel if channel in ("telegram", "web", "both") else "both"
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET notify_channel = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (channel, user_id),
-        )
+    _update_user("UPDATE users SET notify_channel = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=channel, user_id=user_id)
     return channel
 
 
 def set_asset_pref(user_id: int, asset_pref: str) -> str:
     """Setzt die zuletzt gewählte Asset-Klasse (Dropdown auf der Website)."""
     asset_pref = (asset_pref or "stocks").strip() or "stocks"
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE users SET asset_pref = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (asset_pref, user_id),
-        )
+    _update_user("UPDATE users SET asset_pref = :value, updated_at = :updated_at "
+                 "WHERE user_id = :user_id", value=asset_pref, user_id=user_id)
     return asset_pref
 
 

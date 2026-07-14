@@ -154,3 +154,104 @@ def test_bytea_memoryview_is_normalised_to_bytes():
     assert db_backend._normalise_row({"broker_api_key": memoryview(value)}) == {
         "broker_api_key": value
     }
+
+
+def test_get_or_create_user_is_idempotent(users_backend):
+    user_id = CHAT + 1
+    first = db.get_or_create_user(user_id, "first-name")
+    second = db.get_or_create_user(user_id, "ignored-name")
+    assert first == second
+    assert first["username"] == "first-name"
+    assert first["onboarding_state"] == "in_progress"
+
+
+def test_simple_user_setters_roundtrip(users_backend):
+    db.set_user_active(CHAT, False)
+    db.set_market_region(CHAT, "dax")
+    assert db.set_trade_size(CHAT, 222.25) == 222.25
+    db.set_top_n(CHAT, 9)
+    db.set_sl_tp_mode(CHAT, "passiv")
+    db.set_leverage(CHAT, 3.0)
+    db.set_auto_accept(CHAT, True)
+    db.set_auto_universe(CHAT, False)
+    db.set_strategy(CHAT, "momentum")
+    db.set_llm_rank(CHAT, False)
+    db.set_eod_close(CHAT, True)
+    db.set_signal_window(CHAT, True)
+    db.set_broker_exec(CHAT, False)
+    assert db.set_notify_channel(CHAT, "web") == "web"
+    assert db.set_asset_pref(CHAT, "options") == "options"
+
+    user = db.get_user(CHAT)
+    assert user is not None
+    assert {
+        "is_active": user["is_active"], "market_regions": user["market_regions"],
+        "trade_size_eur": user["trade_size_eur"], "top_n_signals": user["top_n_signals"],
+        "sl_tp_mode": user["sl_tp_mode"], "leverage": user["leverage"],
+        "auto_accept": user["auto_accept"], "auto_universe": user["auto_universe"],
+        "strategies": user["strategies"], "llm_rank": user["llm_rank"],
+        "eod_close": user["eod_close"], "signal_window": user["signal_window"],
+        "broker_exec": user["broker_exec"], "notify_channel": user["notify_channel"],
+        "asset_pref": user["asset_pref"],
+    } == {
+        "is_active": False, "market_regions": ["dax"], "trade_size_eur": 222.25,
+        "top_n_signals": 9, "sl_tp_mode": "passiv",
+        "leverage": max(1.0, min(config.MAX_LEVERAGE, 3.0)),
+        "auto_accept": True, "auto_universe": False, "strategies": ["momentum"],
+        "llm_rank": False, "eod_close": True, "signal_window": True,
+        "broker_exec": False, "notify_channel": "web", "asset_pref": "options",
+    }
+
+
+def test_profile_credentials_and_clear_roundtrip(users_backend):
+    db.save_profile(
+        CHAT, trade_size_eur=333.5, broker_platform="alpaca",
+        broker_api_key="profile-key", broker_api_secret="profile-secret",
+    )
+    assert db.get_decrypted_credentials(CHAT) == ("profile-key", "profile-secret")
+
+    db.set_alpaca_credentials(CHAT, "new-key", "new-secret")
+    assert db.has_alpaca_credentials(CHAT) is True
+    assert db.get_decrypted_credentials(CHAT) == ("new-key", "new-secret")
+    with db._database().transaction() as transaction:
+        raw = transaction.one(
+            "SELECT broker_api_key, broker_api_secret FROM users WHERE user_id = :user_id",
+            {"user_id": CHAT},
+        )
+    assert isinstance(raw["broker_api_key"], bytes)
+    assert raw["broker_api_key"] != b"new-key"
+
+    db.clear_alpaca_credentials(CHAT)
+    assert db.has_alpaca_credentials(CHAT) is False
+    assert db.get_decrypted_credentials(CHAT) is None
+    assert db.get_user(CHAT)["broker_exec"] is False
+
+
+def test_list_mutations_and_dashboard_tokens(users_backend):
+    assert db.toggle_region(CHAT, "dax") == ["sp500", "emerging", "dax"]
+    assert db.toggle_region(CHAT, "sp500") == ["emerging", "dax"]
+    assert db.toggle_strategy(CHAT, "momentum") == ["standard", "momentum"]
+    assert db.add_watchlist_tickers(CHAT, [" tsla ", "AAPL"]) == ["AAPL", "MSFT", "TSLA"]
+    assert db.remove_watchlist_ticker(CHAT, "msft") == ["AAPL", "TSLA"]
+
+    rotated = db.rotate_dashboard_token(CHAT)
+    assert rotated != TOKEN
+    assert db.get_or_create_dashboard_token(CHAT) == rotated
+    assert db.get_or_create_dashboard_token(CHAT) == rotated
+    assert db.get_user_by_token(rotated)["user_id"] == CHAT
+
+
+def test_session_lifecycle_and_expiry(users_backend):
+    valid = db.create_session(CHAT, days=1)
+    expired = db.create_session(CHAT, days=-1)
+    assert valid != expired
+    assert db.user_id_for_session(valid) == CHAT
+    assert db.user_id_for_session(expired) is None
+    assert db.delete_expired_sessions() == 1
+
+    db.delete_session(valid)
+    assert db.user_id_for_session(valid) is None
+
+    db.create_session(CHAT, days=1)
+    db.create_session(CHAT, days=1)
+    assert db.delete_user_sessions(CHAT) == 2
