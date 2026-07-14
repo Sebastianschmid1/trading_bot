@@ -417,10 +417,11 @@ LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")
 SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.0"))
 
 # ── PostgreSQL — Vorbereitung (Phase 1 / PLAT-001) ───────────────────────────
-# SQLite (`db.py`) bleibt bis zum dokumentierten Cutover (docs/DB_SCHEMA_SQLITE.md,
-# Migrationsstrategie Schritt 6/7) die alleinige Quelle der Wahrheit. Diese Werte
-# konfigurieren nur das Alembic-Migrationstooling (`migrations/`) und den Connection-Pool
-# aus `stockbot/core/db_pool.py`, der noch von keinem Live-Codepfad genutzt wird.
+# SQLite bleibt bis zum dokumentierten Cutover die Standard-Quelle der Wahrheit. Der
+# Backend-Schalter routet zunächst ausschließlich die ausdrücklich portierten User-Reads.
+DB_BACKEND = os.getenv("DB_BACKEND", "sqlite").strip().lower()
+if DB_BACKEND not in {"sqlite", "postgres"}:
+    raise RuntimeError("DB_BACKEND muss 'sqlite' oder 'postgres' sein")
 POSTGRES_DSN = os.getenv(
     "POSTGRES_DSN",
     "postgresql+psycopg2://stockbot:stockbot@localhost:5432/stockbot",

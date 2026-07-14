@@ -15,7 +15,9 @@ from datetime import date
 from cryptography.fernet import Fernet
 import yfinance as yf
 
+from stockbot import config
 from stockbot.config import ENCRYPTION_KEY, MAX_LEVERAGE
+from stockbot.core import db_backend
 from stockbot.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -678,9 +680,10 @@ def get_or_create_user(user_id: int, username: str | None = None) -> dict:
 
 def get_user(user_id: int) -> dict | None:
     """Gibt das Nutzerprofil zurück oder None, falls nicht registriert."""
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        return _user_to_dict(row) if row else None
+    database = db_backend.get_database(config.DB_BACKEND, _connect)
+    with database.transaction() as transaction:
+        row = transaction.one("SELECT * FROM users WHERE user_id = :user_id", {"user_id": user_id})
+    return _user_to_dict(row) if row else None
 
 
 def save_profile(user_id: int, *, trade_size_eur: float,
@@ -705,10 +708,12 @@ def save_profile(user_id: int, *, trade_size_eur: float,
 
 def get_decrypted_credentials(user_id: int) -> tuple[str, str] | None:
     """Gibt (api_key, api_secret) entschlüsselt zurück, oder None falls kein Broker hinterlegt ist."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT broker_api_key, broker_api_secret FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+    database = db_backend.get_database(config.DB_BACKEND, _connect)
+    with database.transaction() as transaction:
+        row = transaction.one(
+            "SELECT broker_api_key, broker_api_secret FROM users WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
     if not row or row["broker_api_key"] is None or row["broker_api_secret"] is None:
         return None
     return decrypt(row["broker_api_key"]), decrypt(row["broker_api_secret"])
@@ -716,10 +721,11 @@ def get_decrypted_credentials(user_id: int) -> tuple[str, str] | None:
 
 def list_active_users() -> list[dict]:
     """Gibt alle aktiven, vollständig eingerichteten Nutzer zurück (Empfänger der täglichen Jobs)."""
-    with _connect() as conn:
-        rows = conn.execute(
+    database = db_backend.get_database(config.DB_BACKEND, _connect)
+    with database.transaction() as transaction:
+        rows = transaction.all(
             "SELECT * FROM users WHERE is_active = 1 AND onboarding_state = 'complete'"
-        ).fetchall()
+        )
     return [_user_to_dict(r) for r in rows]
 
 
@@ -889,10 +895,12 @@ def clear_alpaca_credentials(user_id: int):
 
 def has_alpaca_credentials(user_id: int) -> bool:
     """True, wenn der Nutzer eigene Alpaca-Zugangsdaten hinterlegt hat."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT broker_platform, broker_api_key FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+    database = db_backend.get_database(config.DB_BACKEND, _connect)
+    with database.transaction() as transaction:
+        row = transaction.one(
+            "SELECT broker_platform, broker_api_key FROM users WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
     return bool(row and row["broker_platform"] == "alpaca" and row["broker_api_key"] is not None)
 
 
@@ -1008,8 +1016,11 @@ def get_user_by_token(token: str) -> dict | None:
     """Löst einen Dashboard-Token zum Nutzerprofil auf (oder None bei ungültigem Token)."""
     if not token:
         return None
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE dashboard_token = ?", (token,)).fetchone()
+    database = db_backend.get_database(config.DB_BACKEND, _connect)
+    with database.transaction() as transaction:
+        row = transaction.one(
+            "SELECT * FROM users WHERE dashboard_token = :token", {"token": token}
+        )
     return _user_to_dict(row) if row else None
 
 
