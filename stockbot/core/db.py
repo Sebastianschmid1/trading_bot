@@ -1143,42 +1143,45 @@ def set_asset_pref(user_id: int, asset_pref: str) -> str:
 
 def add_notification(user_id: int, title: str, body: str = "", type: str = "info") -> int:
     """Schreibt eine In-App-Benachrichtigung. Gibt die neue id zurück."""
-    with _connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO notifications (user_id, type, title, body) VALUES (?, ?, ?, ?)",
-            (user_id, type, title, body),
+    with _database().transaction() as transaction:
+        return transaction.insert_id(
+            "INSERT INTO notifications (user_id, type, title, body) "
+            "VALUES (:user_id, :type, :title, :body)",
+            {"user_id": user_id, "type": type, "title": title, "body": body},
         )
-        return cur.lastrowid
 
 
 def get_notifications(user_id: int, limit: int = 50) -> list[dict]:
     """Letzte Benachrichtigungen eines Nutzers (neueste zuerst)."""
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             "SELECT id, ts, type, title, body, read FROM notifications "
-            "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-            (user_id, int(limit)),
-        ).fetchall()
+            "WHERE user_id = :user_id ORDER BY id DESC LIMIT :limit",
+            {"user_id": user_id, "limit": int(limit)},
+        )
     return [{"id": r["id"], "ts": r["ts"], "type": r["type"], "title": r["title"],
              "body": r["body"], "read": bool(r["read"])} for r in rows]
 
 
 def unread_count(user_id: int) -> int:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0", (user_id,)
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT COUNT(*) AS n FROM notifications WHERE user_id = :user_id AND read = 0",
+            {"user_id": user_id},
+        )
     return row["n"] if row else 0
 
 
 def mark_notifications_read(user_id: int):
-    with _connect() as conn:
-        conn.execute("UPDATE notifications SET read = 1 WHERE user_id = ?", (user_id,))
+    with _database().transaction() as transaction:
+        transaction.execute(
+            "UPDATE notifications SET read = 1 WHERE user_id = :user_id", {"user_id": user_id}
+        )
 
 
 # ── Strategie-Konfiguration (Web-Editor + Backtest/Live-Overrides) ────────────
 
-def _strategy_config_to_dict(row: sqlite3.Row) -> dict:
+def _strategy_config_to_dict(row) -> dict:
     params = {}
     try:
         params = json.loads(row["params_json"] or "{}") if row and row["params_json"] else {}
@@ -1195,36 +1198,39 @@ def _strategy_config_to_dict(row: sqlite3.Row) -> dict:
 
 
 def list_strategy_configs() -> list[dict]:
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             "SELECT key, label, description, params_json, enabled, updated_at FROM strategy_configs ORDER BY key ASC"
-        ).fetchall()
+        )
     return [_strategy_config_to_dict(r) for r in rows]
 
 
 def get_strategy_config(key: str) -> dict | None:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT key, label, description, params_json, enabled, updated_at FROM strategy_configs WHERE key = ?",
-            (key,),
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT key, label, description, params_json, enabled, updated_at "
+            "FROM strategy_configs WHERE key = :key", {"key": key}
+        )
     return _strategy_config_to_dict(row) if row else None
 
 
 def upsert_strategy_config(key: str, label: str, description: str, params: dict | None = None,
                           enabled: bool = True) -> dict:
     params = params or {}
-    with _connect() as conn:
-        conn.execute(
+    updated_at = _utc_timestamp()
+    with _database().transaction() as transaction:
+        transaction.execute(
             """INSERT INTO strategy_configs (key, label, description, params_json, enabled, updated_at)
-               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               VALUES (:key, :label, :description, :params_json, :enabled, :updated_at)
                ON CONFLICT(key) DO UPDATE SET
                    label = excluded.label,
                    description = excluded.description,
                    params_json = excluded.params_json,
                    enabled = excluded.enabled,
-                   updated_at = datetime('now')""",
-            (key, label, description, json.dumps(params, default=str), 1 if enabled else 0),
+                   updated_at = excluded.updated_at""",
+            {"key": key, "label": label, "description": description,
+             "params_json": json.dumps(params, default=str),
+             "enabled": 1 if enabled else 0, "updated_at": updated_at},
         )
     row = get_strategy_config(key)
     return row or {"key": key, "label": label, "description": description, "params": params, "enabled": enabled}
@@ -1244,6 +1250,17 @@ def search_strategy_configs(query: str) -> list[dict]:
         if q in blob:
             out.append(row)
     return out
+
+
+def get_closed_trade_results_since(days: int = 45) -> list[dict]:
+    """Rohdaten geschlossener Trades seit dem UTC-Tages-Cutoff (inklusive)."""
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=int(days))).isoformat()
+    with _database().transaction() as transaction:
+        return transaction.all(
+            "SELECT signal_json, pnl_pct FROM trades WHERE status = 'closed' "
+            "AND pnl_pct IS NOT NULL AND trade_date >= :cutoff",
+            {"cutoff": cutoff},
+        )
 
 
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────

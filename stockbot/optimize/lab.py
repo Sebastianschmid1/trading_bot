@@ -672,12 +672,7 @@ def reality_check(expected_oos: dict | None, days: int = 45, min_trades: int = 5
     out = {"checked_at": _now(), "days": days, "n": 0}
     try:
         from stockbot.core import db
-        with db._connect() as conn:
-            rows = conn.execute(
-                "SELECT signal_json, pnl_pct FROM trades WHERE status = 'closed' "
-                "AND pnl_pct IS NOT NULL AND trade_date >= date('now', ?)",
-                (f"-{int(days)} days",),
-            ).fetchall()
+        rows = db.get_closed_trade_results_since(days)
     except Exception as e:
         out["note"] = f"DB nicht lesbar ({e})"
         return out

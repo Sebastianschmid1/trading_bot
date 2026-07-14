@@ -1,5 +1,7 @@
 """Backend-parity contracts for the first PLAT-001 users read slice."""
 
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ from sqlalchemy.engine import make_url
 
 from stockbot import config
 from stockbot.core import db, db_backend, db_pool
+from stockbot.optimize import lab
 from stockbot.paths import PROJECT_ROOT
 
 
@@ -255,3 +258,66 @@ def test_session_lifecycle_and_expiry(users_backend):
     db.create_session(CHAT, days=1)
     db.create_session(CHAT, days=1)
     assert db.delete_user_sessions(CHAT) == 2
+
+
+def test_notification_roundtrip_and_read_state(users_backend):
+    first_id = db.add_notification(CHAT, "Signal", "NVDA", "trade")
+    second_id = db.add_notification(CHAT, "Info")
+
+    assert isinstance(first_id, int)
+    assert second_id > first_id
+    assert db.unread_count(CHAT) == 2
+    latest = db.get_notifications(CHAT, limit=1)
+    assert latest == [{
+        "id": second_id, "ts": latest[0]["ts"],
+        "type": "info", "title": "Info", "body": "", "read": False,
+    }]
+    datetime.strptime(db.get_notifications(CHAT)[0]["ts"], "%Y-%m-%d %H:%M:%S")
+
+    db.mark_notifications_read(CHAT)
+    assert db.unread_count(CHAT) == 0
+    assert all(row["read"] is True for row in db.get_notifications(CHAT))
+
+
+def test_strategy_config_upsert_updates_one_row(users_backend):
+    first = db.upsert_strategy_config(
+        "ai_adaptive", "AI v1", "first", {"threshold": 0.4}, enabled=True
+    )
+    second = db.upsert_strategy_config(
+        "ai_adaptive", "AI v2", "second", {"threshold": 0.7}, enabled=False
+    )
+
+    assert first["params"] == {"threshold": 0.4}
+    assert second == db.get_strategy_config("ai_adaptive")
+    assert second["label"] == "AI v2"
+    assert second["description"] == "second"
+    assert second["params"] == {"threshold": 0.7}
+    assert second["enabled"] is False
+    assert [row["key"] for row in db.list_strategy_configs()] == ["ai_adaptive"]
+
+
+def test_lab_trade_read_api_applies_utc_cutoff(users_backend):
+    today = datetime.now(timezone.utc).date()
+    statement = (
+        "INSERT INTO trades "
+        "(user_id, trade_date, ticker, direction, signal_json, status, pnl_pct) "
+        "VALUES (:user_id, :trade_date, :ticker, 'LONG', :signal_json, 'closed', :pnl_pct)"
+    )
+    with db._database().transaction() as transaction:
+        transaction.execute(statement, {
+            "user_id": CHAT, "trade_date": (today - timedelta(days=7)).isoformat(),
+            "ticker": "IN", "signal_json": json.dumps({"strategy": lab.TARGET_KEY}),
+            "pnl_pct": 1.25,
+        })
+        transaction.execute(statement, {
+            "user_id": CHAT, "trade_date": (today - timedelta(days=8)).isoformat(),
+            "ticker": "OUT", "signal_json": json.dumps({"strategy": lab.TARGET_KEY}),
+            "pnl_pct": -2.0,
+        })
+
+    assert db.get_closed_trade_results_since(7) == [{
+        "signal_json": json.dumps({"strategy": lab.TARGET_KEY}), "pnl_pct": 1.25,
+    }]
+    result = lab.reality_check(None, days=7, min_trades=1)
+    assert result["n"] == 1
+    assert result["live_win_rate"] == 100.0

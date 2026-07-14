@@ -17,6 +17,8 @@ class DbTransaction(Protocol):
 
     def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int: ...
 
+    def insert_id(self, statement: str, params: Mapping[str, Any]) -> int: ...
+
 
 class Database(Protocol):
     def transaction(self) -> AbstractContextManager[DbTransaction]: ...
@@ -47,6 +49,9 @@ class _SqliteTransaction:
     def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:
         return self._connection.execute(statement, params or {}).rowcount
 
+    def insert_id(self, statement: str, params: Mapping[str, Any]) -> int:
+        return int(self._connection.execute(statement, params).lastrowid)
+
 
 class SqliteDatabase:
     def __init__(self, connection_factory: Callable[[], AbstractContextManager[Any]]):
@@ -72,6 +77,9 @@ class _PostgresTransaction:
 
     def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:
         return self._connection.execute(text(statement), params or {}).rowcount
+
+    def insert_id(self, statement: str, params: Mapping[str, Any]) -> int:
+        return int(self._connection.execute(text(f"{statement} RETURNING id"), params).scalar_one())
 
 
 class PostgresDatabase:
