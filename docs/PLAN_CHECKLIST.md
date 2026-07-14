@@ -446,8 +446,17 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Live-Trade-Verhalten]. 19 neue Tests, Suite 803/4.)
 
 **Gate P5 (Abnahme):**
-- [ ] Max. 3 produktive Familien; kein globaler Score entscheidet über Entry/Exit
-- [ ] Jedes Signal referenziert unveränderliche Strategieversion mit dokumentierter Entry/Exit-Logik
+- [x] Max. 3 produktive Familien; kein globaler Score entscheidet über Entry/Exit
+      (STRAT-002: genau 3 produktive Strategien, Registry-Test erzwingt das; serverseitiges
+      Auswahl-Gate. STRAT-004: kein Skalen-Quervergleich mehr [Rundlauf], Score-Exit war schon
+      seit TSAFE-005 raus; MIN_SIGNAL_STRENGTH ist strategieINTERN [Standard-Strategie].
+      STRAT-005: strategiespezifische Exit-Policies existieren als Seam.)
+- [~] Jedes Signal referenziert unveränderliche Strategieversion mit dokumentierter Entry/Exit-Logik
+      (Baustein fertig: STRAT-003-Registry [unveränderlich publiziert, Vorwärts-Promotion] +
+      `Signal.strategy_version_id`-Feld + dokumentierte Entry/Exit-Logik je Produktionsstrategie
+      [STRATEGY_INVENTORY/CLASSIFICATION/VERSIONING]. OFFEN: der LIVE-Signalpfad erzeugt noch
+      Legacy-Signal-Dicts ohne Versionsreferenz — Verdrahtung folgt mit der Domain-DB-Anbindung
+      [Postgres-Cutover], erst dann ist „jedes Signal" wörtlich erfüllt.)
 
 ---
 
@@ -482,11 +491,27 @@ Ziel: Belastbares Zustands- und Datenmodell.
       #Trades, Profitfaktor, Erwartungswert, offenes Risiko, Strategieversionen; Slippage ehrlich
       None [nicht im Domain-Modell]. Volle Suite 784 passed/4 skipped. Offen: die getrennten
       Dashboard-ANSICHTEN je Modus — folgen mit dem Web-App-Umbau/Design-System.)
-- [ ] Signaltreue: alle Signale (veröffentlicht/abgelehnt/abgelaufen/risk-blockiert/nicht gefüllt) bleiben gespeichert — keine nachträgliche Löschung aus Performance
+- [x] Signaltreue: alle Signale (veröffentlicht/abgelehnt/abgelaufen/risk-blockiert/nicht gefüllt) bleiben gespeichert — keine nachträgliche Löschung aus Performance
+      (Sol — Lebenszyklus löscht nichts [Beweis-Test `tests/test_signal_retention.py` für alle
+      fünf Fälle]. Einzige Löschstelle war `db.reset_user_trades` [Nutzer-Reset]: archiviert
+      jetzt in derselben Transaktion nach `trades_archive`/`trade_ticks_archive` [archived_at,
+      archive_reason='user_reset', Original-IDs] statt zu löschen — Nutzersicht unverändert,
+      Historie bleibt. Notifications werden bewusst weiter gelöscht [UI-Zustellung, keine
+      Performance-Daten]. Archivtabellen auch im Alembic-Zielschema + db_export.TABLES.
+      Suite 824 passed/4 skipped.)
 
 **Gate P6 (Abnahme):**
-- [ ] Position wird nicht mehreren Strategien zugerechnet; Shadow ≠ Paper getrennt
-- [ ] Backtestdaten tauchen nicht in Live-Kennzahlen auf; abgelehnte/abgelaufene Signale bleiben sichtbar
+- [x] Position wird nicht mehreren Strategien zugerechnet; Shadow ≠ Paper getrennt
+      (`domain.Position.strategy_version_id` ist ein einzelnes Pflichtfeld [1 Position = 1
+      Strategieversion, strukturell]; Legacy-Pfad: 1 Trade trägt genau 1 `strategy`-Key.
+      Shadow ≠ Paper: RES-001/RES-002 — OMS lehnt Shadow-Intents ab, `build_mode_report`
+      wirft bei Modus-Mischung [Tests].)
+- [~] Backtestdaten tauchen nicht in Live-Kennzahlen auf; abgelehnte/abgelaufene Signale bleiben sichtbar
+      (Strukturell erzwungen in der NEUEN Report-Schicht [`mode_report`, ValueError bei
+      Modus-Mischung] + Signaltreue-Punkt [abgelehnt/abgelaufen bleiben gespeichert, inkl.
+      Archiv]. OFFEN: die LEGACY-Dashboards/Reports [trades-basiert] zeigen abgelehnte/
+      abgelaufene Trades zwar an, sind aber noch nicht auf die Mode-Report-Schicht umgestellt —
+      folgt mit dem Web-App-Umbau; erst dann gilt die Trennung auch für jede Alt-Ansicht.)
 
 ---
 
