@@ -67,17 +67,25 @@ class _PostgresTransaction:
 
 
 class PostgresDatabase:
+    def __init__(self, engine: Any | None = None):
+        self._engine = engine
+
     @contextmanager
     def transaction(self) -> Iterator[DbTransaction]:
-        with db_pool.get_engine().begin() as connection:
+        engine = self._engine or db_pool.get_engine()
+        with engine.begin() as connection:
             yield _PostgresTransaction(connection)
 
 
-def get_database(backend: str, sqlite_connection_factory: Callable | None = None) -> Database:
+def get_database(
+    backend: str,
+    sqlite_connection_factory: Callable | None = None,
+    postgres_engine: Any | None = None,
+) -> Database:
     if backend == "sqlite":
         if sqlite_connection_factory is None:
             raise ValueError("sqlite_connection_factory fehlt")
         return SqliteDatabase(sqlite_connection_factory)
     if backend == "postgres":
-        return PostgresDatabase()
+        return PostgresDatabase(postgres_engine)
     raise ValueError(f"Unbekanntes DB-Backend: {backend}")
