@@ -72,7 +72,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (`docs/DB_SCHEMA_SQLITE.md` friert den Stand ein; `stockbot/core/db_export.py` /
       `tools/export_sqlite_snapshot.py` schreiben einen read-only-Snapshot aller Tabellen
       als JSON für den späteren Zeilen/Summen-Vergleich nach der Postgres-Migration.)
-- [~] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
+- [x] **PLAT-001** Datenmigration schreiben; Testmigration auf Kopie; Zeilen/Summen vergleichen; Paper auf PostgreSQL umstellen
       (Datenmigration + Testmigration + Vergleich: ERLEDIGT und auf ECHTEN Daten bewiesen —
       2026-07-13 Testmigration einer Kopie der Live-DB [215.608 Zeilen: 2.970 trades, 203.713
       trade_ticks, …] gegen das VPS-Postgres [separate DB `stockbot_migtest`]: „VERGLEICH OK",
@@ -89,10 +89,20 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Schema-Readiness-Prüfung [kein SQLite-Migrator]. Jede Scheibe einzeln gegen das ECHTE
       VPS-Postgres bewiesen [Contract-Suite, zuletzt 63 passed inkl. OMS]; zwei weitere echte
       Fehler dabei gefangen und gefixt [Contract-Tests schrieben auf die Produktions-DSN;
-      notifications.ts kam aus dem Server-Default im falschen Format]. Suite 847 passed/
-      25 skipped. OFFEN: nur noch Scheibe 8 [Final-Sync + Umschalten + Beobachtungsfenster —
-      braucht Deploy des aktuellen main auf den VPS und einen abgestimmten Zeitpunkt außerhalb
-      der US-Handelszeit] und Scheibe 9 [Aufräumen des Dual-Backend-Codes nach Stabilisierung].)
+      notifications.ts kam aus dem Server-Default im falschen Format]. Suite 848 passed/
+      25 skipped. CUTOVER (Scheibe 8) 2026-07-15 ~00:35 CEST VOLLZOGEN: Paper-Runtime läuft
+      produktiv auf `DB_BACKEND=postgres` [Docker-Postgres 16, localhost-only, DB `stockbot`].
+      Erster Versuch brach live ab [add_tick band `np.float64` → psycopg2 kann numpy-Skalare
+      nicht adaptieren, rendert repr `np.float64(...)` in die SQL → „schema np does not exist"];
+      vorbereiteter Rollback [DB_BACKEND=sqlite] sofort genutzt, Fix an Sol: `_normalise_params`
+      im Postgres-Seam [numpy.generic→.item(), auf one/all/execute/insert_id], SQLite bitgleich,
+      Regressionstest gegen echtes Postgres [3 passed]. Zweiter Anlauf: Postgres exakt gegen
+      eingefrorene SQLite verifiziert [additiver Tick-Backfill statt blockiertem Truncate/Neu-DB,
+      voller Vergleich „VERGLEICH OK" über alle 12 Tabellen], Sequenzen synchronisiert, umge-
+      schaltet — monitor_trades/add_tick fehlerfrei, trade_ticks wächst live auf Postgres, alle
+      Jobs grün, null Fehler. Beobachtungs-Checkpoint: US-Handelsöffnung 15:30 CEST [Signal-
+      Schreibpfade]. OFFEN: nur noch Scheibe 9 [Aufräumen des Dual-Backend-Codes nach
+      Stabilisierung].)
 - [x] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
       (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;
