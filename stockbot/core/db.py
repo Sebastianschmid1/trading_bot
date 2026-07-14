@@ -90,6 +90,47 @@ CREATE TABLE IF NOT EXISTS trade_ticks (
 CREATE INDEX IF NOT EXISTS idx_ticks_user_date_ticker
     ON trade_ticks (user_id, trade_date, ticker, ts);
 
+CREATE TABLE IF NOT EXISTS trades_archive (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(user_id),
+    trade_date   TEXT    NOT NULL,
+    ticker       TEXT    NOT NULL,
+    direction    TEXT    NOT NULL,
+    signal_json  TEXT    NOT NULL,
+    message_id   INTEGER,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    entry        REAL,
+    exit         REAL,
+    pnl_eur      REAL,
+    pnl_pct      REAL,
+    broker_order_id          TEXT,
+    broker_status            TEXT,
+    broker_filled_qty        REAL,
+    broker_filled_avg_price  REAL,
+    broker_updated_at        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    archived_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    archive_reason TEXT   NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_trades_archive_user_date_status
+    ON trades_archive (user_id, trade_date, status);
+
+CREATE TABLE IF NOT EXISTS trade_ticks_archive (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    trade_date  TEXT    NOT NULL,
+    ticker      TEXT    NOT NULL,
+    ts          TEXT    NOT NULL DEFAULT (datetime('now')),
+    price       REAL,
+    strength    REAL,
+    archived_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    archive_reason TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticks_archive_user_date_ticker
+    ON trade_ticks_archive (user_id, trade_date, ticker, ts);
+
 CREATE TABLE IF NOT EXISTS sessions (
     token       TEXT PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES users(user_id),
@@ -1034,15 +1075,45 @@ def delete_expired_sessions() -> int:
 
 
 def reset_user_trades(user_id: int) -> int:
-    """Setzt den Trading-Verlauf eines Nutzers zurück: löscht ALLE Trades (jeden Status),
-    deren Intraday-Ticks und die In-App-Mitteilungen. Profil, Einstellungen und etwaige
-    Alpaca-Zugangsdaten bleiben unangetastet. Gibt die Gesamtzahl gelöschter Zeilen zurück."""
+    """Leert den sichtbaren Trading-Verlauf eines Nutzers.
+
+    Trades jedes Status und ihre Intraday-Ticks werden in derselben Transaktion mit Grund
+    ``user_reset`` archiviert und erst danach aus den Live-Tabellen entfernt. Das Archiv ist
+    reine Audit-/Forschungsaufbewahrung und wird von Dashboard/Reports derzeit nicht gelesen.
+    In-App-Mitteilungen werden weiterhin endgültig gelöscht: Sie sind UI-Zustellungen und
+    keine Performance-Daten. Profil, Einstellungen und Broker-Zugangsdaten bleiben erhalten.
+    Gibt die Zahl der aus den Live-Tabellen entfernten Zeilen zurück.
+    """
     with _connect() as conn:
+        conn.execute(
+            """INSERT INTO trades_archive
+               (id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
+                entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
+                broker_filled_qty, broker_filled_avg_price, broker_updated_at, created_at,
+                archived_at, archive_reason)
+               SELECT id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
+                      entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
+                      broker_filled_qty, broker_filled_avg_price, broker_updated_at, created_at,
+                      datetime('now'), 'user_reset'
+                 FROM trades WHERE user_id = ?""",
+            (user_id,),
+        )
+        conn.execute(
+            """INSERT INTO trade_ticks_archive
+               (id, user_id, trade_date, ticker, ts, price, strength, archived_at, archive_reason)
+               SELECT id, user_id, trade_date, ticker, ts, price, strength,
+                      datetime('now'), 'user_reset'
+                 FROM trade_ticks WHERE user_id = ?""",
+            (user_id,),
+        )
         total = 0
         for table in ("trades", "trade_ticks", "notifications"):
             cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
             total += cur.rowcount
-    log.info(f"Reset: user_id={user_id} — {total} Zeile(n) gelöscht (trades/ticks/notifications).")
+    log.info(
+        f"Reset: user_id={user_id} — Trades/Ticks archiviert; "
+        f"{total} Live-/UI-Zeile(n) entfernt."
+    )
     return total
 
 

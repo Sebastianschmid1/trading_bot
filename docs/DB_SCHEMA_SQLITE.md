@@ -7,7 +7,7 @@
 PostgreSQL umstellen → 8. SQLite nur noch als Archiv.*
 
 Quelle: `stockbot/core/db.py::SCHEMA_SQL` (+ additive `_migrate()`-Spalten, die hier bereits
-in der jeweiligen `CREATE TABLE`-Definition enthalten sind). Stand: 2026-07-11.
+in der jeweiligen `CREATE TABLE`-Definition enthalten sind). Stand: 2026-07-14.
 
 **Wichtig:** Ändert sich `SCHEMA_SQL` künftig, muss dieses Dokument vor dem nächsten
 PostgreSQL-Migrationsschritt (Transformationsregeln/Testmigration) nachgezogen werden —
@@ -94,6 +94,28 @@ in SQLite hinterlegt (nur logisch über `user_id`/`ticker`/`trade_date`).
 | strength   | REAL    | NULL              |
 
 **Index** `idx_ticks_user_date_ticker` auf `(user_id, trade_date, ticker, ts)`.
+
+## trades_archive
+
+Aufbewahrung der beim Nutzer-Feature „Verlauf zurücksetzen“ aus `trades` entfernten
+Performance-Daten. Enthält alle Spalten von `trades` mit unveränderten Werten sowie:
+
+| Spalte         | Typ  | Default           | Hinweis |
+|----------------|------|-------------------|---------|
+| archived_at    | TEXT | `datetime('now')` | Zeitpunkt der Archivierung |
+| archive_reason | TEXT | —                 | aktuell stets `'user_reset'` |
+
+**Index** `idx_trades_archive_user_date_status` auf `(user_id, trade_date, status)`.
+Dashboard und Reports lesen dieses Aufbewahrungsarchiv derzeit bewusst nicht.
+
+## trade_ticks_archive
+
+Aufbewahrung der zu archivierten Trades gehörenden Intraday-Daten. Enthält alle Spalten
+von `trade_ticks` mit unveränderten Werten sowie `archived_at` und `archive_reason` wie
+oben beschrieben.
+
+**Index** `idx_ticks_archive_user_date_ticker` auf
+`(user_id, trade_date, ticker, ts)`.
 
 ## sessions
 
