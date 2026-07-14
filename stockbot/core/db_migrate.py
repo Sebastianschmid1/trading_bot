@@ -18,8 +18,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Float, MetaData, Table, func, select
-from sqlalchemy.engine import Engine
+from sqlalchemy import Float, MetaData, Table, func, select, text
+from sqlalchemy.engine import Connection, Engine
 
 from stockbot.core.db_export import TABLES
 
@@ -33,7 +33,22 @@ _SUM_COLUMNS = {
     "users": ("trade_size_eur",),
     "trades": ("pnl_eur", "pnl_pct"),
     "trade_ticks": ("price", "strength"),
+    # qty und notional sind alternative Ordergroessen (je nach Ordertyp ist eine
+    # davon NULL). Beide Summen erkennen dennoch verlorene oder veraenderte Werte.
+    "orders": ("qty", "notional"),
 }
+
+_AUTOINCREMENT_IDS = (
+    "trades",
+    "trade_ticks",
+    "trades_archive",
+    "trade_ticks_archive",
+    "notifications",
+    "trade_events",
+    "trade_intents",
+    "orders",
+    "order_events",
+)
 
 _FLOAT_SUM_REL_TOL = 1e-9
 
@@ -69,7 +84,38 @@ def migrate_snapshot_to_engine(snapshot: dict[str, Any], engine: Engine) -> dict
             table = Table(name, metadata, autoload_with=engine)
             conn.execute(table.insert(), [_decode_row(name, r) for r in rows])
             inserted[name] = len(rows)
+        _sync_sequences(conn)
     return inserted
+
+
+def sync_sequences(engine: Engine) -> None:
+    """Setzt PostgreSQL-ID-Sequences nach Inserts mit expliziten IDs fort.
+
+    SQLite aktualisiert seine interne Sequence bereits bei expliziten INTEGER-PKs;
+    dort (und auf anderen Dialekten) ist dieser Helfer bewusst ein No-op.
+    """
+    with engine.begin() as conn:
+        _sync_sequences(conn)
+
+
+def _sync_sequences(conn: Connection) -> None:
+    if conn.dialect.name != "postgresql":
+        return
+    metadata = MetaData()
+    for name in _AUTOINCREMENT_IDS:
+        table = Table(name, metadata, autoload_with=conn)
+        next_id = conn.execute(
+            select(func.coalesce(func.max(table.c.id), 0) + 1)
+        ).scalar_one()
+        sequence = conn.execute(
+            text("SELECT pg_get_serial_sequence(:table_name, 'id')"),
+            {"table_name": name},
+        ).scalar_one()
+        if sequence is not None:
+            conn.execute(
+                text("SELECT setval(CAST(:sequence AS regclass), :next_id, false)"),
+                {"sequence": sequence, "next_id": next_id},
+            )
 
 
 def compare_snapshot_to_engine(snapshot: dict[str, Any], engine: Engine) -> dict[str, dict]:

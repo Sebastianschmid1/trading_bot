@@ -13,6 +13,7 @@ auffallen. Wird übersprungen, wenn kein lokaler Postgres erreichbar ist (kein
 Staging-/Produktions-Server — nur lokale Entwicklung, kein Deploy).
 """
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from alembic.config import Config
 from sqlalchemy import BigInteger, create_engine, inspect
 
 from stockbot import config
-from stockbot.core import db_export
+from stockbot.core import db, db_export
 from stockbot.paths import PROJECT_ROOT
 
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
@@ -35,6 +36,9 @@ BIGINT_COLUMNS = {
     "sessions": {"user_id"},
     "notifications": {"id", "user_id"},
     "trade_events": {"id", "trade_id", "user_id"},
+    "trade_intents": {"id", "user_id", "signal_id"},
+    "orders": {"id", "trade_intent_id", "user_id"},
+    "order_events": {"id", "order_id"},
 }
 
 
@@ -81,6 +85,59 @@ def test_upgrade_head_uses_bigint_for_external_and_growing_ids(tmp_path):
                 name for name, column_type in columns.items()
                 if isinstance(column_type, BigInteger)
             } == expected_columns
+    finally:
+        engine.dispose()
+
+
+def test_target_schema_contains_runtime_columns_and_core_constraints(tmp_path):
+    """SCHEMA_SQL bleibt der maschinenlesbare Vertrag für Namen/PK/NOT NULL."""
+    runtime = sqlite3.connect(":memory:")
+    runtime.executescript(db.SCHEMA_SQL)
+    target_path = tmp_path / "migration_contract_test.db"
+    command.upgrade(_alembic_config(target_path), "head")
+    engine = create_engine(f"sqlite:///{target_path}", future=True)
+    try:
+        target = inspect(engine)
+        for table_name in db_export.TABLES:
+            runtime_columns = {
+                row[1]: {"not_null": bool(row[3]), "primary_key": bool(row[5])}
+                for row in runtime.execute(f'PRAGMA table_info("{table_name}")')
+            }
+            target_columns = {column["name"]: column for column in target.get_columns(table_name)}
+            assert runtime_columns.keys() <= target_columns.keys(), table_name
+            for name, contract in runtime_columns.items():
+                assert bool(target_columns[name]["primary_key"]) == contract["primary_key"], (
+                    table_name, name, "primary_key"
+                )
+                if contract["not_null"]:
+                    assert not target_columns[name]["nullable"], (table_name, name, "nullable")
+    finally:
+        runtime.close()
+        engine.dispose()
+
+
+def test_oms_constraints_and_index_exist_after_upgrade(tmp_path):
+    target_path = tmp_path / "migration_oms_constraints.db"
+    command.upgrade(_alembic_config(target_path), "head")
+    engine = create_engine(f"sqlite:///{target_path}", future=True)
+    try:
+        schema = inspect(engine)
+        order_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in schema.get_unique_constraints("orders")
+        }
+        assert ("idempotency_key",) in order_uniques
+        assert {fk["referred_table"] for fk in schema.get_foreign_keys("orders")} == {
+            "trade_intents"
+        }
+        assert {fk["referred_table"] for fk in schema.get_foreign_keys("order_events")} == {
+            "orders"
+        }
+        indexes = {
+            index["name"]: index["column_names"]
+            for index in schema.get_indexes("order_events")
+        }
+        assert indexes["idx_order_events_order"] == ["order_id", "id"]
     finally:
         engine.dispose()
 

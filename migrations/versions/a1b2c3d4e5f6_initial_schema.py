@@ -5,9 +5,10 @@ Spiegelt 1:1 das eingefrorene SQLite-Schema aus docs/DB_SCHEMA_SQLITE.md (Stand
 Transformation → Testmigration → Zeilen/Summen-Vergleich) ist ein eigener,
 späterer Checklisten-Punkt (docs/PLAN_CHECKLIST.md Phase 1).
 
-Die BigInteger-Korrektur für Telegram-IDs und wachsende interne IDs wird direkt
-hier gepflegt: Diese initiale Migration wurde noch auf keiner produktiven
-PostgreSQL-Instanz angewendet, daher ist keine nachgelagerte Korrekturrevision nötig.
+Die BigInteger-Korrektur für Telegram-IDs und wachsende interne IDs, die
+Archiv-Tabellen und die drei OMS-Tabellen werden direkt hier gepflegt: Diese
+initiale Migration wurde noch auf keiner produktiven PostgreSQL-Instanz angewendet,
+daher ist keine nachgelagerte Korrekturrevision nötig.
 
 Revision ID: a1b2c3d4e5f6
 Revises:
@@ -51,8 +52,8 @@ def upgrade() -> None:
         sa.Column("watchlist", sa.Text(), nullable=False, server_default=""),
         sa.Column("notify_channel", sa.Text(), nullable=False, server_default="both"),
         sa.Column("asset_pref", sa.Text(), nullable=False, server_default="stocks"),
-        sa.Column("created_at", sa.Text(), nullable=True),
-        sa.Column("updated_at", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
     )
 
     op.create_table(
@@ -61,8 +62,8 @@ def upgrade() -> None:
         sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
-        sa.Column("direction", sa.Text(), nullable=True),
-        sa.Column("signal_json", sa.Text(), nullable=True),
+        sa.Column("direction", sa.Text(), nullable=False),
+        sa.Column("signal_json", sa.Text(), nullable=False),
         sa.Column("message_id", sa.BigInteger(), nullable=True),
         sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
         sa.Column("entry", sa.Float(), nullable=True),
@@ -74,7 +75,7 @@ def upgrade() -> None:
         sa.Column("broker_filled_qty", sa.Float(), nullable=True),
         sa.Column("broker_filled_avg_price", sa.Float(), nullable=True),
         sa.Column("broker_updated_at", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.UniqueConstraint("user_id", "trade_date", "ticker", name="uq_trades_user_date_ticker"),
     )
     op.create_index(
@@ -87,7 +88,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
-        sa.Column("ts", sa.Text(), nullable=True),
+        sa.Column("ts", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("price", sa.Float(), nullable=True),
         sa.Column("strength", sa.Float(), nullable=True),
     )
@@ -114,8 +115,8 @@ def upgrade() -> None:
         sa.Column("broker_filled_qty", sa.Float(), nullable=True),
         sa.Column("broker_filled_avg_price", sa.Float(), nullable=True),
         sa.Column("broker_updated_at", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.Text(), nullable=False),
-        sa.Column("archived_at", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("archived_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("archive_reason", sa.Text(), nullable=False),
     )
     op.create_index(
@@ -129,10 +130,10 @@ def upgrade() -> None:
         sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("trade_date", sa.Text(), nullable=False),
         sa.Column("ticker", sa.Text(), nullable=False),
-        sa.Column("ts", sa.Text(), nullable=False),
+        sa.Column("ts", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("price", sa.Float(), nullable=True),
         sa.Column("strength", sa.Float(), nullable=True),
-        sa.Column("archived_at", sa.Text(), nullable=False),
+        sa.Column("archived_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("archive_reason", sa.Text(), nullable=False),
     )
     op.create_index(
@@ -144,7 +145,7 @@ def upgrade() -> None:
         "sessions",
         sa.Column("token", sa.Text(), primary_key=True),
         sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
-        sa.Column("created_at", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("expires_at", sa.Text(), nullable=False),
     )
 
@@ -152,7 +153,7 @@ def upgrade() -> None:
         "notifications",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("user_id", sa.BigInteger(), nullable=False),
-        sa.Column("ts", sa.Text(), nullable=True),
+        sa.Column("ts", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("type", sa.Text(), nullable=False, server_default="info"),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("body", sa.Text(), nullable=False, server_default=""),
@@ -167,7 +168,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=False, server_default=""),
         sa.Column("params_json", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("enabled", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("updated_at", sa.Text(), nullable=True),
+        sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
     )
 
     op.create_table(
@@ -180,14 +181,63 @@ def upgrade() -> None:
         sa.Column("from_status", sa.Text(), nullable=True),
         sa.Column("to_status", sa.Text(), nullable=False),
         sa.Column("broker_status", sa.Text(), nullable=True),
-        sa.Column("ts", sa.Text(), nullable=True),
+        sa.Column("ts", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("note", sa.Text(), nullable=True),
     )
     op.create_index("idx_trade_events_trade", "trade_events", ["trade_id", "ts"])
     op.create_index("idx_trade_events_user", "trade_events", ["user_id", "ts"])
 
+    op.create_table(
+        "trade_intents",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("signal_id", sa.BigInteger(), nullable=False),
+        sa.Column("requested_action", sa.Text(), nullable=False),
+        sa.Column("accepted_exit_policy", sa.Text(), nullable=False),
+        sa.Column("source_channel", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.Text(), nullable=False),
+        sa.Column("idempotency_key", sa.Text(), nullable=False, unique=True),
+    )
+
+    op.create_table(
+        "orders",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("trade_intent_id", sa.BigInteger(), sa.ForeignKey("trade_intents.id"), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("ticker", sa.Text(), nullable=False),
+        sa.Column("side", sa.Text(), nullable=False),
+        sa.Column("qty", sa.Float(), nullable=True),
+        sa.Column("notional", sa.Float(), nullable=True),
+        sa.Column("limit_price", sa.Float(), nullable=True),
+        sa.Column("status", sa.Text(), nullable=False, server_default="created"),
+        sa.Column("broker_order_id", sa.Text(), nullable=True),
+        sa.Column("client_order_id", sa.Text(), nullable=True, unique=True),
+        sa.Column("idempotency_key", sa.Text(), nullable=False),
+        sa.Column("rejection_reason", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.UniqueConstraint("idempotency_key", name="uq_orders_idempotency_key"),
+    )
+
+    op.create_table(
+        "order_events",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("order_id", sa.BigInteger(), sa.ForeignKey("orders.id"), nullable=False),
+        sa.Column("event_type", sa.Text(), nullable=False),
+        sa.Column("from_status", sa.Text(), nullable=True),
+        sa.Column("to_status", sa.Text(), nullable=False),
+        sa.Column("broker_event_id", sa.Text(), nullable=True),
+        sa.Column("payload_json", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("occurred_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+    )
+    op.create_index("idx_order_events_order", "order_events", ["order_id", "id"])
+
 
 def downgrade() -> None:
+    op.drop_index("idx_order_events_order", table_name="order_events")
+    op.drop_table("order_events")
+    op.drop_table("orders")
+    op.drop_table("trade_intents")
     op.drop_table("trade_events")
     op.drop_table("strategy_configs")
     op.drop_index("idx_notifications_user", table_name="notifications")
