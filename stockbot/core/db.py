@@ -1269,7 +1269,7 @@ def get_closed_trade_results_since(days: int = 45) -> list[dict]:
 
 # ── Trade-Tracking (ersetzt TradeTracker, jetzt pro user_id) ───────────────
 
-def _trade_to_dict(row: sqlite3.Row) -> dict:
+def _trade_to_dict(row) -> dict:
     out = {
         "id":         row["id"] if "id" in row.keys() else None,
         "ticker":     row["ticker"],
@@ -1293,23 +1293,24 @@ def _trade_to_dict(row: sqlite3.Row) -> dict:
 
 def has_trade_today(user_id: int, ticker: str) -> bool:
     """True, wenn für diese Aktie heute bereits ein Signal/Trade existiert (egal welcher Status)."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ? LIMIT 1",
-            (user_id, _today(), ticker),
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT 1 AS present FROM trades WHERE user_id = :user_id "
+            "AND trade_date = :trade_date AND ticker = :ticker LIMIT 1",
+            {"user_id": user_id, "trade_date": _today(), "ticker": ticker},
+        )
     return row is not None
 
 
 def has_open_position(user_id: int, ticker: str) -> bool:
     """Duplikat-Schutz fürs Senden: heute schon ein Datensatz ODER ein über Nacht offener
     (aktiver) Trade dieser Aktie (egal welches Datum)."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM trades WHERE user_id = ? AND ticker = ? "
-            "AND (trade_date = ? OR status = 'active') LIMIT 1",
-            (user_id, ticker, _today()),
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT 1 AS present FROM trades WHERE user_id = :user_id AND ticker = :ticker "
+            "AND (trade_date = :trade_date OR status = 'active') LIMIT 1",
+            {"user_id": user_id, "ticker": ticker, "trade_date": _today()},
+        )
     return row is not None
 
 
@@ -1658,60 +1659,62 @@ def _terminate_pending(user_id: int, ticker: str, to_status: str) -> bool:
 
 def get_active_trades(user_id: int) -> list[dict]:
     """Gibt ALLE aktiven Trades des Nutzers zurück (auch über Nacht gehaltene, datumsunabhängig)."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND status = 'active' ORDER BY trade_date ASC, id ASC",
-            (user_id,),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trades WHERE user_id = :user_id AND status = 'active' "
+            "ORDER BY trade_date ASC, id ASC", {"user_id": user_id}
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_pending_trades(user_id: int) -> list[dict]:
     """Gibt alle heute noch ausstehenden (pending) Trades des Nutzers zurück."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND trade_date = ? AND status = 'pending'",
-            (user_id, _today()),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trades WHERE user_id = :user_id AND trade_date = :trade_date "
+            "AND status = 'pending' ORDER BY id ASC",
+            {"user_id": user_id, "trade_date": _today()},
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_broker_pending_trades(user_id: int) -> list[dict]:
     """Broker-Orders, die angenommen, aber noch nicht tatsächlich gefüllt wurden."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND status = 'broker_pending' ORDER BY trade_date ASC, id ASC",
-            (user_id,),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trades WHERE user_id = :user_id AND status = 'broker_pending' "
+            "ORDER BY trade_date ASC, id ASC", {"user_id": user_id}
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_broker_closing_trades(user_id: int) -> list[dict]:
     """Broker-Schließungen, die angestoßen wurden, aber noch nicht final bestätigt sind."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND status = 'broker_closing' ORDER BY trade_date ASC, id ASC",
-            (user_id,),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trades WHERE user_id = :user_id AND status = 'broker_closing' "
+            "ORDER BY trade_date ASC, id ASC", {"user_id": user_id}
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_trade(user_id: int, ticker: str) -> dict | None:
     """Relevantester Trade einer Aktie: aktiver (über Nacht gehaltener) zuerst, sonst der heutige.
     So funktioniert Verkaufen/Hebel auch bei datumsübergreifend offenen Trades."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM trades WHERE user_id = ? AND ticker = ? AND (status = 'active' OR trade_date = ?) "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT * FROM trades WHERE user_id = :user_id AND ticker = :ticker "
+            "AND (status = 'active' OR trade_date = :trade_date) "
             "ORDER BY (status = 'active') DESC, trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker, _today()),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker, "trade_date": _today()},
+        )
     return _trade_to_dict(row) if row else None
 
 
 def get_trade_by_id(trade_id: int) -> dict | None:
     """Liefert einen Trade anhand seiner global eindeutigen ID (OMS-Signal-Bridge)."""
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one("SELECT * FROM trades WHERE id = :trade_id", {"trade_id": trade_id})
     return _trade_to_dict(row) if row else None
 
 
@@ -1745,37 +1748,35 @@ def close_all(user_id: int, results: list[dict], *, broker_status: str | None = 
 
 def get_history(user_id: int, days: int = 30) -> list[dict]:
     """Gibt die abgeschlossenen Trades der letzten N Tage zurück (neueste zuerst)."""
-    with _connect() as conn:
-        rows = conn.execute(
-            """SELECT * FROM trades
-               WHERE user_id = ? AND status = 'closed' AND trade_date >= date('now', ?)
-               ORDER BY trade_date DESC""",
-            (user_id, f"-{days} days"),
-        ).fetchall()
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=int(days))).isoformat()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trades WHERE user_id = :user_id AND status = 'closed' "
+            "AND trade_date >= :cutoff ORDER BY trade_date DESC, id DESC",
+            {"user_id": user_id, "cutoff": cutoff},
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_closed_trades(user_id: int) -> list[dict]:
     """Alle abgeschlossenen Trades des Nutzers, älteste zuerst (für Equity-Kurve & Statistik)."""
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             """SELECT * FROM trades
-               WHERE user_id = ? AND status = 'closed'
-               ORDER BY trade_date ASC, id ASC""",
-            (user_id,),
-        ).fetchall()
+               WHERE user_id = :user_id AND status = 'closed'
+               ORDER BY trade_date ASC, id ASC""", {"user_id": user_id}
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_all_trades(user_id: int) -> list[dict]:
     """Alle Trades des Nutzers für Export/Analyse, älteste zuerst und statusübergreifend."""
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             """SELECT * FROM trades
-               WHERE user_id = ?
-               ORDER BY trade_date ASC, id ASC""",
-            (user_id,),
-        ).fetchall()
+               WHERE user_id = :user_id
+               ORDER BY trade_date ASC, id ASC""", {"user_id": user_id}
+        )
     return [_trade_to_dict(r) for r in rows]
 
 
@@ -1783,36 +1784,36 @@ def get_all_trades_between(user_id: int, date_from: str | None = None,
                            date_to: str | None = None) -> list[dict]:
     """Trades des Nutzers, optional auf `trade_date ∈ [date_from, date_to]` (inklusiv) gefiltert.
     Datumsformat 'YYYY-MM-DD'; None = keine Grenze."""
-    sql = "SELECT * FROM trades WHERE user_id = ?"
-    params: list = [user_id]
+    sql = "SELECT * FROM trades WHERE user_id = :user_id"
+    params = {"user_id": user_id}
     if date_from:
-        sql += " AND trade_date >= ?"; params.append(date_from)
+        sql += " AND trade_date >= :date_from"; params["date_from"] = date_from
     if date_to:
-        sql += " AND trade_date <= ?"; params.append(date_to)
+        sql += " AND trade_date <= :date_to"; params["date_to"] = date_to
     sql += " ORDER BY trade_date ASC, id ASC"
-    with _connect() as conn:
-        rows = conn.execute(sql, params).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(sql, params)
     return [_trade_to_dict(r) for r in rows]
 
 
 def get_trade_events(trade_id: int) -> list[dict]:
     """Alle Status-Events eines Trades, chronologisch (für Dauer-Berechnung)."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trade_events WHERE trade_id = ? ORDER BY ts ASC, id ASC",
-            (trade_id,),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trade_events WHERE trade_id = :trade_id ORDER BY ts ASC, id ASC",
+            {"trade_id": trade_id},
+        )
     return [dict(r) for r in rows]
 
 
 def get_events_by_trade(user_id: int) -> dict[int, list[dict]]:
     """Alle Events des Nutzers, gruppiert nach trade_id (ein Query statt N — für den Export)."""
     out: dict[int, list[dict]] = {}
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trade_events WHERE user_id = ? ORDER BY ts ASC, id ASC",
-            (user_id,),
-        ).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM trade_events WHERE user_id = :user_id ORDER BY ts ASC, id ASC",
+            {"user_id": user_id},
+        )
     for r in rows:
         out.setdefault(r["trade_id"], []).append(dict(r))
     return out
@@ -1822,15 +1823,16 @@ def get_trade_events_between(user_id: int, ts_from: str | None = None,
                              ts_to: str | None = None) -> list[dict]:
     """Status-Events des Nutzers im Zeitfenster [ts_from, ts_to] (inklusiv), chronologisch.
     `ts`-Format 'YYYY-MM-DD HH:MM:SS' (UTC); ein reines Datum filtert ab/bis Tagesgrenze."""
-    sql = "SELECT * FROM trade_events WHERE user_id = ?"
-    params: list = [user_id]
+    sql = "SELECT * FROM trade_events WHERE user_id = :user_id"
+    params = {"user_id": user_id}
     if ts_from:
-        sql += " AND ts >= ?"; params.append(ts_from)
+        sql += " AND ts >= :ts_from"; params["ts_from"] = ts_from
     if ts_to:
-        sql += " AND ts <= ?"; params.append(ts_to + " 23:59:59" if len(ts_to) == 10 else ts_to)
+        sql += " AND ts <= :ts_to"
+        params["ts_to"] = ts_to + " 23:59:59" if len(ts_to) == 10 else ts_to
     sql += " ORDER BY ts ASC, id ASC"
-    with _connect() as conn:
-        rows = conn.execute(sql, params).fetchall()
+    with _database().transaction() as transaction:
+        rows = transaction.all(sql, params)
     return [dict(r) for r in rows]
 
 
@@ -1838,22 +1840,24 @@ def get_trade_events_between(user_id: int, ts_from: str | None = None,
 
 def add_tick(user_id: int, ticker: str, price: float | None, strength: float | None):
     """Schreibt einen Verlaufspunkt (Kurs + Signal-Stärke) für einen aktiven Trade."""
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO trade_ticks (user_id, trade_date, ticker, price, strength) VALUES (?, ?, ?, ?, ?)",
-            (user_id, _today(), ticker, price, strength),
+    with _database().transaction() as transaction:
+        transaction.execute(
+            "INSERT INTO trade_ticks (user_id, trade_date, ticker, ts, price, strength) "
+            "VALUES (:user_id, :trade_date, :ticker, :ts, :price, :strength)",
+            {"user_id": user_id, "trade_date": _today(), "ticker": ticker,
+             "ts": _utc_timestamp(), "price": price, "strength": strength},
         )
 
 
 def get_today_ticks(user_id: int) -> dict:
     """Gibt die heutigen Verlaufspunkte je Ticker zurück: { ticker: [{ts, price, strength}, ...] }."""
-    with _connect() as conn:
-        rows = conn.execute(
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             """SELECT ticker, ts, price, strength FROM trade_ticks
-               WHERE user_id = ? AND trade_date = ?
-               ORDER BY ts ASC""",
-            (user_id, _today()),
-        ).fetchall()
+               WHERE user_id = :user_id AND trade_date = :trade_date
+               ORDER BY ts ASC, id ASC""",
+            {"user_id": user_id, "trade_date": _today()},
+        )
     series: dict[str, list] = {}
     for r in rows:
         series.setdefault(r["ticker"], []).append(

@@ -159,6 +159,85 @@ def test_bytea_memoryview_is_normalised_to_bytes():
     }
 
 
+def _seed_trade_contract_rows():
+    today = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
+    rows = [
+        {"id": 101, "trade_date": yesterday.isoformat(), "ticker": "AAPL",
+         "status": "active", "entry": 10.5, "exit": None, "pnl_eur": None,
+         "pnl_pct": None, "broker_status": None},
+        {"id": 102, "trade_date": today.isoformat(), "ticker": "AAPL",
+         "status": "closed", "entry": 11.0, "exit": 12.25, "pnl_eur": 2.5,
+         "pnl_pct": 11.36, "broker_status": "filled"},
+        {"id": 103, "trade_date": today.isoformat(), "ticker": "MSFT",
+         "status": "pending", "entry": None, "exit": None, "pnl_eur": None,
+         "pnl_pct": None, "broker_status": None},
+    ]
+    with db._database().transaction() as transaction:
+        for row in rows:
+            transaction.execute(
+                """INSERT INTO trades
+                   (id, user_id, trade_date, ticker, direction, signal_json, message_id,
+                    status, entry, exit, pnl_eur, pnl_pct, broker_status, created_at)
+                   VALUES (:id, :user_id, :trade_date, :ticker, 'long', :signal_json, 7,
+                           :status, :entry, :exit, :pnl_eur, :pnl_pct, :broker_status,
+                           :created_at)""",
+                {**row, "user_id": CHAT, "signal_json": json.dumps({"ticker": row["ticker"]}),
+                 "created_at": f'{row["trade_date"]} 08:00:00'},
+            )
+        for event in (
+            {"id": 201, "trade_id": 101, "ticker": "AAPL", "trade_date": yesterday.isoformat(),
+             "from_status": None, "to_status": "active", "ts": f"{yesterday} 09:00:00"},
+            {"id": 202, "trade_id": 102, "ticker": "AAPL", "trade_date": today.isoformat(),
+             "from_status": "active", "to_status": "closed", "ts": f"{today} 16:00:00"},
+        ):
+            transaction.execute(
+                """INSERT INTO trade_events
+                   (id, trade_id, user_id, ticker, trade_date, from_status, to_status, ts)
+                   VALUES (:id, :trade_id, :user_id, :ticker, :trade_date, :from_status,
+                           :to_status, :ts)""", {**event, "user_id": CHAT},
+            )
+    return yesterday.isoformat(), today.isoformat()
+
+
+def test_trade_read_mapping_order_and_day_contract(users_backend):
+    yesterday, today = _seed_trade_contract_rows()
+
+    assert db.has_trade_today(CHAT, "AAPL") is True
+    assert db.has_trade_today(CHAT, "NONE") is False
+    assert db.has_open_position(CHAT, "AAPL") is True
+    assert [row["id"] for row in db.get_all_trades(CHAT)] == [101, 102, 103]
+    assert [row["id"] for row in db.get_pending_trades(CHAT)] == [103]
+    assert [row["id"] for row in db.get_active_trades(CHAT)] == [101]
+    assert db.get_trade(CHAT, "AAPL")["id"] == 101  # active outranks today's closed row
+    assert db.get_trade_by_id(102)["signal"] == {"ticker": "AAPL"}
+    assert db.get_trade_by_id(101)["exit"] is None
+    assert isinstance(db.get_trade_by_id(102)["entry"], float)
+    assert [row["id"] for row in db.get_all_trades_between(CHAT, today, today)] == [102, 103]
+    assert [row["id"] for row in db.get_history(CHAT, 0)] == [102]
+
+    events = db.get_trade_events_between(CHAT, today, today)
+    assert [event["id"] for event in events] == [202]
+    assert db.get_events_by_trade(CHAT)[101][0]["from_status"] is None
+    assert [event["id"] for event in db.get_trade_events(101)] == [201]
+
+
+def test_tick_explicit_utc_timestamp_and_order_contract(users_backend, monkeypatch):
+    fixed = iter((
+        datetime(2026, 7, 14, 12, 0, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 14, 12, 0, 2, tzinfo=timezone.utc),
+    ))
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-14")
+    monkeypatch.setattr(db, "_utc_timestamp", lambda moment=None: next(fixed).strftime("%Y-%m-%d %H:%M:%S"))
+
+    db.add_tick(CHAT, "AAPL", None, 0.25)
+    db.add_tick(CHAT, "AAPL", 12.5, None)
+    assert db.get_today_ticks(CHAT) == {"AAPL": [
+        {"ts": "2026-07-14 12:00:01", "price": None, "strength": 0.25},
+        {"ts": "2026-07-14 12:00:02", "price": 12.5, "strength": None},
+    ]}
+
+
 def test_get_or_create_user_is_idempotent(users_backend):
     user_id = CHAT + 1
     first = db.get_or_create_user(user_id, "first-name")
