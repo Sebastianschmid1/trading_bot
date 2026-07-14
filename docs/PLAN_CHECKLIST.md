@@ -79,10 +79,20 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Zeilenzahlen + Summen identisch. Deckte zwei echte Fehler auf, beide gefixt [Sol]:
       Telegram-Chat-IDs sprengen `sa.Integer` auf Postgres → BigInteger für alle user_id-/
       message_id-/wachsenden ID-Spalten + Regressionstest mit echter Telegram-ID; Float-
-      Summenvergleich brauchte relative Toleranz [1e-9] gegen Akkumulationsrauschen. OFFEN:
-      „Paper auf PostgreSQL umstellen" — der Full Cutover [Owner-Entscheidung] braucht den Port
-      der Laufzeit-DB-Schicht [`stockbot/core/db.py`, rohes sqlite3] auf die SQLAlchemy-/
-      Postgres-Engine. Das ist der nächste große, eigene Arbeitsschritt.)
+      Summenvergleich brauchte relative Toleranz [1e-9] gegen Akkumulationsrauschen.
+      Laufzeit-Port 2026-07-14 FERTIG (Sol, Scheiben 1–7 nach `docs/DB_PORT_INVENTORY.md`):
+      kompletter `db.py`-Bestand [users/sessions/notifications/strategy_configs/trades/
+      trade_events/trade_ticks/OMS/Maintenance] läuft über den `db_backend`-Seam mit
+      `DB_BACKEND=sqlite|postgres` [Default sqlite, Verhalten bitgleich]; Zeitvertrag
+      [Python-UTC-Strings, nie Server-Defaults], insert_id/RETURNING, CAS+Event in derselben
+      Transaktion, Netzwerkaufrufe außerhalb von Transaktionen, Postgres-Startup nur mit
+      Schema-Readiness-Prüfung [kein SQLite-Migrator]. Jede Scheibe einzeln gegen das ECHTE
+      VPS-Postgres bewiesen [Contract-Suite, zuletzt 63 passed inkl. OMS]; zwei weitere echte
+      Fehler dabei gefangen und gefixt [Contract-Tests schrieben auf die Produktions-DSN;
+      notifications.ts kam aus dem Server-Default im falschen Format]. Suite 847 passed/
+      25 skipped. OFFEN: nur noch Scheibe 8 [Final-Sync + Umschalten + Beobachtungsfenster —
+      braucht Deploy des aktuellen main auf den VPS und einen abgestimmten Zeitpunkt außerhalb
+      der US-Handelszeit] und Scheibe 9 [Aufräumen des Dual-Backend-Codes nach Stabilisierung].)
 - [x] Domänenobjekte definieren: User, RiskProfile, BrokerConnection, Strategy, StrategyVersion, Signal,
       SignalCandidate, TradeIntent, RiskDecision, Order, OrderEvent, Fill, Position, PositionEvent, KillSwitch, AuditEvent
       (`stockbot/core/domain.py`: reine, IO-freie Dataclasses + Status-Enums nach Plan.md §9.2/§9.4/§11.1/§12.1;
