@@ -16,11 +16,12 @@ import json
 import hashlib
 import logging
 import secrets
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
 import yfinance as yf
+from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 
 from stockbot import config
 from stockbot.config import ENCRYPTION_KEY, MAX_LEVERAGE
@@ -231,14 +232,46 @@ CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id)
 
 def init_db():
     """Legt data/-Ordner und Tabellen an (idempotent). Beim Start einmal aufrufen."""
+    if config.DB_BACKEND == "postgres":
+        _migrate()
+        return
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
         conn.executescript(SCHEMA_SQL)
         _migrate(conn)
 
 
-def _migrate(conn: sqlite3.Connection):
+_EXPECTED_POSTGRES_TABLES = frozenset({
+    "users", "trades", "trade_ticks", "trades_archive", "trade_ticks_archive",
+    "sessions", "notifications", "strategy_configs", "trade_events", "trade_intents",
+    "orders", "order_events",
+})
+
+
+def _check_postgres_schema_readiness() -> None:
+    """Read-only startup guard; PostgreSQL schema ownership stays exclusively with Alembic."""
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = current_schema()"
+        )
+    present = {row["table_name"] for row in rows}
+    missing = sorted(_EXPECTED_POSTGRES_TABLES - present)
+    if missing:
+        raise RuntimeError(
+            "PostgreSQL-Schema nicht bereit; fehlende Tabellen: "
+            f"{', '.join(missing)}. Alembic upgrade head ausführen."
+        )
+
+
+def _migrate(conn: sqlite3.Connection | None = None):
     """Additive Schema-Migrationen für bestehende Datenbanken (idempotent)."""
+    if config.DB_BACKEND == "postgres":
+        _check_postgres_schema_readiness()
+        _migrate_leverage_values()
+        return
+    if conn is None:
+        raise ValueError("SQLite-Migration benötigt eine SQLite-Verbindung")
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
     if "dashboard_token" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN dashboard_token TEXT")
@@ -410,36 +443,47 @@ def _migrate(conn: sqlite3.Connection):
     """)
 
 
-def _migrate_leverage_values(conn: sqlite3.Connection):
+def _migrate_leverage_values(conn: sqlite3.Connection | None = None):
     """TSAFE-002: klemmt bestehende Hebel-Altwerte > `MAX_LEVERAGE` auf `MAX_LEVERAGE` — sowohl
     `users.leverage` als auch der Hebel im gespeicherten `signal_json` noch offener Trades
     (pending/active/broker_pending). Läuft bei jedem Start erneut (idempotent) und heilt so auch
     Datensätze, die vor der Einführung des harten Server-Caps in `set_leverage`/`set_trade_leverage`
     entstanden sind. Abgeschlossene Trades bleiben als historischer Datensatz unverändert."""
-    n_users = conn.execute(
-        "UPDATE users SET leverage = ? WHERE leverage > ?", (MAX_LEVERAGE, MAX_LEVERAGE)
-    ).rowcount
+    # Startup is operationally single-run. The updates are nevertheless idempotent so a
+    # repeated process start is harmless on both backends.
+    if conn is not None:
+        transaction = db_backend._SqliteTransaction(conn)
+        manager = nullcontext(transaction)
+    else:
+        manager = _database().transaction()
+    with manager as transaction:
+        n_users = transaction.execute(
+            "UPDATE users SET leverage = :cap WHERE leverage > :cap", {"cap": MAX_LEVERAGE}
+        )
+        rows = transaction.all(
+            "SELECT id, signal_json FROM trades "
+            "WHERE status IN ('pending', 'active', 'broker_pending')"
+        )
+        n_trades = 0
+        for row in rows:
+            try:
+                sig = json.loads(row["signal_json"])
+            except Exception:
+                continue
+            changed = False
+            for key in ("leverage", "effective_leverage"):
+                val = sig.get(key)
+                if val is not None and float(val) > MAX_LEVERAGE:
+                    sig[key] = MAX_LEVERAGE
+                    changed = True
+            if changed:
+                transaction.execute(
+                    "UPDATE trades SET signal_json = :signal_json WHERE id = :trade_id",
+                    {"signal_json": json.dumps(sig), "trade_id": row["id"]},
+                )
+                n_trades += 1
     if n_users:
         log.info(f"Migration: {n_users} users.leverage-Altwert(e) > {MAX_LEVERAGE:g}x auf {MAX_LEVERAGE:g}x geklemmt.")
-
-    n_trades = 0
-    rows = conn.execute(
-        "SELECT id, signal_json FROM trades WHERE status IN ('pending', 'active', 'broker_pending')"
-    ).fetchall()
-    for row in rows:
-        try:
-            sig = json.loads(row["signal_json"])
-        except Exception:
-            continue
-        changed = False
-        for key in ("leverage", "effective_leverage"):
-            val = sig.get(key)
-            if val is not None and float(val) > MAX_LEVERAGE:
-                sig[key] = MAX_LEVERAGE
-                changed = True
-        if changed:
-            conn.execute("UPDATE trades SET signal_json = ? WHERE id = ?", (json.dumps(sig), row["id"]))
-            n_trades += 1
     if n_trades:
         log.info(f"Migration: {n_trades} offene(r) Trade(s) mit Hebel-Altwert "
                  f"> {MAX_LEVERAGE:g}x auf {MAX_LEVERAGE:g}x geklemmt.")
@@ -464,17 +508,16 @@ def _today() -> str:
 
 def get_order_by_idempotency_key(idempotency_key: str) -> dict | None:
     """Return the one OMS order belonging to a user action, if it exists."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM orders WHERE idempotency_key = ?", (idempotency_key,)
-        ).fetchone()
-    return dict(row) if row else None
+    with _database().transaction() as transaction:
+        return transaction.one(
+            "SELECT * FROM orders WHERE idempotency_key = :idempotency_key",
+            {"idempotency_key": idempotency_key},
+        )
 
 
 def get_oms_order(order_id: int) -> dict | None:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    return dict(row) if row else None
+    with _database().transaction() as transaction:
+        return transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
 
 
 def create_oms_order(intent, *, ticker: str, qty: float | None,
@@ -485,45 +528,49 @@ def create_oms_order(intent, *, ticker: str, qty: float | None,
     wins the same idempotency key, this call returns that order with ``False``.
     """
     try:
-        with _connect() as conn:
-            existing = conn.execute(
-                "SELECT * FROM orders WHERE idempotency_key = ?", (intent.idempotency_key,)
-            ).fetchone()
+        with _database().transaction() as transaction:
+            existing = transaction.one(
+                "SELECT * FROM orders WHERE idempotency_key = :idempotency_key",
+                {"idempotency_key": intent.idempotency_key},
+            )
             if existing:
-                return dict(existing), False
-            cur = conn.execute(
+                return existing, False
+            intent_id = transaction.insert_id(
                 """INSERT INTO trade_intents
                    (user_id, signal_id, requested_action, accepted_exit_policy,
                     source_channel, created_at, idempotency_key)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (intent.user_id, intent.signal_id, intent.requested_action,
-                 intent.accepted_exit_policy, intent.source_channel, intent.created_at,
-                 intent.idempotency_key),
+                   VALUES (:user_id, :signal_id, :requested_action, :accepted_exit_policy,
+                           :source_channel, :created_at, :idempotency_key)""",
+                {"user_id": intent.user_id, "signal_id": intent.signal_id,
+                 "requested_action": intent.requested_action,
+                 "accepted_exit_policy": intent.accepted_exit_policy,
+                 "source_channel": intent.source_channel, "created_at": intent.created_at,
+                 "idempotency_key": intent.idempotency_key},
             )
-            intent_id = int(cur.lastrowid)
-            cur = conn.execute(
+            order_id = transaction.insert_id(
                 """INSERT INTO orders
                    (trade_intent_id, user_id, ticker, side, qty, notional,
                     limit_price, status, idempotency_key)
-                   VALUES (?, ?, ?, 'buy', ?, ?, ?, 'created', ?)""",
-                (intent_id, intent.user_id, ticker, qty, notional, limit_price,
-                 intent.idempotency_key),
+                   VALUES (:intent_id, :user_id, :ticker, 'buy', :qty, :notional,
+                           :limit_price, 'created', :idempotency_key)""",
+                {"intent_id": intent_id, "user_id": intent.user_id, "ticker": ticker,
+                 "qty": qty, "notional": notional, "limit_price": limit_price,
+                 "idempotency_key": intent.idempotency_key},
             )
-            order_id = int(cur.lastrowid)
             client_order_id = f"oms-{order_id}"
-            conn.execute(
-                "UPDATE orders SET client_order_id = ? WHERE id = ?",
-                (client_order_id, order_id),
+            transaction.execute(
+                "UPDATE orders SET client_order_id = :client_order_id WHERE id = :order_id",
+                {"client_order_id": client_order_id, "order_id": order_id},
             )
-            conn.execute(
+            transaction.execute(
                 """INSERT INTO order_events
                    (order_id, event_type, from_status, to_status, payload_json)
-                   VALUES (?, 'created', NULL, 'created', '{}')""",
-                (order_id,),
+                   VALUES (:order_id, 'created', NULL, 'created', '{}')""",
+                {"order_id": order_id},
             )
-            row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-            return dict(row), True
-    except sqlite3.IntegrityError:
+            row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
+            return row, True
+    except (sqlite3.IntegrityError, SQLAlchemyIntegrityError):
         existing = get_order_by_idempotency_key(intent.idempotency_key)
         if existing is None:
             raise
@@ -535,67 +582,73 @@ def transition_oms_order(order_id: int, *, from_status: str, to_status: str,
                          broker_event_id: str | None = None, payload: dict | None = None,
                          rejection_reason: str | None = None) -> dict:
     """Update an order and append its event in the same transaction."""
-    with _connect() as conn:
-        cur = conn.execute(
+    with _database().transaction() as transaction:
+        changed = transaction.execute(
             """UPDATE orders
-               SET status = ?, broker_order_id = COALESCE(?, broker_order_id),
-                   rejection_reason = COALESCE(?, rejection_reason),
-                   updated_at = datetime('now')
-               WHERE id = ? AND status = ?""",
-            (to_status, broker_order_id, rejection_reason, order_id, from_status),
+               SET status = :to_status, broker_order_id = COALESCE(:broker_order_id, broker_order_id),
+                   rejection_reason = COALESCE(:rejection_reason, rejection_reason),
+                   updated_at = :updated_at
+               WHERE id = :order_id AND status = :from_status""",
+            {"to_status": to_status, "broker_order_id": broker_order_id,
+             "rejection_reason": rejection_reason, "updated_at": _utc_timestamp(),
+             "order_id": order_id, "from_status": from_status},
         )
-        if cur.rowcount != 1:
-            current = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if changed != 1:
+            current = transaction.one("SELECT status FROM orders WHERE id = :order_id", {"order_id": order_id})
             actual = current["status"] if current else "missing"
             raise RuntimeError(
                 f"OMS order {order_id} transition race: expected {from_status}, found {actual}"
             )
-        conn.execute(
+        transaction.execute(
             """INSERT INTO order_events
                (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (order_id, event_type or to_status, from_status, to_status, broker_event_id,
-             json.dumps(payload or {}, default=str)),
+               VALUES (:order_id, :event_type, :from_status, :to_status, :broker_event_id, :payload_json)""",
+            {"order_id": order_id, "event_type": event_type or to_status,
+             "from_status": from_status, "to_status": to_status,
+             "broker_event_id": broker_event_id,
+             "payload_json": json.dumps(payload or {}, default=str)},
         )
-        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    return dict(row)
+        row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
+    return row
 
 
 def record_oms_order_event(order_id: int, *, status: str, event_type: str,
                            broker_event_id: str | None = None, payload: dict | None = None,
                            broker_order_id: str | None = None) -> dict:
     """Append a broker event which does not change the domain order status."""
-    with _connect() as conn:
-        cur = conn.execute(
+    with _database().transaction() as transaction:
+        changed = transaction.execute(
             """UPDATE orders
-               SET broker_order_id = COALESCE(?, broker_order_id),
-                   updated_at = datetime('now')
-               WHERE id = ? AND status = ?""",
-            (broker_order_id, order_id, status),
+               SET broker_order_id = COALESCE(:broker_order_id, broker_order_id),
+                   updated_at = :updated_at
+               WHERE id = :order_id AND status = :status""",
+            {"broker_order_id": broker_order_id, "updated_at": _utc_timestamp(),
+             "order_id": order_id, "status": status},
         )
-        if cur.rowcount != 1:
-            current = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if changed != 1:
+            current = transaction.one("SELECT status FROM orders WHERE id = :order_id", {"order_id": order_id})
             actual = current["status"] if current else "missing"
             raise RuntimeError(
                 f"OMS order {order_id} event race: expected {status}, found {actual}"
             )
-        conn.execute(
+        transaction.execute(
             """INSERT INTO order_events
                (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (order_id, event_type, status, status, broker_event_id,
-             json.dumps(payload or {}, default=str)),
+               VALUES (:order_id, :event_type, :status, :status, :broker_event_id, :payload_json)""",
+            {"order_id": order_id, "event_type": event_type, "status": status,
+             "broker_event_id": broker_event_id,
+             "payload_json": json.dumps(payload or {}, default=str)},
         )
-        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    return dict(row)
+        row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
+    return row
 
 
 def get_oms_order_events(order_id: int) -> list[dict]:
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM order_events WHERE order_id = ? ORDER BY id", (order_id,)
-        ).fetchall()
-    return [dict(row) for row in rows]
+    with _database().transaction() as transaction:
+        return transaction.all(
+            "SELECT * FROM order_events WHERE order_id = :order_id ORDER BY id",
+            {"order_id": order_id},
+        )
 
 
 def _log_event(transaction: db_backend.DbTransaction, *, trade_id: int, user_id: int, ticker: str,
@@ -1413,12 +1466,13 @@ def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
     Gibt die Liste der Korrekturen zurück (für Logging). Gegenstück zum Fill-Guard in
     `mark_broker_filled` (verhindert neue Fälle)."""
     fixed: list[dict] = []
-    with _connect() as conn:
-        rows = conn.execute(
+    # Operationally single-run; the plausibility predicate makes repeats idempotent.
+    with _database().transaction() as transaction:
+        rows = transaction.all(
             "SELECT id, ticker, direction, signal_json, entry, exit, pnl_pct, pnl_eur "
-            "FROM trades WHERE user_id = ? AND status = 'closed'",
-            (user_id,),
-        ).fetchall()
+            "FROM trades WHERE user_id = :user_id AND status = 'closed'",
+            {"user_id": user_id},
+        )
         for r in rows:
             try:
                 sig = json.loads(r["signal_json"]) or {}
@@ -1439,9 +1493,11 @@ def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
             # Geld-Skala (trade_size×Hebel/100) aus dem Altwert ableiten → konsistente Neuberechnung.
             k = (r["pnl_eur"] / r["pnl_pct"]) if r["pnl_pct"] else 0.0
             new_eur = round(k * new_pct, 2)
-            conn.execute(
-                "UPDATE trades SET entry = ?, pnl_pct = ?, pnl_eur = ? WHERE id = ?",
-                (round(new_entry, 6), round(new_pct, 4), new_eur, r["id"]),
+            transaction.execute(
+                "UPDATE trades SET entry = :entry, pnl_pct = :pnl_pct, pnl_eur = :pnl_eur "
+                "WHERE id = :trade_id",
+                {"entry": round(new_entry, 6), "pnl_pct": round(new_pct, 4),
+                 "pnl_eur": new_eur, "trade_id": r["id"]},
             )
             fixed.append({"ticker": r["ticker"], "old_entry": float(e), "new_entry": new_entry,
                           "old_eur": r["pnl_eur"], "new_eur": new_eur})

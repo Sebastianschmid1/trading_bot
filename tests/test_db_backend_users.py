@@ -17,6 +17,7 @@ from sqlalchemy.engine import make_url
 
 from stockbot import config
 from stockbot.core import db, db_backend, db_pool
+from stockbot.core.domain import TradeIntent
 from stockbot.optimize import lab
 from stockbot.paths import PROJECT_ROOT
 
@@ -518,3 +519,110 @@ def test_lab_trade_read_api_applies_utc_cutoff(users_backend):
     result = lab.reality_check(None, days=7, min_trades=1)
     assert result["n"] == 1
     assert result["live_win_rate"] == 100.0
+
+
+def _contract_intent(key: str = "contract:oms:1") -> TradeIntent:
+    return TradeIntent(
+        user_id=CHAT, signal_id=17, requested_action="accept",
+        accepted_exit_policy="strategy-default", source_channel="contract",
+        created_at="2026-07-14T12:00:00+00:00", idempotency_key=key,
+    )
+
+
+def test_oms_create_idempotency_and_transaction_recovery_contract(users_backend):
+    intent = _contract_intent()
+    first, created = db.create_oms_order(
+        intent, ticker="AAPL", qty=2.5, notional=None, limit_price=201.25
+    )
+    duplicate, duplicate_created = db.create_oms_order(
+        intent, ticker="IGNORED", qty=None, notional=999.0
+    )
+
+    assert created is True and duplicate_created is False
+    assert first == duplicate
+    assert isinstance(first["id"], int) and isinstance(first["trade_intent_id"], int)
+    assert first["client_order_id"] == f'oms-{first["id"]}'
+    assert db.get_oms_order(first["id"]) == first
+    assert db.get_order_by_idempotency_key(intent.idempotency_key) == first
+    events = db.get_oms_order_events(first["id"])
+    assert len(events) == 1
+    assert {key: events[0][key] for key in (
+        "event_type", "from_status", "to_status", "payload_json",
+    )} == {
+        "event_type": "created", "from_status": None, "to_status": "created",
+        "payload_json": "{}",
+    }
+    # The query after the duplicate proves that no failed/aborted transaction leaks out.
+    with db._database().transaction() as transaction:
+        assert transaction.one(
+            "SELECT count(*) AS n FROM orders WHERE idempotency_key = :key",
+            {"key": intent.idempotency_key},
+        )["n"] == 1
+
+
+def test_oms_transition_cas_and_status_preserving_event_contract(users_backend):
+    order, _ = db.create_oms_order(
+        _contract_intent("contract:oms:cas"), ticker="MSFT", qty=None, notional=500.0
+    )
+    transitioned = db.transition_oms_order(
+        order["id"], from_status="created", to_status="validated",
+        payload={"valid": True},
+    )
+    assert transitioned["status"] == "validated"
+    with pytest.raises(
+        RuntimeError,
+        match=rf"OMS order {order['id']} transition race: expected created, found validated",
+    ):
+        db.transition_oms_order(order["id"], from_status="created", to_status="submitted")
+
+    recorded = db.record_oms_order_event(
+        order["id"], status="validated", event_type="broker_heartbeat",
+        broker_event_id="evt-1", payload={"sequence": 1}, broker_order_id="broker-1",
+    )
+    assert recorded["status"] == "validated"
+    assert recorded["broker_order_id"] == "broker-1"
+    events = db.get_oms_order_events(order["id"])
+    assert [(event["event_type"], event["from_status"], event["to_status"])
+            for event in events] == [
+        ("created", None, "created"),
+        ("validated", "created", "validated"),
+        ("broker_heartbeat", "validated", "validated"),
+    ]
+
+
+def test_maintenance_healing_is_idempotent_contract(users_backend):
+    with db._database().transaction() as transaction:
+        transaction.execute(
+            "UPDATE users SET leverage = :value WHERE user_id = :user_id",
+            {"value": config.MAX_LEVERAGE + 10, "user_id": CHAT},
+        )
+        transaction.execute(
+            """INSERT INTO trades
+               (user_id, trade_date, ticker, direction, signal_json, status, entry, exit,
+                pnl_pct, pnl_eur)
+               VALUES (:user_id, '2026-07-14', 'HEALLEV', 'long', :open_signal,
+                       'active', 10, NULL, NULL, NULL),
+                      (:user_id, '2026-07-13', 'HEALPNL', 'long', :closed_signal,
+                       'closed', 0.25, 25, 9900, 990)""",
+            {"user_id": CHAT,
+             "open_signal": json.dumps({"price": 10, "leverage": config.MAX_LEVERAGE + 5,
+                                         "effective_leverage": config.MAX_LEVERAGE + 6}),
+             "closed_signal": json.dumps({"price": 20})},
+        )
+
+    db._migrate_leverage_values()
+    db._migrate_leverage_values()
+    assert db.get_user(CHAT)["leverage"] == config.MAX_LEVERAGE
+    assert db.get_trade(CHAT, "HEALLEV")["signal"]["leverage"] == config.MAX_LEVERAGE
+    assert len(db.heal_absurd_closed_pnl(CHAT)) == 1
+    assert db.heal_absurd_closed_pnl(CHAT) == []
+
+
+def test_postgres_startup_readiness_contract(users_backend):
+    if users_backend != "postgres":
+        pytest.skip("PostgreSQL-only readiness contract")
+    db.init_db()
+    with db._database().transaction() as transaction:
+        transaction.execute("DROP TABLE order_events")
+    with pytest.raises(RuntimeError, match="order_events.*Alembic upgrade head ausführen"):
+        db.init_db()
