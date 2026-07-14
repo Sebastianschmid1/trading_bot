@@ -35,6 +35,9 @@ TABLES = (
     "notifications",
     "strategy_configs",
     "trade_events",
+    "trade_intents",
+    "orders",
+    "order_events",
 )
 
 

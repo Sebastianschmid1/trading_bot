@@ -12,13 +12,15 @@ BLOB-Spalten (`broker_api_key`/`_secret`) verhalten sich auf Postgres (`BYTEA`) 
 auf SQLite. Wird übersprungen, wenn kein lokaler Postgres erreichbar ist.
 """
 
+import sqlite3
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Table, create_engine
 
 from stockbot import config
 from stockbot.core import db, db_export, db_migrate
@@ -62,12 +64,36 @@ def _seed_source_db(tmp_path: Path) -> Path:
     db.reset_user_trades(CHAT_A)
     db.add_pending(CHAT_A, {"ticker": "AAPL", "direction": "long"}, message_id=3)
     db.add_pending(CHAT_B, {"ticker": "MSFT", "direction": "long"}, message_id=2)
+    db.create_oms_order(
+        SimpleNamespace(
+            user_id=CHAT_A,
+            signal_id=9_000_000_001,
+            requested_action="buy",
+            accepted_exit_policy="normal",
+            source_channel="test",
+            created_at="2026-07-14 10:00:00",
+            idempotency_key="oms-migration-1",
+        ),
+        ticker="AAPL",
+        qty=2.5,
+        notional=250.0,
+    )
     return db.DB_FILE
 
 
 def _new_target_engine(tmp_path: Path, name: str):
     target_path = tmp_path / name
     command.upgrade(_alembic_config(target_path), "head")
+    return create_engine(f"sqlite:///{target_path}", future=True)
+
+
+def _new_runtime_sqlite_engine(tmp_path: Path, name: str):
+    target_path = tmp_path / name
+    conn = sqlite3.connect(target_path)
+    try:
+        conn.executescript(db.SCHEMA_SQL)
+    finally:
+        conn.close()
     return create_engine(f"sqlite:///{target_path}", future=True)
 
 
@@ -83,6 +109,9 @@ def test_migrate_snapshot_row_and_sum_counts_match(tmp_path):
     assert inserted["trades"] == 2
     assert inserted["trades_archive"] == 1
     assert inserted["trade_ticks_archive"] == 1
+    assert inserted["trade_intents"] == 1
+    assert inserted["orders"] == 1
+    assert inserted["order_events"] == 1
     mismatches = db_migrate.compare_snapshot_to_engine(data, target_engine)
     assert mismatches == {}
 
@@ -91,6 +120,26 @@ def test_migrate_snapshot_row_and_sum_counts_match(tmp_path):
             "SELECT user_id FROM users WHERE username=?", ("alice",)
         ).scalar_one()
     assert migrated_user_id == CHAT_A
+
+
+def test_sequence_sync_allows_generated_id_after_explicit_snapshot_ids(tmp_path):
+    _seed_source_db(tmp_path)
+    snapshot = db_export.export_snapshot(tmp_path / "exports", stamp="20260714T000001Z")
+    data = db_migrate.load_snapshot(snapshot)
+    # Das Laufzeit-SQLite-Schema nutzt INTEGER PRIMARY KEY AUTOINCREMENT. Die
+    # Alembic-Repräsentation bleibt dagegen bewusst BigInteger für PostgreSQL.
+    target_engine = _new_runtime_sqlite_engine(tmp_path, "target_sequence.db")
+    db_migrate.migrate_snapshot_to_engine(data, target_engine)
+
+    with target_engine.begin() as conn:
+        result = conn.exec_driver_sql(
+            "INSERT INTO trade_intents "
+            "(user_id, signal_id, requested_action, accepted_exit_policy, source_channel, "
+            "created_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (CHAT_A, 9_000_000_002, "buy", "normal", "test", "2026-07-14 10:01:00", "next-id"),
+        )
+        new_id = result.lastrowid
+    assert new_id > max(row["id"] for row in data["tables"]["trade_intents"])
 
 
 def test_migrate_detects_missing_row(tmp_path):
@@ -179,6 +228,7 @@ def test_migrate_snapshot_row_and_sum_counts_match_on_real_postgres(tmp_path):
 
         assert inserted["users"] == 2
         assert inserted["trades"] == 2
+        assert inserted["orders"] == 1
         mismatches = db_migrate.compare_snapshot_to_engine(data, target_engine)
         assert mismatches == {}
 
@@ -190,6 +240,21 @@ def test_migrate_snapshot_row_and_sum_counts_match_on_real_postgres(tmp_path):
         # psycopg2 liefert BYTEA als memoryview zurück, nicht als bytes (anders als SQLite).
         assert isinstance(row[1], (bytes, bytearray, memoryview))
         assert db.decrypt(bytes(row[1])) == "key-a"
+
+        trade_intents = Table("trade_intents", MetaData(), autoload_with=target_engine)
+        with target_engine.begin() as conn:
+            result = conn.execute(
+                trade_intents.insert().values(
+                    user_id=CHAT_A,
+                    signal_id=9_000_000_002,
+                    requested_action="buy",
+                    accepted_exit_policy="normal",
+                    source_channel="test",
+                    created_at="2026-07-14 10:01:00",
+                    idempotency_key="next-pg-id",
+                )
+            )
+            assert result.inserted_primary_key[0] > data["tables"]["trade_intents"][0]["id"]
     finally:
         target_engine.dispose()
         command.downgrade(pg_cfg, "base")
