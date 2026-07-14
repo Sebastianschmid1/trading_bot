@@ -453,7 +453,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 6 — Portfolio-Allocator, Shadow & Reporting `P2` · Epic: STRAT/RES
 
-- [ ] **STRAT-006** Portfolio-Allocator (Inputs: Candidates, Positionen, offene Orders, Risikoprofil, Sektor/Korrelation, Kosten, Prioritäten → Auswahl + Ablehnungsgründe + reserviertes Budget)
+- [x] **STRAT-006** Portfolio-Allocator (Inputs: Candidates, Positionen, offene Orders, Risikoprofil, Sektor/Korrelation, Kosten, Prioritäten → Auswahl + Ablehnungsgründe + reserviertes Budget)
+      (`stockbot/core/allocator.py` [Sol] — deterministische Schicht ÜBER `risk.pretrade_check`:
+      Strategie-Rundlauf nach expliziter Priorität [kein Rohscore-Quervergleich, STRAT-004-
+      konform], sequenzielle Zuteilung mit kumulativem Exposure, Positionslimit inkl. offener
+      Orders + bereits Zugeteiltem, Risikobudget-Reservierung via `risk_sizing`. Rejected mit
+      klaren Codes [duplicate_ticker/max_positions_reached/exposure_cap/budget_exhausted/…].
+      Noch von KEINEM Live-Codepfad genutzt — Wiring in den Sende-/Accept-Pfad separat.
+      Suite 821 passed/4 skipped.)
 - [x] **RES-001** Shadow-Modus: Signale auf Live-Daten, nicht ausführbar, simulierte Entry/Exit, getrennt ausgewertet
       (`stockbot/research/shadow.py` [Sol] — `to_shadow_signal` prägt Strategie-Signale als
       `Mode.SHADOW`; `simulate_entry` [adverse Slippage] / `simulate_exit` [konservativ
