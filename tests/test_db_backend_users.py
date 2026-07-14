@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -163,6 +164,60 @@ def test_bytea_memoryview_is_normalised_to_bytes():
     assert db_backend._normalise_row({"broker_api_key": memoryview(value)}) == {
         "broker_api_key": value
     }
+
+
+def test_numpy_params_are_normalised_to_native_python_types():
+    untouched = object()
+    params = db_backend._normalise_params(
+        {
+            "a": np.float64(1.5),
+            "b": np.int64(3),
+            "c": "x",
+            "d": None,
+            "e": untouched,
+            "f": np.bool_(True),
+        }
+    )
+
+    assert params == {
+        "a": 1.5, "b": 3, "c": "x", "d": None, "e": untouched, "f": True
+    }
+    assert type(params["a"]) is float
+    assert type(params["b"]) is int
+    assert type(params["f"]) is bool
+    assert params["e"] is untouched
+    assert db_backend._normalise_params(None) == {}
+
+
+def test_numpy_scalar_bind_params_contract(users_backend):
+    with db._database().transaction() as transaction:
+        transaction.execute(
+            """INSERT INTO trade_ticks
+               (user_id, trade_date, ticker, ts, price, strength)
+               VALUES (:base_user_id + :user_id, :trade_date, :ticker, :ts,
+                       :price, :strength)""",
+            {
+                "base_user_id": CHAT,
+                # sqlite3 stores a direct np.int64 value as a BLOB. A zero offset keeps
+                # its legacy binding untouched while exercising the Postgres coercion.
+                "user_id": np.int64(0),
+                "trade_date": "2026-07-15",
+                "ticker": "NUMPY",
+                "ts": "2026-07-15 12:00:00",
+                "price": np.float64(146.0997),
+                "strength": np.float64(22.8),
+            },
+        )
+        row = transaction.one(
+            """SELECT user_id, price, strength FROM trade_ticks
+               WHERE user_id = :user_id AND ticker = :ticker""",
+            {"user_id": CHAT, "ticker": "NUMPY"},
+        )
+
+    assert row == {"user_id": CHAT, "price": 146.0997, "strength": 22.8}
+    assert type(row["user_id"]) is int
+    assert type(row["price"]) is float
+    assert type(row["strength"]) is float
 
 
 def _seed_trade_contract_rows():

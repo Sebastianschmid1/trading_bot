@@ -9,6 +9,11 @@ from sqlalchemy import text
 
 from stockbot.core import db_pool
 
+try:
+    import numpy
+except ImportError:  # pragma: no cover - numpy is an application dependency
+    numpy = None
+
 
 class DbTransaction(Protocol):
     def one(self, statement: str, params: Mapping[str, Any]) -> dict | None: ...
@@ -32,6 +37,15 @@ def _normalise_value(value: Any) -> Any:
 
 def _normalise_row(row: Mapping[str, Any]) -> dict:
     return {key: _normalise_value(value) for key, value in dict(row).items()}
+
+
+def _normalise_params(params: Mapping[str, Any] | None) -> dict:
+    if numpy is None:
+        return dict(params or {})
+    return {
+        key: value.item() if isinstance(value, numpy.generic) else value
+        for key, value in (params or {}).items()
+    }
 
 
 class _SqliteTransaction:
@@ -69,18 +83,24 @@ class _PostgresTransaction:
         self._connection = connection
 
     def one(self, statement: str, params: Mapping[str, Any]) -> dict | None:
-        row = self._connection.execute(text(statement), params).mappings().first()
+        row = self._connection.execute(
+            text(statement), _normalise_params(params)
+        ).mappings().first()
         return _normalise_row(row) if row is not None else None
 
     def all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict]:
-        rows = self._connection.execute(text(statement), params or {}).mappings().all()
+        rows = self._connection.execute(
+            text(statement), _normalise_params(params)
+        ).mappings().all()
         return [_normalise_row(row) for row in rows]
 
     def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:
-        return self._connection.execute(text(statement), params or {}).rowcount
+        return self._connection.execute(text(statement), _normalise_params(params)).rowcount
 
     def insert_id(self, statement: str, params: Mapping[str, Any]) -> int:
-        value = self._connection.execute(text(f"{statement} RETURNING id"), params).scalar_one_or_none()
+        value = self._connection.execute(
+            text(f"{statement} RETURNING id"), _normalise_params(params)
+        ).scalar_one_or_none()
         return int(value) if value is not None else 0
 
 
