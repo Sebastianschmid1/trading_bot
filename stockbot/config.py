@@ -314,7 +314,6 @@ DEFAULT_SL_TP_MODE = "normal"
 # `db.set_trade_leverage` klemmen serverseitig hart auf `MAX_LEVERAGE` (Default 1×) — die Liste
 # bleibt nur als Referenz/Rückwärtskompatibilität für alte Datensätze stehen.
 LEVERAGE_CHOICES = [1, 1.5, 2, 3, 5, 10]
-DEFAULT_LEVERAGE = 1.0
 
 # ── Smart-Money (was große Trader handeln: Insider + Institutionen) ──────────
 # Der Voll-Scan (1 yfinance-Abfrage pro Aktie) dauert Minuten und läuft daher
@@ -382,10 +381,27 @@ try:
     MAX_LEVERAGE = float(os.getenv("MAX_LEVERAGE", "1") or 1)
 except ValueError:
     MAX_LEVERAGE = 1.0
+try:
+    DEFAULT_LEVERAGE = float(os.getenv("DEFAULT_LEVERAGE", "1") or 1)
+except ValueError:
+    DEFAULT_LEVERAGE = 1.0
+
+# Bewusste Voraussetzung für jeden Hebel über 1×: Margin muss explizit erlaubt sein.
+if not ALLOW_MARGIN:
+    MAX_LEVERAGE = 1.0
+
+# Der globale Default bleibt stets innerhalb des sicheren Bereichs und des konfigurierten Caps.
+DEFAULT_LEVERAGE = max(1.0, min(DEFAULT_LEVERAGE, MAX_LEVERAGE))
 
 # Abgeleitetes Gate: Live-Handel ist NUR aktiv, wenn beide Bedingungen bewusst gesetzt sind.
 # Der Broker-Layer nutzt dies als serverseitige Order-Sperre.
 LIVE_TRADING_ENABLED = ALLOW_LIVE_TRADING and TRADING_MODE == "live"
+
+# TSAFE-002: Erhöhter Hebel ist ausschließlich im Paper-Modus möglich. Sobald Live-Handel
+# scharf ist, überschreibt diese harte Sperre jede Margin-/Hebel-Konfiguration mit 1×.
+if LIVE_TRADING_ENABLED:
+    MAX_LEVERAGE = 1.0
+    DEFAULT_LEVERAGE = 1.0
 
 # Harte Absicherung: Ist Live nicht freigeschaltet, wird der Broker zwingend auf Paper gestellt —
 # selbst wenn versehentlich ALPACA_PAPER=false in der .env steht. So kann kein Standard-/Nutzer-Client
