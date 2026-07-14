@@ -711,12 +711,15 @@ def _parse_regions(raw: str | None) -> list[str]:
 
 def get_or_create_user(user_id: int, username: str | None = None) -> dict:
     """Holt das Nutzerprofil, legt bei Bedarf einen neuen 'in_progress'-Datensatz an."""
+    now = _utc_timestamp()
     with _database().transaction() as transaction:
         transaction.execute(
-            """INSERT INTO users (user_id, username, onboarding_state)
-               VALUES (:user_id, :username, 'in_progress')
+            """INSERT INTO users
+               (user_id, username, onboarding_state, created_at, updated_at)
+               VALUES (:user_id, :username, 'in_progress', :created_at, :updated_at)
                ON CONFLICT (user_id) DO NOTHING""",
-            {"user_id": user_id, "username": username},
+            {"user_id": user_id, "username": username,
+             "created_at": now, "updated_at": now},
         )
         row = transaction.one("SELECT * FROM users WHERE user_id = :user_id", {"user_id": user_id})
     return _user_to_dict(row)
@@ -1145,9 +1148,10 @@ def add_notification(user_id: int, title: str, body: str = "", type: str = "info
     """Schreibt eine In-App-Benachrichtigung. Gibt die neue id zurück."""
     with _database().transaction() as transaction:
         return transaction.insert_id(
-            "INSERT INTO notifications (user_id, type, title, body) "
-            "VALUES (:user_id, :type, :title, :body)",
-            {"user_id": user_id, "type": type, "title": title, "body": body},
+            "INSERT INTO notifications (user_id, ts, type, title, body) "
+            "VALUES (:user_id, :ts, :type, :title, :body)",
+            {"user_id": user_id, "ts": _utc_timestamp(), "type": type,
+             "title": title, "body": body},
         )
 
 

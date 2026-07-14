@@ -166,6 +166,13 @@ def test_get_or_create_user_is_idempotent(users_backend):
     assert first == second
     assert first["username"] == "first-name"
     assert first["onboarding_state"] == "in_progress"
+    with db._database().transaction() as transaction:
+        timestamps = transaction.one(
+            "SELECT created_at, updated_at FROM users WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
+    datetime.strptime(timestamps["created_at"], "%Y-%m-%d %H:%M:%S")
+    datetime.strptime(timestamps["updated_at"], "%Y-%m-%d %H:%M:%S")
 
 
 def test_simple_user_setters_roundtrip(users_backend):
@@ -247,6 +254,13 @@ def test_list_mutations_and_dashboard_tokens(users_backend):
 def test_session_lifecycle_and_expiry(users_backend):
     valid = db.create_session(CHAT, days=1)
     expired = db.create_session(CHAT, days=-1)
+    with db._database().transaction() as transaction:
+        timestamps = transaction.one(
+            "SELECT created_at, expires_at FROM sessions WHERE token = :token",
+            {"token": db._hash_token(valid)},
+        )
+    datetime.strptime(timestamps["created_at"], "%Y-%m-%d %H:%M:%S")
+    datetime.strptime(timestamps["expires_at"], "%Y-%m-%d %H:%M:%S")
     assert valid != expired
     assert db.user_id_for_session(valid) == CHAT
     assert db.user_id_for_session(expired) is None
@@ -293,6 +307,7 @@ def test_strategy_config_upsert_updates_one_row(users_backend):
     assert second["description"] == "second"
     assert second["params"] == {"threshold": 0.7}
     assert second["enabled"] is False
+    datetime.strptime(second["updated_at"], "%Y-%m-%d %H:%M:%S")
     assert [row["key"] for row in db.list_strategy_configs()] == ["ai_adaptive"]
 
 
