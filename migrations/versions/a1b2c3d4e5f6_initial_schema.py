@@ -1,7 +1,7 @@
 """Initiales Zielschema für PostgreSQL (PLAT-001)
 
 Spiegelt 1:1 das eingefrorene SQLite-Schema aus docs/DB_SCHEMA_SQLITE.md (Stand
-2026-07-11). Reine Schemaerstellung — die eigentliche Datenübernahme (Export →
+2026-07-14). Reine Schemaerstellung — die eigentliche Datenübernahme (Export →
 Transformation → Testmigration → Zeilen/Summen-Vergleich) ist ein eigener,
 späterer Checklisten-Punkt (docs/PLAN_CHECKLIST.md Phase 1).
 
@@ -96,6 +96,51 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "trades_archive",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
+        sa.Column("trade_date", sa.Text(), nullable=False),
+        sa.Column("ticker", sa.Text(), nullable=False),
+        sa.Column("direction", sa.Text(), nullable=False),
+        sa.Column("signal_json", sa.Text(), nullable=False),
+        sa.Column("message_id", sa.BigInteger(), nullable=True),
+        sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
+        sa.Column("entry", sa.Float(), nullable=True),
+        sa.Column("exit", sa.Float(), nullable=True),
+        sa.Column("pnl_eur", sa.Float(), nullable=True),
+        sa.Column("pnl_pct", sa.Float(), nullable=True),
+        sa.Column("broker_order_id", sa.Text(), nullable=True),
+        sa.Column("broker_status", sa.Text(), nullable=True),
+        sa.Column("broker_filled_qty", sa.Float(), nullable=True),
+        sa.Column("broker_filled_avg_price", sa.Float(), nullable=True),
+        sa.Column("broker_updated_at", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.Text(), nullable=False),
+        sa.Column("archived_at", sa.Text(), nullable=False),
+        sa.Column("archive_reason", sa.Text(), nullable=False),
+    )
+    op.create_index(
+        "idx_trades_archive_user_date_status",
+        "trades_archive", ["user_id", "trade_date", "status"],
+    )
+
+    op.create_table(
+        "trade_ticks_archive",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("trade_date", sa.Text(), nullable=False),
+        sa.Column("ticker", sa.Text(), nullable=False),
+        sa.Column("ts", sa.Text(), nullable=False),
+        sa.Column("price", sa.Float(), nullable=True),
+        sa.Column("strength", sa.Float(), nullable=True),
+        sa.Column("archived_at", sa.Text(), nullable=False),
+        sa.Column("archive_reason", sa.Text(), nullable=False),
+    )
+    op.create_index(
+        "idx_ticks_archive_user_date_ticker",
+        "trade_ticks_archive", ["user_id", "trade_date", "ticker", "ts"],
+    )
+
+    op.create_table(
         "sessions",
         sa.Column("token", sa.Text(), primary_key=True),
         sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.user_id"), nullable=False),
@@ -148,6 +193,10 @@ def downgrade() -> None:
     op.drop_index("idx_notifications_user", table_name="notifications")
     op.drop_table("notifications")
     op.drop_table("sessions")
+    op.drop_index("idx_ticks_archive_user_date_ticker", table_name="trade_ticks_archive")
+    op.drop_table("trade_ticks_archive")
+    op.drop_index("idx_trades_archive_user_date_status", table_name="trades_archive")
+    op.drop_table("trades_archive")
     op.drop_index("idx_ticks_user_date_ticker", table_name="trade_ticks")
     op.drop_table("trade_ticks")
     op.drop_index("idx_trades_user_date_status", table_name="trades")

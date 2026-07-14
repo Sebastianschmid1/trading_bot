@@ -2,7 +2,7 @@
 Tests für das Alembic-Migrationstooling (PLAT-001, migrations/).
 
 Führt die initiale Migration gegen eine temporäre SQLite-Datei aus (kein echter
-Postgres-Server nötig) und prüft, dass alle 7 Tabellen aus docs/DB_SCHEMA_SQLITE.md
+Postgres-Server nötig) und prüft, dass alle exportierten Tabellen aus docs/DB_SCHEMA_SQLITE.md
 angelegt werden. Reine Schema-Prüfung — keine Datenübernahme (folgt als eigener
 späterer Checklisten-Punkt).
 
@@ -30,6 +30,8 @@ BIGINT_COLUMNS = {
     "users": {"user_id"},
     "trades": {"id", "user_id", "message_id"},
     "trade_ticks": {"id", "user_id"},
+    "trades_archive": {"id", "user_id", "message_id"},
+    "trade_ticks_archive": {"id", "user_id"},
     "sessions": {"user_id"},
     "notifications": {"id", "user_id"},
     "trade_events": {"id", "trade_id", "user_id"},

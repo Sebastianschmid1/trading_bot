@@ -54,6 +54,13 @@ def _seed_source_db(tmp_path: Path) -> Path:
     db.save_profile(CHAT_A, trade_size_eur=100.0, broker_platform="alpaca",
                      broker_api_key="key-a", broker_api_secret="secret-a")
     db.add_pending(CHAT_A, {"ticker": "AAPL", "direction": "long"}, message_id=1)
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO trade_ticks (user_id, trade_date, ticker, price, strength) "
+            "VALUES (?, date('now'), 'AAPL', 100.0, 70.0)", (CHAT_A,),
+        )
+    db.reset_user_trades(CHAT_A)
+    db.add_pending(CHAT_A, {"ticker": "AAPL", "direction": "long"}, message_id=3)
     db.add_pending(CHAT_B, {"ticker": "MSFT", "direction": "long"}, message_id=2)
     return db.DB_FILE
 
@@ -74,6 +81,8 @@ def test_migrate_snapshot_row_and_sum_counts_match(tmp_path):
 
     assert inserted["users"] == 2
     assert inserted["trades"] == 2
+    assert inserted["trades_archive"] == 1
+    assert inserted["trade_ticks_archive"] == 1
     mismatches = db_migrate.compare_snapshot_to_engine(data, target_engine)
     assert mismatches == {}
 

@@ -29,6 +29,8 @@ TABLES = (
     "users",
     "trades",
     "trade_ticks",
+    "trades_archive",
+    "trade_ticks_archive",
     "sessions",
     "notifications",
     "strategy_configs",
