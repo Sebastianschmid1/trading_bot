@@ -16,7 +16,8 @@ from stockbot import config
 from stockbot.broker import client as default_broker
 from stockbot.broker import sizing
 from stockbot.core import db, risk
-from stockbot.core.domain import Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
+from stockbot.core.audit_log import new_event_id
+from stockbot.core.domain import AuditEvent, Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.core.state_machine import assert_order_transition
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class OrderManagementSystem:
         risk_checker: Callable[..., risk.RiskDecision] = risk.pretrade_check,
         order_planner: Callable[..., dict] = sizing.plan_order,
         notifier: Callable[[OMSResult], None] | None = None,
+        audit_sink: Callable[[AuditEvent], Any] | None = None,
         persistence: Any = db,
     ):
         self.signal_loader = signal_loader
@@ -82,7 +84,9 @@ class OrderManagementSystem:
         self.risk_checker = risk_checker
         self.order_planner = order_planner
         self.notifier = notifier
+        self.audit_sink = audit_sink
         self.persistence = persistence
+        self._audit_contexts: dict[int, tuple[str, str, str]] = {}
 
     def submit_intent(
         self, intent: TradeIntent, *, price: float | None = None,
@@ -145,6 +149,9 @@ class OrderManagementSystem:
             return self._finish(self._existing_result(row))
 
         order = _as_order(row, mode=signal.mode)
+        self._audit_contexts[order.id] = (
+            f"user:{intent.user_id}", intent.source_channel, intent.idempotency_key,
+        )
         order = self._transition(order, OrderStatus.VALIDATED)
         order = self._transition(order, OrderStatus.SUBMITTED)
         submit_kwargs: dict[str, Any] = {"client_order_id": order.client_order_id}
@@ -239,11 +246,42 @@ class OrderManagementSystem:
         return None
 
     def _transition(self, order: Order, target: OrderStatus, **event: Any) -> Order:
+        previous = order.status
         assert_order_transition(order.status, target)
         row = self.persistence.transition_oms_order(
             order.id, from_status=order.status.value, to_status=target.value, **event
         )
-        return _as_order(row, mode=order.mode)
+        transitioned = _as_order(row, mode=order.mode)
+        self._audit_transition(transitioned, previous, target, event)
+        return transitioned
+
+    def _audit_transition(self, order: Order, previous: OrderStatus, target: OrderStatus,
+                          metadata: Mapping[str, Any], *, action: str = "state_transition") -> None:
+        if self.audit_sink is None:
+            return
+        context = self._audit_contexts.get(order.id)
+        if context is None and hasattr(self.persistence, "get_oms_trade_intent"):
+            intent = self.persistence.get_oms_trade_intent(order.trade_intent_id)
+            if intent:
+                context = (f"user:{intent['user_id']}", intent["source_channel"],
+                           intent["idempotency_key"])
+                self._audit_contexts[order.id] = context
+        actor, source_channel, trace_id = context or (
+            f"user:{order.user_id}", "oms", order.idempotency_key or f"order:{order.id}",
+        )
+        # Audit ist fail-open: die Order-Transition ist bereits persistiert; ein Fehler im
+        # Audit-Sink (z. B. DB-Hiccup) darf den Trading-Pfad nicht brechen oder eine bereits
+        # erfolgte Transition als Fehler zurueckmelden. Nur loggen, nicht propagieren.
+        try:
+            self.audit_sink(AuditEvent(
+                event_id=new_event_id(), timestamp=db._utc_timestamp(), user_id=order.user_id,
+                actor=actor, entity_type="order", entity_id=str(order.id), action=action,
+                old_state=previous.value, new_state=target.value, trace_id=trace_id,
+                source_channel=source_channel, metadata=dict(metadata),
+            ))
+        except Exception as exc:  # pragma: no cover - defensiver Audit-Schutz
+            log.warning("OMS audit_sink failed for order_id=%s action=%s: %s",
+                        order.id, action, type(exc).__name__)
 
     def _apply_broker_status(self, order: Order, status: str,
                              payload: Mapping[str, Any],
@@ -262,7 +300,10 @@ class OrderManagementSystem:
                 broker_order_id=(str(payload.get("broker_order_id") or payload.get("id") or "")
                                  or None),
             )
-            return _as_order(row, mode=order.mode)
+            recorded = _as_order(row, mode=order.mode)
+            self._audit_transition(recorded, order.status, order.status, payload,
+                                   action="broker_event:replaced")
+            return recorded
         target = {
             "accepted": OrderStatus.ACCEPTED_BY_BROKER,
             "new": OrderStatus.ACCEPTED_BY_BROKER,
@@ -281,7 +322,10 @@ class OrderManagementSystem:
                     order.id, status=order.status.value, event_type=normalized,
                     broker_event_id=broker_event_id, payload=dict(payload),
                 )
-                return _as_order(row, mode=order.mode)
+                recorded = _as_order(row, mode=order.mode)
+                self._audit_transition(recorded, order.status, order.status, payload,
+                                       action=f"broker_event:{normalized}")
+                return recorded
             return order
         if order.status == OrderStatus.SUBMITTED and target in {
             OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,

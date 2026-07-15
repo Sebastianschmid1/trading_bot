@@ -98,8 +98,10 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
-_oms = OrderManagementSystem(signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
-                             broker_adapter=broker, persistence=db)
+_oms = OrderManagementSystem(
+    signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
+    broker_adapter=broker, persistence=db, audit_sink=db.append_audit_event,
+)
 
 
 def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:

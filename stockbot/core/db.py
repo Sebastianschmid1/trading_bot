@@ -227,6 +227,25 @@ CREATE TABLE IF NOT EXISTS order_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id       TEXT    NOT NULL UNIQUE,
+    timestamp      TEXT    NOT NULL,
+    user_id        INTEGER,
+    actor          TEXT    NOT NULL,
+    entity_type    TEXT    NOT NULL,
+    entity_id      TEXT    NOT NULL,
+    action         TEXT    NOT NULL,
+    old_state      TEXT,
+    new_state      TEXT,
+    trace_id       TEXT    NOT NULL,
+    source_channel TEXT    NOT NULL,
+    metadata_json  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity
+    ON audit_events (entity_type, entity_id, id);
 """
 
 
@@ -244,7 +263,7 @@ def init_db():
 _EXPECTED_POSTGRES_TABLES = frozenset({
     "users", "trades", "trade_ticks", "trades_archive", "trade_ticks_archive",
     "sessions", "notifications", "strategy_configs", "trade_events", "trade_intents",
-    "orders", "order_events",
+    "orders", "order_events", "audit_events",
 })
 
 
@@ -520,6 +539,14 @@ def get_oms_order(order_id: int) -> dict | None:
         return transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
 
 
+def get_oms_trade_intent(trade_intent_id: int) -> dict | None:
+    with _database().transaction() as transaction:
+        return transaction.one(
+            "SELECT * FROM trade_intents WHERE id = :trade_intent_id",
+            {"trade_intent_id": trade_intent_id},
+        )
+
+
 def create_oms_order(intent, *, ticker: str, qty: float | None,
                      notional: float | None, limit_price: float | None = None) -> tuple[dict, bool]:
     """Persist intent and order atomically.
@@ -656,6 +683,66 @@ def get_oms_order_events(order_id: int) -> list[dict]:
             "SELECT * FROM order_events WHERE order_id = :order_id ORDER BY id",
             {"order_id": order_id},
         )
+
+
+# -- Persistentes Audit-Log ---------------------------------------------------
+
+def _audit_timestamp(value: str) -> str:
+    """Normalisiert ISO-Zeitstempel auf den backend-neutralen naiven UTC-Vertrag."""
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return _utc_timestamp(parsed)
+
+
+def append_audit_event(event):
+    """Hängt ein AuditEvent unveränderlich an; es gibt bewusst keinen Mutationspfad."""
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """INSERT INTO audit_events
+               (event_id, timestamp, user_id, actor, entity_type, entity_id, action,
+                old_state, new_state, trace_id, source_channel, metadata_json)
+               VALUES (:event_id, :timestamp, :user_id, :actor, :entity_type, :entity_id,
+                       :action, :old_state, :new_state, :trace_id, :source_channel,
+                       :metadata_json)""",
+            {"event_id": event.event_id, "timestamp": _audit_timestamp(event.timestamp),
+             "user_id": event.user_id, "actor": event.actor,
+             "entity_type": event.entity_type, "entity_id": event.entity_id,
+             "action": event.action, "old_state": event.old_state,
+             "new_state": event.new_state, "trace_id": event.trace_id,
+             "source_channel": event.source_channel,
+             "metadata_json": json.dumps(event.metadata, sort_keys=True, default=str)},
+        )
+    return event
+
+
+def _as_audit_event(row: dict):
+    from stockbot.core.domain import AuditEvent
+
+    return AuditEvent(
+        event_id=str(row["event_id"]), timestamp=_audit_timestamp(str(row["timestamp"])),
+        user_id=row["user_id"], actor=str(row["actor"]),
+        entity_type=str(row["entity_type"]), entity_id=str(row["entity_id"]),
+        action=str(row["action"]), old_state=row["old_state"], new_state=row["new_state"],
+        trace_id=str(row["trace_id"]), source_channel=str(row["source_channel"]),
+        metadata=json.loads(row["metadata_json"] or "{}"),
+    )
+
+
+def audit_events_for_entity(entity_type: str, entity_id: str) -> list:
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            """SELECT * FROM audit_events
+               WHERE entity_type = :entity_type AND entity_id = :entity_id ORDER BY id""",
+            {"entity_type": entity_type, "entity_id": entity_id},
+        )
+    return [_as_audit_event(row) for row in rows]
+
+
+def all_audit_events() -> list:
+    with _database().transaction() as transaction:
+        rows = transaction.all("SELECT * FROM audit_events ORDER BY id")
+    return [_as_audit_event(row) for row in rows]
 
 
 def _log_event(transaction: db_backend.DbTransaction, *, trade_id: int, user_id: int, ticker: str,
