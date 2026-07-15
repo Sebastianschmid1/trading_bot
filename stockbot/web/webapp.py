@@ -40,6 +40,7 @@ from stockbot.web import auth
 from stockbot.optimize import lab as lab_mod
 from stockbot.execution.oms import OrderManagementSystem
 from stockbot.execution import risk_context
+from stockbot.core.kill_switch import KillSwitchService
 
 log = logging.getLogger(__name__)
 
@@ -59,9 +60,12 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
+kill_switch_service = KillSwitchService(persistence=db, load_on_init=False)
+
 _oms = OrderManagementSystem(
     signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
     broker_adapter=broker, persistence=db, audit_sink=db.append_audit_event,
+    kill_switch_checker=kill_switch_service.is_new_position_allowed,
 )
 
 
@@ -688,7 +692,31 @@ def app_settings(request: Request, msg: str = ""):
                    universes=config.REGION_LABELS, sl_tp_modes=list(config.SL_TP_MODES),
                    has_alpaca=db.has_alpaca_credentials(user["user_id"]),
                    strategies=strategies.production_strategies(), toggles=toggles,
-                   risk_params=risk_params)
+                   risk_params=risk_params, is_admin=_is_admin(user),
+                   kill_switch=(kill_switch_service.global_status if _is_admin(user)
+                                else kill_switch_service.user_status(user["user_id"])))
+
+
+@router.post("/app/settings/killswitch")
+def app_settings_killswitch(request: Request, enabled: str = Form(...), reason: str = Form("")):
+    user = auth.current_user(request)
+    if not user:
+        return _redirect("/login")
+    active = enabled == "1"
+    actor = f"web:{user['user_id']}"
+    if _is_admin(user):
+        if active:
+            kill_switch_service.activate_global(
+                reason=reason.strip() or "Manuell durch Admin aktiviert", activated_by=actor)
+        else:
+            kill_switch_service.deactivate_global(deactivated_by=actor)
+    elif active:
+        kill_switch_service.activate_user(
+            user["user_id"], reason=reason.strip() or "Durch Nutzer aktiviert",
+            activated_by=actor)
+    else:
+        kill_switch_service.deactivate_user(user["user_id"], deactivated_by=actor)
+    return _redirect("/app/settings?msg=Kill-Switch+aktualisiert.")
 
 
 @router.post("/app/settings/set")
