@@ -658,6 +658,21 @@ def get_oms_order_events(order_id: int) -> list[dict]:
         )
 
 
+def get_post_trade_risk_rows() -> tuple[list[dict], list[dict]]:
+    """Lädt offene Trade-Positionen und aktive OMS-Orders in einer Seam-Transaktion."""
+    with _database().transaction() as transaction:
+        positions = transaction.all(
+            "SELECT * FROM trades WHERE status = 'active' ORDER BY user_id, ticker, id",
+        )
+        orders = transaction.all(
+            """SELECT * FROM orders
+               WHERE status IN ('submitted', 'accepted_by_broker', 'partially_filled',
+                                'cancel_requested')
+               ORDER BY user_id, ticker, id""",
+        )
+    return positions, orders
+
+
 def _log_event(transaction: db_backend.DbTransaction, *, trade_id: int, user_id: int, ticker: str,
                trade_date: str, from_status: str | None, to_status: str,
                broker_status: str | None = None, note: str | None = None) -> None:

@@ -283,6 +283,9 @@ SIGNAL_CLOSE_THRESHOLD = 35.0   # 0–100: darunter wird ein aktiver Trade autom
 # 60-Sekunden-Überwachung aktiver Trades
 MONITOR_INTERVAL_SEC = 60
 
+# Post-Trade-Risiko: offene Positionen regelmäßig auf aktive Schutzorders prüfen.
+POST_TRADE_SCAN_INTERVAL_SEC = int(os.getenv("POST_TRADE_SCAN_INTERVAL_SEC", "600"))
+
 # Intraday-Signal-Scan: während der Handelszeit alle 30 Min nach NEUEN Signalen suchen und
 # sie per Telegram + Website pushen (über den Eröffnungs-Scan hinaus, ohne top_n-Deckel).
 INTRADAY_SCAN_INTERVAL_SEC = 30 * 60

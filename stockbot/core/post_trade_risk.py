@@ -15,6 +15,7 @@ bewusst NICHT Teil dieses Moduls.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 from stockbot.core.domain import Order, OrderStatus, Position, PositionStatus
 
@@ -26,6 +27,15 @@ class PostTradeRiskDecision:
     ok: bool
     reason: str = ""
     code: str = ""
+
+
+@dataclass(frozen=True)
+class PostTradeRiskFinding:
+    """Ungeschützte Position samt Identität und Prüfergebnis."""
+
+    user_id: int
+    ticker: str
+    decision: PostTradeRiskDecision
 
 
 _OK = PostTradeRiskDecision(ok=True)
@@ -75,3 +85,22 @@ def check_open_position_has_protective_order(
         f"Offene Position {position.ticker} hat keine aktive Schutzorder.",
         "protective_order_missing",
     )
+
+
+def scan_open_positions(
+    positions: Iterable[Position], active_orders: Iterable[Order],
+) -> list[PostTradeRiskFinding]:
+    """Prüft Positionen IO-frei und liefert ausschließlich Findings zurück."""
+    orders = tuple(active_orders)
+    findings: list[PostTradeRiskFinding] = []
+    for position in positions:
+        if position.status != PositionStatus.OPEN:
+            continue
+        decision = check_open_position_has_protective_order(
+            position=position, active_orders=orders,
+        )
+        if not decision.ok:
+            findings.append(PostTradeRiskFinding(
+                user_id=position.user_id, ticker=position.ticker, decision=decision,
+            ))
+    return findings
