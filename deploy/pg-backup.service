@@ -1,0 +1,16 @@
+# Installation als zukuenftiger, unprivilegierter stockbot-User; nicht als root ausfuehren.
+# Pfade bei abweichendem Installationsort anpassen und Zugriff auf Docker/Backup-Verzeichnis geben.
+[Unit]
+Description=Stockbot PostgreSQL-Backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=stockbot
+WorkingDirectory=/opt/stockbot
+EnvironmentFile=/opt/stockbot/.env
+ExecStart=/opt/stockbot/scripts/pg_backup.sh
+
+[Install]
+WantedBy=multi-user.target

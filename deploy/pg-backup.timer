@@ -1,0 +1,12 @@
+# Dieser Timer startet pg-backup.service als dort konfigurierter stockbot-User, nicht als root.
+[Unit]
+Description=Taegliches Stockbot PostgreSQL-Backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=pg-backup.service
+
+[Install]
+WantedBy=timers.target
