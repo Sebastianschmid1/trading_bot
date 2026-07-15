@@ -562,6 +562,7 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             "entry_price": float(entry),
             "candidate_notional": budget,
             **risk_context.account_context(client, chat_id),
+            **risk_context.quote_context(ticker),
         },
         broker_client=client,
     )

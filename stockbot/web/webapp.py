@@ -258,6 +258,7 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
             "entry_price": float(entry),
             "candidate_notional": float(user["trade_size_eur"]),
             **risk_context.account_context(client, user["user_id"]),
+            **risk_context.quote_context(ticker),
         },
         broker_client=client,
     )

@@ -15,8 +15,31 @@ from typing import Any
 from stockbot.broker import client as broker
 from stockbot.core import db
 from stockbot.core.domain import RiskProfile, Signal, TradeIntent
+from stockbot.market.data_providers import AlpacaPaperMarketDataProvider
 
 log = logging.getLogger(__name__)
+
+
+def quote_context(
+    ticker: str, *, provider: Any = None, risk_profile: RiskProfile | None = None,
+) -> dict[str, Any]:
+    """Lade optionale Quote-Risk-Eingaben; Providerfehler bleiben lokal und fail-open."""
+    profile = risk_profile or RiskProfile(user_id=0)
+    try:
+        quote_provider = provider or AlpacaPaperMarketDataProvider()
+        quote = quote_provider.get_quote(ticker)
+    except Exception as exc:
+        log.warning("Risk-Kontext: Quote fuer ticker=%s nicht lesbar: %s",
+                    ticker, type(exc).__name__)
+        return {}
+    if quote is None:
+        log.warning("Risk-Kontext: Quote fuer ticker=%s nicht verfuegbar", ticker)
+        return {}
+    return {
+        "quote": quote,
+        "max_quote_age_seconds": profile.max_quote_age_seconds,
+        "max_spread_bps": profile.max_spread_bps,
+    }
 
 
 def signal_context(intent: TradeIntent, signal: Signal) -> dict[str, Any]:
