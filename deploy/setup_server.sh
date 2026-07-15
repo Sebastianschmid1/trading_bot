@@ -21,7 +21,7 @@ install -d -o stockbot -g stockbot "$APP_DIR/data" "$APP_DIR/logs"
 chown -R stockbot:stockbot "$APP_DIR"
 runuser -u stockbot -- python3 -m venv "$APP_DIR/venv"
 runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install --upgrade pip -q
-runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
+runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.lock"
 
 if [ ! -f .env ]; then
     cp deploy/.env.example .env

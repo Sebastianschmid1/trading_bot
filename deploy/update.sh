@@ -24,7 +24,7 @@ git -c safe.directory="$APP_DIR" pull
 chown -R stockbot:stockbot "$APP_DIR"
 
 echo "→ Dependencies als stockbot aktualisieren …"
-runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt" || echo "WARN: pip install fehlgeschlagen"
+runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.lock" || echo "WARN: pip install fehlgeschlagen"
 
 # TLS/Caddy nur synchronisieren, wenn das Skript vorhanden ist (no-op ohne DOMAIN in .env).
 [ -f deploy/sync_caddy.sh ] && { bash deploy/sync_caddy.sh || echo "WARN: caddy-sync fehlgeschlagen"; }
