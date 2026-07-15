@@ -33,6 +33,7 @@ from stockbot.market import smartmoney
 from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
+from stockbot.core.settings import validate_config
 from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem
 from stockbot.ai import llm_ranker
@@ -2525,6 +2526,7 @@ def _register_jobs(app):
 
 
 def main():
+    validate_config()
     db.init_db()
 
     if RUN_DASHBOARD_IN_BOT:
