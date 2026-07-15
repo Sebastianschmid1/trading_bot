@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
+from stockbot.core.settings import validate_config
 from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
@@ -480,6 +481,7 @@ app.include_router(_app_router)
 
 def run():
     """Startet den Dashboard-Webserver (blockierend). Wird von bot.py im Thread oder hier direkt genutzt."""
+    validate_config()
     import uvicorn
     log.info(f"📊 Dashboard läuft auf http://{DASHBOARD_HOST}:{DASHBOARD_PORT}  (Link: {DASHBOARD_BASE_URL})")
     uvicorn.run(app, host=DASHBOARD_HOST, port=DASHBOARD_PORT, log_level="warning")
