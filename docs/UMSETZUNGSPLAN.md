@@ -26,12 +26,16 @@
   (`pip-compile --generate-hashes`). Nächster Fokus: **W1 Risk-Wiring** (erst nach 2-3 stabilen
   Postgres-Markttagen deployen).
 
-## W1-Teilstand (2026-07-16, `ae0a2de`, GitHub `main`, NICHT deployt)
+## W1 KOMPLETT (2026-07-16, `5aa6ece`, GitHub `main`, NICHT deployt)
 
-W1.1/W1.2/W1.4/W1.5/W1.6 gebaut, reviewt, gemergt, Suite grün (908 passed, 27 skipped,
-1 vorbestehender Fehler s. u.). **Nur noch W1.3 offen** (Kill-Switch persistent + Telegram/
-Web-UI) → dann ist Gate P3/P1.1/P2 komplett. W1.6 hat den Bypass-Guard (AST) + Determinismus
-geliefert; keine Order umgeht den Risk Service.
+Alle W1-Tasks (W1.1–W1.6) gebaut, reviewt, gemergt, Suite grün (913 passed, 27 skipped,
+1 vorbestehender Fehler s. u.). **Gates P3 (Risk-Wiring) + P1.1 (Audit) + P2-Quote geschlossen.**
+W1.3 Kill-Switch persistent (eigene Alembic-Revision c3d4e5f6a7b8, read-through über
+Prozessgrenzen, OMS-Gate NACH Idempotenz-Check, Telegram `/killswitch` + Web-Toggle,
+Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
+
+**Nächste Welle: W2 (OMS-Live-Orchestrierung, Gate P4)** — Broker-Event-Ingestion,
+Reconciliation-Scheduler+Alarm, Partial-Fill-Orchestrierung, E2E-Doppelklick-Beweis.
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
