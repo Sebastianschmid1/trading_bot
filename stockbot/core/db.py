@@ -563,6 +563,18 @@ def get_oms_order(order_id: int) -> dict | None:
         return transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
 
 
+def get_open_oms_orders() -> list[dict]:
+    """Lädt pollbare, nicht-terminale OMS-Orders über den DB-Seam."""
+    with _database().transaction() as transaction:
+        return transaction.all(
+            """SELECT * FROM orders
+               WHERE status IN ('submitted', 'accepted_by_broker', 'partially_filled',
+                                'cancel_requested')
+                 AND broker_order_id IS NOT NULL AND broker_order_id <> ''
+               ORDER BY user_id, id""",
+        )
+
+
 def get_oms_trade_intent(trade_intent_id: int) -> dict | None:
     with _database().transaction() as transaction:
         return transaction.one(
