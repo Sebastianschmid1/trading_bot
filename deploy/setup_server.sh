@@ -13,7 +13,7 @@ apt-get install -y -qq git python3-venv python3-pip
 echo "→ Python-venv anlegen und Dependencies installieren..."
 python3 -m venv venv
 ./venv/bin/pip install --upgrade pip -q
-./venv/bin/pip install -q -r requirements.txt
+./venv/bin/pip install -q -r requirements.lock
 
 if [ ! -f .env ]; then
     cp deploy/.env.example .env

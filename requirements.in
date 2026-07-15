@@ -1,0 +1,22 @@
+python-telegram-bot[job-queue]
+# yfinance 1.5.1 ist die aktuell verifizierte Version. Der bekannte FD-Leak des
+# tz-Caches bleibt bestehen; produktiv bleibt LimitNOFILE=65535 der Workaround.
+yfinance==1.5.1
+numpy
+pandas
+python-dotenv
+cryptography
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+requests
+lxml
+anthropic
+openai
+alpaca-py
+sqlalchemy
+alembic
+psycopg2-binary
+pandas_market_calendars
+pyarrow

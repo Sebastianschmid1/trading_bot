@@ -15,7 +15,7 @@ echo "→ git pull …"
 git pull
 
 echo "→ Dependencies aktualisieren …"
-./venv/bin/pip install -q -r requirements.txt || echo "WARN: pip install fehlgeschlagen"
+./venv/bin/pip install -q -r requirements.lock || echo "WARN: pip install fehlgeschlagen"
 
 # TLS/Caddy nur synchronisieren, wenn das Skript vorhanden ist (no-op ohne DOMAIN in .env).
 [ -f deploy/sync_caddy.sh ] && { bash deploy/sync_caddy.sh || echo "WARN: caddy-sync fehlgeschlagen"; }
