@@ -50,6 +50,7 @@ from stockbot.services import notifications as notify_svc
 from stockbot.core.evaluator import (
     evaluate_trades, get_current_price, trade_pnl, liquidation_price, effective_leverage,
 )
+from stockbot.core.kill_switch import KillSwitchService
 from stockbot.config import (
     TELEGRAM_TOKEN,
     SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN,
@@ -100,9 +101,12 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
+kill_switch_service = KillSwitchService(persistence=db, load_on_init=False)
+
 _oms = OrderManagementSystem(
     signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
     broker_adapter=broker, persistence=db, audit_sink=db.append_audit_event,
+    kill_switch_checker=kill_switch_service.is_new_position_allowed,
 )
 
 
@@ -1550,6 +1554,31 @@ async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧪 Pong — Telegram-Verbindung funktioniert!")
 
 
+async def cmd_killswitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only: globalen Kill-Switch anzeigen, aktivieren oder deaktivieren."""
+    chat_id = update.effective_chat.id
+    if ADMIN_CHAT_ID is None or chat_id != ADMIN_CHAT_ID:
+        await update.message.reply_text("⛔ Nur der Admin darf den globalen Kill-Switch schalten.")
+        return
+    args = list(context.args or [])
+    action = args[0].lower() if args else "status"
+    actor = f"admin:{chat_id}"
+    if action in {"on", "an"}:
+        reason = " ".join(args[1:]).strip() or "Manuell durch Admin aktiviert"
+        kill_switch_service.activate_global(reason=reason, activated_by=actor)
+    elif action in {"off", "aus"}:
+        kill_switch_service.deactivate_global(deactivated_by=actor)
+    elif action != "status":
+        await update.message.reply_text("Nutzung: /killswitch [status|on GRUND|off]")
+        return
+    status = kill_switch_service.global_status
+    if status is not None and status.active:
+        text = f"🛑 Globaler Kill-Switch: AN\nGrund: {status.reason}"
+    else:
+        text = "✅ Globaler Kill-Switch: AUS"
+    await update.message.reply_text(text)
+
+
 async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/signals — analysiert jetzt live und sendet dir die aktuellen Signale (mit JA/NEIN-Buttons)."""
     chat_id = update.effective_chat.id
@@ -2555,6 +2584,7 @@ def _register_jobs(app):
 def main():
     validate_config()
     db.init_db()
+    kill_switch_service.reload()
 
     if RUN_DASHBOARD_IN_BOT:
         _start_dashboard_thread()
@@ -2574,6 +2604,7 @@ def main():
     app.add_handler(CommandHandler("website", cmd_website))               # Ein-Klick-Login zur Web-App
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))           # Link zum Web-Dashboard
     app.add_handler(CommandHandler("ping", cmd_ping))                     # Verbindungstest
+    app.add_handler(CommandHandler("killswitch", cmd_killswitch))         # globaler Admin-Kill-Switch
     app.add_handler(CommandHandler("signals", cmd_signals))               # echte Live-Analyse jetzt sofort
     app.add_handler(CommandHandler("top5trade", cmd_top5trade))           # was große Trader handeln
     app.add_handler(CommandHandler("evaluate", cmd_evaluate))             # aktive Demo-Trades jetzt sofort auswerten

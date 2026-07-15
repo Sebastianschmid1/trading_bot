@@ -69,6 +69,7 @@ class OrderManagementSystem:
         order_planner: Callable[..., dict] = sizing.plan_order,
         notifier: Callable[[OMSResult], None] | None = None,
         audit_sink: Callable[[AuditEvent], Any] | None = None,
+        kill_switch_checker: Callable[[int], bool] | None = None,
         persistence: Any = db,
     ):
         self.signal_loader = signal_loader
@@ -85,6 +86,7 @@ class OrderManagementSystem:
         self.order_planner = order_planner
         self.notifier = notifier
         self.audit_sink = audit_sink
+        self.kill_switch_checker = kill_switch_checker
         self.persistence = persistence
         self._audit_contexts: dict[int, tuple[str, str, str]] = {}
 
@@ -102,6 +104,15 @@ class OrderManagementSystem:
         existing = self.persistence.get_order_by_idempotency_key(intent.idempotency_key)
         if existing:
             return self._finish(self._existing_result(existing))
+
+        # Kill-Switch-Gate NACH dem Idempotenz-Check: ein idempotenter Retry einer bereits
+        # platzierten Order ist keine NEUE Position und muss die existierende Order weiter
+        # zurueckgeben; der Switch blockt nur genuin neue Einstiege.
+        if self.kill_switch_checker is not None and not self.kill_switch_checker(intent.user_id):
+            return self._finish(OMSResult(
+                False, reason="Kill-Switch aktiv — keine neuen Positionen.",
+                code="kill_switch_active",
+            ))
 
         signal = self.signal_loader(intent.signal_id)
         invalid = self._validate_signal(intent, signal)

@@ -246,6 +246,30 @@ CREATE TABLE IF NOT EXISTS audit_events (
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_entity
     ON audit_events (entity_type, entity_id, id);
+
+CREATE TABLE IF NOT EXISTS kill_switches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope           TEXT    NOT NULL,
+    user_id         INTEGER,
+    active          INTEGER NOT NULL,
+    reason          TEXT    NOT NULL,
+    activated_by    TEXT    NOT NULL,
+    activated_at    TEXT    NOT NULL,
+    deactivated_by  TEXT,
+    deactivated_at  TEXT,
+    CHECK (scope IN ('global', 'user')),
+    CHECK ((scope = 'global' AND user_id IS NULL) OR
+           (scope = 'user' AND user_id IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_kill_switches_active
+    ON kill_switches (active, scope, user_id, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kill_switches_active_global
+    ON kill_switches (scope) WHERE active = 1 AND scope = 'global';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kill_switches_active_user
+    ON kill_switches (user_id) WHERE active = 1 AND scope = 'user';
 """
 
 
@@ -263,7 +287,7 @@ def init_db():
 _EXPECTED_POSTGRES_TABLES = frozenset({
     "users", "trades", "trade_ticks", "trades_archive", "trade_ticks_archive",
     "sessions", "notifications", "strategy_configs", "trade_events", "trade_intents",
-    "orders", "order_events", "audit_events",
+    "orders", "order_events", "audit_events", "kill_switches",
 })
 
 
@@ -743,6 +767,81 @@ def all_audit_events() -> list:
     with _database().transaction() as transaction:
         rows = transaction.all("SELECT * FROM audit_events ORDER BY id")
     return [_as_audit_event(row) for row in rows]
+
+
+# -- Persistenter Kill-Switch -------------------------------------------------
+
+def _kill_switch_timestamp(value: str | None) -> str | None:
+    """Normalisiert SQLite- und PostgreSQL-Zeitwerte auf naives UTC."""
+    if value is None:
+        return None
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return _utc_timestamp(parsed)
+
+
+def activate_kill_switch(*, scope: str, user_id: int | None, reason: str,
+                         activated_by: str, activated_at: str):
+    """Schließt einen alten aktiven Eintrag und hängt die neue Aktivierung an."""
+    timestamp = _kill_switch_timestamp(activated_at)
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """UPDATE kill_switches
+               SET active = :inactive, deactivated_by = :deactivated_by,
+                   deactivated_at = :deactivated_at
+               WHERE scope = :scope AND active = :active
+                 AND ((:user_id IS NULL AND user_id IS NULL) OR user_id = :user_id)""",
+            {"inactive": False, "deactivated_by": activated_by,
+             "deactivated_at": timestamp, "scope": scope, "active": True,
+             "user_id": user_id},
+        )
+        row_id = transaction.insert_id(
+            """INSERT INTO kill_switches
+               (scope, user_id, active, reason, activated_by, activated_at,
+                deactivated_by, deactivated_at)
+               VALUES (:scope, :user_id, :active, :reason, :activated_by,
+                       :activated_at, :deactivated_by, :deactivated_at)""",
+            {"scope": scope, "user_id": user_id, "active": True, "reason": reason,
+             "activated_by": activated_by, "activated_at": timestamp,
+             "deactivated_by": None, "deactivated_at": None},
+        )
+        return transaction.one("SELECT * FROM kill_switches WHERE id = :id", {"id": row_id})
+
+
+def deactivate_kill_switch(*, scope: str, user_id: int | None,
+                           deactivated_by: str, deactivated_at: str):
+    timestamp = _kill_switch_timestamp(deactivated_at)
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            """SELECT * FROM kill_switches
+               WHERE scope = :scope AND active = :active
+                 AND ((:user_id IS NULL AND user_id IS NULL) OR user_id = :user_id)
+               ORDER BY id DESC LIMIT 1""",
+            {"scope": scope, "active": True, "user_id": user_id},
+        )
+        if row is None:
+            return None
+        transaction.execute(
+            """UPDATE kill_switches
+               SET active = :active, deactivated_by = :deactivated_by,
+                   deactivated_at = :deactivated_at WHERE id = :id""",
+            {"active": False, "deactivated_by": deactivated_by,
+             "deactivated_at": timestamp, "id": row["id"]},
+        )
+        return transaction.one("SELECT * FROM kill_switches WHERE id = :id", {"id": row["id"]})
+
+
+def get_active_kill_switches() -> list[dict]:
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM kill_switches WHERE active = :active ORDER BY id",
+            {"active": True},
+        )
+    for row in rows:
+        row["activated_at"] = _kill_switch_timestamp(row["activated_at"])
+        row["deactivated_at"] = _kill_switch_timestamp(row["deactivated_at"])
+    return rows
 
 
 def get_post_trade_risk_rows() -> tuple[list[dict], list[dict]]:
