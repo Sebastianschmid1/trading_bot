@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
-# Einmaliges Setup auf der Strato Ubuntu-VM (als root ausführen, nach dem git clone).
+# Idempotentes Setup auf der Strato Ubuntu-VM (als root ausführen, nach dem git clone).
+# Empfohlener Klon-Ort: /opt/stockbot
 # Ausführen mit:  bash deploy/setup_server.sh
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
+if ! id -u stockbot >/dev/null 2>&1; then
+    echo "→ System-User stockbot anlegen..."
+    useradd -r -s /usr/sbin/nologin -d /opt/stockbot stockbot
+fi
+
 echo "→ System-Pakete installieren (git, python venv/pip)..."
 apt-get update -qq
 apt-get install -y -qq git python3-venv python3-pip
 
 echo "→ Python-venv anlegen und Dependencies installieren..."
-python3 -m venv venv
-./venv/bin/pip install --upgrade pip -q
-./venv/bin/pip install -q -r requirements.txt
+install -d -o stockbot -g stockbot "$APP_DIR/data" "$APP_DIR/logs"
+chown -R stockbot:stockbot "$APP_DIR"
+runuser -u stockbot -- python3 -m venv "$APP_DIR/venv"
+runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install --upgrade pip -q
+runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 if [ ! -f .env ]; then
     cp deploy/.env.example .env
@@ -24,9 +32,15 @@ if [ ! -f .env ]; then
     echo "  WICHTIG: Jetzt noch TELEGRAM_TOKEN_ENV eintragen:  nano $APP_DIR/.env"
 fi
 
+chown stockbot:stockbot .env
+chmod 600 .env
+# CacheDirectory=stockbot legt diesen Pfad beim Dienststart ebenfalls idempotent an.
+install -d -o stockbot -g stockbot -m 0750 /var/cache/stockbot
+chown -R stockbot:stockbot "$APP_DIR/venv" "$APP_DIR/data" "$APP_DIR/logs"
+
 echo "→ systemd-Service installieren (Pfad = aktueller Repo-Ordner: $APP_DIR)..."
 # Pfade in der Unit auf den tatsächlichen Klon-Ort setzen — egal wie der Ordner heißt.
-sed "s#/root/stockbot#$APP_DIR#g" deploy/stockbot.service > /etc/systemd/system/stockbot.service
+sed "s#/opt/stockbot#$APP_DIR#g" deploy/stockbot.service > /etc/systemd/system/stockbot.service
 systemctl daemon-reload
 systemctl enable stockbot
 systemctl restart stockbot
