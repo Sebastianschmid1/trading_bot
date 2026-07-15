@@ -34,8 +34,16 @@ W1.3 Kill-Switch persistent (eigene Alembic-Revision c3d4e5f6a7b8, read-through 
 Prozessgrenzen, OMS-Gate NACH Idempotenz-Check, Telegram `/killswitch` + Web-Toggle,
 Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
 
-**Nächste Welle: W2 (OMS-Live-Orchestrierung, Gate P4)** — Broker-Event-Ingestion,
-Reconciliation-Scheduler+Alarm, Partial-Fill-Orchestrierung, E2E-Doppelklick-Beweis.
+## W2 (OMS-Live-Orchestrierung, Gate P4) — im Gang
+
+- **W2.1 Broker-Event-Ingestion ✅** (`c516fab`, GitHub main, NICHT deployt): `broker_poll.py`
+  Polling-Loop (`BROKER_POLL_INTERVAL_SEC=30`, handelszeitbegrenzt) → `broker_event_worker.
+  process_broker_event` mit stabiler `broker_event_id` (idempotente Dedup). Suite 928 passed.
+- **W2.2** Reconciliation-Scheduler + Alarm: `execution/reconciliation.py::run_periodic_
+  reconciliation` + `run_daily_full_reconciliation` (existieren, unverdrahtet; brauchen
+  BrokerAdapter + Domain-Position/Order-Loader) in den Scheduler, Findings → Telegram-Admin.
+- **W2.3** Partial-Fill-Orchestrierung (`decide_partial_fill_action`) — nach W2.1.
+- **W2.4** E2E-Doppelklick-Beweis (test-only) — nach W2.1.
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
