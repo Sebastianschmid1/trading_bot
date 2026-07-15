@@ -37,6 +37,7 @@ from stockbot.core.settings import validate_config
 from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem
 from stockbot.execution import risk_context
+from stockbot.execution.post_trade_scan import run_post_trade_scan
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
@@ -62,6 +63,7 @@ from stockbot.config import (
     SIGNAL_OPEN_OFFSET_MIN, CLOSE_AFTER_CLOSE_OFFSET_MIN, SESSION_TICK_INTERVAL_SEC,
     ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
+    POST_TRADE_SCAN_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
@@ -2499,6 +2501,18 @@ async def _session_scheduler_tick(context: ContextTypes.DEFAULT_TYPE):
             await close_and_evaluate(context)
 
 
+async def post_trade_risk_scan_job(context: ContextTypes.DEFAULT_TYPE):
+    """Alarmiert den Admin gebündelt über offene Positionen ohne Schutzorder."""
+    if ADMIN_CHAT_ID is None:
+        return
+
+    async def notify_admin(message: str) -> None:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message)
+
+    state = context.job.data["previous_findings"]
+    await run_post_trade_scan(notifier=notify_admin, previous_findings=state)
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2530,6 +2544,11 @@ def _register_jobs(app):
                             first=INTRADAY_SCAN_INTERVAL_SEC, name="intraday_signals")
     # Aktive Trades laufend überwachen (Auto-Close bei SL/TP oder Signal-Verfall)
     job_queue.run_repeating(monitor_trades, interval=MONITOR_INTERVAL_SEC, first=30, name="monitor_trades")
+    job_queue.run_repeating(
+        post_trade_risk_scan_job, interval=POST_TRADE_SCAN_INTERVAL_SEC,
+        first=POST_TRADE_SCAN_INTERVAL_SEC, name="post_trade_risk_scan",
+        data={"previous_findings": set()},
+    )
 
 
 def main():
