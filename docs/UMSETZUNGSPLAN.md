@@ -17,6 +17,14 @@
   ein paar Markttage stabil lief).
 - Zuletzt erledigt: DB-Seam-Restsanierung (`set_trade_leverage`/`merge_active_trade_signal` auf den
   Seam, `bot.py` Zeitvertrag robust), Commit `11dda4a`, deployed & verifiziert.
+- **W0 komplett (2026-07-15, `c0e43bd`, auf GitHub `main`, NOCH NICHT auf VPS deployt):** alle vier
+  Betriebsschutz-Tasks via parallele Sol-Worker gebaut, reviewt, gemergt, Suite grün (877 passed,
+  27 skipped). W0.1 Postgres-Backups (PLAT-009), W0.2 Deps gepinnt (PLAT-006a), W0.3 systemd-Härtung
+  (PLAT-008), W0.4 typisierte Settings + Start-Validierung (Paket A). Offene menschliche Schritte:
+  **VPS-Migration auf `stockbot`-User/`/opt/stockbot` (Tor T1, docs/DEPLOY_HARDENING.md)**, Backup-Timer
+  + age-Recipient auf dem VPS aktivieren (docs/BACKUP_RESTORE.md), optional Lock-Hashes nachziehen
+  (`pip-compile --generate-hashes`). Nächster Fokus: **W1 Risk-Wiring** (erst nach 2-3 stabilen
+  Postgres-Markttagen deployen).
 
 ## Wichtigster Befund: das meiste ist gebaut, aber nicht verdrahtet
 
