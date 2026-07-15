@@ -1016,18 +1016,21 @@ def set_trade_leverage(user_id: int, ticker: str, leverage: float):
     """Ändert den Hebel eines noch ausstehenden Trades (im gespeicherten signal_json) —
     serverseitig hart auf `MAX_LEVERAGE` begrenzt (TSAFE-002, Default 1×)."""
     leverage = max(1.0, min(MAX_LEVERAGE, float(leverage)))
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT signal_json FROM trades WHERE user_id = ? AND trade_date = ? AND ticker = ?",
-            (user_id, _today(), ticker),
-        ).fetchone()
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            """SELECT signal_json FROM trades
+               WHERE user_id = :user_id AND trade_date = :trade_date AND ticker = :ticker""",
+            {"user_id": user_id, "trade_date": _today(), "ticker": ticker},
+        )
         if not row:
             return
         sig = json.loads(row["signal_json"])
         sig["leverage"] = leverage
-        conn.execute(
-            "UPDATE trades SET signal_json = ? WHERE user_id = ? AND trade_date = ? AND ticker = ?",
-            (json.dumps(sig, default=str), user_id, _today(), ticker),
+        transaction.execute(
+            """UPDATE trades SET signal_json = :signal_json
+               WHERE user_id = :user_id AND trade_date = :trade_date AND ticker = :ticker""",
+            {"signal_json": json.dumps(sig, default=str), "user_id": user_id,
+             "trade_date": _today(), "ticker": ticker},
         )
 
 
@@ -1036,19 +1039,21 @@ def merge_active_trade_signal(user_id: int, ticker: str, extra: dict) -> None:
     gewählten Optionskontrakt: option_symbol/entry_premium/delta/omega/contracts). Idempotent."""
     if not extra:
         return
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, signal_json FROM trades WHERE user_id = ? AND ticker = ? "
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id, signal_json FROM trades WHERE user_id = :user_id AND ticker = :ticker "
             "AND status IN ('active', 'broker_pending') "
             "ORDER BY trade_date DESC, id DESC LIMIT 1",
-            (user_id, ticker),
-        ).fetchone()
+            {"user_id": user_id, "ticker": ticker},
+        )
         if not row:
             return
         sig = json.loads(row["signal_json"])
         sig.update(extra)
-        conn.execute("UPDATE trades SET signal_json = ? WHERE id = ?",
-                     (json.dumps(sig, default=str), row["id"]))
+        transaction.execute(
+            "UPDATE trades SET signal_json = :signal_json WHERE id = :id",
+            {"signal_json": json.dumps(sig, default=str), "id": row["id"]},
+        )
 
 
 # ── Dashboard-Zugang (Token-basierter Link) ─────────────────────────────────
