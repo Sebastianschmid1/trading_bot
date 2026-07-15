@@ -1,9 +1,8 @@
-# systemd-Unit für den Stock Signal Bot (Strato Ubuntu-VM).
+# systemd-Unit für den Stock Signal Bot unter dem unprivilegierten User stockbot.
 # Installation: sudo cp deploy/stockbot.service /etc/systemd/system/ && sudo systemctl daemon-reload
 #
-# Voraussetzung: Repo unter /root/stockbot geklont, venv angelegt, .env befüllt.
-# Andere User/Pfade? Dann User= und die drei Pfade entsprechend anpassen.
-# Hinweis: Der Bot startet das Dashboard standardmäßig mit (RUN_DASHBOARD_IN_BOT=true) —
+# Voraussetzung: Repo unter /opt/stockbot, venv angelegt, .env befüllt und für stockbot lesbar.
+# Der Bot startet das Dashboard standardmäßig mit (RUN_DASHBOARD_IN_BOT=true) —
 # ein separater dashboard.service ist dann NICHT nötig.
 
 [Unit]
@@ -13,12 +12,31 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/root/stockbot
-EnvironmentFile=/root/stockbot/.env
-ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_bot.py
+User=stockbot
+Group=stockbot
+WorkingDirectory=/opt/stockbot
+EnvironmentFile=/opt/stockbot/.env
+ExecStart=/opt/stockbot/venv/bin/python /opt/stockbot/run_bot.py
 Restart=always
 RestartSec=10
+
+# Das Repo ist schreibgeschützt; nur Laufzeitdaten, Logs und der von systemd verwaltete
+# yfinance-Cache sind beschreibbar. Netzwerk-Isolation ist wegen PostgreSQL auf localhost
+# absichtlich nicht gesetzt. MemoryDenyWriteExecute entfällt wegen möglicher Python/JIT-Probleme.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+ReadWritePaths=/opt/stockbot/data /opt/stockbot/logs
+CacheDirectory=stockbot
+Environment=XDG_CACHE_HOME=/var/cache/stockbot
+
 # yfinance leakt bei großen Scans (~500 Ticker) Datei-Handles auf seinen Timezone-Cache
 # (~/.cache/py-yfinance/tkr-tz.db). Mit dem Default-Limit 1024 war nach ~1 Tag Dauerbetrieb
 # kein sqlite3.connect mehr möglich ("unable to open database file", gesehen 2026-07-10).

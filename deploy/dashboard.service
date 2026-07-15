@@ -1,6 +1,7 @@
-# systemd-Unit für das Web-Dashboard als EIGENER Dienst (optional).
+# systemd-Unit für das Web-Dashboard als EIGENER Dienst unter dem User stockbot (optional).
 # Nur nötig, wenn du das Dashboard getrennt vom Bot betreiben willst.
 # Dann in der .env RUN_DASHBOARD_IN_BOT=false setzen (sonst Portkonflikt auf 8000).
+# Voraussetzung: Repo unter /opt/stockbot, venv angelegt, .env befüllt und für stockbot lesbar.
 #
 # Installation: sudo cp deploy/dashboard.service /etc/systemd/system/ && sudo systemctl daemon-reload
 #               sudo systemctl enable --now dashboard
@@ -12,12 +13,31 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/root/stockbot
-EnvironmentFile=/root/stockbot/.env
-ExecStart=/root/stockbot/venv/bin/python /root/stockbot/run_dashboard.py
+User=stockbot
+Group=stockbot
+WorkingDirectory=/opt/stockbot
+EnvironmentFile=/opt/stockbot/.env
+ExecStart=/opt/stockbot/venv/bin/python /opt/stockbot/run_dashboard.py
 Restart=always
 RestartSec=10
+
+# Das Repo ist schreibgeschützt; nur Laufzeitdaten, Logs und der von systemd verwaltete
+# yfinance-Cache sind beschreibbar. Netzwerk-Isolation ist wegen PostgreSQL auf localhost
+# absichtlich nicht gesetzt. MemoryDenyWriteExecute entfällt wegen möglicher Python/JIT-Probleme.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+ReadWritePaths=/opt/stockbot/data /opt/stockbot/logs
+CacheDirectory=stockbot
+Environment=XDG_CACHE_HOME=/var/cache/stockbot
+
 # Gleicher Schutz wie stockbot.service: yfinance-Handle-Leck (tkr-tz.db) vs. Default 1024.
 LimitNOFILE=65535
 

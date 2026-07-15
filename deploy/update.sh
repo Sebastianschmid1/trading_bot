@@ -6,16 +6,25 @@
 # das Server-seitige Update — praktisch, wenn die Änderungen schon auf GitHub liegen.
 #
 # Lauf (auf dem Server, im Repo-Verzeichnis):
-#   bash deploy/update.sh
+#   sudo bash deploy/update.sh
+# git pull läuft als root, weil der bestehende GitHub-Deploy-Key unter /root liegt. Danach
+# wird die Repo-Ownership wiederhergestellt; pip läuft im Kontext des Service-Users.
 set -euo pipefail
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # Repo-Wurzel
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_DIR"
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "FEHLER: deploy/update.sh muss als root laufen." >&2
+    exit 1
+fi
 
 echo "→ git pull …"
-git pull
+git -c safe.directory="$APP_DIR" pull
+chown -R stockbot:stockbot "$APP_DIR"
 
-echo "→ Dependencies aktualisieren …"
-./venv/bin/pip install -q -r requirements.txt || echo "WARN: pip install fehlgeschlagen"
+echo "→ Dependencies als stockbot aktualisieren …"
+runuser -u stockbot -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt" || echo "WARN: pip install fehlgeschlagen"
 
 # TLS/Caddy nur synchronisieren, wenn das Skript vorhanden ist (no-op ohne DOMAIN in .env).
 [ -f deploy/sync_caddy.sh ] && { bash deploy/sync_caddy.sh || echo "WARN: caddy-sync fehlgeschlagen"; }
