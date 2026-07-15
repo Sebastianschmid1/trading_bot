@@ -26,6 +26,19 @@
   (`pip-compile --generate-hashes`). Nächster Fokus: **W1 Risk-Wiring** (erst nach 2-3 stabilen
   Postgres-Markttagen deployen).
 
+## W1-Teilstand (2026-07-16, `3c3b6c5`, GitHub `main`, NICHT deployt)
+
+W1.1/W1.4/W1.5 gebaut, reviewt, gemergt, Suite grün (893 passed, 27 skipped). Offen im
+Kernstrang: **W1.2** (Quote-Frische), **W1.3** (Kill-Switch persistent+UI), **W1.6**
+(Determinismus-Beweis) — bewusst nach W1.1 sequenziert (gleicher OMS-Submit-Pfad).
+
+**⚠️ FREIGABE-PFLICHTIG VOR DEPLOY (ändert Live-Trade-Verhalten):** W1.1 schaltet ~10 zuvor
+still übersprungene Risk-Checks scharf (max. Positionen=5, risikobasiertes Sizing-Gate,
+Buying-Power, Exposure, Brokerstatus=ACTIVE). Mit den **Default-RiskProfile-Werten** können
+Orders jetzt abgelehnt werden, die vorher durchliefen (v. a. `max_open_positions=5` und der
+Brokerstatus-Gate). Vor dem Deploy: Default-Profile für den Paper-Betrieb (5× Hebel, kleine
+Budgets) prüfen/justieren. `market_open` wurde bewusst NICHT verdrahtet (Extended-Hours).
+
 ## Wichtigster Befund: das meiste ist gebaut, aber nicht verdrahtet
 
 Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
