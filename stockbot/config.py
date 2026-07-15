@@ -283,6 +283,9 @@ SIGNAL_CLOSE_THRESHOLD = 35.0   # 0–100: darunter wird ein aktiver Trade autom
 # 60-Sekunden-Überwachung aktiver Trades
 MONITOR_INTERVAL_SEC = 60
 
+# OMS-Brokerstatus während der regulären Handelszeit pollen.
+BROKER_POLL_INTERVAL_SEC = int(os.getenv("BROKER_POLL_INTERVAL_SEC", "30"))
+
 # Post-Trade-Risiko: offene Positionen regelmäßig auf aktive Schutzorders prüfen.
 POST_TRADE_SCAN_INTERVAL_SEC = int(os.getenv("POST_TRADE_SCAN_INTERVAL_SEC", "600"))
 

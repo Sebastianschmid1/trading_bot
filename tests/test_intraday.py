@@ -119,8 +119,8 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # vier wiederkehrende Jobs inklusive des lesenden Post-Trade-Risiko-Scans
-    assert jq.run_repeating.call_count == 4
+    # fünf wiederkehrende Jobs inklusive Risiko-Scan und OMS-Broker-Poll
+    assert jq.run_repeating.call_count == 5
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
@@ -131,6 +131,8 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert by_name["post_trade_risk_scan"].args[0] is bot.post_trade_risk_scan_job
     assert (by_name["post_trade_risk_scan"].kwargs["interval"]
             == config.POST_TRADE_SCAN_INTERVAL_SEC)
+    assert by_name["broker_order_poll"].args[0] is bot.poll_broker_orders_job
+    assert by_name["broker_order_poll"].kwargs["interval"] == config.BROKER_POLL_INTERVAL_SEC
     # Signale + Tagesauswertung feuern seit DATA-002 relativ zu Open/Close über den
     # Session-Scheduler-Tick, nicht mehr über run_daily — nur noch 3 feste Berlin-Zeit-Jobs.
     assert jq.run_daily.call_count == 3                        # Smart-Money, Broker-Abgleich, Labor

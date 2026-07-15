@@ -38,6 +38,7 @@ from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem
 from stockbot.execution import risk_context
 from stockbot.execution.post_trade_scan import run_post_trade_scan
+from stockbot.execution.broker_poll import poll_broker_orders
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
@@ -64,7 +65,7 @@ from stockbot.config import (
     SIGNAL_OPEN_OFFSET_MIN, CLOSE_AFTER_CLOSE_OFFSET_MIN, SESSION_TICK_INTERVAL_SEC,
     ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
-    POST_TRADE_SCAN_INTERVAL_SEC,
+    POST_TRADE_SCAN_INTERVAL_SEC, BROKER_POLL_INTERVAL_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
@@ -2543,6 +2544,29 @@ async def post_trade_risk_scan_job(context: ContextTypes.DEFAULT_TYPE):
     await run_post_trade_scan(notifier=notify_admin, previous_findings=state)
 
 
+async def poll_broker_orders_job(context: ContextTypes.DEFAULT_TYPE):
+    """Speist spätere Alpaca-Orderstatus während der regulären Handelszeit ins OMS ein."""
+    if not _us_market_open(extended=False):
+        return
+    orders_by_user: dict[int, list[dict]] = {}
+    for order in db.get_open_oms_orders():
+        orders_by_user.setdefault(int(order["user_id"]), []).append(order)
+    for user_id, orders in orders_by_user.items():
+        user = db.get_user(user_id)
+        client = _alpaca_client(user) if user else None
+        if client is None:
+            log.warning("[%s] Broker-Poll ohne verfügbaren Alpaca-Client übersprungen", user_id)
+            continue
+
+        def fetch_status(order_id: str, *, _client=client):
+            return broker.get_order_status(order_id, client=_client)
+
+        await asyncio.to_thread(
+            poll_broker_orders, _oms, orders,
+            status_fetcher=fetch_status, strategy_version_id=0,
+        )
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2578,6 +2602,10 @@ def _register_jobs(app):
         post_trade_risk_scan_job, interval=POST_TRADE_SCAN_INTERVAL_SEC,
         first=POST_TRADE_SCAN_INTERVAL_SEC, name="post_trade_risk_scan",
         data={"previous_findings": set()},
+    )
+    job_queue.run_repeating(
+        poll_broker_orders_job, interval=BROKER_POLL_INTERVAL_SEC,
+        first=BROKER_POLL_INTERVAL_SEC, name="broker_order_poll",
     )
 
 
