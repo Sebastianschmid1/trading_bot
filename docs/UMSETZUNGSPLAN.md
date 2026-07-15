@@ -26,11 +26,19 @@
   (`pip-compile --generate-hashes`). Nächster Fokus: **W1 Risk-Wiring** (erst nach 2-3 stabilen
   Postgres-Markttagen deployen).
 
-## W1-Teilstand (2026-07-16, `3c3b6c5`, GitHub `main`, NICHT deployt)
+## W1-Teilstand (2026-07-16, `ae0a2de`, GitHub `main`, NICHT deployt)
 
-W1.1/W1.4/W1.5 gebaut, reviewt, gemergt, Suite grün (893 passed, 27 skipped). Offen im
-Kernstrang: **W1.2** (Quote-Frische), **W1.3** (Kill-Switch persistent+UI), **W1.6**
-(Determinismus-Beweis) — bewusst nach W1.1 sequenziert (gleicher OMS-Submit-Pfad).
+W1.1/W1.2/W1.4/W1.5/W1.6 gebaut, reviewt, gemergt, Suite grün (908 passed, 27 skipped,
+1 vorbestehender Fehler s. u.). **Nur noch W1.3 offen** (Kill-Switch persistent + Telegram/
+Web-UI) → dann ist Gate P3/P1.1/P2 komplett. W1.6 hat den Bypass-Guard (AST) + Determinismus
+geliefert; keine Order umgeht den Risk Service.
+
+**⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
+order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
+(`db.has_trade_today → False`, an einer Tagesgrenze). Datums-/Zeitzonen-abhängig, riecht nach
+der bekannten DB-Zeitvertrag-Klasse (naive/aware, Berlin vs. UTC). Von 3 Sol-Workern
+unabhängig bestätigt. **Eigener Debug-Task nötig** (könnte `has_trade_today` in Prod nahe
+Mitternacht betreffen → Doppeltrade-/Blockade-Risiko).
 
 **⚠️ FREIGABE-PFLICHTIG VOR DEPLOY (ändert Live-Trade-Verhalten):** W1.1 schaltet ~10 zuvor
 still übersprungene Risk-Checks scharf (max. Positionen=5, risikobasiertes Sizing-Gate,
