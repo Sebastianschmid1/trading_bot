@@ -1196,6 +1196,13 @@ async def monitor_broker_pending(bot: Bot):
                 db.mark_broker_pending(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
+def _broker_update_age_sec(updated_at: str | None) -> int:
+    parsed = reconcile_mod._parse_ts(updated_at)
+    if parsed is None:
+        return 0
+    return max(0, int((datetime.utcnow() - parsed).total_seconds()))
+
+
 async def monitor_broker_closing(bot: Bot):
     """Pollt offene Broker-Schließungen und schließt Trades erst bei tatsächlichem Fill.
 
@@ -1219,7 +1226,7 @@ async def monitor_broker_closing(bot: Bot):
             age_sec = 0
             try:
                 if updated_at:
-                    age_sec = max(0, int((datetime.utcnow() - datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")).total_seconds()))
+                    age_sec = _broker_update_age_sec(updated_at)
             except Exception:
                 age_sec = 0
 

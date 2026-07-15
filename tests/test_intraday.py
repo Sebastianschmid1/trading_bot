@@ -37,6 +37,12 @@ def test_reconcile_parse_ts_normalises_aware_values_for_naive_age_math():
     assert isinstance((datetime.utcnow() - parsed).total_seconds(), float)
 
 
+def test_broker_update_age_handles_aware_naive_and_empty_timestamps():
+    assert bot._broker_update_age_sec("2026-07-15 13:35:14.906789+00") >= 0
+    assert bot._broker_update_age_sec("2026-07-15 13:35:14") >= 0
+    assert bot._broker_update_age_sec("") == 0
+
+
 def fresh_db():
     d = tempfile.mkdtemp(prefix="intratest_")
     db.DB_FILE = Path(d) / "test.db"

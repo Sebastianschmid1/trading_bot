@@ -283,6 +283,36 @@ def test_trade_read_mapping_order_and_day_contract(users_backend):
     assert [event["id"] for event in db.get_trade_events(101)] == [201]
 
 
+def test_trade_signal_mutations_use_active_backend_contract(users_backend, monkeypatch):
+    monkeypatch.setattr(db, "_today", lambda: "2026-07-15")
+    monkeypatch.setattr(db, "MAX_LEVERAGE", 5.0)
+    with db._database().transaction() as transaction:
+        for trade_id, trade_date, status, signal in (
+            (111, "2026-07-14", "active", {"generation": "older"}),
+            (112, "2026-07-15", "broker_pending", {"leverage": 1.0, "generation": "latest"}),
+        ):
+            transaction.execute(
+                """INSERT INTO trades
+                   (id, user_id, trade_date, ticker, direction, signal_json, status)
+                   VALUES (:id, :user_id, :trade_date, 'SEAM', 'long', :signal_json, :status)""",
+                {"id": trade_id, "user_id": CHAT, "trade_date": trade_date,
+                 "signal_json": json.dumps(signal), "status": status},
+            )
+
+    db.set_trade_leverage(CHAT, "SEAM", 3.0)
+    assert db.get_trade_by_id(112)["signal"]["leverage"] == 3.0
+    db.set_trade_leverage(CHAT, "SEAM", 999)
+    assert db.get_trade_by_id(112)["signal"]["leverage"] == db.MAX_LEVERAGE
+
+    db.merge_active_trade_signal(CHAT, "SEAM", {"option_symbol": "SEAM260717C00100000"})
+    latest = db.get_trade_by_id(112)["signal"]
+    assert latest["option_symbol"] == "SEAM260717C00100000"
+    assert db.get_trade_by_id(111)["signal"] == {"generation": "older"}
+
+    db.merge_active_trade_signal(CHAT, "SEAM", {})
+    assert db.get_trade_by_id(112)["signal"] == latest
+
+
 def test_tick_explicit_utc_timestamp_and_order_contract(users_backend, monkeypatch):
     fixed = iter((
         datetime(2026, 7, 14, 12, 0, 1, tzinfo=timezone.utc),
