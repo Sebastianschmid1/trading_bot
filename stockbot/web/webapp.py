@@ -39,6 +39,7 @@ from stockbot.services import watchlist as watchlist_svc
 from stockbot.web import auth
 from stockbot.optimize import lab as lab_mod
 from stockbot.execution.oms import OrderManagementSystem
+from stockbot.execution import risk_context
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +59,8 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
-_oms = OrderManagementSystem(signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db)
+_oms = OrderManagementSystem(signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
+                             broker_adapter=broker, persistence=db)
 
 
 async def _csrf_protect(request: Request):
@@ -251,6 +253,9 @@ def _execute_broker_order_for_web(user: dict, trade: dict) -> dict:
             "is_option": plan["kind"] == "option",
             "extended": extended,
             "roundup_factor": config.SHARE_ROUNDUP_FACTOR,
+            "entry_price": float(entry),
+            "candidate_notional": float(user["trade_size_eur"]),
+            **risk_context.account_context(client, user["user_id"]),
         },
         broker_client=client,
     )

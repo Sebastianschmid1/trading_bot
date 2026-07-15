@@ -36,6 +36,7 @@ from stockbot.core import metrics
 from stockbot.core.settings import validate_config
 from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem
+from stockbot.execution import risk_context
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
@@ -97,7 +98,8 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
-_oms = OrderManagementSystem(signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db)
+_oms = OrderManagementSystem(signal_loader=_load_oms_signal, context_loader=risk_context.signal_context,
+                             broker_adapter=broker, persistence=db)
 
 
 def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
@@ -553,6 +555,9 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             "is_option": plan["kind"] == "option",
             "extended": extended,
             "roundup_factor": 1.0,
+            "entry_price": float(entry),
+            "candidate_notional": budget,
+            **risk_context.account_context(client, chat_id),
         },
         broker_client=client,
     )
