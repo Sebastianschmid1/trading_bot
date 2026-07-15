@@ -58,7 +58,10 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
     )
 
 
-_oms = OrderManagementSystem(signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db)
+_oms = OrderManagementSystem(
+    signal_loader=_load_oms_signal, broker_adapter=broker, persistence=db,
+    audit_sink=db.append_audit_event,
+)
 
 
 async def _csrf_protect(request: Request):
