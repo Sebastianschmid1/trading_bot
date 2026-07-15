@@ -12,7 +12,7 @@ verschwunden ist (z. B. manuell im Broker verkauft).
 
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from stockbot.core.evaluator import get_current_price, trade_pnl
 from stockbot.core import db
@@ -71,15 +71,21 @@ def _format(diff: dict) -> str:
 def _parse_ts(ts: str | None) -> datetime | None:
     if not ts:
         return None
+    parsed = None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
         try:
-            return datetime.strptime(ts, fmt)
+            parsed = datetime.strptime(ts, fmt)
+            break
         except Exception:
             continue
-    try:
-        return datetime.fromisoformat(ts)
-    except Exception:
-        return None
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(ts)
+        except Exception:
+            return None
+    if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def reconcile_user(user: dict, client) -> dict:

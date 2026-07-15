@@ -318,6 +318,9 @@ def test_trade_lifecycle_events_and_sequential_cas_contract(users_backend, monke
     trade = db.get_trade(CHAT, "LIFE")
     events = db.get_trade_events(trade["id"])
     assert trade["status"] == "closed"
+    datetime.strptime(trade["created_at"], "%Y-%m-%d %H:%M:%S")
+    assert all("+" not in event["ts"] and "T" not in event["ts"] for event in events)
+    assert all(datetime.strptime(event["ts"], "%Y-%m-%d %H:%M:%S") for event in events)
     assert [(event["from_status"], event["to_status"], event["broker_status"], event["note"])
             for event in events] == [
         (None, "pending", None, None),

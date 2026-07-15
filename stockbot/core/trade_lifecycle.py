@@ -9,7 +9,7 @@ Event ist der Trade in dessen `to_status`, bis das nächste Event kommt (bzw. bi
 der aktuelle Status nicht terminal ist).
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Endzustände: ab hier läuft keine Dauer mehr weiter.
 TERMINAL = ("closed", "broker_failed", "rejected", "expired")
@@ -21,15 +21,21 @@ def parse_ts(ts: str | None) -> datetime | None:
     """SQLite-Zeitstempel (UTC) → datetime; None bei leer/unparsebar."""
     if not ts:
         return None
+    parsed = None
     for fmt in _TS_FORMATS:
         try:
-            return datetime.strptime(ts, fmt)
+            parsed = datetime.strptime(ts, fmt)
+            break
         except Exception:
             continue
-    try:
-        return datetime.fromisoformat(ts)
-    except Exception:
-        return None
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(ts)
+        except Exception:
+            return None
+    if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def compute_durations(events: list[dict], now: datetime | None = None) -> dict:

@@ -550,12 +550,13 @@ def create_oms_order(intent, *, ticker: str, qty: float | None,
             order_id = transaction.insert_id(
                 """INSERT INTO orders
                    (trade_intent_id, user_id, ticker, side, qty, notional,
-                    limit_price, status, idempotency_key)
+                    limit_price, status, idempotency_key, created_at, updated_at)
                    VALUES (:intent_id, :user_id, :ticker, 'buy', :qty, :notional,
-                           :limit_price, 'created', :idempotency_key)""",
+                           :limit_price, 'created', :idempotency_key, :created_at, :updated_at)""",
                 {"intent_id": intent_id, "user_id": intent.user_id, "ticker": ticker,
                  "qty": qty, "notional": notional, "limit_price": limit_price,
-                 "idempotency_key": intent.idempotency_key},
+                 "idempotency_key": intent.idempotency_key,
+                 "created_at": _utc_timestamp(), "updated_at": _utc_timestamp()},
             )
             client_order_id = f"oms-{order_id}"
             transaction.execute(
@@ -564,9 +565,9 @@ def create_oms_order(intent, *, ticker: str, qty: float | None,
             )
             transaction.execute(
                 """INSERT INTO order_events
-                   (order_id, event_type, from_status, to_status, payload_json)
-                   VALUES (:order_id, 'created', NULL, 'created', '{}')""",
-                {"order_id": order_id},
+                   (order_id, event_type, from_status, to_status, payload_json, occurred_at)
+                   VALUES (:order_id, 'created', NULL, 'created', '{}', :occurred_at)""",
+                {"order_id": order_id, "occurred_at": _utc_timestamp()},
             )
             row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
             return row, True
@@ -601,12 +602,15 @@ def transition_oms_order(order_id: int, *, from_status: str, to_status: str,
             )
         transaction.execute(
             """INSERT INTO order_events
-               (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
-               VALUES (:order_id, :event_type, :from_status, :to_status, :broker_event_id, :payload_json)""",
+               (order_id, event_type, from_status, to_status, broker_event_id, payload_json,
+                occurred_at)
+               VALUES (:order_id, :event_type, :from_status, :to_status, :broker_event_id,
+                       :payload_json, :occurred_at)""",
             {"order_id": order_id, "event_type": event_type or to_status,
              "from_status": from_status, "to_status": to_status,
              "broker_event_id": broker_event_id,
-             "payload_json": json.dumps(payload or {}, default=str)},
+             "payload_json": json.dumps(payload or {}, default=str),
+             "occurred_at": _utc_timestamp()},
         )
         row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
     return row
@@ -633,11 +637,14 @@ def record_oms_order_event(order_id: int, *, status: str, event_type: str,
             )
         transaction.execute(
             """INSERT INTO order_events
-               (order_id, event_type, from_status, to_status, broker_event_id, payload_json)
-               VALUES (:order_id, :event_type, :status, :status, :broker_event_id, :payload_json)""",
+               (order_id, event_type, from_status, to_status, broker_event_id, payload_json,
+                occurred_at)
+               VALUES (:order_id, :event_type, :status, :status, :broker_event_id,
+                       :payload_json, :occurred_at)""",
             {"order_id": order_id, "event_type": event_type, "status": status,
              "broker_event_id": broker_event_id,
-             "payload_json": json.dumps(payload or {}, default=str)},
+             "payload_json": json.dumps(payload or {}, default=str),
+             "occurred_at": _utc_timestamp()},
         )
         row = transaction.one("SELECT * FROM orders WHERE id = :order_id", {"order_id": order_id})
     return row
@@ -661,12 +668,13 @@ def _log_event(transaction: db_backend.DbTransaction, *, trade_id: int, user_id:
         return
     transaction.execute(
         """INSERT INTO trade_events (trade_id, user_id, ticker, trade_date,
-                                     from_status, to_status, broker_status, note)
+                                     from_status, to_status, broker_status, ts, note)
            VALUES (:trade_id, :user_id, :ticker, :trade_date, :from_status, :to_status,
-                   :broker_status, :note)""",
+                   :broker_status, :ts, :note)""",
         {"trade_id": trade_id, "user_id": user_id, "ticker": ticker,
          "trade_date": trade_date, "from_status": from_status, "to_status": to_status,
-         "broker_status": broker_status, "note": note},
+         # Zeitvertrag: Der Schema-Default darf auf PostgreSQL nie greifen (tz-aware String).
+         "broker_status": broker_status, "ts": _utc_timestamp(), "note": note},
     )
 
 
@@ -1386,13 +1394,14 @@ def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
     ticker, trade_date = signal["ticker"], _today()
     with _database().transaction() as transaction:
         trade_id = transaction.insert_id(
-            """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, message_id, status)
+            """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json,
+                                    message_id, status, created_at)
                VALUES (:user_id, :trade_date, :ticker, :direction, :signal_json, :message_id,
-                       'pending')
+                       'pending', :created_at)
                ON CONFLICT (user_id, trade_date, ticker) DO NOTHING""",
             {"user_id": user_id, "trade_date": trade_date, "ticker": ticker,
              "direction": signal["direction"], "signal_json": json.dumps(signal, default=str),
-             "message_id": message_id},
+             "message_id": message_id, "created_at": _utc_timestamp()},
         )
         created = trade_id > 0
         if created:
@@ -1700,13 +1709,16 @@ def adopt_active_trade(user_id: int, ticker: str, *, entry: float, signal: dict,
             trade_id = transaction.insert_id(
                 """INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json,
                                        message_id, status, entry, broker_order_id,
-                                       broker_filled_qty, broker_status)
+                                       broker_filled_qty, broker_status, broker_updated_at,
+                                       created_at)
                    VALUES (:user_id, :trade_date, :ticker, :direction, :signal_json, 0,
-                           'active', :entry, :broker_order_id, :filled_qty, 'adopted_orphan')
+                           'active', :entry, :broker_order_id, :filled_qty, 'adopted_orphan',
+                           :broker_updated_at, :created_at)
                    ON CONFLICT (user_id, trade_date, ticker) DO NOTHING""",
                 {"user_id": user_id, "trade_date": trade_date, "ticker": ticker,
                  "direction": direction, "signal_json": payload, "entry": entry,
-                 "broker_order_id": broker_order_id, "filled_qty": filled_qty},
+                 "broker_order_id": broker_order_id, "filled_qty": filled_qty,
+                 "broker_updated_at": _utc_timestamp(), "created_at": _utc_timestamp()},
             )
             if not trade_id:
                 return False

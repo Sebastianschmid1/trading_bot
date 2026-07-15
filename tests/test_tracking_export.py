@@ -83,6 +83,31 @@ def test_compute_durations_empty():
     assert d["total_lifetime_sec"] is None and d["by_status"] == {}
 
 
+def test_parse_ts_normalises_aware_values_to_naive_utc():
+    expected = datetime(2026, 7, 15, 13, 35, 14, 906789)
+    assert tl.parse_ts("2026-07-15 13:35:14.906789+00") == expected
+    assert tl.parse_ts("2026-07-15T13:35:14+00:00") == expected.replace(microsecond=0)
+    naive = tl.parse_ts("2026-07-15 13:35:14")
+    assert naive == expected.replace(microsecond=0)
+    assert naive.tzinfo is None
+    assert tl.parse_ts(None) is None
+    assert tl.parse_ts("") is None
+
+
+def test_compute_durations_accepts_postgres_aware_event_timestamps():
+    events = [
+        {"to_status": "pending", "ts": "2026-07-15 13:35:14.000000+00"},
+        {"to_status": "active", "ts": "2026-07-15 13:36:14.000000+00"},
+        {"to_status": "closed", "ts": "2026-07-15 13:38:14.000000+00"},
+    ]
+
+    durations = tl.compute_durations(events)
+
+    assert durations["pending_sec"] == 60
+    assert durations["hold_sec"] == 120
+    assert durations["total_lifetime_sec"] == 180
+
+
 # ── filter_log_lines ─────────────────────────────────────────────────────────
 
 LOG_LINES = [

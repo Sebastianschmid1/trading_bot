@@ -25,6 +25,18 @@ from stockbot.broker import reconcile as reconcile_mod
 CHAT = 7373
 
 
+def test_reconcile_parse_ts_normalises_aware_values_for_naive_age_math():
+    expected = datetime(2026, 7, 15, 13, 35, 14, 906789)
+    parsed = reconcile_mod._parse_ts("2026-07-15 13:35:14.906789+00")
+    assert parsed == expected
+    assert parsed.tzinfo is None
+    assert reconcile_mod._parse_ts("2026-07-15T13:35:14+00:00") == expected.replace(microsecond=0)
+    assert reconcile_mod._parse_ts("2026-07-15 13:35:14") == expected.replace(microsecond=0)
+    assert reconcile_mod._parse_ts(None) is None
+    assert reconcile_mod._parse_ts("") is None
+    assert isinstance((datetime.utcnow() - parsed).total_seconds(), float)
+
+
 def fresh_db():
     d = tempfile.mkdtemp(prefix="intratest_")
     db.DB_FILE = Path(d) / "test.db"
