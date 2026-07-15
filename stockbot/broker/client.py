@@ -106,6 +106,7 @@ def account_summary(client=None) -> dict:
             "ok": True,
             "paper": config.ALPACA_PAPER,
             "status": str(getattr(acct, "status", "")),
+            "account_value": float(getattr(acct, "equity", 0) or 0),
             "cash": float(getattr(acct, "cash", 0) or 0),
             "buying_power": float(getattr(acct, "buying_power", 0) or 0),
             "currency": str(getattr(acct, "currency", "USD")),
