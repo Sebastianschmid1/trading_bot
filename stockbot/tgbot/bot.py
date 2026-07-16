@@ -34,8 +34,9 @@ from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
 from stockbot.core.settings import validate_config
-from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
-from stockbot.execution.oms import OrderManagementSystem
+from stockbot.core.domain import Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
+from stockbot.execution.oms import OrderManagementSystem, _as_order
+from stockbot.execution.partial_fill_orchestrator import orchestrate_partial_fill
 from stockbot.execution import risk_context
 from stockbot.execution.post_trade_scan import run_post_trade_scan
 from stockbot.execution.broker_poll import poll_broker_orders
@@ -2566,9 +2567,55 @@ async def poll_broker_orders_job(context: ContextTypes.DEFAULT_TYPE):
         def fetch_status(order_id: str, *, _client=client):
             return broker.get_order_status(order_id, client=_client)
 
+        loop = asyncio.get_running_loop()
+
+        def notify_admin(message: str) -> None:
+            if ADMIN_CHAT_ID is not None:
+                asyncio.run_coroutine_threadsafe(
+                    context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message), loop,
+                )
+
+        def handle_partial_fill(result, *, _client=client):
+            intent = db.get_oms_trade_intent(result.order.trade_intent_id)
+            trade = db.get_trade_by_id(int(intent["signal_id"])) if intent else None
+            signal_stop_loss = (trade.get("signal") or {}).get("stop_loss") if trade else None
+            active_orders = tuple(
+                _as_order(row) for row in orders
+                if int(row["user_id"]) == result.order.user_id
+                and str(row["ticker"]) == result.order.ticker
+            ) + tuple(
+                Order(
+                    id=int(row["id"]), trade_intent_id=int(row["trade_intent_id"]),
+                    user_id=int(row["user_id"]), ticker=str(row["ticker"]),
+                    side=str(row["side"]), qty=float(row["qty"]),
+                    status=OrderStatus(row["status"]), broker_order_id=row["broker_order_id"],
+                    created_at=row["created_at"], updated_at=row["updated_at"],
+                )
+                for row in db.get_active_protective_orders(
+                    result.order.user_id, result.order.ticker,
+                )
+            )
+            submitted_at = datetime.fromisoformat(
+                str(result.order.created_at).replace("Z", "+00:00")
+            )
+            if submitted_at.tzinfo is None:
+                submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+            orchestrate_partial_fill(
+                order=result.order, position=result.position,
+                remaining_qty=result.remaining_qty, order_submitted_at=submitted_at,
+                now=datetime.now(timezone.utc), active_orders=active_orders,
+                signal_stop_loss=signal_stop_loss,
+                submit_stop_sell=lambda symbol, **kwargs: broker.submit_stop_sell(
+                    symbol, client=_client, **kwargs,
+                ),
+                cancel_order=lambda order_id: broker.cancel_order(order_id, client=_client),
+                persist_protective=db.record_protective_order, notifier=notify_admin,
+            )
+
         await asyncio.to_thread(
             poll_broker_orders, _oms, orders,
             status_fetcher=fetch_status, strategy_version_id=0,
+            partial_fill_handler=handle_partial_fill,
         )
 
 

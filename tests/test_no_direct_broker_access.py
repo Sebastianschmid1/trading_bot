@@ -42,7 +42,7 @@ def test_callers_only_use_gated_broker_functions():
     `broker.*`-Funktionen auslösen, nie über einen internen/anderen Pfad."""
     allowed_order_calls = {
         "submit_buy", "submit_option_buy", "submit_exit_order",
-        "close_position", "cancel_order",
+        "submit_stop_sell", "close_position", "cancel_order",
     }
     call_pattern = re.compile(r"broker\.(\w+)\(")
     for path in CALLER_MODULES:

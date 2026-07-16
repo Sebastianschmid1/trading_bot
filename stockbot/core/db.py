@@ -228,6 +228,21 @@ CREATE TABLE IF NOT EXISTS order_events (
 
 CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id);
 
+CREATE TABLE IF NOT EXISTS protective_orders (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_order_id   INTEGER NOT NULL REFERENCES orders(id),
+    trade_intent_id   INTEGER NOT NULL REFERENCES trade_intents(id),
+    user_id           INTEGER NOT NULL,
+    ticker            TEXT    NOT NULL,
+    side              TEXT    NOT NULL,
+    qty               REAL    NOT NULL,
+    stop_price        REAL    NOT NULL,
+    status            TEXT    NOT NULL,
+    broker_order_id   TEXT    NOT NULL UNIQUE,
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id       TEXT    NOT NULL UNIQUE,
@@ -572,6 +587,48 @@ def get_open_oms_orders() -> list[dict]:
                                 'cancel_requested')
                  AND broker_order_id IS NOT NULL AND broker_order_id <> ''
                ORDER BY user_id, id""",
+        )
+
+
+def get_active_protective_orders(user_id: int, ticker: str) -> list[dict]:
+    """Lädt aktive brokerseitige Schutzorders für die Partial-Fill-Dedup."""
+    with _database().transaction() as transaction:
+        return transaction.all(
+            """SELECT * FROM protective_orders
+               WHERE user_id = :user_id AND ticker = :ticker
+                 AND status IN ('submitted', 'accepted_by_broker', 'partially_filled',
+                                'cancel_requested')
+               ORDER BY id""",
+            {"user_id": user_id, "ticker": ticker},
+        )
+
+
+def record_protective_order(*, source_order_id: int, trade_intent_id: int, user_id: int,
+                            ticker: str, qty: float, stop_price: float,
+                            broker_order_id: str) -> dict:
+    """Persistiert eine platzierte Stop-Order getrennt vom Entry-OMS-Polling."""
+    timestamp = _utc_timestamp()
+    with _database().transaction() as transaction:
+        existing = transaction.one(
+            "SELECT * FROM protective_orders WHERE broker_order_id = :broker_order_id",
+            {"broker_order_id": broker_order_id},
+        )
+        if existing:
+            return existing
+        order_id = transaction.insert_id(
+            """INSERT INTO protective_orders
+               (source_order_id, trade_intent_id, user_id, ticker, side, qty, stop_price,
+                status, broker_order_id, created_at, updated_at)
+               VALUES (:source_order_id, :trade_intent_id, :user_id, :ticker, 'sell', :qty,
+                       :stop_price, 'accepted_by_broker', :broker_order_id, :created_at,
+                       :updated_at)""",
+            {"source_order_id": source_order_id, "trade_intent_id": trade_intent_id,
+             "user_id": user_id, "ticker": ticker, "qty": qty, "stop_price": stop_price,
+             "broker_order_id": broker_order_id, "created_at": timestamp,
+             "updated_at": timestamp},
+        )
+        return transaction.one(
+            "SELECT * FROM protective_orders WHERE id = :order_id", {"order_id": order_id},
         )
 
 
