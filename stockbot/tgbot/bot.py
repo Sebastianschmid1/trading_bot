@@ -34,6 +34,7 @@ from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
 from stockbot.core.settings import validate_config
+from stockbot.core.logging_setup import configure_logging
 from stockbot.core.domain import Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem, _as_order
 from stockbot.execution.partial_fill_orchestrator import orchestrate_partial_fill
@@ -75,17 +76,14 @@ from stockbot.config import (
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
-    ALPACA_API_KEY, ALPACA_API_SECRET, LOG_FILE, SHARE_ROUNDUP_FACTOR, MAX_LEVERAGE,
+    ALPACA_API_KEY, ALPACA_API_SECRET, ENCRYPTION_KEY, LOG_FILE, LOG_FORMAT,
+    SHARE_ROUNDUP_FACTOR, MAX_LEVERAGE,
 )
 
 os.makedirs(os.path.dirname(LOG_FILE) or ".", exist_ok=True)   # Log-Ordner sicherstellen (fehlt bei frischem Klon)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler()
-    ]
+configure_logging(
+    log_format=LOG_FORMAT, log_file=LOG_FILE, service="stockbot-bot",
+    pseudonym_key=ENCRYPTION_KEY,
 )
 log = logging.getLogger(__name__)
 

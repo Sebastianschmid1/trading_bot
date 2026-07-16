@@ -33,6 +33,7 @@ class Settings:
     dashboard_base_url: str
     cookie_secure: bool
     hsts_enabled: bool
+    log_format: str
 
 
 def validate_config(cfg: Any = config) -> Settings:
@@ -62,6 +63,7 @@ def validate_config(cfg: Any = config) -> Settings:
         dashboard_base_url=cfg.DASHBOARD_BASE_URL,
         cookie_secure=cfg.COOKIE_SECURE,
         hsts_enabled=cfg.HSTS_ENABLED,
+        log_format=getattr(cfg, "LOG_FORMAT", "text"),
     )
 
     errors: list[str] = []
@@ -69,6 +71,8 @@ def validate_config(cfg: Any = config) -> Settings:
         errors.append("TRADING_MODE muss 'paper' oder 'live' sein")
     if settings.db_backend not in {"sqlite", "postgres"}:
         errors.append("DB_BACKEND muss 'sqlite' oder 'postgres' sein")
+    if settings.log_format not in {"text", "json"}:
+        errors.append("LOG_FORMAT muss 'text' oder 'json' sein")
 
     if not math.isfinite(settings.max_leverage) or not math.isfinite(settings.default_leverage):
         errors.append("MAX_LEVERAGE und DEFAULT_LEVERAGE müssen endliche Zahlen sein")

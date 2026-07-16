@@ -27,6 +27,7 @@ from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
 from stockbot.core.settings import validate_config
+from stockbot.core.logging_setup import configure_logging
 from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
@@ -488,5 +489,8 @@ def run():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    configure_logging(
+        log_format=config.LOG_FORMAT, service="stockbot-dashboard",
+        pseudonym_key=config.ENCRYPTION_KEY,
+    )
     run()
