@@ -39,11 +39,15 @@ Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
 - **W2.1 Broker-Event-Ingestion ✅** (`c516fab`, GitHub main, NICHT deployt): `broker_poll.py`
   Polling-Loop (`BROKER_POLL_INTERVAL_SEC=30`, handelszeitbegrenzt) → `broker_event_worker.
   process_broker_event` mit stabiler `broker_event_id` (idempotente Dedup). Suite 928 passed.
+- **W2.4 E2E-Doppelklick-Beweis ✅** (`a88d518`, test-only): Doppel-POST/Doppel-Callback
+  erzeugen genau EINE Broker-/OMS-Order. Empirisch verifiziert — der zweite Accept wird sicher
+  als „nicht mehr verfügbar" abgewiesen (Idempotenz am Service-Layer + OMS-Idempotency-Key als
+  zweite Linie). Prod-Code korrekt, kein Bug.
 - **W2.2** Reconciliation-Scheduler + Alarm: `execution/reconciliation.py::run_periodic_
-  reconciliation` + `run_daily_full_reconciliation` (existieren, unverdrahtet; brauchen
-  BrokerAdapter + Domain-Position/Order-Loader) in den Scheduler, Findings → Telegram-Admin.
-- **W2.3** Partial-Fill-Orchestrierung (`decide_partial_fill_action`) — nach W2.1.
-- **W2.4** E2E-Doppelklick-Beweis (test-only) — nach W2.1.
+  reconciliation` (existiert, unverdrahtet; AlpacaBrokerAdapter + Domain-Position/Order-Loader)
+  periodisch in den Scheduler, Findings → Telegram-Admin. **(in Arbeit)** — der tägliche
+  Positions-„Broker-Abgleich" (broker/reconcile.py) existiert bereits, nicht duplizieren.
+- **W2.3** Partial-Fill-Orchestrierung (`decide_partial_fill_action`) — letzter W2-Task.
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
