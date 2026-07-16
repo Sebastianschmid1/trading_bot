@@ -349,6 +349,7 @@ LAB_WEEKLY_MIN = LAB_DAILY_MIN
 # 12:00 Berlin liegt vor US-Open und repariert Drift, bevor neue US-Signale/Orders laufen.
 BROKER_RECONCILE_HOUR = int(os.getenv("BROKER_RECONCILE_HOUR", "12"))
 BROKER_RECONCILE_MIN = int(os.getenv("BROKER_RECONCILE_MIN", "0"))
+RECONCILE_PERIODIC_SEC = int(os.getenv("RECONCILE_PERIODIC_SEC", "600"))
 
 # ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
 # Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)
