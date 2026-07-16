@@ -10,9 +10,9 @@ Order-Logik (Kauf = `submit_buy`):
 - Erweiterte Handelszeit (Pre-/After-Market) → Alpaca erlaubt dort **keine** Bruchteile/Notional,
   nur **ganze Aktien als Limit + TimeInForce.DAY + extended_hours=True**.
 
-SL/TP werden NIE an den Broker geschickt — der Bot überwacht sie selbst (Monitor) und schließt
-die echte Position über `close_position`. Mit `get_order_status` wird die *tatsächliche*
-Ausführung (Fill) bestätigt.
+SL/TP überwacht der Bot intern (Monitor) und schließt die echte Position über `close_position`.
+Bei Partial Fills läuft zusätzlich eine brokerseitige Stop-SELL-Order parallel. Mit
+`get_order_status` wird die *tatsächliche* Ausführung (Fill) bestätigt.
 
 Die Keys liegen NUR in .env (gitignored) — niemals committen/loggen.
 """
@@ -366,6 +366,28 @@ def submit_exit_order(symbol: str, *, side: str, qty: float, limit_price: float 
         return {"ok": True, "id": str(getattr(order, "id", "")), "detail": human}
     except Exception as e:
         log.warning(f"Alpaca-ExitOrder {symbol} fehlgeschlagen: {e}")
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+def submit_stop_sell(symbol: str, *, qty: float, stop_price: float, client=None) -> dict:
+    """Sendet eine brokerseitige Stop-SELL-Order für eine Long-Position."""
+    client = _get_client(client)
+    if client is None:
+        return {"ok": False, "detail": "Alpaca nicht aktiv."}
+    try:
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import StopOrderRequest
+
+        req = StopOrderRequest(
+            symbol=symbol, qty=qty, side=OrderSide.SELL,
+            time_in_force=TimeInForce.DAY, stop_price=round(float(stop_price), 2),
+        )
+        order = client.submit_order(req)
+        human = f"{symbol} ×{qty:g} SELL Stop @{float(stop_price):.2f}"
+        log.info("Alpaca-StopOrder %s (%s) → id=%s", symbol, human, getattr(order, "id", "?"))
+        return {"ok": True, "id": str(getattr(order, "id", "")), "detail": human}
+    except Exception as e:
+        log.warning("Alpaca-StopOrder %s fehlgeschlagen: %s", symbol, e)
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
 
 

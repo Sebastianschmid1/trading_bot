@@ -80,6 +80,7 @@ def poll_broker_orders(
     status_fetcher: Callable[[str], Mapping[str, Any]],
     strategy_version_id: int | None = None,
     mode: Mode = Mode.PAPER,
+    partial_fill_handler: Callable[[BrokerEventResult], Any] | None = None,
 ) -> list[BrokerEventResult]:
     """Fragt Orders einzeln ab; Brokerfehler bleiben auf die jeweilige Order begrenzt."""
     results: list[BrokerEventResult] = []
@@ -107,6 +108,15 @@ def poll_broker_orders(
                 if result.position is not None:
                     positions[order_id] = result.position
                 results.append(result)
+                if (event_type == "partial_fill" and not result.deduplicated
+                        and partial_fill_handler is not None):
+                    try:
+                        partial_fill_handler(result)
+                    except Exception as exc:
+                        log.warning(
+                            "Partial-Fill-Orchestrierung für OMS-Order %s fehlgeschlagen: %s",
+                            order_id, type(exc).__name__,
+                        )
         except Exception as exc:
             log.warning(
                 "Broker-Poll für OMS-Order %s fehlgeschlagen: %s",

@@ -16,6 +16,7 @@ ALLOWED_ORDER_CALLS = Counter({
     ("execution/oms.py", "self.broker.submit_buy"): 1,
     ("execution/broker_adapter.py", "broker_client.submit_buy"): 1,
     ("execution/broker_adapter.py", "broker_client.submit_exit_order"): 1,
+    ("tgbot/bot.py", "broker.submit_stop_sell"): 1,
 })
 
 
@@ -38,7 +39,7 @@ def test_production_order_calls_are_limited_to_reviewed_boundaries():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                 continue
-            if node.func.attr not in {"submit_buy", "submit_exit_order"}:
+            if node.func.attr not in {"submit_buy", "submit_exit_order", "submit_stop_sell"}:
                 continue
             qualified_name = _attribute_name(node.func)
             found[(relative, qualified_name)] += 1
@@ -131,4 +132,3 @@ def test_allowed_intent_reaches_broker_exactly_once():
 
     assert result.ok is True
     assert len(broker.submissions) == 1
-
