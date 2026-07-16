@@ -61,6 +61,14 @@ Reviewfluss) sind ok, aber im Zweifel delegieren.
 4. **MERGE & DEPLOY.** `git pull <klon> <branch>` in `main`, Suite auf gemergtem `main`
    erneut laufen lassen, committen, nach GitHub pushen. Produktions-Deploy nur auf
    ausdrückliche Anweisung.
+5. **PLAN NACHFÜHREN (Pflicht, sofort).** Jeder aus `docs/UMSETZUNGSPLAN.md` erledigte Task
+   wird **direkt beim Merge** dort als erledigt eingetragen — Commit-Hash, geschlossenes
+   Gate, kurzer Status —, statt es am Ende zu sammeln. Den Plan konsistent halten: nicht nur
+   oben einen Status-Absatz schreiben, sondern auch die Wellen-Übersicht, die Detail-Tabelle
+   und die „Was jetzt"-/Kritischer-Pfad-Abschnitte mitziehen, damit keine erledigte Welle
+   noch als To-do lesbar ist. Denselben Stand ins Memory (`project_trading-bot-konzept-v1.md`
+   + `MEMORY.md`) spiegeln. Faustregel: **kein Merge ohne Plan-Eintrag.** Du (Manager) besitzt
+   diese Dateien — Sol fasst sie nie an.
 
 ## Sol-Worker-Mechanik
 
