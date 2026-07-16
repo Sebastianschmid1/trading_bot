@@ -452,6 +452,8 @@ ADMIN_CHAT_ID = int(_admin) if _admin.lstrip("-").isdigit() else None
 
 # Pfad der Bot-Logdatei (gemeinsam von bot.py geschrieben und vom Web-Log-Download gelesen).
 LOG_FILE = os.getenv("LOG_FILE", "logs/bot.log")
+# Text bleibt zwecks Kompatibilität mit der Log-Ansicht der Standard; JSON ist opt-in.
+LOG_FORMAT = os.getenv("LOG_FORMAT", "text").strip().lower()
 
 # Sizing-Aufrundung — DEPRECATED (TSAFE-004): Früher rundete der Bot bei einer knapp über dem
 # Budget liegenden Aktie auf 1 GANZE Aktie auf (Faktor 1.5) und überschritt so bewusst die

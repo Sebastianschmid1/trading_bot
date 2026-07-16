@@ -52,6 +52,11 @@ def test_unknown_trading_mode_is_rejected():
         validate_config(_config(TRADING_MODE="broken"))
 
 
+def test_unknown_log_format_is_rejected():
+    with pytest.raises(ConfigError, match="LOG_FORMAT"):
+        validate_config(_config(LOG_FORMAT="xml"))
+
+
 @pytest.mark.parametrize(
     "dsn", ["", "not-a-dsn", "mysql://localhost/stockbot", "postgresql://"]
 )

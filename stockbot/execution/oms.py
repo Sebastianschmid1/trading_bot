@@ -17,6 +17,7 @@ from stockbot.broker import client as default_broker
 from stockbot.broker import sizing
 from stockbot.core import db, risk
 from stockbot.core.audit_log import new_event_id
+from stockbot.core.logging_setup import logging_context, new_trace_id
 from stockbot.core.domain import AuditEvent, Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.core.state_machine import assert_order_transition
 
@@ -176,11 +177,15 @@ class OrderManagementSystem:
         if transport_client is not None:
             submit_kwargs["client"] = transport_client
 
-        try:
-            response = self.broker.submit_buy(order.ticker, **submit_kwargs)
-        except Exception as exc:
-            log.warning("OMS broker submission failed for order_id=%s: %s", order.id, type(exc).__name__)
-            response = {"ok": False, "detail": f"{type(exc).__name__}: submission failed"}
+        with logging_context(trace_id=new_trace_id(), user_id=intent.user_id):
+            try:
+                response = self.broker.submit_buy(order.ticker, **submit_kwargs)
+            except Exception as exc:
+                log.warning(
+                    "OMS broker submission failed: %s", type(exc).__name__,
+                    extra={"entity_id": order.id, "event_type": "broker_submission_failed"},
+                )
+                response = {"ok": False, "detail": f"{type(exc).__name__}: submission failed"}
 
         if not response.get("ok"):
             order = self._transition(order, OrderStatus.REJECTED, event_type="rejected",
