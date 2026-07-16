@@ -129,9 +129,12 @@ Ziel: Belastbares Zustands- und Datenmodell.
       [alle Plan.md-§9.4-Felder], erzwingt Append-only strukturell durch Fehlen von
       update()/delete(); persistente Anbindung folgt mit dem Postgres-Cutover.)
 
-**Gate P1.1 (Abnahme):**
-- [ ] Nutzer + Trades migrierbar; Zustandsübergänge getestet; ungültige abgelehnt
-- [ ] Jede Brokeraktion erzeugt Audit-Event; alles über Trace-IDs nachvollziehbar
+**Gate P1.1 (Abnahme):** — ✅ GESCHLOSSEN (W1.4 Audit persistent, `5aa6ece`)
+- [x] Nutzer + Trades migrierbar; Zustandsübergänge getestet; ungültige abgelehnt
+      (PLAT-001 Migration auf echten Daten bewiesen; `state_machine.py` Zustandsübergänge + Tests.)
+- [x] Jede Brokeraktion erzeugt Audit-Event; alles über Trace-IDs nachvollziehbar
+      (W1.4: `AuditLog` an DB gebunden [append-only], jede Brokeraktion [OMS-Submit/Exit/Cancel]
+      erzeugt Event mit Trace-ID. `5aa6ece`.)
 
 ---
 
@@ -229,9 +232,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `RawDataArchiveEntry` über den bestehenden `db_pool`-Seam persistiert werden. Noch von
       KEINEM Live-Codepfad genutzt.)
 
-**Gate P2 (Abnahme):**
-- [ ] DST-Wechsel + Half Days korrekt; keine Intraday-Position nach Entry-Cutoff
-- [ ] Signal speichert Provider + Datenversion; veraltete Quotes blockieren Orders
+**Gate P2 (Abnahme):** — ⏳ TEILWEISE (Quote-Blockade + Kalender live über W1.2/DATA-002; Provider/Version je Signal offen → W3)
+- [x] DST-Wechsel + Half Days korrekt; keine Intraday-Position nach Entry-Cutoff
+      (DATA-002: `exchange_calendar` session-relativ, Entry-Cutoff zentral in `services/trades.accept_trade`.)
+- [~] Signal speichert Provider + Datenversion; veraltete Quotes blockieren Orders
+      (Quote-Blockade LIVE: W1.2 zieht Alpaca-Quote im Orderpfad, `data_quality.check_quote_age`/
+      `check_spread` blockieren veraltete Quotes [`5aa6ece`]. OFFEN: „Signal speichert Provider +
+      Datenversion" verlangt, dass der LIVE-Signalpfad `MarketDataProvider` nutzt und die Herkunft
+      persistiert → Welle W3 [yfinance-Ablösung, gated auf Tor T0].)
 
 ---
 
@@ -348,9 +356,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `liquidity_low` usw. — erst relevant, sobald `pretrade_check` selbst live verdrahtet
       ist].)
 
-**Gate P3 (Abnahme):**
-- [ ] Keine Order umgeht den Risk Service; gleiche Inputs → gleiche RiskDecision
-- [ ] Keine Order überschreitet Kontorisiko; Tagesverlustlimit blockiert; Schutz-Exits trotz Kill-Switch erlaubt
+**Gate P3 (Abnahme):** — ✅ GESCHLOSSEN (W1 Risk-Wiring, `5aa6ece`)
+- [x] Keine Order umgeht den Risk Service; gleiche Inputs → gleiche RiskDecision
+      (W1.1 Risk-Context-Loader speist `pretrade_check` in bot.py+webapp.py; W1.6 Determinismus-Test
+      + Import-/Grep-Bypass-Guard.)
+- [x] Keine Order überschreitet Kontorisiko; Tagesverlustlimit blockiert; Schutz-Exits trotz Kill-Switch erlaubt
+      (W1.1 verdrahtet Sizing/Buying-Power/Daily-Loss/Exposure/Max-Positionen scharf; W1.3 Kill-Switch
+      persistent, Schutz-Exits bleiben erlaubt. FREIGABE-PFLICHTIG VOR DEPLOY — ändert Live-Trade-
+      Verhalten, Default-RiskProfile vorher prüfen.)
 
 ---
 
@@ -403,16 +416,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `broker/reconcile.py` bleibt unverändert aktiv. 13 neue Tests, volle Suite 760 passed/
       4 skipped.)
 
-**Gate P4 (Abnahme):**
-- [~] Doppelklicks → keine doppelten Orders; Orderstatus = Brokerereignisse
-      (Idempotency-Teil bewiesen: `tests/test_oms.py` [OMS-003, gleicher Key ⇒ genau eine Order]
-      + OMS-005-Dedup über `broker_event_id`. Offen bleibt der End-to-End-Nachweis über die
-      LIVE-verdrahteten UI-Pfade, sobald OMS-004–007 in bot.py/webapp.py orchestriert sind.)
-- [~] Partial Fills korrekt; Abweichungen erkannt + alarmiert; jede Order hat vollständige Ereignishistorie
-      (Bausteine da: OMS-006-Policy [Partial Fills], OMS-007 [Abweichungen erkannt + Report],
-      `order_events` [Ereignishistorie je Order, inkl. Status-neutraler Events]. Offen bleibt
-      „alarmiert" im Live-Betrieb: die Reconciliation-Reports sind noch an keinen Scheduler/
-      Notification-Kanal angeschlossen — Teil der späteren Live-Orchestrierung.)
+**Gate P4 (Abnahme):** — ✅ GESCHLOSSEN (W2 OMS-Orchestrierung, `0ce4a65`)
+- [x] Doppelklicks → keine doppelten Orders; Orderstatus = Brokerereignisse
+      (W2.1 Broker-Event-Ingestion [`broker_poll.py` → `process_broker_event`, idempotente Dedup
+      über `broker_event_id`]; W2.4 E2E-Doppelklick-Beweis über die LIVE-UI-Pfade [Web-Doppel-POST,
+      Telegram-Doppel-Callback] → genau EINE Order, empirisch verifiziert.)
+- [x] Partial Fills korrekt; Abweichungen erkannt + alarmiert; jede Order hat vollständige Ereignishistorie
+      (W2.3 Partial-Fill-Orchestrierung [broker-seitige Stop-SELL in Fillgröße, `protective_orders`-
+      Tabelle, keine Doppel-Schutzorder]; W2.2 Reconciliation-Scheduler [`reconcile_scheduler.py`,
+      periodisch] mit gebündeltem Telegram-Admin-Alarm + Dedup; `order_events`-Historie je Order.
+      FREIGABE-PFLICHTIG VOR DEPLOY — broker-seitige Partial-Fill-Stops ändern Live-Trade-Verhalten.)
 
 ---
 
