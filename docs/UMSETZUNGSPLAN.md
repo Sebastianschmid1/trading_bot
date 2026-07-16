@@ -34,7 +34,7 @@ W1.3 Kill-Switch persistent (eigene Alembic-Revision c3d4e5f6a7b8, read-through 
 Prozessgrenzen, OMS-Gate NACH Idempotenz-Check, Telegram `/killswitch` + Web-Toggle,
 Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
 
-## W2 (OMS-Live-Orchestrierung, Gate P4) — im Gang
+## W2 KOMPLETT (2026-07-16, OMS-Live-Orchestrierung, Gate P4)
 
 - **W2.1 Broker-Event-Ingestion ✅** (`c516fab`, GitHub main, NICHT deployt): `broker_poll.py`
   Polling-Loop (`BROKER_POLL_INTERVAL_SEC=30`, handelszeitbegrenzt) → `broker_event_worker.
@@ -96,21 +96,24 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 
 ## Wellen-Übersicht
 
-| Welle | Ziel | Schließt Gate |
-|---|---|---|
-| **W0** Betriebsschutz (sofort) | Prod-Postgres & Deployment absichern, ohne den Trading-Pfad im Burn-in anzufassen | Teile P9 |
-| **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote |
-| **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** |
-| **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** |
-| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest |
-| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** |
-| **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** |
-| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** |
-| **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** |
+| Welle | Ziel | Schließt Gate | Status |
+|---|---|---|---|
+| **W0** Betriebsschutz | Prod-Postgres & Deployment absichern, ohne den Trading-Pfad im Burn-in anzufassen | Teile P9 | ✅ erledigt (`c0e43bd`) |
+| **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
+| **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
+| **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
+| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | offen (nicht T0-gated, parallel) |
+| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | offen (nicht T0-gated, parallel) |
+| **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
+| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
+| **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
 
 ---
 
-## W0 — Betriebsschutz (JETZT starten, alle parallel)
+## W0 — Betriebsschutz — ✅ ERLEDIGT (`c0e43bd`)
+
+> Alle vier Tasks gebaut, reviewt, gemergt, gepusht. Detail-Status siehe oben (Projektstand).
+> Die Tabelle unten ist die ursprüngliche Planung (historisch).
 
 Kein Eingriff in den Trading-Codepfad → stört den Postgres-Burn-in nicht.
 
@@ -121,7 +124,10 @@ Kein Eingriff in den Trading-Codepfad → stört den Postgres-Burn-in nicht.
 | W0.3 | **PLAT-008 systemd-Härtung** | Units umschreiben (eigener User `stockbot`, `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict` + `ReadWritePaths`, Limits), Pfad-Anpassung in `deploy/*.sh`/`upload.ps1`. Sol schreibt Units + Migrationsanleitung; **VPS-Migration = menschlicher Deploy-Schritt (Tor T1).** | M | — | ✅ |
 | W0.4 | **Paket A Konfig/Flags** | Typisierte Settings-Klasse um `config.py`, Modusvalidierung beim Start, Start-Verweigerung bei riskanter Fehlkonfig. | M | — | ✅ |
 
-## W1 — Risk-Wiring (Kern-Sicherheitswelle)
+## W1 — Risk-Wiring (Kern-Sicherheitswelle) — ✅ ERLEDIGT (`5aa6ece`)
+
+> Alle sechs Tasks (W1.1–W1.6) gebaut, reviewt, gemergt, gepusht. Detail-Status siehe oben.
+> Die Tabelle unten ist die ursprüngliche Planung (historisch).
 
 Höchster Sicherheitsnutzen pro Aufwand: Logik existiert und ist getestet, es fehlen nur die Inputs.
 
@@ -138,7 +144,10 @@ Höchster Sicherheitsnutzen pro Aufwand: Logik existiert und ist getestet, es fe
 Sol-Strang, W1.3/W1.4/W1.5 als drei parallele Stränge. **Deploy der W1-Ergebnisse erst nach 2–3
 stabilen Postgres-Markttagen bündeln.**
 
-## W2 — OMS-Live-Orchestrierung (Gate P4)
+## W2 — OMS-Live-Orchestrierung (Gate P4) — ✅ ERLEDIGT (`0ce4a65`)
+
+> Alle vier Tasks (W2.1–W2.4) gebaut, reviewt, gemergt, gepusht. Detail-Status siehe oben.
+> Die Tabelle unten ist die ursprüngliche Planung (historisch).
 
 | # | Task | Scope | Aufwand | Abh. | Parallel? |
 |---|---|---|---|---|---|
@@ -204,9 +213,10 @@ Fehlerquote dokumentieren. **Go/No-Go = menschliches Tor T5.**
 
 ## Kritischer Pfad
 
-**W1.1→W1.2 (Risk-Wiring) → W2.1→W2.3 (OMS-Orchestrierung) → W3.1→W3.2 (yfinance-Ablösung) → W8
-(Burn-in-Kalenderzeit).** Alles andere (W4, W5–W6, W7) hängt parallel daneben. Der Burn-in kann formal
-erst "zählen", wenn W1–W3 deployt sind — je früher W1 live ist, desto früher startet die Uhr.
+**~~W1 (Risk-Wiring) → W2 (OMS-Orchestrierung)~~ ✅ erledigt → W3.1→W3.2 (yfinance-Ablösung, gated auf
+Tor T0) → W8 (Burn-in-Kalenderzeit).** Alles andere (W4, W5–W6, W7) hängt parallel daneben. Der Burn-in
+kann formal erst "zählen", wenn W1–W3 **deployt** sind — Deploy von W1+W2 ist freigabe-pflichtig
+(Live-Trade-Verhalten) und erst nach 2–3 stabilen Postgres-Markttagen sinnvoll.
 
 ## Quick Wins (größter Nutzen pro Aufwand)
 
@@ -227,15 +237,23 @@ erst "zählen", wenn W1–W3 deployt sind — je früher W1 live ist, desto frü
 | T5 | Ende W8 | Paper-Go/No-Go-Abzeichnung |
 | T6 | P11 | Canary-Live-Entscheidung (separat) |
 
-## Empfehlung: Jetzt starten mit W0 + W1 (versetzt)
+## Was jetzt (Stand 2026-07-16, nach W0–W2)
 
-Sofort **3–4 parallele Sol-Worker auf W0.1/W0.2/W0.3/W0.4** — reine Betriebsschutz-Tasks, die den
-Trading-Codepfad nicht berühren und den laufenden Postgres-Burn-in nicht kontaminieren. Das Backup
-(W0.1) ist nicht verhandelbar dringend. **Gleichzeitig W1.3/W1.4/W1.5 als parallele Branches
-entwickeln** (eigene Tabellen/Jobs, konfliktfrei) und **W1.1 als Kernstrang**; Deploy der W1-Ergebnisse
-erst nach 2–3 stabilen Postgres-Markttagen bündeln. So wird die Beobachtungsphase produktiv genutzt,
-und direkt danach sind Gate P3 + P1.1 geschlossen — Voraussetzung, damit die Burn-in-Uhr für Gate P10
-sinnvoll tickt. Parallel **T4 (regulatorische Einordnung) anstoßen**, da extern und lang laufend.
+W0–W2 sind erledigt (Gates P1.1/P2-Quote/P3/P4 geschlossen), alles auf GitHub `main`, **nichts
+deployt**. Der kritische Pfad hängt jetzt an **menschlichen Entscheidungen**:
+
+1. **Tor T0** — nach ~3–5 stabilen Postgres-Markttagen (seit Cutover 2026-07-15) Stabilität bestätigen
+   → entblockt **W3.1 (Scheibe 9)** und damit die ganze Welle W3.
+2. **Deploy-Freigabe W1+W2** — ändert Live-Trade-Verhalten (Risk-Gates scharf, Kill-Switch, broker-
+   seitige Partial-Fill-Stops). Vor Deploy Default-`RiskProfile` fürs Paper-Setup (5× Hebel, max. 5
+   Positionen) prüfen; dann gebündelt deployen, erst nach den Burn-in-Tagen.
+3. **Ohne Gate parallel möglich:** **W5** (Backtest-Härtung, Gate P7, Research-Strang) und **W4**
+   (Observability/Platform, Rest P9) — beide NICHT durch T0 gated, können jederzeit starten.
+4. **T4 (regulatorische Einordnung)** weiter offen — extern/langläufig, blockiert P11/P12.
+
+Offene Nebenbefunde: vorbestehender `has_trade_today`-Datums-/Zeitzonen-Bug (eigener Debug-Task,
+`test_trade_read_mapping_order_and_day_contract[sqlite]`); `_audit_contexts`-Mini-Leak im OMS-Singleton.
+W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1), Backup-Timer + age-Key aktivieren.
 
 ## Kritische Dateien für die Umsetzung
 
