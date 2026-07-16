@@ -1,7 +1,10 @@
 # systemd-Unit für den Stock Signal Bot unter dem unprivilegierten User stockbot.
 # Installation: sudo cp deploy/stockbot.service /etc/systemd/system/ && sudo systemctl daemon-reload
 #
-# Voraussetzung: Repo unter /opt/stockbot, venv angelegt, .env befüllt und für stockbot lesbar.
+# Voraussetzung: Repo unter /opt/stockbot, venv angelegt; .env enthält nur Nicht-Secrets.
+# Secrets liegen root-lesbar unter /etc/stockbot/credentials/. Alternativ kann bei transienten
+# Units `SetCredential=NAME:WERT` verwendet werden. Rotation: Credential-Datei atomar ersetzen,
+# dann `systemctl restart stockbot`; der Neustart liest alle Credentials erneut ein.
 # Der Bot startet das Dashboard standardmäßig mit (RUN_DASHBOARD_IN_BOT=true) —
 # ein separater dashboard.service ist dann NICHT nötig.
 
@@ -16,6 +19,13 @@ User=stockbot
 Group=stockbot
 WorkingDirectory=/opt/stockbot
 EnvironmentFile=/opt/stockbot/.env
+# Nach dem Anlegen der jeweils benötigten Dateien aktivieren (fehlende Quellen sind fatal):
+# LoadCredential=TELEGRAM_TOKEN_ENV:/etc/stockbot/credentials/telegram_token
+# LoadCredential=ENCRYPTION_KEY:/etc/stockbot/credentials/encryption_key
+# LoadCredential=POSTGRES_DSN:/etc/stockbot/credentials/postgres_dsn
+# LoadCredential=ALPACA_API_KEY:/etc/stockbot/credentials/alpaca_api_key
+# LoadCredential=ALPACA_API_SECRET:/etc/stockbot/credentials/alpaca_api_secret
+# LoadCredential=ANTHROPIC_API_KEY:/etc/stockbot/credentials/anthropic_api_key
 ExecStart=/opt/stockbot/venv/bin/python /opt/stockbot/run_bot.py
 Restart=always
 RestartSec=10

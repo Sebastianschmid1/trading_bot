@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -100,3 +101,24 @@ def test_live_paper_and_https_security_mismatches_warn(caplog):
     assert settings.live_trading_enabled is True
     assert "ALPACA_PAPER=true" in caplog.text
     assert "HTTPS-Dashboard" in caplog.text
+
+
+def test_settings_mask_secrets_in_repr_str_log_and_validation_error(caplog):
+    secrets = {
+        "POSTGRES_DSN": "postgresql://secret-user:secret-password@db/stockbot",
+        "ALPACA_API_KEY": "alpaca-key-secret-value",
+        "ALPACA_API_SECRET": "alpaca-api-secret-value",
+    }
+    settings = validate_config(_config(DB_BACKEND="postgres", **secrets))
+
+    caplog.set_level("INFO")
+    logging.getLogger("test.settings").info("%s", settings)
+    rendered = repr(settings) + str(settings) + caplog.text
+
+    with pytest.raises(ConfigError) as exc_info:
+        validate_config(_config(TRADING_MODE="invalid", **secrets))
+    rendered += str(exc_info.value)
+
+    assert "***" in rendered
+    for secret in secrets.values():
+        assert secret not in rendered
