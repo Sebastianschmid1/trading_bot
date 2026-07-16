@@ -13,6 +13,7 @@ import pandas as pd
 from stockbot.core import metrics
 from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
+from stockbot.backtest.clock import BarClock
 
 
 # ── metrics ──────────────────────────────────────────────────────────────────
@@ -266,6 +267,74 @@ def test_backtest_engine_applies_transaction_costs():
                                        max_hold=10, warmup=2)
     from stockbot import config as _cfg
     assert round(gross[0]["pnl_pct"] - default[0]["pnl_pct"], 2) == round(2 * _cfg.BACKTEST_COST_PCT, 2)
+
+
+def _provider_bars():
+    n = backtest.WARMUP_BARS + 12
+    close = np.full(n, 100.0)
+    high = close + 0.5
+    low = close - 0.5
+    high[backtest.WARMUP_BARS + 1] = 106.0
+    idx = pd.date_range("2023-01-01", periods=n, freq="B")
+    return pd.DataFrame({"Open": close, "High": high, "Low": low, "Close": close,
+                         "Volume": np.full(n, 1e6)}, index=idx)
+
+
+def test_run_backtest_uses_injected_provider_and_preserves_result(monkeypatch):
+    """Provider-Seam ist offline nutzbar; dieselben Bars ergeben dasselbe Resultat wie `data`."""
+    df = _provider_bars()
+
+    class FakeProvider:
+        def __init__(self):
+            self.calls = []
+
+        def get_bars(self, ticker, **kwargs):
+            self.calls.append((ticker, kwargs))
+            return df.copy()
+
+    provider = FakeProvider()
+    strategy = _dummy_long()
+    monkeypatch.setattr(backtest.strat_mod, "get", lambda key: strategy)
+
+    via_provider = backtest.run_backtest(
+        "dummy", tickers=["X"], years=2, data_provider=provider, jobs=1, cost_pct=0.0)
+    via_data = backtest.run_backtest(
+        "dummy", tickers=["X"], years=2, data={"X": df.copy()}, jobs=1, cost_pct=0.0)
+
+    assert provider.calls == [("X", {"period": "3y", "interval": "1d"})]
+    assert via_provider == via_data
+
+
+def test_clock_tracks_current_bar_in_decision_path():
+    df = _provider_bars()
+    clock = BarClock()
+    seen = []
+
+    def generate(ticker, tf_data):
+        seen.append(clock.now())
+        return None
+
+    strategy = strategies.Strategy("clock", "Clock", generate)
+    backtest.backtest_ticker(strategy, "X", df, 1000.0, clock=clock, cost_pct=0.0)
+
+    assert seen
+    assert seen[0] == df.index[backtest.WARMUP_BARS].to_pydatetime()
+
+
+def test_generate_uses_shared_strategy_and_analyzer_paths(monkeypatch):
+    """Der Backtest delegiert Signale an dieselben Module wie der produktive Strategiepfad."""
+    calls = []
+    strategy = strategies.Strategy(
+        "standard", "Standard", lambda ticker, data: calls.append("strategy") or {"ok": True})
+    assert backtest._generate(strategy, "X", {"1d": pd.DataFrame()}, False) == {"ok": True}
+
+    monkeypatch.setattr(
+        backtest.analyzer, "analyze_ticker",
+        lambda ticker, data, allow_short: calls.append(("analyzer", allow_short)) or {"ok": True})
+    signal = backtest._generate(strategy, "X", {"1d": pd.DataFrame()}, True)
+
+    assert calls == ["strategy", ("analyzer", True)]
+    assert signal == {"ok": True, "strategy": "standard"}
 
 
 if __name__ == "__main__":
