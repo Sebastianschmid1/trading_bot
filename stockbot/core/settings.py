@@ -16,7 +16,7 @@ class ConfigError(RuntimeError):
     """Die Konfiguration verletzt eine harte Start-Invariante."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class Settings:
     """Sicherheits- und betriebsrelevante, bereits geparste Einstellungen."""
 
@@ -33,6 +33,27 @@ class Settings:
     dashboard_base_url: str
     cookie_secure: bool
     hsts_enabled: bool
+
+    def __repr__(self) -> str:
+        """Zeigt betriebliche Werte, aber niemals Zugangsdaten."""
+        values = (
+            f"trading_mode={self.trading_mode!r}",
+            f"live_trading_enabled={self.live_trading_enabled!r}",
+            f"allow_margin={self.allow_margin!r}",
+            f"max_leverage={self.max_leverage!r}",
+            f"default_leverage={self.default_leverage!r}",
+            f"db_backend={self.db_backend!r}",
+            "postgres_dsn='***'",
+            f"alpaca_paper={self.alpaca_paper!r}",
+            "alpaca_api_key='***'",
+            "alpaca_api_secret='***'",
+            f"dashboard_base_url={self.dashboard_base_url!r}",
+            f"cookie_secure={self.cookie_secure!r}",
+            f"hsts_enabled={self.hsts_enabled!r}",
+        )
+        return f"Settings({', '.join(values)})"
+
+    __str__ = __repr__
 
 
 def validate_config(cfg: Any = config) -> Settings:

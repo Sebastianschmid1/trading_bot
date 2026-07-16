@@ -12,6 +12,27 @@ from stockbot.paths import ENV_FILE
 load_dotenv(ENV_FILE)  # liest Werte aus der .env im Projekt-Root, falls vorhanden
 
 
+def _secret(name: str, default: str | None = None) -> str | None:
+    """Liest ein Secret mit Präzedenz systemd-Credential > Env > ``.env``.
+
+    systemd stellt mit ``LoadCredential=`` geladene Werte als Dateien unter
+    ``$CREDENTIALS_DIRECTORY`` bereit. Ohne dieses Verzeichnis bleibt das bisherige
+    lokale Verhalten unverändert. Nach einer Rotation liest ein Prozessneustart die
+    neu bereitgestellte Credential-Datei ein.
+    """
+    credentials_directory = os.getenv("CREDENTIALS_DIRECTORY")
+    if credentials_directory:
+        credential_path = os.path.join(credentials_directory, name)
+        try:
+            with open(credential_path, encoding="utf-8") as credential_file:
+                return credential_file.read().rstrip("\r\n")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise RuntimeError(f"systemd-Credential {name} kann nicht gelesen werden") from exc
+    return os.getenv(name, default)
+
+
 def _detect_lan_ip() -> str:
     """Ermittelt die lokale Netzwerk-IP (für einen vom Handy erreichbaren Dashboard-Link)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -25,15 +46,15 @@ def _detect_lan_ip() -> str:
 
 # ── Telegram ────────────────────────────────────────────────────────────────
 # Hol dir deinen Token von @BotFather auf Telegram
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN_ENV")
+TELEGRAM_TOKEN = _secret("TELEGRAM_TOKEN_ENV")
 
 # ── Verschlüsselung (für gespeicherte Broker-API-Zugangsdaten) ──────────────
 # Einmalig generieren mit:
 #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+ENCRYPTION_KEY = _secret("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
     raise RuntimeError(
-        "ENCRYPTION_KEY fehlt in .env — generiere einen mit:\n"
+        "ENCRYPTION_KEY fehlt als systemd-Credential oder Umgebungswert — generiere einen mit:\n"
         '  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
     )
 
@@ -354,20 +375,20 @@ RECONCILE_PERIODIC_SEC = int(os.getenv("RECONCILE_PERIODIC_SEC", "600"))
 # ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
 # Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)
 # + News/Analysten. Bewusst nur Haiku zur Kostenersparnis (eine gebündelte Anfrage pro Lauf).
-# API-Key NUR aus .env (gitignored) — niemals committen/loggen.
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# API-Key aus systemd-Credential oder lokal aus Env/.env — niemals committen/loggen.
+ANTHROPIC_API_KEY = _secret("ANTHROPIC_API_KEY")
 LLM_MODEL         = "claude-haiku-4-5"      # exakt — kein Datum-Suffix
 # KI-Signal-Ranking standardmäßig AUS — im Dauerbetrieb zu teuer. Bei Bedarf per
-# LLM_RANK_SIGNALS=true (in .env) reaktivierbar; benötigt zusätzlich einen ANTHROPIC_API_KEY.
+# LLM_RANK_SIGNALS=true reaktivierbar; benötigt zusätzlich einen ANTHROPIC_API_KEY.
 LLM_RANK_ENABLED  = bool(ANTHROPIC_API_KEY) and \
     os.getenv("LLM_RANK_SIGNALS", "false").strip().lower() in ("1", "true", "yes")
 LLM_MAX_SIGNALS   = 8                        # Obergrenze Signale pro LLM-Anfrage (Kosten)
 
 # ── Alpaca (Trading API — eigenes Konto) ─────────────────────────────────────
-# Keys NUR aus .env (gitignored). Standard = PAPER (kein echtes Geld). Ausführung ist
-# zusätzlich pro Nutzer schaltbar (users.broker_exec) und standardmäßig AUS.
-ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY")
-ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
+# Keys aus systemd-Credentials oder lokal aus Env/.env. Standard = PAPER (kein echtes Geld).
+# Ausführung ist zusätzlich pro Nutzer schaltbar (users.broker_exec) und standardmäßig AUS.
+ALPACA_API_KEY    = _secret("ALPACA_API_KEY")
+ALPACA_API_SECRET = _secret("ALPACA_API_SECRET")
 ALPACA_PAPER      = os.getenv("ALPACA_PAPER", "true").strip().lower() in ("1", "true", "yes")
 ALPACA_ENABLED    = bool(ALPACA_API_KEY and ALPACA_API_SECRET)
 # Erweiterte Handelszeiten (US Pre-/After-Market). Monitoring/Signal-Fenster nutzen dann
@@ -445,7 +466,7 @@ SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.0"))
 DB_BACKEND = os.getenv("DB_BACKEND", "sqlite").strip().lower()
 if DB_BACKEND not in {"sqlite", "postgres"}:
     raise RuntimeError("DB_BACKEND muss 'sqlite' oder 'postgres' sein")
-POSTGRES_DSN = os.getenv(
+POSTGRES_DSN = _secret(
     "POSTGRES_DSN",
     "postgresql+psycopg2://stockbot:stockbot@localhost:5432/stockbot",
 )
