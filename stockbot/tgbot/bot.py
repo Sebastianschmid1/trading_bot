@@ -39,6 +39,11 @@ from stockbot.execution.oms import OrderManagementSystem
 from stockbot.execution import risk_context
 from stockbot.execution.post_trade_scan import run_post_trade_scan
 from stockbot.execution.broker_poll import poll_broker_orders
+from stockbot.execution.reconcile_scheduler import (
+    finding_keys as reconciliation_finding_keys,
+    format_admin_alarm as format_reconciliation_admin_alarm,
+    reconcile_user_oms,
+)
 from stockbot.ai import llm_ranker
 from stockbot.broker import client as broker
 from stockbot.broker import sizing
@@ -65,7 +70,7 @@ from stockbot.config import (
     SIGNAL_OPEN_OFFSET_MIN, CLOSE_AFTER_CLOSE_OFFSET_MIN, SESSION_TICK_INTERVAL_SEC,
     ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
-    POST_TRADE_SCAN_INTERVAL_SEC, BROKER_POLL_INTERVAL_SEC,
+    POST_TRADE_SCAN_INTERVAL_SEC, BROKER_POLL_INTERVAL_SEC, RECONCILE_PERIODIC_SEC,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
@@ -2567,6 +2572,33 @@ async def poll_broker_orders_job(context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def periodic_oms_reconciliation_job(context: ContextTypes.DEFAULT_TYPE):
+    """Prüft Positionen, Orders und Konto je betroffenem Nutzer ohne Korrekturen."""
+    if not _us_market_open(extended=False):
+        return
+
+    position_rows, _ = db.get_post_trade_risk_rows()
+    user_ids = {int(row["user_id"]) for row in position_rows}
+    user_ids.update(int(row["user_id"]) for row in db.get_open_oms_orders())
+
+    reports = {}
+    for user_id in sorted(user_ids):
+        user = db.get_user(user_id)
+        client = _alpaca_client(user) if user else None
+        if client is None:
+            log.warning("[%s] OMS-Reconciliation ohne verfügbaren Alpaca-Client übersprungen", user_id)
+            continue
+        reports[user_id] = await asyncio.to_thread(reconcile_user_oms, user, client)
+
+    current = reconciliation_finding_keys(reports)
+    previous = context.job.data["previous_findings"]
+    message = format_reconciliation_admin_alarm(reports)
+    if ADMIN_CHAT_ID is not None and message and current != previous:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message)
+    previous.clear()
+    previous.update(current)
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2606,6 +2638,11 @@ def _register_jobs(app):
     job_queue.run_repeating(
         poll_broker_orders_job, interval=BROKER_POLL_INTERVAL_SEC,
         first=BROKER_POLL_INTERVAL_SEC, name="broker_order_poll",
+    )
+    job_queue.run_repeating(
+        periodic_oms_reconciliation_job, interval=RECONCILE_PERIODIC_SEC,
+        first=RECONCILE_PERIODIC_SEC, name="periodic_oms_reconciliation",
+        data={"previous_findings": set()},
     )
 
 
