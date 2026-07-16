@@ -43,11 +43,19 @@ Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
   erzeugen genau EINE Broker-/OMS-Order. Empirisch verifiziert — der zweite Accept wird sicher
   als „nicht mehr verfügbar" abgewiesen (Idempotenz am Service-Layer + OMS-Idempotency-Key als
   zweite Linie). Prod-Code korrekt, kein Bug.
-- **W2.2** Reconciliation-Scheduler + Alarm: `execution/reconciliation.py::run_periodic_
-  reconciliation` (existiert, unverdrahtet; AlpacaBrokerAdapter + Domain-Position/Order-Loader)
-  periodisch in den Scheduler, Findings → Telegram-Admin. **(in Arbeit)** — der tägliche
-  Positions-„Broker-Abgleich" (broker/reconcile.py) existiert bereits, nicht duplizieren.
-- **W2.3** Partial-Fill-Orchestrierung (`decide_partial_fill_action`) — letzter W2-Task.
+- **W2.2 Reconciliation-Scheduler + Alarm ✅** (`95953bd`): `reconcile_scheduler.py`
+  periodischer OMS-Abgleich (AlpacaBrokerAdapter + `run_periodic_reconciliation`,
+  `RECONCILE_PERIODIC_SEC=600`, per User, gebündelter Admin-Alarm + Dedup). Nur Erkennung.
+- **W2.3 Partial-Fill-Orchestrierung ✅** (`0ce4a65`): bei nicht-dedupliziertem partial_fill
+  → `decide_partial_fill_action`; submit_protective = **broker-seitige Stop-SELL**
+  (`broker.submit_stop_sell`, Alpaca StopOrderRequest, Fillgröße, Signal-Stop-Loss) +
+  Persistenz in separater `protective_orders`-Tabelle (Alembic `d4e5f6a7b8c9`) → keine
+  Doppel-Schutzorder; cancel_restorder → cancel_order; resize/kein-Stop → Admin-Alarm.
+  Bypass-Guard um submit_stop_sell erweitert. **Vom Nutzer freigegebenes Verhalten.**
+
+**→ W2 KOMPLETT (Gate P4). Volle Suite auf main: 942 passed. Nächste Welle W3 (Daten &
+Versionen) ist per Tor T0 gated (Postgres-Stabilität nach ~3-5 Markttagen bestätigen →
+entblockt W3.1 Scheibe 9). W4/W5 laufen parallel und sind NICHT durch T0 gated.**
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
