@@ -57,12 +57,44 @@ Schutz-Exits bleiben erlaubt). Alembic-Head jetzt `c3d4e5f6a7b8`.
 Versionen) ist per Tor T0 gated (Postgres-Stabilität nach ~3-5 Markttagen bestätigen →
 entblockt W3.1 Scheibe 9). W4/W5 laufen parallel und sind NICHT durch T0 gated.**
 
+## W4/W5 ANGELAUFEN (2026-07-16, GitHub `main`, NICHT deployt)
+
+Parallele Sol-Worker (Shared-venv-Setup wegen User-Quota; max. 2 parallel). Erste Charge
+gemergt + reviewt, volle Suite auf gemergtem main selbst gefahren:
+
+- **W4.1 JSON-Logging ✅** (`core/logging_setup.py`): Text/JSON-Formatter, `LOG_FORMAT`
+  opt-in (Default `text` → Log-Ansicht kompatibel), ContextVars trace_id +
+  HMAC-pseudonymisierte user_id, Secret-/PII-Redaction.
+- **W4.3 Secrets ✅** (PLAT-006b): `config._secret()` Präzedenz systemd-Credential > Env >
+  `.env`; `Settings.__repr__` maskiert Secrets (`***`); `deploy/*.service` LoadCredential-
+  Vorlage + Rotation dokumentiert. Dev-Verhalten unverändert.
+- **W5.1 Backtest-Seam ✅** (Gate-P7-Fundament): `yfinance` raus aus `backtest/engine.py`,
+  Bars über injizierbaren `MarketDataProvider`, neue `backtest/clock.py` (`BarClock`).
+  Strategiecode war bereits geteilt → Aufwand L→S.
+
+**In Arbeit / nächste Charge:** W4.2 Metriken+Alarme (re-briefed mit vorgegebenen Schwellen/
+Quellen), W5.3 Kostenmodell (RES-004), W4.4 Alpaca-OAuth-Seam (PLAT-007). Danach W5.2
+(Multi-Timeframe), W5.5 (Reproduzierbarkeit), W5.4 (Universen point-in-time), W5.6
+(Validierung), W4.5 (Pakete B/C/D). **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-
+pflichtig; nichts deployt.**
+
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
 (`db.has_trade_today → False`, an einer Tagesgrenze). Datums-/Zeitzonen-abhängig, riecht nach
 der bekannten DB-Zeitvertrag-Klasse (naive/aware, Berlin vs. UTC). Von 3 Sol-Workern
 unabhängig bestätigt. **Eigener Debug-Task nötig** (könnte `has_trade_today` in Prod nahe
 Mitternacht betreffen → Doppeltrade-/Blockade-Risiko).
+
+**⚠️ Zweiter vorbestehender, ZEITABHÄNGIGER Bug (2026-07-16 gefunden, NICHT W4/W5):**
+`tests/test_quote_context.py::test_real_oms_applies_quote_quality_gates` (3 Parametrisierungen)
+failt am Nachmittag, war vormittags grün. Ursache: Der Test setzt `NOW=2026-07-16 12:00 UTC`
+und übergibt `now` im Callsite-Context, aber die Quote-Age-Prüfung im LIVE-OMS-Pfad vergleicht
+gegen die **echte Wall-Clock** statt gegen das injizierte `now` → sobald real-now > NOW+60s,
+gilt auch die frische Quote als „stale". **Wall-Clock-Leak im OMS-Quote-Gate** — dieselbe
+Determinismus-Klasse wie der `has_trade_today`-Bug; verletzt „gleiche Inputs → gleiche
+RiskDecision" (Gate P3/W1.6). In Prod fail-safe (blockiert eher), aber Determinismus-Bug.
+**Eigener Debug-Task** (Quote-Age auf injiziertes `now` umstellen). Deshalb zeigt die volle
+Suite am Abend `3 failed` (nur diese) — kein W4/W5-Regress.
 
 **⚠️ FREIGABE-PFLICHTIG VOR DEPLOY (ändert Live-Trade-Verhalten):** W1.1 schaltet ~10 zuvor
 still übersprungene Risk-Checks scharf (max. Positionen=5, risikobasiertes Sizing-Gate,
@@ -102,8 +134,8 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
-| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | offen (nicht T0-gated, parallel) |
-| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | offen (nicht T0-gated, parallel) |
+| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅; W4.2/W4.4 in Arbeit) |
+| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | 🔄 laufend (W5.1 Seam ✅; W5.3 Kostenmodell in Arbeit) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
@@ -171,9 +203,9 @@ stabilen Postgres-Markttagen bündeln.**
 
 | # | Task | Aufwand | Parallel? |
 |---|---|---|---|
-| W4.1 | PLAT-004 strukturiertes JSON-Logging (trace_id, pseudonymisierte user_id, keine PII/Keys) | M | ✅ |
+| W4.1 | PLAT-004 strukturiertes JSON-Logging (trace_id, pseudonymisierte user_id, keine PII/Keys) — **✅ ERLEDIGT** (`logging_setup.py`, LOG_FORMAT opt-in, HMAC-Pseudonym., Redaction) | M | ✅ |
 | W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) | M/L | ✅ (nutzt W1.5/W2.2) |
-| W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) | M | ✅ |
+| W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) — **✅ ERLEDIGT** (`_secret()` Präzedenz cred>env>.env, Settings-Maskierung, LoadCredential-Unit-Vorlage) | M | ✅ |
 | W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) | L | ✅ |
 | W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) | L | ✅ (füttert W4.2-Alarme) |
 
@@ -183,7 +215,7 @@ Blockiert nicht den Paper-Burn-in, wohl aber Canary. Kann früh parallel anlaufe
 
 | # | Task | Aufwand | Parallel? |
 |---|---|---|---|
-| W5.1 | Gemeinsamer Strategiecode + Clock/Data-Abstraktion (Backtest nutzt Prod-Strategiemodule) | L | Seriell (Fundament) |
+| W5.1 | Gemeinsamer Strategiecode + Clock/Data-Abstraktion (Backtest nutzt Prod-Strategiemodule) — **✅ ERLEDIGT** (yfinance raus aus engine.py, `MarketDataProvider`+`BarClock` injizierbar; Strategiecode war schon geteilt) | L→S | Seriell (Fundament) |
 | W5.2 | Multi-Timeframe-Korrektheit / kein Look-ahead (Tests) | M | nach W5.1 |
 | W5.3 | RES-004 Kostenmodell (Kommission/Spread/Slippage/SEC/FINRA/Teilfüllung/Market-Impact) | M | ✅ parallel zu W5.2 |
 | W5.4 | Universen point-in-time + Survivorship-Messung | L | ✅ |
