@@ -135,7 +135,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅ + W4.2 Metriken ✅; W4.4 OAuth + W4.5 Pakete offen) |
-| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | 🔄 laufend (W5.1 Seam ✅; W5.3 Kostenmodell in Arbeit) |
+| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | 🔄 laufend (W5.1 Seam ✅ + W5.3 Kostenmodell ✅; W5.2 Multi-Timeframe in Arbeit; W5.4/5.5/5.6 offen) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
@@ -217,7 +217,7 @@ Blockiert nicht den Paper-Burn-in, wohl aber Canary. Kann früh parallel anlaufe
 |---|---|---|---|
 | W5.1 | Gemeinsamer Strategiecode + Clock/Data-Abstraktion (Backtest nutzt Prod-Strategiemodule) — **✅ ERLEDIGT** (yfinance raus aus engine.py, `MarketDataProvider`+`BarClock` injizierbar; Strategiecode war schon geteilt) | L→S | Seriell (Fundament) |
 | W5.2 | Multi-Timeframe-Korrektheit / kein Look-ahead (Tests) | M | nach W5.1 |
-| W5.3 | RES-004 Kostenmodell (Kommission/Spread/Slippage/SEC/FINRA/Teilfüllung/Market-Impact) | M | ✅ parallel zu W5.2 |
+| W5.3 | RES-004 Kostenmodell (Kommission/Spread/Slippage/SEC/FINRA/Teilfüllung/Market-Impact) — **✅ ERLEDIGT** (`backtest/cost_model.py` CostModel+CostBreakdown, injizierbar, Default bitgleich zum alten 2×cost_pct) | M | ✅ parallel zu W5.2 |
 | W5.4 | Universen point-in-time + Survivorship-Messung | L | ✅ |
 | W5.5 | RES-003 Reproduzierbarkeit (Run-ID, Commit, Seed, Deps) | M | ✅ |
 | W5.6 | Validierung (Nested Walk-forward, Purging, Embargo, Holdout-Sperre, Bootstrap, Regime) | L | nach W5.2/W5.5 |
