@@ -19,6 +19,7 @@ from concurrent.futures import ProcessPoolExecutor
 import pandas as pd
 
 from stockbot.backtest.clock import BarClock, Clock
+from stockbot.backtest.cost_model import CostBreakdown, CostModel
 from stockbot.core import evaluator
 from stockbot.core import metrics as metrics_mod
 from stockbot.core.market_data import MarketDataProvider
@@ -41,15 +42,36 @@ def _resolve_cost(cost_pct: float | None) -> float:
     return config.BACKTEST_COST_PCT if cost_pct is None else float(cost_pct)
 
 
+def _resolve_cost_model(cost_pct: float | None, cost_model: CostModel | None) -> CostModel:
+    """Explizites Modell hat Vorrang; sonst die bisherige Kostenpauschale nachbilden."""
+    return cost_model or CostModel(legacy_cost_pct=_resolve_cost(cost_pct))
+
+
+def _net_pnl_with_costs(entry: float, exit_price: float, direction: str, trade_size: float,
+                        leverage: float, cost_model: CostModel,
+                        entry_volume: float | None = None,
+                        exit_volume: float | None = None) -> tuple[float, float, CostBreakdown]:
+    """P&L nach Modellkosten; ungefuellte Restmenge nimmt nicht am Trade teil."""
+    pnl_pct, _ = evaluator.realized_pnl(entry, exit_price, direction, trade_size, leverage)
+    effective_leverage = leverage or 1.0
+    position_notional = trade_size * effective_leverage
+    breakdown = cost_model.calculate_trade(entry, exit_price, direction, position_notional,
+                                           entry_volume=entry_volume, exit_volume=exit_volume)
+    fill_ratio = breakdown.filled_shares / breakdown.requested_shares if breakdown.requested_shares else 0.0
+    cost_pct = breakdown.total / position_notional * 100.0 if position_notional else 0.0
+    net_pct = pnl_pct * fill_ratio - cost_pct
+    pnl_eur = trade_size * (net_pct / 100.0) * effective_leverage
+    return net_pct, max(pnl_eur, -trade_size), breakdown
+
+
 def _net_pnl(entry: float, exit_price: float, direction: str, trade_size: float,
              leverage: float, cost_pct: float) -> tuple[float, float]:
     """P&L NACH Round-Trip-Transaktionskosten (`cost_pct` % des Positionswerts je Seite).
     Kosten wirken wie eine zusätzliche Kursbewegung gegen den Trade; der Verlust bleibt
     wie in evaluator.realized_pnl auf die Margin begrenzt."""
-    pnl_pct, _ = evaluator.realized_pnl(entry, exit_price, direction, trade_size, leverage)
-    net_pct = pnl_pct - 2.0 * (cost_pct or 0.0)
-    pnl_eur = trade_size * (net_pct / 100.0) * (leverage or 1.0)
-    pnl_eur = max(pnl_eur, -trade_size)
+    net_pct, pnl_eur, _ = _net_pnl_with_costs(
+        entry, exit_price, direction, trade_size, leverage,
+        CostModel(legacy_cost_pct=cost_pct or 0.0))
     return net_pct, pnl_eur
 
 
@@ -93,12 +115,12 @@ def _bt_one(args):
     """Backtestet EINEN Ticker (Worker für den Prozess-Pool). Alle Argumente sind picklebar;
     die Strategie wird im Kindprozess aus ihrem Schlüssel rekonstruiert."""
     (strategy_key, ticker, df, trade_size, max_hold, warmup, sl_tp_mode, allow_short,
-     trail_mode, trail_mult, cost_pct, clock) = args
+     trail_mode, trail_mult, cost_pct, cost_model, clock) = args
     try:
         return backtest_ticker(strat_mod.get(strategy_key), ticker, df, trade_size,
                                max_hold=max_hold, warmup=warmup, sl_tp_mode=sl_tp_mode,
                                allow_short=allow_short, trail_mode=trail_mode, trail_mult=trail_mult,
-                               cost_pct=cost_pct, clock=clock)
+                               cost_pct=cost_pct, cost_model=cost_model, clock=clock)
     except Exception as e:
         log.warning(f"Backtest {ticker} fehlgeschlagen: {e}")
         return []
@@ -163,13 +185,15 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
                     warmup: int = WARMUP_BARS, sl_tp_mode: str | None = None,
                     allow_short: bool = False,
                     trail_mode: str | None = None, trail_mult: float | None = None,
-                    cost_pct: float | None = None, clock: Clock | None = None) -> list[dict]:
+                    cost_pct: float | None = None, cost_model: CostModel | None = None,
+                    clock: Clock | None = None) -> list[dict]:
     """Simuliert eine Strategie für einen Ticker; gibt die Liste geschlossener Trades zurück.
     `sl_tp_mode` (passiv/normal/aggressiv) überschreibt – falls gesetzt – die SL/TP der Strategie
     einheitlich per ATR (für die Modus-Vergleichs-Reports).
     `allow_short` (nur Backtest) erlaubt zusätzlich Short-Trades (gespiegeltes SL/TP).
     `cost_pct` (% je Seite, None → Config BACKTEST_COST_PCT) zieht Spread/Slippage vom P&L ab."""
     cost_pct = _resolve_cost(cost_pct)
+    cost_model = _resolve_cost_model(cost_pct, cost_model)
     clock = clock or BarClock()
     trades = []
     n = len(df)
@@ -207,12 +231,15 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
             j = min(j, n - 1)
             exit_price, reason = float(df["Close"].iloc[j]), "Zeitlimit"
 
-        pnl_pct, pnl_eur = _net_pnl(entry, exit_price, direction, trade_size, 1.0, cost_pct)
+        pnl_pct, pnl_eur, costs = _net_pnl_with_costs(
+            entry, exit_price, direction, trade_size, 1.0, cost_model,
+            entry_volume=float(df["Volume"].iloc[i]), exit_volume=float(df["Volume"].iloc[j]))
         trades.append({
             "ticker": ticker, "direction": direction, "entry": entry, "exit": exit_price,
             "pnl_pct": round(pnl_pct, 2), "pnl_eur": round(pnl_eur, 2),
             "reason": reason, "entry_date": str(df.index[i].date()),
             "exit_date": str(df.index[j].date()),
+            "cost_breakdown": costs.as_dict(),
         })
         i = j + 1   # nächste Entscheidung erst nach dem Ausstieg (keine Überlappung)
     return trades
@@ -238,6 +265,7 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
                  data: dict | None = None, jobs: int | None = None,
                  trail_mode: str | None = None, trail_mult: float | None = None,
                  cost_pct: float | None = None,
+                 cost_model: CostModel | None = None,
                  data_provider: MarketDataProvider | None = None,
                  clock: Clock | None = None) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
@@ -257,9 +285,10 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
                 else _download_daily(tickers, years))
 
     cost_pct = _resolve_cost(cost_pct)
+    cost_model = _resolve_cost_model(cost_pct, cost_model)
     clock = clock or BarClock()
     args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short,
-             trail_mode, trail_mult, cost_pct, clock)
+             trail_mode, trail_mult, cost_pct, cost_model, clock)
             for t, df in data.items()]
     all_trades = []
     for trades in _pmap(_bt_one, args, jobs):
@@ -282,14 +311,25 @@ def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
         "cost_pct":  _resolve_cost(cost_pct),
         "direction_split": _direction_split(trades),
         "metrics":   metrics_mod.compute_metrics(trades, initial_capital=trade_size * 10),
+        "cost_breakdown": _total_cost_breakdown(trades),
         "trades":    trades,
     }
+
+
+def _total_cost_breakdown(trades: list[dict]) -> dict:
+    """Summiert ausweisbare Kostenfelder ueber alle Trades eines Reports."""
+    fields = CostBreakdown.__dataclass_fields__
+    totals = {name: sum(float(t.get("cost_breakdown", {}).get(name, 0.0)) for t in trades)
+              for name in fields}
+    totals["total"] = sum(float(t.get("cost_breakdown", {}).get("total", 0.0)) for t in trades)
+    return totals
 
 
 def compare_strategies(keys: list[str], tickers: list[str] | None = None, years: int = 2,
                        trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
                        data: dict | None = None, jobs: int | None = None,
                        cost_pct: float | None = None,
+                       cost_model: CostModel | None = None,
                        data_provider: MarketDataProvider | None = None,
                        clock: Clock | None = None) -> list[dict]:
     """Backtestet mehrere Strategien über denselben Korb/Zeitraum (sortiert nach Profitfaktor).
@@ -303,11 +343,12 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
                 else _download_daily(tickers, years))
 
     cost_pct = _resolve_cost(cost_pct)
+    cost_model = _resolve_cost_model(cost_pct, cost_model)
     clock = clock or BarClock()
     items = list(data.items())
     T = len(items)
     args = [(k, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short, None, None,
-             cost_pct, clock)
+             cost_pct, cost_model, clock)
             for k in keys for t, df in items]
     flat = _pmap(_bt_one, args, jobs)            # ein Pool für ALLE Strategien×Ticker
 
@@ -410,12 +451,14 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
                        trade_size: float, max_concurrent: int,
                        max_hold: int = MAX_HOLD_DAYS,
                        trail_mode: str | None = None, trail_mult: float | None = None,
-                       cost_pct: float | None = None) -> list[dict]:
+                       cost_pct: float | None = None,
+                       cost_model: CostModel | None = None) -> list[dict]:
     """Billiger Teil: aus den Feuer-Events die Trades simulieren (Hold = max_hold Tage).
     `max_hold=1` ≈ „am Tagesende schließen", großes max_hold = „halten bis SL/TP".
     Die Richtung (long/short) wird je Feuer-Event übernommen (Default long).
     `cost_pct` (% je Seite, None → Config) zieht Spread/Slippage vom P&L ab."""
     cost_pct = _resolve_cost(cost_pct)
+    cost_model = _resolve_cost_model(cost_pct, cost_model)
     trades = []
     open_pos: dict[str, pd.Timestamp] = {}            # ticker -> Ausstiegsdatum (blockiert Re-Entry)
     for d in sorted(by_date):
@@ -432,14 +475,17 @@ def simulate_portfolio(data: dict, by_date: dict, top_n: int, leverage: float,
             ej, ex_price, reason = _walk_exit(df, s["idx"], s["sl"], s["tp"], leverage,
                                               max_hold, direction, trail_mode=trail_mode,
                                               trail_mult=trail_mult)
-            pnl_pct, pnl_eur = _net_pnl(s["entry"], ex_price, direction,
-                                        trade_size, leverage, cost_pct)
+            pnl_pct, pnl_eur, costs = _net_pnl_with_costs(
+                s["entry"], ex_price, direction, trade_size, leverage, cost_model,
+                entry_volume=float(df["Volume"].iloc[s["idx"]]),
+                exit_volume=float(df["Volume"].iloc[ej]))
             open_pos[s["ticker"]] = df.index[ej]
             trades.append({
                 "ticker": s["ticker"], "entry_date": d, "exit_date": str(df.index[ej].date()),
                 "entry": s["entry"], "exit": ex_price, "pnl_pct": round(pnl_pct, 2),
                 "pnl_eur": round(pnl_eur, 2), "reason": reason, "hold_days": (ej - s["idx"]),
                 "direction": direction,
+                "cost_breakdown": costs.as_dict(),
             })
     trades.sort(key=lambda x: x["exit_date"])
     return trades
@@ -463,6 +509,7 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
                        jobs: int | None = None,
                        trail_mode: str | None = None, trail_mult: float | None = None,
                        cost_pct: float | None = None,
+                       cost_model: CostModel | None = None,
                        data_provider: MarketDataProvider | None = None,
                        clock: Clock | None = None) -> dict:
     """
@@ -490,19 +537,23 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
         data = (_download_daily(tickers, years, data_provider) if data_provider is not None
                 else _download_daily(tickers, years))
     if not data:
-        return {"trades": [], "metrics": metrics_mod.compute_metrics([], initial_capital)}
+        return {"trades": [], "metrics": metrics_mod.compute_metrics([], initial_capital),
+                "cost_breakdown": _total_cost_breakdown([])}
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
     cost_pct = _resolve_cost(cost_pct)
+    cost_model = _resolve_cost_model(cost_pct, cost_model)
     by_date = gather_fires(strategy, data, start_after, allow_short=allow_short, jobs=jobs,
                            clock=clock)
     trades = simulate_portfolio(data, by_date, top_n, leverage, trade_size, max_concurrent, max_hold,
-                                trail_mode=trail_mode, trail_mult=trail_mult, cost_pct=cost_pct)
+                                trail_mode=trail_mode, trail_mult=trail_mult, cost_pct=cost_pct,
+                                cost_model=cost_model)
 
     return {
         "strategy": strategy.key, "label": strategy.label,
         "trades": trades, "metrics": metrics_mod.compute_metrics(trades, initial_capital),
+        "cost_breakdown": _total_cost_breakdown(trades),
         "cost_pct": cost_pct,
         "leverage": leverage, "top_n": top_n, "years": years, "max_hold": max_hold,
         "allow_short": allow_short, "direction_split": _direction_split(trades),
