@@ -574,15 +574,22 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 8 — Strategie-Labor begrenzen `P2` · Epic: RES
 
-- [ ] **RES-006** Champion-Candidate-Modell: genau 1 Champion je Strategie, mehrere Candidates (Backtest → Shadow → optional Paper)
-- [ ] Suchraum: explizite Parametergrenzen, max. Kandidaten/Zyklus, keine unbegrenzte Feature-Erzeugung, LLM nur für beschreibende Hypothesen (hart validiert)
-- [ ] Promotion-Gates: ausreichende Tradezahl, OOS-Mehrheit, keine starke DD-Verschlechterung, positive Netto-Performance, Sensitivitätsstabilität, Shadow-Bestätigung, **menschliche Freigabe**
-- [ ] **RES-005** Holdout-Schutz: Zugriff protokollieren, Kandidaten nicht wiederholt am Holdout testen, neuer Holdout erst nach Releasezyklus
-- [ ] Pending-Workflow (generated→validated→backtested→shadow→pending_review→approved/rejected→archived); kein direkter Live-Parameter-Schreibzugriff
+- [x] **RES-006** Champion-Candidate-Modell: genau 1 Champion je Strategie, mehrere Candidates (Backtest → Shadow → optional Paper)
+      (W6: `research/lab.py::ChampionCandidateRegistry` erzwingt genau 1 Champion/Strategie.)
+- [x] Suchraum: explizite Parametergrenzen, max. Kandidaten/Zyklus, keine unbegrenzte Feature-Erzeugung, LLM nur für beschreibende Hypothesen (hart validiert)
+      (W6: `SearchSpace` [Grenzen + Zyklus-Budget], `validate_llm_hypothesis` lehnt code-/parameterartige Ausgaben ab.)
+- [x] Promotion-Gates: ausreichende Tradezahl, OOS-Mehrheit, keine starke DD-Verschlechterung, positive Netto-Performance, Sensitivitätsstabilität, Shadow-Bestätigung, **menschliche Freigabe**
+      (W6: `evaluate_promotion_gates` [alle Quant-Kriterien] + `promote()` verlangt zusätzlich `human_approved_by` [Tor T3].)
+- [x] **RES-005** Holdout-Schutz: Zugriff protokollieren, Kandidaten nicht wiederholt am Holdout testen, neuer Holdout erst nach Releasezyklus
+      (W6: `HoldoutProtection` protokolliert Zugriffe + blockt wiederholtes Testen desselben Kandidaten; neuer Holdout je Releasezyklus = neue Instanz.)
+- [x] Pending-Workflow (generated→validated→backtested→shadow→pending_review→approved/rejected→archived); kein direkter Live-Parameter-Schreibzugriff
+      (W6: `Candidate`-Zustandsmaschine; „live" ist KEIN Kandidatenzustand → Promotion ist der einzige, menschlich bestätigte Weg zum Champion.)
 
-**Gate P8 (Abnahme):**
-- [ ] Labor kann keine Live-Strategie direkt ändern; jeder Kandidat reproduzierbar
-- [ ] Jede Promotion menschlich bestätigt; LLM-Ausgabe setzt keinen Produktionscode/Live-Parameter
+**Gate P8 (Abnahme):** — ✅ auf Framework-Ebene (W6, `43c9b67`); reale Promotion bleibt Tor T3
+- [x] Labor kann keine Live-Strategie direkt ändern; jeder Kandidat reproduzierbar
+      (W6: kein Live-Zustand im Workflow; Reproduzierbarkeit über W5.5 `run_metadata`/run_id.)
+- [x] Jede Promotion menschlich bestätigt; LLM-Ausgabe setzt keinen Produktionscode/Live-Parameter
+      (W6: `promote()` erzwingt menschliche Freigabe; `validate_llm_hypothesis` = nur beschreibend.)
 
 ---
 
