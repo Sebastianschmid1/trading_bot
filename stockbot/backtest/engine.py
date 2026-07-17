@@ -9,6 +9,9 @@ Bewusste v1-Vereinfachungen (dokumentiert in docs/STRATEGIE_ROADMAP.md):
 - pro Ticker max. eine offene Position gleichzeitig (kein Pyramiding, keine Überlappung).
 - Ausstieg über SL/TP (intrabar via High/Low) oder Zeitlimit `max_hold`.
 - feste €-Tradegröße; Profitfaktor ist davon unabhängig (Verhältnis).
+
+Es gibt bewusst kein Resampling: Der Backtest verarbeitet ausschließlich vom Provider gelieferte
+1d-Bars. Deren Index (und eine etwaige Zeitzone) wird unverändert an den `BarClock` gereicht.
 """
 
 import os
@@ -134,6 +137,7 @@ def _fires_one(args):
     strategy = strat_mod.get(strategy_key)
     events = []
     try:
+        # Die letzte Tages-Bar kann noch laufen. Sie ist nie eine Entscheidungs-Bar.
         for i in range(WARMUP_BARS, len(df) - 1):
             if df.index[i] < start_after:
                 continue
@@ -197,8 +201,11 @@ def backtest_ticker(strategy: strat_mod.Strategy, ticker: str, df: pd.DataFrame,
     clock = clock or BarClock()
     trades = []
     n = len(df)
+    # Die letzte vom Provider gelieferte Tages-Bar gilt als potenziell unvollständig. Damit
+    # liegen Signal und Entry stets nach Abschluss des Entscheidungs-Bars vor.
+    last_decision_idx = n - 2
     i = warmup
-    while i < n - 1:
+    while i <= last_decision_idx:
         clock.advance_to(df.index[i])
         sig = _generate(strategy, ticker, {"1d": df.iloc[:i + 1]}, allow_short)
         if sl_tp_mode:
