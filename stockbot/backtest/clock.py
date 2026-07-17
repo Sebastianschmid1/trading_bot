@@ -9,7 +9,7 @@ import pandas as pd
 
 
 class Clock(ABC):
-    """Vom Backtest injizierbare Quelle der aktuellen simulierten Zeit."""
+    """Vom Backtest injizierbare Quelle der aktuellen simulierten Entscheidungszeit."""
 
     @abstractmethod
     def now(self) -> datetime:
@@ -17,12 +17,17 @@ class Clock(ABC):
 
     @abstractmethod
     def advance_to(self, bar_time) -> None:
-        """Setzt die aktuelle Zeit auf den gerade ausgewerteten Bar."""
+        """Setzt die Zeit nach Abschluss des gerade ausgewerteten Bars."""
         raise NotImplementedError
 
 
 class BarClock(Clock):
-    """Clock, deren Zeit ausschließlich durch historische Bars fortgeschrieben wird."""
+    """Clock für Entscheidungen nach Abschluss historischer Bars.
+
+    Der Backtest übergibt ausschließlich abgeschlossene Tages-Bars. Der Zeitstempel bleibt
+    dabei unverändert (inklusive einer möglichen Zeitzone); ein Tages-Bar wird nicht auf eine
+    feste, börsenspezifische Schlusszeit umgerechnet.
+    """
 
     def __init__(self):
         self._now: datetime | None = None

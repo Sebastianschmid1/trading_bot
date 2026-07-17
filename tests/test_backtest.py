@@ -321,6 +321,66 @@ def test_clock_tracks_current_bar_in_decision_path():
     assert seen[0] == df.index[backtest.WARMUP_BARS].to_pydatetime()
 
 
+def test_bar_clock_preserves_aware_daily_bar_timezone():
+    bar_time = pd.Timestamp("2023-01-03 16:00:00", tz="America/New_York")
+    clock = BarClock()
+    clock.advance_to(bar_time)
+
+    assert pd.Timestamp(clock.now()).tz == bar_time.tz
+
+
+def test_backtest_decision_ignores_future_bar_perturbation():
+    """Die Signalentscheidung für t erhält höchstens die Bars bis einschließlich t."""
+    n, warmup, decision_idx = 10, 2, 4
+    close = np.full(n, 100.0)
+    df = _series(close)
+    perturbed = df.copy()
+    perturbed.loc[perturbed.index[decision_idx + 1]:, ["Open", "High", "Low", "Close"]] = 1_000.0
+    seen = []
+
+    def generate(ticker, tf_data):
+        bars = tf_data["1d"]
+        if bars.index[-1] == df.index[decision_idx]:
+            seen.append((len(bars), float(bars["Close"].iloc[-1])))
+            price = float(bars["Close"].iloc[-1])
+            return {"ticker": ticker, "direction": "long", "price": price,
+                    "stop_loss": price * 0.98, "take_profit": price * 1.05}
+        return None
+
+    strategy = strategies.Strategy("future_safe", "Future Safe", generate)
+    baseline = backtest.backtest_ticker(strategy, "X", df, 1000.0, warmup=warmup, cost_pct=0.0)
+    altered = backtest.backtest_ticker(strategy, "X", perturbed, 1000.0, warmup=warmup, cost_pct=0.0)
+
+    assert seen == [(decision_idx + 1, 100.0), (decision_idx + 1, 100.0)]
+    assert baseline[0]["entry"] == altered[0]["entry"] == 100.0
+    assert baseline[0]["entry_date"] == altered[0]["entry_date"] == str(df.index[decision_idx].date())
+
+
+def test_backtest_never_decides_or_enters_on_last_potentially_open_daily_bar():
+    n, warmup = 8, 2
+    df = _series(np.full(n, 100.0))
+    clock = BarClock()
+    decisions = []
+
+    def generate(ticker, tf_data):
+        decisions.append((tf_data["1d"].index[-1], clock.now()))
+        if tf_data["1d"].index[-1] != df.index[-2]:
+            return None
+        price = float(tf_data["1d"]["Close"].iloc[-1])
+        return {"ticker": ticker, "direction": "long", "price": price,
+                "stop_loss": price * 0.98, "take_profit": price * 1.05}
+
+    strategy = strategies.Strategy("closed_bars", "Closed Bars", generate)
+    trades = backtest.backtest_ticker(strategy, "X", df, 1000.0, warmup=warmup,
+                                      max_hold=1, clock=clock, cost_pct=0.0)
+
+    last_bar = df.index[-1]
+    assert decisions[-1][0] == df.index[-2]
+    assert all(bar_time < last_bar and clock_time == bar_time.to_pydatetime()
+               for bar_time, clock_time in decisions)
+    assert all(trade["entry_date"] != str(last_bar.date()) for trade in trades)
+
+
 def test_generate_uses_shared_strategy_and_analyzer_paths(monkeypatch):
     """Der Backtest delegiert Signale an dieselben Module wie der produktive Strategiepfad."""
     calls = []
