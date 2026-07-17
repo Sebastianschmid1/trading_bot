@@ -75,12 +75,13 @@ gemergt + reviewt, volle Suite auf gemergtem main selbst gefahren:
 **Diese Session gemergt (lokal main, NICHT gepusht/deployt):** W4.1 Logging, W4.3 Secrets,
 W5.1 Backtest-Seam, W4.2 Metriken, W5.3 Kostenmodell, W5.2 Look-ahead — **6 Tasks**.
 
-**⛔ BLOCKER (2026-07-17): Codex/Sol-Usage-Limit erreicht** — Sol kann bis zum Reset KEINE
-neuen Coding-Tasks fahren (Meldung: „try again Aug 16th 2026 9:50 AM"). W4.4 (OAuth) startete,
-machte aber vor dem Limit NICHTS. **Offen und delegations-blockiert bis Sol-Reset:** W4.4
-Alpaca-OAuth-Seam (PLAT-007), W4.5 Pakete B/C/D, W5.4 Universen point-in-time, W5.5
-Reproduzierbarkeit (RES-003), W5.6 Validierung, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin
-gebündelt freigabe-pflichtig; nichts deployt.**
+**⚠️ Codex/Sol-Usage-Limit erreicht (2026-07-17)** — Sol kann bis zum Reset keine neuen
+Coding-Tasks fahren. **Nutzer-Override für diese Session: der Manager implementiert die
+restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurück ist.
+Manager-implementiert: **W5.5 Reproduzierbarkeit ✅** (`a1d74a7`). **Noch offen (Manager):**
+W4.4 Alpaca-OAuth-Seam (PLAT-007), W4.5 Pakete B/C/D, W5.4 Universen point-in-time, W5.6
+Validierung, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
+GitHub `main` gepusht, nichts deployt.**
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
 order_and_day_contract[sqlite]` schlägt seit dem Datumswechsel auf 2026-07-16 fehl
@@ -223,7 +224,7 @@ Blockiert nicht den Paper-Burn-in, wohl aber Canary. Kann früh parallel anlaufe
 | W5.2 | Multi-Timeframe-Korrektheit / kein Look-ahead (Tests) — **✅ ERLEDIGT** (kein Look-ahead-Bug gefunden; Future-Perturbations-Test + „keine Entscheidung/Entry auf letzter offener Tages-Bar"; 1d-only, kein Resampling) | M | nach W5.1 |
 | W5.3 | RES-004 Kostenmodell (Kommission/Spread/Slippage/SEC/FINRA/Teilfüllung/Market-Impact) — **✅ ERLEDIGT** (`backtest/cost_model.py` CostModel+CostBreakdown, injizierbar, Default bitgleich zum alten 2×cost_pct) | M | ✅ parallel zu W5.2 |
 | W5.4 | Universen point-in-time + Survivorship-Messung | L | ✅ |
-| W5.5 | RES-003 Reproduzierbarkeit (Run-ID, Commit, Seed, Deps) | M | ✅ |
+| W5.5 | RES-003 Reproduzierbarkeit (Run-ID, Commit, Seed, Deps) — **✅ ERLEDIGT** (`backtest/reproducibility.py` RunMetadata + deterministische run_id; opt-in in run_backtest; **vom Manager selbst implementiert, Sol rate-limited**) | M | ✅ |
 | W5.6 | Validierung (Nested Walk-forward, Purging, Embargo, Holdout-Sperre, Bootstrap, Regime) | L | nach W5.2/W5.5 |
 
 ## W6 — Labor begrenzen (Gate P8; nach W5)
