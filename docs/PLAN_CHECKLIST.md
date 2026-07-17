@@ -550,16 +550,25 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 7 — Backtest-Härtung `P2` · Epic: RES
 
-- [ ] Gemeinsamer Strategiecode: Backtest nutzt produktives Strategiemodul (keine abweichende Implementierung); Clock-/Data-Provider abstrahiert
-- [ ] Multi-Timeframe-Korrektheit: nur abgeschlossene Bars, keine Tagesbar vor Tagesende, Resampling-Grenzen, Zeitzonen konsistent, Entry frühestens nach vollständiger Signalinfo
-- [ ] **RES-004** Kostenmodell: Kommissionen, Spread, Slippage, SEC/FINRA-Gebühren, Teilfüllung, Liquiditätsgrenzen, Market-Impact-Näherung
-- [ ] Universen: historische Zusammensetzung (point-in-time), Delistings, Survivorship-Bias messen + dokumentieren, Universums-Version speichern
-- [ ] Validierung: Nested Walk-forward, Purging, Embargo, finaler Holdout, Sensitivitätsanalyse, Bootstrap-Konfidenzintervalle, Regimeauswertung
-- [ ] **RES-003** Reproduzierbarkeit: je Run Run-ID, Git-Commit, Strategie-/Datenversion, Universum, Parameter, Kostenmodell, Zeitraum, Seed, Dependency-Versionen
+- [x] Gemeinsamer Strategiecode: Backtest nutzt produktives Strategiemodul (keine abweichende Implementierung); Clock-/Data-Provider abstrahiert
+      (W5.1: Strategiecode war schon geteilt [`strat_mod.get`/`analyzer` in Live+Backtest]; yfinance raus aus `engine.py`, Bars über injizierbaren `MarketDataProvider`, neue `backtest/clock.py::BarClock`.)
+- [x] Multi-Timeframe-Korrektheit: nur abgeschlossene Bars, keine Tagesbar vor Tagesende, Resampling-Grenzen, Zeitzonen konsistent, Entry frühestens nach vollständiger Signalinfo
+      (W5.2: kein Look-ahead-Bug gefunden; Future-Perturbations-Test + „keine Entscheidung/Entry auf letzter, evtl. offener Tages-Bar"; 1d-only, kein Resampling, Zeitzone unverändert an BarClock.)
+- [x] **RES-004** Kostenmodell: Kommissionen, Spread, Slippage, SEC/FINRA-Gebühren, Teilfüllung, Liquiditätsgrenzen, Market-Impact-Näherung
+      (W5.3: `backtest/cost_model.py` CostModel+CostBreakdown mit allen Komponenten, injizierbar; Default bitgleich zum alten 2×cost_pct.)
+- [x] Universen: historische Zusammensetzung (point-in-time), Delistings, Survivorship-Bias messen + dokumentieren, Universums-Version speichern
+      (W5.4: `backtest/universe_history.py` UniverseSnapshot [versioniert] + `members_as_of` + `measure_survivorship_bias`. SEAM — echte Indexhistorie muss extern kommen [Datenlücke dokumentiert], Live-Universum unberührt.)
+- [x] Validierung: Nested Walk-forward, Purging, Embargo, finaler Holdout, Sensitivitätsanalyse, Bootstrap-Konfidenzintervalle, Regimeauswertung
+      (W5.6: `backtest/validation.py` walk_forward/nested [Train<Test], Embargo=Purging, HoldoutGuard [technisch gesperrt], geseedetes Bootstrap-KI, Regime, Sensitivität.)
+- [x] **RES-003** Reproduzierbarkeit: je Run Run-ID, Git-Commit, Strategie-/Datenversion, Universum, Parameter, Kostenmodell, Zeitraum, Seed, Dependency-Versionen
+      (W5.5: `backtest/reproducibility.py` RunMetadata + deterministische run_id + set_seed; opt-in in `run_backtest`.)
 
-**Gate P7 (Abnahme):**
-- [ ] Gleicher Run + gleiche Version → gleiches Ergebnis; kein Look-ahead in Tests
-- [ ] Kosten/Slippage separat sichtbar; finaler Holdout technisch gesperrt; Report nennt #getesteter Kandidaten
+**Gate P7 (Abnahme):** — ⏳ WEITGEHEND (W5-Bausteine ✅; „Report nennt #getesteter Kandidaten" → Lab/W6)
+- [x] Gleicher Run + gleiche Version → gleiches Ergebnis; kein Look-ahead in Tests
+      (W5.5 deterministische run_id + gleiches Ergebnis; W5.2 Future-Perturbation + W5.6 walk_forward Train<Test.)
+- [~] Kosten/Slippage separat sichtbar; finaler Holdout technisch gesperrt; Report nennt #getesteter Kandidaten
+      (Kosten/Slippage separat: W5.3 CostBreakdown ✅. Finaler Holdout gesperrt: W5.6 HoldoutGuard ✅.
+      OFFEN: „Report nennt #getesteter Kandidaten" gehört zum Strategie-Labor [Phase 8 / W6].)
 
 ---
 

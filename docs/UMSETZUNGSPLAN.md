@@ -78,8 +78,8 @@ W5.1 Backtest-Seam, W4.2 Metriken, W5.3 Kostenmodell, W5.2 Look-ahead — **6 Ta
 **⚠️ Codex/Sol-Usage-Limit erreicht (2026-07-17)** — Sol kann bis zum Reset keine neuen
 Coding-Tasks fahren. **Nutzer-Override für diese Session: der Manager implementiert die
 restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurück ist.
-Manager-implementiert: **W5.5 Reproduzierbarkeit ✅** (`a1d74a7`), **W5.4 Universen point-in-time
-+ Survivorship ✅** (`05a17fd`). **Noch offen (Manager):** W5.6 Validierung, W4.4 Alpaca-OAuth-Seam
+Manager-implementiert: **W5.5 ✅** (`a1d74a7`), **W5.4 ✅** (`05a17fd`), **W5.6 Validierung ✅**
+(`d1f53d4`) → **ganz W5 fertig (Gate P7)**. **Noch offen (Manager):** W4.4 Alpaca-OAuth-Seam
 (PLAT-007), W4.5 Pakete B/C/D, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
 GitHub `main` gepusht, nichts deployt.**
 
@@ -140,7 +140,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅ + W4.2 Metriken ✅; W4.4 OAuth + W4.5 Pakete offen) |
-| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | 🔄 laufend (W5.1 Seam ✅ + W5.3 Kostenmodell ✅; W5.2 Multi-Timeframe in Arbeit; W5.4/5.5/5.6 offen) |
+| **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
@@ -225,7 +225,7 @@ Blockiert nicht den Paper-Burn-in, wohl aber Canary. Kann früh parallel anlaufe
 | W5.3 | RES-004 Kostenmodell (Kommission/Spread/Slippage/SEC/FINRA/Teilfüllung/Market-Impact) — **✅ ERLEDIGT** (`backtest/cost_model.py` CostModel+CostBreakdown, injizierbar, Default bitgleich zum alten 2×cost_pct) | M | ✅ parallel zu W5.2 |
 | W5.4 | Universen point-in-time + Survivorship-Messung — **✅ ERLEDIGT** (`backtest/universe_history.py`: UniverseSnapshot versioniert, `members_as_of`, `measure_survivorship_bias`; Seam, Live-Universum unberührt, Datenlücke dokumentiert; Manager-implementiert) | L | ✅ |
 | W5.5 | RES-003 Reproduzierbarkeit (Run-ID, Commit, Seed, Deps) — **✅ ERLEDIGT** (`backtest/reproducibility.py` RunMetadata + deterministische run_id; opt-in in run_backtest; **vom Manager selbst implementiert, Sol rate-limited**) | M | ✅ |
-| W5.6 | Validierung (Nested Walk-forward, Purging, Embargo, Holdout-Sperre, Bootstrap, Regime) | L | nach W5.2/W5.5 |
+| W5.6 | Validierung (Nested Walk-forward, Purging, Embargo, Holdout-Sperre, Bootstrap, Regime) — **✅ ERLEDIGT** (`backtest/validation.py`: walk_forward/nested, Embargo=Purging, HoldoutGuard, geseedetes Bootstrap-KI, Regime, Sensitivität; Manager-implementiert) | L | nach W5.2/W5.5 |
 
 ## W6 — Labor begrenzen (Gate P8; nach W5)
 
@@ -284,8 +284,9 @@ deployt**. Der kritische Pfad hängt jetzt an **menschlichen Entscheidungen**:
 2. **Deploy-Freigabe W1+W2** — ändert Live-Trade-Verhalten (Risk-Gates scharf, Kill-Switch, broker-
    seitige Partial-Fill-Stops). Vor Deploy Default-`RiskProfile` fürs Paper-Setup (5× Hebel, max. 5
    Positionen) prüfen; dann gebündelt deployen, erst nach den Burn-in-Tagen.
-3. **Ohne Gate parallel möglich:** **W5** (Backtest-Härtung, Gate P7, Research-Strang) und **W4**
-   (Observability/Platform, Rest P9) — beide NICHT durch T0 gated, können jederzeit starten.
+3. **Ohne Gate (2026-07-16/17 bearbeitet):** **W5 (Backtest-Härtung) KOMPLETT** (W5.1–W5.6, Gate P7);
+   **W4 zu großen Teilen** (W4.1 Logging, W4.2 Metriken, W4.3 Secrets ✅; offen: W4.4 OAuth, W4.5 Pakete).
+   Alles auf GitHub `main`, NICHT deployt. Sol ab 2026-07-17 rate-limited → Rest Manager-implementiert.
 4. **T4 (regulatorische Einordnung)** weiter offen — extern/langläufig, blockiert P11/P12.
 
 Offene Nebenbefunde: vorbestehender `has_trade_today`-Datums-/Zeitzonen-Bug (eigener Debug-Task,
