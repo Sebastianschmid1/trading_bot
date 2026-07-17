@@ -79,8 +79,8 @@ W5.1 Backtest-Seam, W4.2 Metriken, W5.3 Kostenmodell, W5.2 Look-ahead — **6 Ta
 Coding-Tasks fahren. **Nutzer-Override für diese Session: der Manager implementiert die
 restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurück ist.
 Manager-implementiert: **W5.5 ✅** (`a1d74a7`), **W5.4 ✅** (`05a17fd`), **W5.6 Validierung ✅**
-(`d1f53d4`) → **ganz W5 fertig (Gate P7)**. **Noch offen (Manager):** W4.4 Alpaca-OAuth-Seam
-(PLAT-007), W4.5 Pakete B/C/D, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
+(`d1f53d4`) → **ganz W5 fertig (Gate P7)**, **W4.4 Alpaca-OAuth-Seam ✅** (`2bb1636`, Alembic-Head
+`e5f6a7b8c9d0`). **Noch offen (Manager):** W4.5 Pakete B/C/D, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
 GitHub `main` gepusht, nichts deployt.**
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
@@ -211,7 +211,7 @@ stabilen Postgres-Markttagen bündeln.**
 | W4.1 | PLAT-004 strukturiertes JSON-Logging (trace_id, pseudonymisierte user_id, keine PII/Keys) — **✅ ERLEDIGT** (`logging_setup.py`, LOG_FORMAT opt-in, HMAC-Pseudonym., Redaction) | M | ✅ |
 | W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) — **✅ ERLEDIGT** (`core/metrics.py` Registry + `core/alerts.py`, 9 Kennzahlen, schlanke Emits an OMS/Reconcile/Poll/Kill-Switch/Post-Trade/Heartbeat; Quote-Age-Emit try/except-gehärtet) | M/L | ✅ (nutzt W1.5/W2.2) |
 | W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) — **✅ ERLEDIGT** (`_secret()` Präzedenz cred>env>.env, Settings-Maskierung, LoadCredential-Unit-Vorlage) | M | ✅ |
-| W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) | L | ✅ |
+| W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) — **✅ ERLEDIGT** (`broker_oauth_connections`-Tabelle, Alembic `e5f6a7b8c9d0`; `execution/broker_oauth.py` additiv/opt-in, Fernet-verschlüsselte Token, Paper/Live getrennt, injizierbarer Revoke; API-Key-Pfad+TSAFE unberührt; Manager-implementiert) | L | ✅ |
 | W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) | L | ✅ (füttert W4.2-Alarme) |
 
 ## W5 — Backtest-Härtung (Gate P7; Research-Strang, parallel zu W2–W4)
