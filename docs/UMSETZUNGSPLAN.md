@@ -134,7 +134,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
-| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅; W4.2/W4.4 in Arbeit) |
+| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅ + W4.2 Metriken ✅; W4.4 OAuth + W4.5 Pakete offen) |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | 🔄 laufend (W5.1 Seam ✅; W5.3 Kostenmodell in Arbeit) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
@@ -204,7 +204,7 @@ stabilen Postgres-Markttagen bündeln.**
 | # | Task | Aufwand | Parallel? |
 |---|---|---|---|
 | W4.1 | PLAT-004 strukturiertes JSON-Logging (trace_id, pseudonymisierte user_id, keine PII/Keys) — **✅ ERLEDIGT** (`logging_setup.py`, LOG_FORMAT opt-in, HMAC-Pseudonym., Redaction) | M | ✅ |
-| W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) | M/L | ✅ (nutzt W1.5/W2.2) |
+| W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) — **✅ ERLEDIGT** (`core/metrics.py` Registry + `core/alerts.py`, 9 Kennzahlen, schlanke Emits an OMS/Reconcile/Poll/Kill-Switch/Post-Trade/Heartbeat; Quote-Age-Emit try/except-gehärtet) | M/L | ✅ (nutzt W1.5/W2.2) |
 | W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) — **✅ ERLEDIGT** (`_secret()` Präzedenz cred>env>.env, Settings-Maskierung, LoadCredential-Unit-Vorlage) | M | ✅ |
 | W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) | L | ✅ |
 | W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) | L | ✅ (füttert W4.2-Alarme) |
