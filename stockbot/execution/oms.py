@@ -10,12 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import time
 from typing import Any, Callable, Mapping
 
 from stockbot import config
 from stockbot.broker import client as default_broker
 from stockbot.broker import sizing
-from stockbot.core import db, risk
+from stockbot.core import db, metrics, risk
 from stockbot.core.audit_log import new_event_id
 from stockbot.core.logging_setup import logging_context, new_trace_id
 from stockbot.core.domain import AuditEvent, Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
@@ -98,19 +99,21 @@ class OrderManagementSystem:
         broker_client: Any = None,
     ) -> OMSResult:
         """Validate, risk-check, persist and submit one user action."""
+        started_at = time.perf_counter()
+        finish = lambda result: self._finish_submission(result, started_at)
         invalid = self._validate_intent(intent)
         if invalid:
-            return self._finish(invalid)
+            return finish(invalid)
 
         existing = self.persistence.get_order_by_idempotency_key(intent.idempotency_key)
         if existing:
-            return self._finish(self._existing_result(existing))
+            return finish(self._existing_result(existing))
 
         # Kill-Switch-Gate NACH dem Idempotenz-Check: ein idempotenter Retry einer bereits
         # platzierten Order ist keine NEUE Position und muss die existierende Order weiter
         # zurueckgeben; der Switch blockt nur genuin neue Einstiege.
         if self.kill_switch_checker is not None and not self.kill_switch_checker(intent.user_id):
-            return self._finish(OMSResult(
+            return finish(OMSResult(
                 False, reason="Kill-Switch aktiv — keine neuen Positionen.",
                 code="kill_switch_active",
             ))
@@ -118,13 +121,22 @@ class OrderManagementSystem:
         signal = self.signal_loader(intent.signal_id)
         invalid = self._validate_signal(intent, signal)
         if invalid:
-            return self._finish(invalid)
+            return finish(invalid)
         assert signal is not None
 
         context: dict[str, Any] = {}
         if self.context_loader:
-            context.update(self.context_loader(intent, signal) or {})
+            with metrics.observe_latency(metrics.FEED_LATENCY):
+                context.update(self.context_loader(intent, signal) or {})
         context.update(risk_context or {})
+        quote_as_of = getattr(context.get("quote"), "as_of", None)
+        if quote_as_of is not None:
+            try:  # Metrik darf den Live-Order-Pfad nie brechen (untypische as_of-Werte)
+                if quote_as_of.tzinfo is None:
+                    quote_as_of = quote_as_of.replace(tzinfo=timezone.utc)
+                metrics.QUOTE_AGE.observe(max(0.0, (datetime.now(timezone.utc) - quote_as_of).total_seconds()))
+            except (AttributeError, TypeError, ValueError):
+                pass
         if price is not None:
             context["price"] = price
         if trade_size is not None:
@@ -137,12 +149,12 @@ class OrderManagementSystem:
         risk_args["signal_expires_at"] = _parse_timestamp(signal.expires_at)
         decision = self.risk_checker(**risk_args)
         if not decision.ok:
-            return self._finish(OMSResult(False, reason=decision.reason, code=decision.code))
+            return finish(OMSResult(False, reason=decision.reason, code=decision.code))
 
         entry_price = context.get("price")
         budget = context.get("trade_size")
         if entry_price is None or budget is None:
-            return self._finish(OMSResult(False, reason="Kurs und Trade-Budget fehlen.",
+            return finish(OMSResult(False, reason="Kurs und Trade-Budget fehlen.",
                                           code="order_context_missing"))
         plan = self.order_planner(
             float(entry_price), float(budget), float(context.get("leverage", 1.0)),
@@ -150,7 +162,7 @@ class OrderManagementSystem:
             roundup_factor=float(context.get("roundup_factor", config.SHARE_ROUNDUP_FACTOR)),
         )
         if plan.get("kind") != "shares":
-            return self._finish(OMSResult(False, reason=plan.get("reason", "Kein gueltiger Aktien-Orderplan."),
+            return finish(OMSResult(False, reason=plan.get("reason", "Kein gueltiger Aktien-Orderplan."),
                                           code="order_plan_rejected"))
 
         row, created = self.persistence.create_oms_order(
@@ -158,7 +170,7 @@ class OrderManagementSystem:
             limit_price=float(entry_price) if context.get("extended") else None,
         )
         if not created:
-            return self._finish(self._existing_result(row))
+            return finish(self._existing_result(row))
 
         order = _as_order(row, mode=signal.mode)
         self._audit_contexts[order.id] = (
@@ -166,6 +178,7 @@ class OrderManagementSystem:
         )
         order = self._transition(order, OrderStatus.VALIDATED)
         order = self._transition(order, OrderStatus.SUBMITTED)
+        metrics.ORDERS_TOTAL.inc(outcome="submitted")
         submit_kwargs: dict[str, Any] = {"client_order_id": order.client_order_id}
         if order.qty is not None:
             submit_kwargs["qty"] = order.qty
@@ -191,7 +204,8 @@ class OrderManagementSystem:
             order = self._transition(order, OrderStatus.REJECTED, event_type="rejected",
                                      rejection_reason=str(response.get("detail") or "broker rejected"),
                                      payload={"detail": response.get("detail", "")})
-            return self._finish(OMSResult(False, order, response.get("detail", "Broker-Ablehnung."),
+            metrics.ORDERS_TOTAL.inc(outcome="rejected")
+            return finish(OMSResult(False, order, response.get("detail", "Broker-Ablehnung."),
                                           "broker_rejected"))
 
         broker_id = str(response.get("id") or "") or None
@@ -207,7 +221,7 @@ class OrderManagementSystem:
                 broker_status = str(status_response.get("status") or broker_status).lower()
         order = self._apply_broker_status(order, broker_status, response)
         ok = order.status not in {OrderStatus.REJECTED, OrderStatus.EXPIRED, OrderStatus.CANCELLED}
-        return self._finish(OMSResult(ok, order,
+        return finish(OMSResult(ok, order,
                                       "" if ok else str(response.get("detail") or broker_status),
                                       "" if ok else "broker_rejected"))
 
@@ -353,10 +367,15 @@ class OrderManagementSystem:
         }:
             order = self._transition(order, OrderStatus.CANCEL_REQUESTED,
                                      event_type="cancel_requested", payload=dict(payload))
-        return self._transition(order, target, event_type=normalized,
+        transitioned = self._transition(order, target, event_type=normalized,
                                 broker_event_id=broker_event_id, payload=dict(payload),
                                 rejection_reason=(str(payload.get("detail") or normalized)
                                                   if target == OrderStatus.REJECTED else None))
+        if target == OrderStatus.FILLED:
+            metrics.ORDERS_TOTAL.inc(outcome="filled")
+        elif target == OrderStatus.REJECTED:
+            metrics.ORDERS_TOTAL.inc(outcome="rejected")
+        return transitioned
 
     @staticmethod
     def _existing_result(row: Mapping[str, Any]) -> OMSResult:
@@ -372,6 +391,10 @@ class OrderManagementSystem:
             except Exception as exc:
                 log.warning("OMS notification hook failed: %s", type(exc).__name__)
         return result
+
+    def _finish_submission(self, result: OMSResult, started_at: float) -> OMSResult:
+        metrics.ORDER_LATENCY.observe(time.perf_counter() - started_at)
+        return self._finish(result)
 
 
 OMS = OrderManagementSystem

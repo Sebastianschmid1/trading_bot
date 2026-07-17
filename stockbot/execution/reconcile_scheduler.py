@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from stockbot.core import db
+from stockbot.core import db, metrics
 from stockbot.core.domain import Order, Position
 from stockbot.execution.broker_adapter import AlpacaBrokerAdapter
 from stockbot.execution.oms import _as_order
@@ -47,11 +47,13 @@ def reconcile_user_oms(
     user_id = _user_id(user)
     try:
         positions, orders = build_internal_state(user_id, persistence=persistence)
-        return run_periodic_reconciliation(
+        report = run_periodic_reconciliation(
             AlpacaBrokerAdapter(client),
             internal_positions=positions,
             internal_orders=orders,
         )
+        metrics.RECONCILIATION_FINDINGS_TOTAL.inc(len(report.findings))
+        return report
     except Exception as exc:
         log.warning(
             "[%s] OMS-Reconciliation fehlgeschlagen: %s",

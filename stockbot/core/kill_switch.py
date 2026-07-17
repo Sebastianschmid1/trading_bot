@@ -17,6 +17,7 @@ import dataclasses
 from datetime import datetime, timezone
 
 from stockbot.core.domain import KillSwitch
+from stockbot.core import metrics
 
 
 def _utcnow_iso() -> str:
@@ -58,6 +59,11 @@ class KillSwitchService:
             elif ks.user_id is not None:
                 self._by_user[int(ks.user_id)] = ks
         self._loaded = True
+        self._sync_metrics()
+
+    def _sync_metrics(self) -> None:
+        metrics.KILL_SWITCH_ACTIVE.set(bool(self._global and self._global.active))
+        metrics.KILL_SWITCH_USERS.set(sum(1 for item in self._by_user.values() if item.active))
 
     def _ensure_loaded(self) -> None:
         if not self._loaded and self._persistence is not None:
@@ -76,6 +82,7 @@ class KillSwitchService:
                 activated_at=ks.activated_at,
             ))
         self._global = ks
+        self._sync_metrics()
         return ks
 
     def deactivate_global(
@@ -97,6 +104,7 @@ class KillSwitchService:
                 return None
             ks = self._from_row(row)
         self._global = ks
+        self._sync_metrics()
         return ks
 
     def activate_user(
@@ -112,6 +120,7 @@ class KillSwitchService:
                 activated_at=ks.activated_at,
             ))
         self._by_user[user_id] = ks
+        self._sync_metrics()
         return ks
 
     def deactivate_user(
@@ -134,6 +143,7 @@ class KillSwitchService:
                 return None
             deactivated = self._from_row(row)
         self._by_user[user_id] = deactivated
+        self._sync_metrics()
         return deactivated
 
     def is_new_position_allowed(self, user_id: int | None = None) -> bool:

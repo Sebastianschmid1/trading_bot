@@ -7,6 +7,7 @@ import logging
 from typing import Any, Callable, Iterable, Mapping
 
 from stockbot.core.domain import Mode, OrderStatus, Position
+from stockbot.core import metrics
 from stockbot.execution.broker_event_worker import BrokerEventResult, process_broker_event
 
 log = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ def poll_broker_orders(
     """Fragt Orders einzeln ab; Brokerfehler bleiben auf die jeweilige Order begrenzt."""
     results: list[BrokerEventResult] = []
     positions: dict[int, Position] = {}
+    successful = True
     for order in orders:
         order_id = int(order["id"])
         broker_order_id = str(order.get("broker_order_id") or "")
@@ -118,8 +120,11 @@ def poll_broker_orders(
                             order_id, type(exc).__name__,
                         )
         except Exception as exc:
+            successful = False
             log.warning(
                 "Broker-Poll für OMS-Order %s fehlgeschlagen: %s",
                 order_id, type(exc).__name__,
             )
+    if successful:
+        metrics.broker_poll_succeeded()
     return results

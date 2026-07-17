@@ -2513,6 +2513,7 @@ async def _session_scheduler_tick(context: ContextTypes.DEFAULT_TYPE):
     einer festen Europe/Berlin-Uhrzeit — läuft alle `SESSION_TICK_INTERVAL_SEC` Sekunden und feuert
     jeden der beiden Jobs höchstens einmal pro Handelstag."""
     global _last_signals_fire_date, _last_close_fire_date
+    metrics.heartbeat()
     now_et = datetime.now(ZoneInfo("America/New_York"))
     if now_et.tzinfo is None:
         now_et = now_et.replace(tzinfo=ZoneInfo("America/New_York"))

@@ -6,7 +6,7 @@ import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from stockbot.core import db
+from stockbot.core import db, metrics
 from stockbot.core.domain import Mode, Position, PositionStatus
 from stockbot.core.post_trade_risk import PostTradeRiskFinding, scan_open_positions
 from stockbot.execution.oms import _as_order
@@ -58,6 +58,7 @@ async def run_post_trade_scan(
     """Führt einen Scan aus und alarmiert einmal je veränderter Finding-Menge."""
     positions, orders = load_post_trade_risk_data(persistence=persistence)
     findings = scan_open_positions(positions, orders)
+    metrics.POSITIONS_WITHOUT_STOP.set(len(findings))
     current = finding_keys(findings)
     if findings and current != previous_findings:
         await notifier(format_admin_alarm(findings))

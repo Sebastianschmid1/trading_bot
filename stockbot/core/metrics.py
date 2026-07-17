@@ -13,6 +13,202 @@ Reine Rechenfunktionen ohne Fremd-Abhängigkeiten — offline testbar.
 """
 
 import math
+import threading
+import time
+from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from typing import Any
+
+
+LATENCY_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+
+def _labels_key(labels: Mapping[str, str] | None) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((str(key), str(value)) for key, value in (labels or {}).items()))
+
+
+class Counter:
+    """Threadsicherer, monoton steigender Zaehler mit niedrig-kardinalen Labels."""
+
+    def __init__(self, name: str, *, label_names: tuple[str, ...] = ()):
+        self.name = name
+        self.label_names = label_names
+        self._values: dict[tuple[tuple[str, str], ...], float] = {}
+        self._last_deltas: dict[tuple[tuple[str, str], ...], float] = {}
+        self._lock = threading.Lock()
+
+    def inc(self, amount: float = 1.0, **labels: str) -> None:
+        if amount < 0:
+            raise ValueError("Counter duerfen nicht sinken")
+        key = self._checked_key(labels)
+        with self._lock:
+            self._values[key] = self._values.get(key, 0.0) + float(amount)
+            self._last_deltas[key] = float(amount)
+
+    def _checked_key(self, labels: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+        if set(labels) != set(self.label_names):
+            raise ValueError(f"Labels fuer {self.name}: erwartet {self.label_names}")
+        return _labels_key(labels)
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._lock:
+            values = tuple(self._values.items())
+            last_deltas = dict(self._last_deltas)
+        return [{"labels": dict(labels), "value": value,
+                 "last_delta": last_deltas.get(labels, 0.0)}
+                for labels, value in values]
+
+
+class Gauge:
+    """Threadsicherer Messwert; optional beim Snapshot aus einer Uhr abgeleitet."""
+
+    def __init__(self, name: str, *, value_fn: Callable[[], float] | None = None):
+        self.name = name
+        self._value = 0.0
+        self._value_fn = value_fn
+        self._lock = threading.Lock()
+
+    def set(self, value: float) -> None:
+        with self._lock:
+            self._value = float(value)
+
+    def inc(self, amount: float = 1.0) -> None:
+        with self._lock:
+            self._value += float(amount)
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        value = float(self._value_fn()) if self._value_fn is not None else self.value
+        return [{"labels": {}, "value": value}]
+
+    @property
+    def value(self) -> float:
+        with self._lock:
+            return self._value
+
+
+class Histogram:
+    """Threadsicheres Histogramm mit kumulativen Buckets und exaktem Maximum."""
+
+    def __init__(self, name: str, *, buckets: tuple[float, ...] = LATENCY_BUCKETS):
+        if tuple(sorted(buckets)) != buckets:
+            raise ValueError("Histogramm-Buckets muessen aufsteigend sein")
+        self.name = name
+        self.buckets = buckets
+        self._counts = [0] * len(buckets)
+        self._count = 0
+        self._sum = 0.0
+        self._max = 0.0
+        self._lock = threading.Lock()
+
+    def observe(self, value: float) -> None:
+        value = float(value)
+        if value < 0:
+            raise ValueError("Histogramm-Beobachtungen duerfen nicht negativ sein")
+        with self._lock:
+            self._count += 1
+            self._sum += value
+            self._max = max(self._max, value)
+            for index, upper_bound in enumerate(self.buckets):
+                if value <= upper_bound:
+                    self._counts[index] += 1
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._lock:
+            sample = {
+                "labels": {}, "count": self._count, "sum": self._sum, "max": self._max,
+                "buckets": dict(zip(self.buckets, self._counts)),
+            }
+        return [sample]
+
+
+class Registry:
+    """Prozesslokale Registry; Registrierung und Snapshots sind threadsicher."""
+
+    def __init__(self):
+        self._metrics: dict[str, Counter | Gauge | Histogram] = {}
+        self._lock = threading.Lock()
+
+    def register(self, metric: Counter | Gauge | Histogram):
+        if not metric.name.startswith("stockbot_"):
+            raise ValueError("Metriknamen muessen mit stockbot_ beginnen")
+        with self._lock:
+            if metric.name in self._metrics:
+                raise ValueError(f"Metrik bereits registriert: {metric.name}")
+            self._metrics[metric.name] = metric
+        return metric
+
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            metrics = tuple(self._metrics.values())
+        return {
+            metric.name: {"type": metric.__class__.__name__.lower(), "samples": metric.snapshot()}
+            for metric in metrics
+        }
+
+    def render(self) -> str:
+        lines: list[str] = []
+        for name, metric in sorted(self.snapshot().items()):
+            for sample in metric["samples"]:
+                labels = sample.get("labels", {})
+                suffix = ("{" + ",".join(f'{key}="{value}"' for key, value in sorted(labels.items())) + "}") if labels else ""
+                if metric["type"] == "histogram":
+                    lines.append(f"{name}_count {sample['count']}")
+                    lines.append(f"{name}_sum {sample['sum']}")
+                else:
+                    lines.append(f"{name}{suffix} {sample['value']}")
+        return "\n".join(lines) + ("\n" if lines else "")
+
+
+_heartbeat_at = time.monotonic()
+_broker_poll_at = time.monotonic()
+
+
+def _age_since(clock_value: Callable[[], float]) -> float:
+    return max(0.0, time.monotonic() - clock_value())
+
+
+REGISTRY = Registry()
+AVAILABILITY_HEARTBEAT_AGE = REGISTRY.register(Gauge(
+    "stockbot_availability_heartbeat_age_seconds", value_fn=lambda: _age_since(lambda: _heartbeat_at)))
+FEED_LATENCY = REGISTRY.register(Histogram("stockbot_feed_latency_seconds"))
+QUOTE_AGE = REGISTRY.register(Histogram("stockbot_quote_age_seconds"))
+ORDER_LATENCY = REGISTRY.register(Histogram("stockbot_order_latency_seconds"))
+ORDERS_TOTAL = REGISTRY.register(Counter(
+    "stockbot_orders_total", label_names=("outcome",)))
+RECONCILIATION_FINDINGS_TOTAL = REGISTRY.register(Counter(
+    "stockbot_reconciliation_findings_total"))
+BROKER_POLL_LAG = REGISTRY.register(Gauge(
+    "stockbot_broker_poll_lag_seconds", value_fn=lambda: _age_since(lambda: _broker_poll_at)))
+POSITIONS_WITHOUT_STOP = REGISTRY.register(Gauge("stockbot_positions_without_stop"))
+KILL_SWITCH_ACTIVE = REGISTRY.register(Gauge("stockbot_kill_switch_active"))
+KILL_SWITCH_USERS = REGISTRY.register(Gauge("stockbot_kill_switch_users"))
+
+
+def heartbeat() -> None:
+    global _heartbeat_at
+    _heartbeat_at = time.monotonic()
+
+
+def broker_poll_succeeded() -> None:
+    global _broker_poll_at
+    _broker_poll_at = time.monotonic()
+
+
+@contextmanager
+def observe_latency(histogram: Histogram):
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        histogram.observe(time.perf_counter() - started)
+
+
+def snapshot() -> dict[str, dict[str, Any]]:
+    return REGISTRY.snapshot()
+
+
+def render() -> str:
+    return REGISTRY.render()
 
 
 def _std(xs: list[float], ddof: int = 1) -> float:
