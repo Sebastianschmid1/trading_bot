@@ -285,6 +285,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_kill_switches_active_global
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_kill_switches_active_user
     ON kill_switches (user_id) WHERE active = 1 AND scope = 'user';
+
+CREATE TABLE IF NOT EXISTS broker_oauth_connections (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL,
+    mode           TEXT    NOT NULL,
+    access_token   BLOB    NOT NULL,
+    refresh_token  BLOB,
+    scopes         TEXT    NOT NULL,
+    expires_at     TEXT,
+    created_at     TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL,
+    revoked_at     TEXT,
+    CHECK (mode IN ('paper', 'live'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_broker_oauth_user_mode
+    ON broker_oauth_connections (user_id, mode);
 """
 
 
@@ -1107,6 +1124,76 @@ def get_decrypted_credentials(user_id: int) -> tuple[str, str] | None:
     if not row or row["broker_api_key"] is None or row["broker_api_secret"] is None:
         return None
     return decrypt(row["broker_api_key"]), decrypt(row["broker_api_secret"])
+
+
+# ── Broker-OAuth-Verbindungen (W4.4, PLAT-007) ───────────────────────────────
+# Tokens werden verschlüsselt (Fernet, ENCRYPTION_KEY) gespeichert, nie im Klartext/in Logs.
+# Paper/Live sind über die Spalte `mode` getrennt (unique je (user_id, mode)).
+
+def store_broker_oauth_connection(*, user_id: int, mode: str, access_token: str,
+                                  refresh_token: str | None, scopes: str,
+                                  expires_at: str | None = None) -> None:
+    """Speichert (verschlüsselt) eine OAuth-Verbindung je (user_id, mode); ersetzt eine bestehende."""
+    now = _utc_timestamp()
+    with _database().transaction() as transaction:
+        transaction.execute(
+            "DELETE FROM broker_oauth_connections WHERE user_id = :user_id AND mode = :mode",
+            {"user_id": user_id, "mode": mode},
+        )
+        transaction.execute(
+            """INSERT INTO broker_oauth_connections
+               (user_id, mode, access_token, refresh_token, scopes, expires_at,
+                created_at, updated_at, revoked_at)
+               VALUES (:user_id, :mode, :access_token, :refresh_token, :scopes,
+                       :expires_at, :created_at, :updated_at, NULL)""",
+            {"user_id": user_id, "mode": mode,
+             "access_token": encrypt(access_token),
+             "refresh_token": encrypt(refresh_token) if refresh_token else None,
+             "scopes": scopes, "expires_at": expires_at,
+             "created_at": now, "updated_at": now},
+        )
+
+
+def get_broker_oauth_connection(user_id: int, mode: str) -> dict | None:
+    """Gibt die aktive (nicht widerrufene) OAuth-Verbindung entschlüsselt zurück, sonst None."""
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            """SELECT access_token, refresh_token, scopes, expires_at, created_at, updated_at
+               FROM broker_oauth_connections
+               WHERE user_id = :user_id AND mode = :mode AND revoked_at IS NULL""",
+            {"user_id": user_id, "mode": mode},
+        )
+    if not row:
+        return None
+    return {
+        "user_id": user_id, "mode": mode,
+        "access_token": decrypt(row["access_token"]),
+        "refresh_token": decrypt(row["refresh_token"]) if row["refresh_token"] else None,
+        "scopes": row["scopes"], "expires_at": row["expires_at"],
+        "created_at": row["created_at"], "updated_at": row["updated_at"],
+    }
+
+
+def disconnect_broker_oauth_connection(user_id: int, mode: str) -> None:
+    """Löscht die lokale OAuth-Verbindung (kein Broker-Revoke)."""
+    with _database().transaction() as transaction:
+        transaction.execute(
+            "DELETE FROM broker_oauth_connections WHERE user_id = :user_id AND mode = :mode",
+            {"user_id": user_id, "mode": mode},
+        )
+
+
+def revoke_broker_oauth_connection(user_id: int, mode: str) -> None:
+    """Markiert die Verbindung als widerrufen und überschreibt die Tokens (kein nutzbares Token bleibt)."""
+    now = _utc_timestamp()
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """UPDATE broker_oauth_connections
+               SET revoked_at = :now, access_token = :empty, refresh_token = NULL,
+                   updated_at = :now
+               WHERE user_id = :user_id AND mode = :mode AND revoked_at IS NULL""",
+            {"now": now, "empty": encrypt(""), "user_id": user_id, "mode": mode},
+        )
 
 
 def list_active_users() -> list[dict]:
