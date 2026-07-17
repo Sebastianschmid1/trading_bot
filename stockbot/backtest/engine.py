@@ -21,8 +21,11 @@ from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
 
+from dataclasses import asdict as _dc_asdict
+
 from stockbot.backtest.clock import BarClock, Clock
 from stockbot.backtest.cost_model import CostBreakdown, CostModel
+from stockbot.backtest.reproducibility import DEFAULT_SEED, capture_run_metadata, set_seed
 from stockbot.core import evaluator
 from stockbot.core import metrics as metrics_mod
 from stockbot.core.market_data import MarketDataProvider
@@ -274,7 +277,8 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
                  cost_pct: float | None = None,
                  cost_model: CostModel | None = None,
                  data_provider: MarketDataProvider | None = None,
-                 clock: Clock | None = None) -> dict:
+                 clock: Clock | None = None,
+                 seed: int = DEFAULT_SEED, capture_metadata: bool = False) -> dict:
     """Führt einen Backtest aus und gibt {strategy, metrics, trades, n_tickers, years} zurück.
     Trades chronologisch (nach Ausstiegsdatum) für eine saubere Equity-/Drawdown-Kurve.
     `allow_short` (nur Standard-Strategie) testet zusätzlich Short-Setups.
@@ -293,6 +297,8 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
 
     cost_pct = _resolve_cost(cost_pct)
     cost_model = _resolve_cost_model(cost_pct, cost_model)
+    if capture_metadata:
+        set_seed(seed)
     clock = clock or BarClock()
     args = [(strategy.key, t, df, trade_size, MAX_HOLD_DAYS, WARMUP_BARS, None, allow_short,
              trail_mode, trail_mult, cost_pct, cost_model, clock)
@@ -300,8 +306,16 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
     all_trades = []
     for trades in _pmap(_bt_one, args, jobs):
         all_trades.extend(trades)
-    return _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades,
-                            cost_pct=cost_pct)
+    result = _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades,
+                              cost_pct=cost_pct)
+    if capture_metadata:
+        result["run_metadata"] = capture_run_metadata(
+            strategy_key=strategy.key, tickers=list(data.keys()), years=years,
+            trade_size=trade_size, allow_short=allow_short, seed=seed,
+            cost_model=_dc_asdict(cost_model), universe_region=DEFAULT_REGION,
+            trail_mode=trail_mode, trail_mult=trail_mult,
+        ).as_dict()
+    return result
 
 
 def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
