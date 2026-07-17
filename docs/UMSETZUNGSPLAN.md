@@ -80,7 +80,8 @@ Coding-Tasks fahren. **Nutzer-Override für diese Session: der Manager implement
 restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurück ist.
 Manager-implementiert: **W5.5 ✅** (`a1d74a7`), **W5.4 ✅** (`05a17fd`), **W5.6 Validierung ✅**
 (`d1f53d4`) → **ganz W5 fertig (Gate P7)**, **W4.4 Alpaca-OAuth-Seam ✅** (`2bb1636`, Alembic-Head
-`e5f6a7b8c9d0`). **Noch offen (Manager):** W4.5 Pakete B/C/D, W7 UI/Design. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
+`e5f6a7b8c9d0`), **W4.5 Pakete B/C/D ✅** (`85ecf6c`, Alembic-Head `f6a7b8c9d0e1`) → **ganz W4 komplett**.
+**Noch offen:** W6 (Labor, nach W5 entblockt) + W7 (UI/Design, visuell). **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
 GitHub `main` gepusht, nichts deployt.**
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
@@ -139,7 +140,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
-| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | 🔄 laufend (W4.1 Logging ✅ + W4.3 Secrets ✅ + W4.2 Metriken ✅; W4.4 OAuth + W4.5 Pakete offen) |
+| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5 komplett; Code-seitig P9-Rest, VPS-Aktivierung/Restore-Test menschlich) |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | offen (nach W5) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
@@ -212,7 +213,7 @@ stabilen Postgres-Markttagen bündeln.**
 | W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) — **✅ ERLEDIGT** (`core/metrics.py` Registry + `core/alerts.py`, 9 Kennzahlen, schlanke Emits an OMS/Reconcile/Poll/Kill-Switch/Post-Trade/Heartbeat; Quote-Age-Emit try/except-gehärtet) | M/L | ✅ (nutzt W1.5/W2.2) |
 | W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) — **✅ ERLEDIGT** (`_secret()` Präzedenz cred>env>.env, Settings-Maskierung, LoadCredential-Unit-Vorlage) | M | ✅ |
 | W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) — **✅ ERLEDIGT** (`broker_oauth_connections`-Tabelle, Alembic `e5f6a7b8c9d0`; `execution/broker_oauth.py` additiv/opt-in, Fernet-verschlüsselte Token, Paper/Live getrennt, injizierbarer Revoke; API-Key-Pfad+TSAFE unberührt; Manager-implementiert) | L | ✅ |
-| W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) | L | ✅ (füttert W4.2-Alarme) |
+| W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) — **✅ ERLEDIGT** (`core/events.py` versioniert, `core/outbox.py` Worker mit Retry/Dead-Letter/Backlog + `outbox_events`-Tabelle Alembic `f6a7b8c9d0e1`, `core/event_consumers.py` DedupConsumer + NotificationConsumer; seam-first, noch nicht verdrahtet; Manager-implementiert) | L | ✅ (füttert W4.2-Alarme) |
 
 ## W5 — Backtest-Härtung (Gate P7; Research-Strang, parallel zu W2–W4)
 
