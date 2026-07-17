@@ -302,6 +302,26 @@ CREATE TABLE IF NOT EXISTS broker_oauth_connections (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_broker_oauth_user_mode
     ON broker_oauth_connections (user_id, mode);
+
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id         TEXT    NOT NULL UNIQUE,
+    event_type       TEXT    NOT NULL,
+    version          INTEGER NOT NULL,
+    trace_id         TEXT    NOT NULL,
+    payload_json     TEXT    NOT NULL,
+    status           TEXT    NOT NULL DEFAULT 'pending',
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    max_attempts     INTEGER NOT NULL DEFAULT 5,
+    next_attempt_at  TEXT    NOT NULL,
+    last_error       TEXT,
+    created_at       TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL,
+    CHECK (status IN ('pending', 'delivered', 'dead'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_pending
+    ON outbox_events (status, next_attempt_at, id);
 """
 
 
@@ -1194,6 +1214,79 @@ def revoke_broker_oauth_connection(user_id: int, mode: str) -> None:
                WHERE user_id = :user_id AND mode = :mode AND revoked_at IS NULL""",
             {"now": now, "empty": encrypt(""), "user_id": user_id, "mode": mode},
         )
+
+
+# ── Outbox (Paket C) ─────────────────────────────────────────────────────────
+# Atomare Speicherung eines Domain-Events zusammen mit der Domänenänderung (gemeinsame
+# Transaktion via `transaction=`), Auslieferungs-Worker mit Retry + Dead-Letter in
+# stockbot/core/outbox.py.
+
+def enqueue_outbox_event(event, *, next_attempt_at: str | None = None,
+                         max_attempts: int = 5, transaction=None) -> None:
+    """Legt ein `DomainEvent` in die Outbox — optional in eine BESTEHENDE Transaktion."""
+    now = _utc_timestamp()
+    params = {
+        "event_id": event.event_id, "event_type": event.event_type,
+        "version": event.version, "trace_id": event.trace_id,
+        "payload_json": json.dumps(event.payload), "next_attempt_at": next_attempt_at or now,
+        "max_attempts": max_attempts, "created_at": now, "updated_at": now,
+    }
+    sql = """INSERT INTO outbox_events
+             (event_id, event_type, version, trace_id, payload_json, status, attempts,
+              max_attempts, next_attempt_at, last_error, created_at, updated_at)
+             VALUES (:event_id, :event_type, :version, :trace_id, :payload_json,
+                     'pending', 0, :max_attempts, :next_attempt_at, NULL,
+                     :created_at, :updated_at)"""
+    if transaction is not None:
+        transaction.execute(sql, params)
+    else:
+        with _database().transaction() as tx:
+            tx.execute(sql, params)
+
+
+def fetch_due_outbox_events(now: str, limit: int = 100) -> list[dict]:
+    """Zustellbereite Events (pending und `next_attempt_at` ≤ now), älteste zuerst."""
+    with _database().transaction() as tx:
+        rows = tx.all(
+            """SELECT id, event_id, event_type, version, trace_id, payload_json,
+                      attempts, max_attempts
+               FROM outbox_events
+               WHERE status = 'pending' AND next_attempt_at <= :now
+               ORDER BY id LIMIT :limit""",
+            {"now": now, "limit": limit},
+        )
+    return [dict(r) for r in rows]
+
+
+def mark_outbox_delivered(event_id: str) -> None:
+    with _database().transaction() as tx:
+        tx.execute("UPDATE outbox_events SET status = 'delivered', updated_at = :now "
+                   "WHERE event_id = :eid", {"now": _utc_timestamp(), "eid": event_id})
+
+
+def mark_outbox_retry(event_id: str, next_attempt_at: str, last_error: str) -> None:
+    with _database().transaction() as tx:
+        tx.execute(
+            """UPDATE outbox_events SET attempts = attempts + 1, next_attempt_at = :next,
+                      last_error = :err, updated_at = :now WHERE event_id = :eid""",
+            {"next": next_attempt_at, "err": last_error, "now": _utc_timestamp(),
+             "eid": event_id})
+
+
+def mark_outbox_dead(event_id: str, last_error: str) -> None:
+    """Dead-Letter: nach erschöpften Versuchen dauerhaft aus der Zustellung nehmen."""
+    with _database().transaction() as tx:
+        tx.execute(
+            """UPDATE outbox_events SET status = 'dead', attempts = attempts + 1,
+                      last_error = :err, updated_at = :now WHERE event_id = :eid""",
+            {"err": last_error, "now": _utc_timestamp(), "eid": event_id})
+
+
+def outbox_backlog_count() -> int:
+    """Anzahl noch nicht zugestellter Events (für Rückstand-Monitoring)."""
+    with _database().transaction() as tx:
+        row = tx.one("SELECT COUNT(*) AS n FROM outbox_events WHERE status = 'pending'", {})
+    return int(row["n"]) if row else 0
 
 
 def list_active_users() -> list[dict]:
