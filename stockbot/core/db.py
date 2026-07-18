@@ -322,6 +322,20 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 
 CREATE INDEX IF NOT EXISTS idx_outbox_pending
     ON outbox_events (status, next_attempt_at, id);
+
+CREATE TABLE IF NOT EXISTS callback_tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    token         TEXT    NOT NULL UNIQUE,
+    user_id       INTEGER NOT NULL,
+    action        TEXT    NOT NULL,
+    payload_json  TEXT    NOT NULL,
+    expires_at    TEXT    NOT NULL,
+    used_at       TEXT,
+    created_at    TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_callback_tokens_token
+    ON callback_tokens (token);
 """
 
 
@@ -1287,6 +1301,53 @@ def outbox_backlog_count() -> int:
     with _database().transaction() as tx:
         row = tx.one("SELECT COUNT(*) AS n FROM outbox_events WHERE status = 'pending'", {})
     return int(row["n"]) if row else 0
+
+
+# ── Telegram-Callback-Sicherheit (W7) ────────────────────────────────────────
+# Opaque, serverseitig aufgelöste Tokens statt manipulierbarer callback_data: nutzergebunden,
+# mit Ablauf und EINMALIGER Verwendung (idempotent gegen Doppel-Callback/Replay).
+
+def issue_callback_token(*, user_id: int, action: str, payload: dict, expires_at: str) -> str:
+    """Erzeugt ein opaques, nutzergebundenes Token für eine Aktion und gibt es zurück."""
+    token = secrets.token_urlsafe(24)
+    now = _utc_timestamp()
+    with _database().transaction() as tx:
+        tx.execute(
+            """INSERT INTO callback_tokens
+               (token, user_id, action, payload_json, expires_at, used_at, created_at)
+               VALUES (:token, :user_id, :action, :payload_json, :expires_at, NULL, :created_at)""",
+            {"token": token, "user_id": user_id, "action": action,
+             "payload_json": json.dumps(payload), "expires_at": expires_at, "created_at": now},
+        )
+    return token
+
+
+def resolve_callback_token(token: str, user_id: int, now: str):
+    """Löst ein Callback-Token EINMALIG auf → (ok, action, payload, reason).
+
+    Prüft in EINER Transaktion: existiert / nicht abgelaufen / an user_id gebunden / noch nicht
+    verwendet; markiert es bei Erfolg als verwendet (one-time, idempotenzsicher)."""
+    with _database().transaction() as tx:
+        row = tx.one(
+            "SELECT user_id, action, payload_json, expires_at, used_at "
+            "FROM callback_tokens WHERE token = :token", {"token": token})
+        if not row:
+            return (False, None, None, "unknown")
+        if row["used_at"] is not None:
+            return (False, None, None, "used")
+        if row["expires_at"] <= now:
+            return (False, None, None, "expired")
+        if int(row["user_id"]) != int(user_id):
+            return (False, None, None, "wrong_user")
+        tx.execute(
+            "UPDATE callback_tokens SET used_at = :now WHERE token = :token AND used_at IS NULL",
+            {"now": now, "token": token})
+        return (True, row["action"], json.loads(row["payload_json"]), "")
+
+
+def purge_expired_callback_tokens(now: str) -> None:
+    with _database().transaction() as tx:
+        tx.execute("DELETE FROM callback_tokens WHERE expires_at <= :now", {"now": now})
 
 
 def list_active_users() -> list[dict]:
