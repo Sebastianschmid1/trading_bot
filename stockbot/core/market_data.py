@@ -75,6 +75,26 @@ class MarketDataProvider(ABC):
         Entweder `period` (z. B. "5d") ODER `start`/`end` angeben — wie bei `yfinance`."""
         raise NotImplementedError
 
+    def get_bars_batch(self, tickers: list[str], *, interval: str, period: str | None = None,
+                       prepost: bool = True) -> dict[str, pd.DataFrame]:
+        """Historische OHLCV-Bars für mehrere Ticker → ``{ticker: DataFrame}``.
+
+        Jedes DataFrame ist yfinance-förmig (Spalten Open/High/Low/Close/Volume, `DatetimeIndex`),
+        damit der bestehende Signalpfad (`market/analyzer.py`) formatneutral migriert werden kann.
+        Ticker ohne Daten fehlen im Ergebnis. `prepost` bezieht Extended-Hours-Bars ein, sofern der
+        Provider das unterstützt (sonst ignoriert).
+
+        Default: seriell über :meth:`get_bars` — Provider mit echtem Batch-API überschreiben das."""
+        out: dict[str, pd.DataFrame] = {}
+        for ticker in tickers:
+            try:
+                df = self.get_bars(ticker, interval=interval, period=period)
+            except Exception:
+                continue
+            if df is not None and len(df):
+                out[ticker] = df
+        return out
+
     @abstractmethod
     def get_quote(self, ticker: str) -> Quote:
         """Aktueller Kursschnappschuss."""

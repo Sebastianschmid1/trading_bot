@@ -231,6 +231,68 @@ def test_alpaca_get_bars_uses_period_to_compute_start():
     assert data_client.last_bars_request.start is not None
 
 
+def _alpaca_bars_df():
+    ts = pd.DatetimeIndex(["2026-06-01 14:30", "2026-06-01 15:30", "2026-06-01 14:30"], tz="UTC")
+    idx = pd.MultiIndex.from_arrays(
+        [["AAPL", "AAPL", "MSFT"], ts], names=["symbol", "timestamp"])
+    return pd.DataFrame(
+        {"open": [10, 11, 20], "high": [12, 13, 22], "low": [9, 10, 19],
+         "close": [11, 12, 21], "volume": [100, 200, 300], "vwap": [10.5, 11.5, 20.5]},
+        index=idx)
+
+
+def test_alpaca_get_bars_batch_normalizes_multiindex_per_ticker():
+    data_client = _FakeDataClient(bars_df=_alpaca_bars_df())
+    provider = _alpaca_provider(data_client=data_client)
+    bars = provider.get_bars_batch(["AAPL", "MSFT"], interval="1d", period="5d")
+
+    assert set(bars) == {"AAPL", "MSFT"}
+    aapl = bars["AAPL"]
+    assert list(aapl.columns) == ["Open", "High", "Low", "Close", "Volume"]  # yfinance-förmig
+    assert isinstance(aapl.index, pd.DatetimeIndex) and not isinstance(aapl.index, pd.MultiIndex)
+    assert len(aapl) == 2 and len(bars["MSFT"]) == 1
+    assert float(aapl["Close"].iloc[-1]) == 12.0
+    # ein Batch-Request mit der vollständigen Symbolliste
+    assert data_client.last_bars_request.symbol_or_symbols == ["AAPL", "MSFT"]
+
+
+def test_alpaca_get_bars_batch_empty_tickers_is_noop():
+    provider = _alpaca_provider()
+    assert provider.get_bars_batch([], interval="1d", period="5d") == {}
+
+
+def test_alpaca_get_bars_batch_raises_without_data_client():
+    provider = dp.AlpacaPaperMarketDataProvider(
+        api_key="", api_secret="", data_client=None,
+        corporate_actions_client=_FakeCorporateActionsClient({}), trading_client=None)
+    with pytest.raises(RuntimeError):
+        provider.get_bars_batch(["AAPL"], interval="1d", period="5d")
+
+
+def test_yfinance_get_bars_batch_splits_grouped_download():
+    cols = pd.MultiIndex.from_product(
+        [["AAPL", "MSFT"], ["Open", "High", "Low", "Close", "Volume"]])
+    idx = pd.DatetimeIndex(["2026-06-01", "2026-06-02"])
+    frame = pd.DataFrame(1.0, index=idx, columns=cols)
+
+    class _FakeYFDownload:
+        @staticmethod
+        def download(tickers, **kwargs):
+            _FakeYFDownload.kwargs = kwargs
+            return frame
+
+    orig = dp.yf
+    dp.yf = _FakeYFDownload
+    try:
+        provider = dp.YFinanceResearchProvider()
+        bars = provider.get_bars_batch(["AAPL", "MSFT"], interval="1d", period="1mo", prepost=False)
+    finally:
+        dp.yf = orig
+    assert set(bars) == {"AAPL", "MSFT"}
+    assert list(bars["AAPL"].columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert _FakeYFDownload.kwargs["prepost"] is False
+
+
 def test_alpaca_get_quote_maps_bid_ask_to_mid_price():
     quote = SimpleNamespace(bid_price=100.0, ask_price=102.0, timestamp=datetime(2026, 6, 10, tzinfo=timezone.utc))
     data_client = _FakeDataClient(quote=quote)

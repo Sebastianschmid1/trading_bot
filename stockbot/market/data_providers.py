@@ -31,11 +31,46 @@ from stockbot.core import exchange_calendar
 from stockbot.core.market_data import CorporateAction, MarketDataProvider, MarketStatus, Quote
 
 
+# yfinance-förmige OHLCV-Spalten (Capitalized) — Zielformat für den Signalpfad (analyzer).
+_OHLCV_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+_ALPACA_BAR_COLUMN_MAP = {"open": "Open", "high": "High", "low": "Low",
+                          "close": "Close", "volume": "Volume"}
+
+
+def _normalize_alpaca_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Alpaca-`.df` (kleingeschriebene Spalten, ggf. (symbol, timestamp)-MultiIndex) → yfinance-
+    förmig: Spalten Open/High/Low/Close/Volume mit reinem `DatetimeIndex`."""
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=_OHLCV_COLUMNS)
+    out = df.rename(columns=_ALPACA_BAR_COLUMN_MAP)
+    out = out[[c for c in _OHLCV_COLUMNS if c in out.columns]]
+    idx = out.index
+    if isinstance(idx, pd.MultiIndex):
+        idx = idx.get_level_values(-1)   # letzte Ebene ist der Zeitstempel
+    out.index = pd.DatetimeIndex(idx)
+    return out
+
+
+def _extract_yf_ticker(data, ticker: str):
+    """Holt das OHLCV-Sub-DataFrame eines Tickers aus einem (ggf. gruppierten) yfinance-Batch."""
+    if data is None:
+        return None
+    try:
+        return data[ticker]
+    except (KeyError, TypeError):
+        cols = getattr(data, "columns", None)
+        if cols is None:
+            return None
+        level0 = cols.get_level_values(0) if isinstance(cols, pd.MultiIndex) else cols
+        return data if "Close" in level0 else None
+
+
 class YFinanceResearchProvider(MarketDataProvider):
     """Research-/Backtest-Provider auf Basis von `yfinance` (kostenlos, verzögerte Daten).
 
     Pull-only — `yfinance` bietet kein Echtzeit-Streaming; `stream_quotes`/`stream_trades`
     lehnen daher explizit ab, statt eine irreführende Endlosschleife über Polling zu simulieren.
+    NUR für Research/Backtest/Anzeige — NIE für den Produktionssignalpfad (Leitplanke W3.2).
     """
 
     provider_name = "yfinance_research"
@@ -46,6 +81,27 @@ class YFinanceResearchProvider(MarketDataProvider):
         if period is not None:
             return t.history(period=period, interval=interval)
         return t.history(start=start, end=end, interval=interval)
+
+    def get_bars_batch(self, tickers: list[str], *, interval: str, period: str | None = None,
+                       prepost: bool = True) -> dict[str, pd.DataFrame]:
+        """Ein Batch-`yf.download` je Timeframe (threadsicher zusammengefügt), pro Ticker auf
+        yfinance-förmige OHLCV-Frames aufgeteilt. Nur Research/Anzeige, nicht Prod-Signal."""
+        if not tickers:
+            return {}
+        data = yf.download(list(tickers), period=period, interval=interval, progress=False,
+                           auto_adjust=True, group_by="ticker", prepost=prepost)
+        out: dict[str, pd.DataFrame] = {}
+        for ticker in tickers:
+            sub = _extract_yf_ticker(data, ticker)
+            if sub is None:
+                continue
+            if isinstance(sub.columns, pd.MultiIndex):
+                sub = sub.droplevel(1, axis=1)
+            if "Close" in sub.columns:
+                sub = sub.dropna(subset=["Close"])
+            if len(sub):
+                out[ticker] = sub
+        return out
 
     def get_quote(self, ticker: str) -> Quote:
         info = yf.Ticker(ticker).fast_info
@@ -150,13 +206,26 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
 
     @staticmethod
     def _build_data_client(api_key, api_secret):
+        # Ohne Keys keinen Client bauen (der Alpaca-Konstruktor wirft sonst ValueError). Der Provider
+        # meldet den fehlenden Client bei der Nutzung klar — statt bei der Konstruktion zu crashen.
+        if not (api_key and api_secret):
+            return None
         from alpaca.data.historical.stock import StockHistoricalDataClient
         return StockHistoricalDataClient(api_key, api_secret)
 
     @staticmethod
     def _build_ca_client(api_key, api_secret):
+        if not (api_key and api_secret):
+            return None
         from alpaca.data.historical.corporate_actions import CorporateActionsClient
         return CorporateActionsClient(api_key, api_secret)
+
+    def _require_data_client(self):
+        if self._data_client is None:
+            raise RuntimeError(
+                "AlpacaPaperMarketDataProvider: kein Marktdaten-Client verfügbar (fehlende/ungültige "
+                "ALPACA_API_KEY/ALPACA_API_SECRET) — Kurse können nicht abgefragt werden.")
+        return self._data_client
 
     def get_bars(self, ticker: str, *, interval: str, period: str | None = None,
                  start: datetime | None = None, end: datetime | None = None) -> pd.DataFrame:
@@ -165,12 +234,41 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
         if period is not None:
             start = _period_to_start(period)
         req = StockBarsRequest(symbol_or_symbols=ticker, timeframe=timeframe, start=start, end=end)
-        return self._data_client.get_stock_bars(req).df
+        return self._require_data_client().get_stock_bars(req).df
+
+    def get_bars_batch(self, tickers: list[str], *, interval: str, period: str | None = None,
+                       prepost: bool = True) -> dict[str, pd.DataFrame]:
+        """Ein einziger Alpaca-Batch-Request je Timeframe (server-seitig zusammengefügt), pro
+        Symbol auf yfinance-Format normalisiert. `prepost` hat bei Alpaca keine Entsprechung
+        (die Bars-API liefert Sessions feed-/zeitraumabhängig) und wird ignoriert."""
+        from alpaca.data.requests import StockBarsRequest
+        if not tickers:
+            return {}
+        timeframe = _to_alpaca_timeframe(interval)
+        start = _period_to_start(period) if period is not None else None
+        req = StockBarsRequest(symbol_or_symbols=list(tickers), timeframe=timeframe, start=start)
+        df = self._require_data_client().get_stock_bars(req).df
+        out: dict[str, pd.DataFrame] = {}
+        if df is None or len(df) == 0:
+            return out
+        if isinstance(df.index, pd.MultiIndex):
+            available = set(df.index.get_level_values(0))
+            for ticker in tickers:
+                if ticker not in available:
+                    continue
+                norm = _normalize_alpaca_bars(df.xs(ticker, level=0))
+                if len(norm):
+                    out[ticker] = norm
+        elif len(tickers) == 1:
+            norm = _normalize_alpaca_bars(df)
+            if len(norm):
+                out[tickers[0]] = norm
+        return out
 
     def get_quote(self, ticker: str) -> Quote:
         from alpaca.data.requests import StockLatestQuoteRequest
         req = StockLatestQuoteRequest(symbol_or_symbols=ticker)
-        quotes = self._data_client.get_stock_latest_quote(req)
+        quotes = self._require_data_client().get_stock_latest_quote(req)
         q = quotes[ticker]
         bid, ask = float(q.bid_price or 0.0), float(q.ask_price or 0.0)
         price = (bid + ask) / 2 if bid and ask else (ask or bid)
