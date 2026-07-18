@@ -668,9 +668,11 @@ Reihenfolge = Stylekonzept §29. Läuft parallel zu Phase 5/6 und den Web-/Teleg
 - [~] Icon-Set: Emoji als Interface-Icons entfernt (Brand + Badges → inline-SVG); volle Lucide/Heroicons-Adoption über alle Seiten noch offen *(Sol-B, Teil)*
 - [x] Statussystem + Modus-Badges — `mode_badge`-Makro (components.html): BACKTEST/SHADOW/PAPER/LIVE, immer Text+Icon (inline-SVG) *(Sol-B)*
 
-**Style-Phase 2 — Kernkomponenten:**
-- [ ] Button (Primär/Sekundär/Destruktiv/**Live-Order**), alle Zustände (Default/Hover/Active/Focus/Disabled/Loading/Success/Error; Loading blockt Doppelausführung)
-- [ ] Input, Select, Dialog, Alert, Card, Status-Chip, Tabelle, Tooltip, Tabs — alle aus Tokens
+**Style-Phase 2 — Kernkomponenten:** — ✅ ABGENOMMEN (W7, `bf4d593`, `web/static/components.css` + Makros)
+- [x] Button (Primär/Sekundär/Destruktiv/**Live-Order**), alle Zustände (Default/Hover/Active/Focus/Disabled/Loading/Success/Error; Loading blockt Doppelausführung)
+      (`.btn2`-Varianten inkl. `--live` [rot, „echtes Geld"] und `.is-loading` [pointer-events:none + aria-busy].)
+- [x] Input, Select, Dialog, Alert, Card, Status-Chip, Tabelle, Tooltip, Tabs — alle aus Tokens
+      (alle in `components.css`, token-basiert, sichtbare Fokusringe; vom Nutzer per Gallery abgenommen.)
 
 **Style-Phase 3 — Hauptseiten:**
 - [ ] Dashboard/Übersicht mit Info-Hierarchie Risiko→Status→Aktionen→Performance→Historie (Gewinn nicht größte Fläche)
