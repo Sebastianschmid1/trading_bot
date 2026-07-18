@@ -149,7 +149,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W0** Betriebsschutz | Prod-Postgres & Deployment absichern, ohne den Trading-Pfad im Burn-in anzufassen | Teile P9 | ✅ erledigt (`c0e43bd`) |
 | **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
-| **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ⏸ gated auf Tor T0 |
+| **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | 🔄 laufend (Tor T0 ✅ abgenommen; W3.1 Scheibe 9 ✅ `cba7380`; W3.2–W3.6 entblockt) |
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5 komplett; Code-seitig P9-Rest, VPS-Aktivierung/Restore-Test menschlich) |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
@@ -208,7 +208,7 @@ stabilen Postgres-Markttagen bündeln.**
 
 | # | Task | Scope | Aufwand | Abh. | Parallel? |
 |---|---|---|---|---|---|
-| W3.1 | **PLAT-001 Scheibe 9** | Dual-Backend-Seam-Code entfernen, Postgres-only. Zuerst, damit W3.3/W3.4 nicht doppelt gepflegt werden. | S | Tor T0 | Seriell (zuerst) |
+| W3.1 | **PLAT-001 Scheibe 9** | **✅ ERLEDIGT (`cba7380`, Scope A):** Produktion Postgres-only erzwungen (`settings.assert_postgres_backend` an bot.main/dashboard.run, `ALLOW_SQLITE_RUNTIME`-Opt-in). Dual-Backend-Seam bleibt bewusst fürs Offline-Test-Harness (Scope vom Nutzer gewählt). | S | Tor T0 ✅ | Seriell (zuerst) |
 | W3.2 | **yfinance raus aus Prod-Signalpfad** | `evaluator`/`analyzer`/`smartmoney`/`watchlist`/`db`-Kursabrufe auf `MarketDataProvider` umstellen (Alpaca für Prod, yfinance nur Research). Größter Brocken. | L | W3.1 | ✅ eigener Strang |
 | W3.3 | **Strategieversion an jedes Signal** | `StrategyVersionRegistry` persistent; Live-Signalerzeugung schreibt `strategy_version_id` → Gate P5. | M | W3.1 | ✅ |
 | W3.4 | **Mode-Reports in Dashboards** | Legacy-Dashboards auf `build_mode_report` umstellen, Paper/Shadow getrennte Ansichten → Gate P6 + RES-002. | M | W3.1 | ✅ |
@@ -277,7 +277,7 @@ kann formal erst "zählen", wenn W1–W3 **deployt** sind — Deploy von W1+W2 i
 
 | Tor | Wann | Inhalt |
 |---|---|---|
-| T0 | nach ~3–5 Markttagen | Postgres-Stabilität bestätigen → Scheibe 9 (W3.1) frei |
+| T0 | ~~nach ~3–5 Markttagen~~ | ✅ **abgenommen 2026-07-19** (Postgres ~4 Markttage stabil seit Cutover) → Scheibe 9 (W3.1) freigegeben+erledigt |
 | T1 | W0.3 | VPS-Migration auf Nicht-Root-User durchführen/abnehmen |
 | T2 | W3.6 | Freigabe Exit-Policies (ändert Live-Trade-Verhalten) |
 | T3 | laufend ab W6 | Jede Strategie-Promotion (Gate P8) |
