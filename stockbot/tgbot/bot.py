@@ -33,7 +33,7 @@ from stockbot.market import smartmoney
 from stockbot.market import strategies
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
-from stockbot.core.settings import validate_config
+from stockbot.core.settings import validate_config, assert_postgres_backend
 from stockbot.core.logging_setup import configure_logging
 from stockbot.core.domain import Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.execution.oms import OrderManagementSystem, _as_order
@@ -2694,6 +2694,7 @@ def _register_jobs(app):
 
 def main():
     validate_config()
+    assert_postgres_backend()   # Prod läuft Postgres-only (Scheibe 9); SQLite nur Dev/Test
     db.init_db()
     kill_switch_service.reload()
 

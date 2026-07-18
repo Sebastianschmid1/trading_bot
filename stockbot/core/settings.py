@@ -141,3 +141,19 @@ def validate_config(cfg: Any = config) -> Settings:
     if errors:
         raise ConfigError("Ungültige Konfiguration: " + "; ".join(errors))
     return settings
+
+
+def assert_postgres_backend(cfg: Any = config) -> None:
+    """Produktions-Guard (PLAT-001 Scheibe 9): der Laufzeitstart verlangt Postgres.
+
+    Der Cutover ist vollzogen — Produktion läuft ausschließlich auf Postgres. SQLite bleibt für
+    die Offline-Testsuite/lokale Entwicklung erhalten, ist im PRODUKTIVEN Start aber gesperrt,
+    außer ``ALLOW_SQLITE_RUNTIME=true`` ist ausdrücklich gesetzt. Wird an den Startpunkten
+    (`bot.main`, `dashboard.run`) NACH `validate_config()` aufgerufen; die Testsuite ruft es nicht.
+    """
+    backend = getattr(cfg, "DB_BACKEND", "sqlite")
+    if backend != "postgres" and not getattr(cfg, "ALLOW_SQLITE_RUNTIME", False):
+        raise ConfigError(
+            "Produktion erfordert DB_BACKEND=postgres (Cutover vollzogen, SQLite-Rollback "
+            "entfernt). Für lokale Entwicklung/Tests ALLOW_SQLITE_RUNTIME=true setzen."
+        )

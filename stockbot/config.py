@@ -463,11 +463,14 @@ LOG_FORMAT = os.getenv("LOG_FORMAT", "text").strip().lower()
 SHARE_ROUNDUP_FACTOR = float(os.getenv("SHARE_ROUNDUP_FACTOR", "1.0"))
 
 # ── PostgreSQL — Vorbereitung (Phase 1 / PLAT-001) ───────────────────────────
-# SQLite bleibt bis zum dokumentierten Cutover die Standard-Quelle der Wahrheit. Der
-# Backend-Schalter routet zunächst ausschließlich die ausdrücklich portierten User-Reads.
+# Der Cutover ist vollzogen: Produktion läuft AUSSCHLIESSLICH auf Postgres (PLAT-001 Scheibe 9).
+# SQLite bleibt nur noch für die Offline-Testsuite + lokale Entwicklung. Der Default hier bleibt
+# aus Kompatibilität mit der Testsuite 'sqlite'; der PRODUKTIVE Start verweigert aber SQLite,
+# außer ALLOW_SQLITE_RUNTIME=true ist ausdrücklich gesetzt (siehe settings.assert_postgres_backend).
 DB_BACKEND = os.getenv("DB_BACKEND", "sqlite").strip().lower()
 if DB_BACKEND not in {"sqlite", "postgres"}:
     raise RuntimeError("DB_BACKEND muss 'sqlite' oder 'postgres' sein")
+ALLOW_SQLITE_RUNTIME = os.getenv("ALLOW_SQLITE_RUNTIME", "false").strip().lower() in ("1", "true", "yes")
 POSTGRES_DSN = _secret(
     "POSTGRES_DSN",
     "postgresql+psycopg2://stockbot:stockbot@localhost:5432/stockbot",

@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from stockbot.core.settings import ConfigError, Settings, validate_config
+from stockbot.core.settings import (
+    ConfigError, Settings, assert_postgres_backend, validate_config,
+)
 
 
 def _config(**overrides):
@@ -24,6 +26,21 @@ def _config(**overrides):
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def test_assert_postgres_backend_accepts_postgres():
+    assert assert_postgres_backend(_config(DB_BACKEND="postgres")) is None
+
+
+def test_assert_postgres_backend_rejects_sqlite_in_production():
+    with pytest.raises(ConfigError):
+        assert_postgres_backend(_config(DB_BACKEND="sqlite"))
+
+
+def test_assert_postgres_backend_allows_sqlite_with_explicit_optin():
+    # Dev/Test dürfen SQLite ausdrücklich erlauben
+    assert assert_postgres_backend(
+        _config(DB_BACKEND="sqlite", ALLOW_SQLITE_RUNTIME=True)) is None
 
 
 def test_valid_default_config_returns_settings():
