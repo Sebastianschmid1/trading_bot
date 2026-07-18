@@ -17,3 +17,32 @@
   </span>
 {%- endmacro %}
 
+{# ── Style-Phase 2 Kernkomponenten (W7) — nutzen components.css ────────────── #}
+
+{% macro button(label, variant='secondary', type='button', name=None, value=None,
+                disabled=False, loading=False, block=False, small=False, extra='') -%}
+  <button type="{{ type }}" class="btn2 btn2--{{ variant }}{{ ' btn2--block' if block }}{{ ' btn2--sm' if small }}{{ ' is-loading' if loading }}"
+          {% if name %}name="{{ name }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}
+          {% if disabled %}disabled{% endif %}{% if loading %} aria-busy="true"{% endif %} {{ extra|safe }}>{{ label }}</button>
+{%- endmacro %}
+
+{% macro chip(label, tone='neutral') -%}
+  <span class="chip chip--{{ tone }}"><span class="chip__dot" aria-hidden="true"></span>{{ label }}</span>
+{%- endmacro %}
+
+{% macro alert(message, tone='info', title=None) -%}
+  <div class="alert2 alert2--{{ tone }}" role="{{ 'alert' if tone in ('danger','warning') else 'status' }}">
+    <div>{% if title %}<p class="alert2__title">{{ title }}</p>{% endif %}<div>{{ message }}</div></div>
+  </div>
+{%- endmacro %}
+
+{% macro field(label, name, value='', type='text', hint=None, error=None, placeholder='') -%}
+  <div class="field{{ ' field--error' if error }}">
+    <label class="field__label" for="f-{{ name }}">{{ label }}</label>
+    <input class="input2" id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"
+           placeholder="{{ placeholder }}"{% if error %} aria-invalid="true"{% endif %}>
+    {% if hint and not error %}<span class="field__hint">{{ hint }}</span>{% endif %}
+    {% if error %}<span class="field__error">{{ error }}</span>{% endif %}
+  </div>
+{%- endmacro %}
+

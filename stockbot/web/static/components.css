@@ -1,0 +1,165 @@
+/* Style-Phase 2 — Kernkomponenten (W7), aufgebaut auf tokens.css.
+   Risikoorientiert, keine Gamification. Alle Farben/Abstände aus Design-Tokens.
+   Zustände: Default/Hover/Active/Focus/Disabled/Loading/Success/Error. */
+
+/* ── Button ────────────────────────────────────────────────────────────── */
+.btn2 {
+  --btn-bg: var(--bg-surface-3);
+  --btn-fg: var(--text-primary);
+  --btn-bd: var(--border-default);
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  font-family: var(--font-ui); font-size: 14px; font-weight: 560; line-height: 1;
+  padding: 10px 16px; border-radius: var(--radius-md);
+  background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-bd);
+  cursor: pointer; text-decoration: none; user-select: none;
+  transition: background .12s ease, border-color .12s ease, filter .12s ease;
+  position: relative;
+}
+.btn2:hover { filter: brightness(1.08); }
+.btn2:active { filter: brightness(.94); }
+.btn2:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.btn2[disabled], .btn2[aria-disabled="true"] {
+  opacity: .5; cursor: not-allowed; filter: none;
+}
+
+.btn2--primary { --btn-bg: var(--primary); --btn-fg: var(--text-inverse); --btn-bd: var(--primary); }
+.btn2--primary:hover { --btn-bg: var(--primary-hover); }
+.btn2--primary:active { --btn-bg: var(--primary-active); }
+
+.btn2--secondary { --btn-bg: transparent; --btn-fg: var(--text-primary); --btn-bd: var(--border-strong); }
+
+.btn2--destructive { --btn-bg: transparent; --btn-fg: var(--danger); --btn-bd: var(--danger-border); }
+.btn2--destructive:hover { --btn-bg: var(--danger-soft); }
+
+/* Live-Order: unverwechselbar, rot, „echtes Geld" — höchste Warnstufe */
+.btn2--live {
+  --btn-bg: var(--danger); --btn-fg: #fff; --btn-bd: var(--danger);
+  font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 0 0 1px var(--danger-border), 0 6px 18px var(--danger-soft);
+}
+.btn2--live:hover { --btn-bg: var(--danger-hover); }
+
+.btn2--success { --btn-bg: var(--success); --btn-fg: var(--text-inverse); --btn-bd: var(--success); }
+
+/* Loading: blockiert Doppelausführung (Zeiger + aria-busy setzt der Aufrufer) */
+.btn2.is-loading { color: transparent !important; pointer-events: none; }
+.btn2.is-loading::after {
+  content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  color: var(--btn-fg); animation: btn2-spin .6s linear infinite;
+}
+@keyframes btn2-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn2.is-loading::after { animation-duration: 1.6s; } }
+
+.btn2--sm { padding: 6px 10px; font-size: 13px; }
+.btn2--block { display: flex; width: 100%; }
+
+/* ── Input / Select / Textarea ─────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.field__label {
+  font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.input2, .select2, .textarea2 {
+  font-family: var(--font-ui); font-size: 14px; color: var(--text-primary);
+  background: var(--bg-surface-1); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: 10px 12px; width: 100%;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.input2::placeholder { color: var(--text-disabled); }
+.input2:hover, .select2:hover, .textarea2:hover { border-color: var(--border-strong); }
+.input2:focus-visible, .select2:focus-visible, .textarea2:focus-visible {
+  outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.input2[aria-invalid="true"], .field--error .input2 {
+  border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);
+}
+.input2[disabled], .select2[disabled] { opacity: .5; cursor: not-allowed; }
+.textarea2 { min-height: 96px; resize: vertical; font-family: var(--font-mono); }
+.field__hint { font-size: 12px; color: var(--text-muted); }
+.field__error { font-size: 12px; color: var(--danger); }
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+.card2 {
+  background: var(--bg-surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); padding: var(--space-5);
+}
+.card2__header {
+  display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);
+}
+.card2__title { font-size: 16px; font-weight: 620; color: var(--text-primary); margin: 0; }
+.card2__body { color: var(--text-secondary); font-size: 14px; }
+.card2--risk { border-left: 3px solid var(--warning); }
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+.alert2 {
+  display: flex; gap: var(--space-3); padding: var(--space-4);
+  border-radius: var(--radius-md); border: 1px solid var(--border-default);
+  background: var(--bg-surface-2); color: var(--text-secondary); font-size: 14px;
+}
+.alert2__title { font-weight: 600; color: var(--text-primary); margin: 0 0 2px; }
+.alert2--info { border-color: var(--primary-border); background: var(--info-soft); }
+.alert2--success { border-color: var(--success-border); background: var(--success-soft); }
+.alert2--warning { border-color: var(--warning-border); background: var(--warning-soft); }
+.alert2--danger { border-color: var(--danger-border); background: var(--danger-soft); }
+.alert2__icon { flex: 0 0 auto; width: 18px; height: 18px; }
+
+/* ── Status-Chip ───────────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--bg-surface-3); color: var(--text-secondary); border: 1px solid var(--border-default);
+}
+.chip__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.chip--go { color: var(--success); border-color: var(--success-border); background: var(--success-soft); }
+.chip--caution { color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft); }
+.chip--warn { color: var(--danger); border-color: var(--danger-border); background: var(--danger-soft); }
+.chip--neutral { color: var(--text-muted); }
+
+/* ── Tabelle ───────────────────────────────────────────────────────────── */
+.table2 { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table2 th {
+  text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-muted);
+  padding: 10px 12px; border-bottom: 1px solid var(--border-default);
+}
+.table2 td { padding: 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+.table2 tbody tr:hover td, .table2 tbody tr:hover td { background: var(--bg-hover); }
+.table2 .num, .table2 .r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
+.tabs__tab {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-family: var(--font-ui); font-size: 14px; font-weight: 560; color: var(--text-muted);
+  padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs__tab:hover { color: var(--text-secondary); }
+.tabs__tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--primary); }
+.tabs__tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius-sm); }
+
+/* ── Tooltip (CSS-only, mit aria-describedby am Trigger) ────────────────── */
+.tooltip { position: relative; display: inline-flex; }
+.tooltip__bubble {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  background: var(--bg-elevated); color: var(--text-primary); font-size: 12px;
+  padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  white-space: nowrap; box-shadow: var(--shadow-sm); opacity: 0; pointer-events: none;
+  transition: opacity .12s ease;
+}
+.tooltip:hover .tooltip__bubble, .tooltip:focus-within .tooltip__bubble { opacity: 1; }
+
+/* ── Dialog (Modal) ────────────────────────────────────────────────────── */
+.dialog2::backdrop { background: rgba(0, 0, 0, .55); }
+.dialog2 {
+  border: 1px solid var(--border-strong); border-radius: var(--radius-xl);
+  background: var(--bg-surface-2); color: var(--text-primary); padding: 0;
+  max-width: 440px; width: calc(100vw - 32px); box-shadow: var(--shadow-dialog);
+}
+.dialog2__body { padding: var(--space-6); }
+.dialog2__title { font-size: 18px; font-weight: 640; margin: 0 0 var(--space-3); }
+.dialog2__actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-6); }
+/* Live-Bestätigung: roter Rahmen + Warnbanner */
+.dialog2--live { border-color: var(--danger); }
+.dialog2--live .dialog2__title { color: var(--danger); }
