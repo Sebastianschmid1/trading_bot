@@ -81,8 +81,11 @@ restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurü
 Manager-implementiert: **W5.5 ✅** (`a1d74a7`), **W5.4 ✅** (`05a17fd`), **W5.6 Validierung ✅**
 (`d1f53d4`) → **ganz W5 fertig (Gate P7)**, **W4.4 Alpaca-OAuth-Seam ✅** (`2bb1636`, Alembic-Head
 `e5f6a7b8c9d0`), **W4.5 Pakete B/C/D ✅** (`85ecf6c`, Alembic-Head `f6a7b8c9d0e1`) → **ganz W4 komplett**.
-**W6 Labor ✅** (`43c9b67`, Gate P8, Framework). **Noch offen:** nur **W7 (UI/Design, visuell)** —
-braucht laufende App/Browser-Verifikation, eigener Fokus-Durchgang. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
+**W6 Labor ✅** (`43c9b67`, Gate P8, Framework). **W7 (UI/Design) GESTARTET** — Style-Phase 2
+Kernkomponenten (`static/components.css` + Makros, `bf4d593`) fertig + Gallery zur Abnahme.
+**Offen (W7):** Style-Phasen 3–5 (Seiten/Risikointeraktionen/A11y), Web-App-Umbau (Pflicht-
+Bestätigungsdialog), Telegram-Umbau (Callback-Sicherheit), API v1 (Idempotency/RBAC) — visuelle
+Teile brauchen laufende App/Browser-Verifikation, großer iterativer Rest. **W1/W2/W4/W5 Deploy weiterhin gebündelt freigabe-pflichtig; auf
 GitHub `main` gepusht, nichts deployt.**
 
 **⚠️ Vorbestehender Bug (NICHT W1):** `tests/test_db_backend_users.py::test_trade_read_mapping_
@@ -144,7 +147,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5 komplett; Code-seitig P9-Rest, VPS-Aktivierung/Restore-Test menschlich) |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
-| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1, Pakete B/C/D | **Gate Style** | offen (parallel) |
+| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | 🔄 laufend (Style-Phase 2 Kernkomponenten ✅ `bf4d593`; Phasen 3–5 + Web-/Telegram-Umbau + API v1 offen) |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
 
 ---
