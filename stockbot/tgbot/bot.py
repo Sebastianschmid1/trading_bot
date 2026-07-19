@@ -31,6 +31,9 @@ from stockbot.core import exchange_calendar
 from stockbot.market import universes
 from stockbot.market import smartmoney
 from stockbot.market import strategies
+from stockbot.market import analyzer
+from stockbot.market import exit_policies
+from stockbot.market import provider_factory
 from stockbot.research import shadow_scheduler
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
@@ -74,7 +77,7 @@ from stockbot.config import (
     ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     POST_TRADE_SCAN_INTERVAL_SEC, BROKER_POLL_INTERVAL_SEC, RECONCILE_PERIODIC_SEC,
-    SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE,
+    SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE, STRATEGY_EXITS_ENABLED,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
     ALPACA_API_KEY, ALPACA_API_SECRET, ENCRYPTION_KEY, LOG_FILE, LOG_FORMAT,
@@ -1125,6 +1128,42 @@ async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, st
     )
 
 
+def _strategy_exit_reason(trade: dict, price: float | None) -> str | None:
+    """Strategie-spezifischer Exit (STRAT-005, W3.6) — NUR aktiv, wenn STRATEGY_EXITS_ENABLED.
+
+    Liefert einen Schließgrund oder None. Ergänzt Liquidation/SL/TP (die maßgeblich bleiben) um
+    strategiebezogene Exits (Momentumbruch, Strukturbruch, Timeout, Marktende, Mean-Reversion).
+    Fehlende Eingaben (z. B. keine Bars) überspringen die jeweilige Regel; die Funktion bricht nie
+    den Monitor (Fehler → None)."""
+    try:
+        sig = trade.get("signal") or {}
+        strategy_key = sig.get("strategy") or "standard"
+        now = datetime.now(timezone.utc)
+        opened_at = reconcile_mod._parse_ts(trade.get("created_at"))
+        # Bars des kürzesten konfigurierten Timeframes über den Prod-Signalprovider (nie yfinance).
+        bars = None
+        try:
+            tf = analyzer.SIGNAL_TIMEFRAMES[0]
+            batch = provider_factory.get_signal_provider().get_bars_batch(
+                [trade["ticker"]], interval=tf["interval"], period=tf["period"])
+            bars = batch.get(trade["ticker"])
+        except Exception:
+            bars = None
+        decision = exit_policies.evaluate_strategy_exit(
+            strategy_key,
+            current_price=price,
+            entry_price=trade.get("entry"),
+            bars=bars,
+            opened_at=opened_at,
+            now=now,
+            minutes_to_close=exchange_calendar.minutes_to_close(now),
+        )
+        return decision.reason if decision.close else None
+    except Exception as e:
+        log.warning(f"Strategie-Exit-Prüfung fehlgeschlagen ({trade.get('ticker')}): {e}")
+        return None
+
+
 def evaluate_active_trade(trade: dict, price: float | None, strength: float | None) -> str | None:
     """Entscheidet, ob ein aktiver Trade geschlossen werden soll.
     Gibt den Grund zurück (oder None, wenn er offen bleibt)."""
@@ -1147,8 +1186,13 @@ def evaluate_active_trade(trade: dict, price: float | None, strength: float | No
     # TSAFE-005: Das automatische Schließen bei niedrigem Signal-Score (< SIGNAL_CLOSE_THRESHOLD)
     # ist entfernt — ein generischer Score entscheidet nicht mehr über Exits. Es schließen nur noch
     # explizite Regeln: Liquidation, Stop-Loss, Take-Profit (hier) sowie die Höchsthaltedauer/EOD im
-    # Tagesjob. Strategie-spezifische Exits folgen in Phase 5. Der schwache Score löst weiterhin nur
-    # eine Heads-up-Warnung aus (_maybe_warn_sltp_off), schließt aber nicht.
+    # Tagesjob. Der schwache Score löst weiterhin nur eine Heads-up-Warnung aus
+    # (_maybe_warn_sltp_off), schließt aber nicht.
+    # W3.6: strategie-spezifische Exits (STRAT-005) — per Default AUS (ändert Live-Trade-Verhalten,
+    # Tor T2). Greifen NUR, wenn keine der maßgeblichen Regeln (Liquidation/SL/TP) schon ausgelöst hat
+    # und der SL/TP-Modus nicht "aus" ist.
+    if STRATEGY_EXITS_ENABLED and not aus:
+        return _strategy_exit_reason(trade, price)
     return None
 
 

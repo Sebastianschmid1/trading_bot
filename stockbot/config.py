@@ -405,6 +405,13 @@ ALLOW_LIVE_TRADING = os.getenv("ALLOW_LIVE_TRADING", "false").strip().lower() in
 ALLOW_MARGIN       = os.getenv("ALLOW_MARGIN", "false").strip().lower() in ("1", "true", "yes")
 ALLOW_OPTIONS      = os.getenv("ALLOW_OPTIONS", "false").strip().lower() in ("1", "true", "yes")
 ALLOW_SHORTS       = os.getenv("ALLOW_SHORTS", "false").strip().lower() in ("1", "true", "yes")
+
+# W3.6: strategie-spezifische Exit-Policies (STRAT-005) in die aktive Trade-Bewertung verdrahten.
+# ÄNDERT LIVE-TRADE-VERHALTEN → bewusst per Default AUS. Nur nach menschlicher Freigabe (Tor T2)
+# einschalten. Liquidation/Stop-Loss/Take-Profit bleiben ohnehin maßgeblich; diese Policies können
+# zusätzlich früher schließen (Momentumbruch, Strukturbruch, Timeout, Marktende, Mean-Reversion).
+STRATEGY_EXITS_ENABLED = os.getenv("STRATEGY_EXITS_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
 try:
     MAX_LEVERAGE = float(os.getenv("MAX_LEVERAGE", "1") or 1)
 except ValueError:
