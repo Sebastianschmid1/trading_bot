@@ -10,6 +10,12 @@ Minuten dauert, läuft er als nächtlicher Job und wird in data/smartmoney_cache
 zwischengespeichert; /top5trade und /signals lesen nur den Cache.
 
 ⚠️ Positionierungs-/Sentiment-Indikator mit Datenverzug — keine Echtzeit, keine Garantie.
+
+Leitplanke W3.2 („kein yfinance im Produktionssignalpfad"): Smart-Money zählt bewusst als
+RESEARCH-Anreicherung, nicht als deterministisches Preissignal — die zugrundeliegenden
+Eigentümer-/Insider-Daten (SEC Form 4 / 13F) haben bei Alpaca keine Entsprechung. yfinance ist
+hier daher explizit erlaubt und isoliert; der Score fließt nur als Sentiment-Gewicht ins
+Ranking, erzeugt aber nie allein einen Trade.
 """
 
 import json

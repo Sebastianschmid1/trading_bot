@@ -5,6 +5,10 @@ Nimmt die technisch+Smart-Money gerankten Signale (mit allen Metadaten), reicher
 **Fundamentaldaten (Geschäftsberichts-Kennzahlen), Analysten-Sicht, Earnings-Termin und News** an
 (yfinance, kostenlos) und lässt Claude Haiku daraus eine Rangfolge bilden.
 
+Leitplanke W3.2: fundamentale Anreicherung (Kennzahlen/Analysten/News) fürs LLM-Re-Ranking =
+RESEARCH, nicht Preissignal — Alpaca liefert diese Fundamentaldaten nicht. yfinance ist hier
+bewusst zulässig; das Re-Ranking ordnet nur um und erzeugt nie allein einen Trade.
+
 Design-Prinzipien:
 - **Bricht den Signalfluss nie**: ohne API-Key, ohne installiertes `anthropic` oder bei jedem Fehler
   wird die Eingabe unverändert zurückgegeben.

@@ -7,6 +7,9 @@ Symbol-Validierung & -Suche für die persönliche Watchlist (reines yfinance).
 
 Beide Funktionen sind blockierend (Netz) und werfen NIE — Fehler ⇒ {"ok": False} bzw. [].
 Im Bot in asyncio.to_thread aufrufen. Wirklich keine Projektabhängigkeiten (kein Import-Zyklus).
+
+Leitplanke W3.2: reine Symbol-Validierung/-Suche (Watchlist-UX), KEIN Preissignal — yfinance ist
+hier bewusst zulässig (Alpaca hat keine vergleichbare Symbolsuche). Erzeugt nie einen Trade.
 """
 
 import logging
