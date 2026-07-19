@@ -59,6 +59,7 @@ from stockbot.broker import sizing
 from stockbot.broker import reconcile as reconcile_mod
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.tgbot import menu
+from stockbot.tgbot import callback_security
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
@@ -339,8 +340,31 @@ def _get_candidates(key: str) -> list[dict]:
 
 # ── Nachrichten senden ──────────────────────────────────────────────────────
 
+# Sichere Callback-Tokens (W7): TTLs decken die legitimen Nutzungsfenster ab —
+# Signale bleiben den ganzen Handelstag annehmbar, Verkaufen-Buttons auch über Nacht.
+SIGNAL_CB_TTL_SEC = 16 * 3600
+SELL_CB_TTL_SEC = 7 * 24 * 3600
+
+
+def _secure_cb(user_id: int | None, action: str, ticker: str,
+               ttl_seconds: int = SIGNAL_CB_TTL_SEC) -> str:
+    """Opaques, nutzergebundenes Callback-Token (`t:<token>`) statt manipulierbarer
+    Klartext-callback_data. Fail-open aufs Legacy-Format (`action:ticker`), wenn kein
+    user_id vorliegt oder die Token-Ausgabe scheitert — ein Button darf nie am DB-Zustand
+    scheitern; der Legacy-Parser bleibt als Fallback verdrahtet."""
+    if user_id is not None:
+        try:
+            token = callback_security.issue(
+                int(user_id), action, {"ticker": ticker}, ttl_seconds=ttl_seconds)
+            return f"t:{token}"
+        except Exception as e:
+            log.warning(f"Callback-Token-Ausgabe fehlgeschlagen ({action}:{ticker}): {e}")
+    return f"{action}:{ticker}"
+
+
 def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
-                 expiry_min: int | None = None) -> tuple[str, InlineKeyboardMarkup]:
+                 expiry_min: int | None = None,
+                 user_id: int | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """Baut Nachrichtentext + Tastatur eines Signals (inkl. SL/TP, Hebel, Liquidation)."""
     ticker = signal["ticker"]
     direction = signal["direction"]
@@ -384,8 +408,10 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
             f"⏱ Auswertung: {CLOSE_TIME_HOUR:02d}:{CLOSE_TIME_MIN:02d} Uhr (oder früher bei SL/TP)"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ JA — Demo-Trade starten", callback_data=f"accept:{ticker}"),
-             InlineKeyboardButton("❌ NEIN", callback_data=f"reject:{ticker}")],
+            [InlineKeyboardButton("✅ JA — Demo-Trade starten",
+                                  callback_data=_secure_cb(user_id, "accept", ticker)),
+             InlineKeyboardButton("❌ NEIN",
+                                  callback_data=_secure_cb(user_id, "reject", ticker))],
         ])
     else:
         footer = "🔒 US-Börse geschlossen — Start möglich, sobald der Markt wieder öffnet."
@@ -762,7 +788,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
             log.info(f"[{chat_id}] Auto-Accept übersprungen (Entry-Sperre kurz vor Handelsschluss): {ticker}")
         return True
 
-    text, keyboard = _signal_card(sig, trade_size_eur, market_open, expiry_min)
+    text, keyboard = _signal_card(sig, trade_size_eur, market_open, expiry_min, user_id=chat_id)
     msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
 
     if market_open:
@@ -1128,7 +1154,9 @@ async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, st
               f"Einstieg ${entry:.2f} → aktuell ${price:.2f}. Bei Bedarf manuell schließen:"),
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("💰 Verkaufen", callback_data=f"sell:{trade['ticker']}")]]),
+            [[InlineKeyboardButton("💰 Verkaufen",
+                                   callback_data=_secure_cb(uid, "sell", trade["ticker"],
+                                                            ttl_seconds=SELL_CB_TTL_SEC))]]),
     )
 
 
@@ -1729,7 +1757,8 @@ def _unrealized_pnl(trade: dict, trade_size_eur: float):
     return current, pnl_pct, pnl_eur
 
 
-def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
+def _trade_card(trade: dict, trade_size_eur: float, current_strength=None,
+                user_id: int | None = None):
     """Baut Nachrichtentext + Verkaufen-Button für einen aktiven Demo-Trade.
     `current_strength` = aktueller Strategie-Rohscore (z. B. letzter 60s-Tick); None → unbekannt."""
     ticker = trade["ticker"]
@@ -1750,7 +1779,9 @@ def _trade_card(trade: dict, trade_size_eur: float, current_strength=None):
         f"{emoji} Unrealisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💰 Verkaufen", callback_data=f"sell:{ticker}")]
+        [InlineKeyboardButton("💰 Verkaufen",
+                              callback_data=_secure_cb(user_id, "sell", ticker,
+                                                       ttl_seconds=SELL_CB_TTL_SEC))]
     ])
     return text, keyboard
 
@@ -1777,7 +1808,8 @@ async def cmd_evaluate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for trade in active:
         pts = ticks.get(trade["ticker"], [])
         cur_strength = pts[-1].get("strength") if pts else None
-        text, keyboard = _trade_card(trade, user["trade_size_eur"], current_strength=cur_strength)
+        text, keyboard = _trade_card(trade, user["trade_size_eur"], current_strength=cur_strength,
+                                     user_id=chat_id)
         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
         await asyncio.sleep(0.3)
 
@@ -2355,9 +2387,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = update.effective_chat.id  # == user_id, im privaten Chat eindeutig
 
-    parts = query.data.split(":")
-    action = parts[0]
-    ticker = parts[1] if len(parts) > 1 else ""
+    data = query.data or ""
+    if data.startswith("t:"):
+        # W7: opaque Callback-Tokens — serverseitig aufgelöst, nutzergebunden, einmalig.
+        try:
+            action, payload = callback_security.resolve(data[2:], chat_id)
+        except callback_security.CallbackSecurityError as e:
+            hints = {
+                "used": "⚠️ Schon verarbeitet (Doppelklick).",
+                "expired": "⏳ Button abgelaufen — fordere die Ansicht neu an (z. B. /signals oder /evaluate).",
+                "wrong_user": "⚠️ Dieser Button gehört nicht zu deinem Konto.",
+            }
+            await query.answer(hints.get(e.reason, "⚠️ Ungültiger Button."), show_alert=True)
+            return
+        parts = [action, payload.get("ticker", "")]
+        ticker = parts[1]
+    else:
+        # Legacy-Format (Karten von vor der Token-Umstellung + nicht-tokenisierte Buttons)
+        parts = data.split(":")
+        action = parts[0]
+        ticker = parts[1] if len(parts) > 1 else ""
 
     # Deaktivierter "Börse geschlossen"-Button: nur Hinweis, keine Aktion
     if action == "noop":
@@ -2374,7 +2423,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ Hebel nicht mehr änderbar (Trade bereits bearbeitet).", show_alert=True)
             return
         user = db.get_user(chat_id)
-        text, keyboard = _signal_card(updated["signal"], user["trade_size_eur"], market_open=True)
+        text, keyboard = _signal_card(updated["signal"], user["trade_size_eur"], market_open=True,
+                                      user_id=chat_id)
         try:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
         except Exception:
@@ -2728,6 +2778,14 @@ async def periodic_oms_reconciliation_job(context: ContextTypes.DEFAULT_TYPE):
     previous.update(current)
 
 
+async def purge_callback_tokens_job(context):
+    """Löscht abgelaufene Callback-Tokens (W7) — reine Hygiene, fail-open."""
+    try:
+        db.purge_expired_callback_tokens(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+    except Exception as e:
+        log.warning(f"Callback-Token-Purge fehlgeschlagen: {e}")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2776,6 +2834,10 @@ def _register_jobs(app):
         periodic_oms_reconciliation_job, interval=RECONCILE_PERIODIC_SEC,
         first=RECONCILE_PERIODIC_SEC, name="periodic_oms_reconciliation",
         data={"previous_findings": set()},
+    )
+    job_queue.run_repeating(
+        purge_callback_tokens_job, interval=24 * 3600, first=3600,
+        name="purge_callback_tokens",
     )
 
 

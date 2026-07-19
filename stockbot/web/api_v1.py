@@ -102,8 +102,17 @@ def health(request: Request):
 @api_v1_router.get("/signals", response_model=SignalsResponse)
 def list_signals(request: Request,
                  user: dict = Depends(require_permission(Permission.READ_SIGNALS))):
-    # Scaffold: echte Signalquelle wird in der Integration angebunden.
-    return SignalsResponse(signals=[], trace_id=request.state.trace_id)
+    from stockbot.core import db
+    pending = db.get_pending_trades(int(user["user_id"]))
+    signals = [
+        SignalOut(
+            ticker=t["ticker"],
+            strategy=str(t["signal"].get("strategy") or "unbekannt"),
+            raw_score=float(t["signal"].get("raw_score") or t["signal"].get("strength") or 0.0),
+        )
+        for t in pending
+    ]
+    return SignalsResponse(signals=signals, trace_id=request.state.trace_id)
 
 
 @api_v1_router.post("/kill-switch", response_model=KillSwitchResponse)
@@ -116,8 +125,16 @@ def set_kill_switch(request: Request, body: KillSwitchIn,
     store = _idempotency_store(request)
 
     def run() -> dict:
-        # Integration: KillSwitchService aufrufen. Scaffold: Zustand zurückgeben.
-        return {"active": body.active}
+        # Derselbe KillSwitchService wie im Web-Toggle (read-through-DB → bot.py sieht es sofort).
+        from stockbot.web.webapp import kill_switch_service
+        actor = f"api:{user['user_id']}"
+        if body.active:
+            kill_switch_service.activate_global(
+                reason=body.reason or "über API v1 aktiviert", activated_by=actor)
+        else:
+            kill_switch_service.deactivate_global(deactivated_by=actor)
+        status = kill_switch_service.global_status
+        return {"active": bool(status and status.active)}
 
     result, replayed = store.get_or_run(int(user["user_id"]), idempotency_key, run)
     return KillSwitchResponse(active=result["active"], replayed=replayed,

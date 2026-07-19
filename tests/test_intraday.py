@@ -119,8 +119,9 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # sieben wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation und Shadow-Signale
-    assert jq.run_repeating.call_count == 7
+    # acht wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale
+    # und Callback-Token-Purge (W7)
+    assert jq.run_repeating.call_count == 8
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["shadow_signals"].args[0] is bot.run_shadow_signals

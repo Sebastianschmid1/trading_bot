@@ -485,6 +485,14 @@ def dashboard_analyze(token: str, ticker: str):
 from stockbot.web.webapp import router as _app_router   # noqa: E402
 app.include_router(_app_router)
 
+# API v1 (W7): versionierte JSON-API mit Trace-ID je Antwort, RBAC und Idempotency-Key
+# auf mutierenden Aktionen. Session-Auth wie die Web-App (get_api_user → auth.current_user).
+from stockbot.web.api_v1 import TraceIDMiddleware, api_v1_router   # noqa: E402
+from stockbot.web.api_idempotency import IdempotencyStore          # noqa: E402
+app.add_middleware(TraceIDMiddleware)
+app.state.idempotency = IdempotencyStore()
+app.include_router(api_v1_router)
+
 
 def run():
     """Startet den Dashboard-Webserver (blockierend). Wird von bot.py im Thread oder hier direkt genutzt."""

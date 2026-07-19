@@ -207,8 +207,10 @@ def test_open_market_has_trade_buttons_and_creates_pending():
     assert sent is True
     markup = b.send_message.await_args.kwargs["reply_markup"]
     callbacks = [btn.callback_data for row in markup.inline_keyboard for btn in row]
-    assert any(c.startswith("accept:") for c in callbacks)
-    assert any(c.startswith("reject:") for c in callbacks)
+    # Seit W7 sind die Buttons opake, serverseitig auflösbare Tokens (t:<token>)
+    from stockbot.tgbot import callback_security as cbs
+    actions = sorted(cbs.resolve(c[2:], CHAT)[0] for c in callbacks if c.startswith("t:"))
+    assert actions == ["accept", "reject"]
     assert db.has_trade_today(CHAT, "NVDA") is True   # handelbarer Trade angelegt
     assert not jq.run_once.called                      # Default: KEIN Ablauf-Job (dauerhaft annehmbar)
 
