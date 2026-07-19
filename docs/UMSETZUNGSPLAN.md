@@ -286,24 +286,29 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 | T5 | Ende W8 | Paper-Go/No-Go-Abzeichnung |
 | T6 | P11 | Canary-Live-Entscheidung (separat) |
 
-## Was jetzt (Stand 2026-07-16, nach W0–W2)
+## Was jetzt (Stand 2026-07-19, nach W0–W7-Backend + GANZ W3)
 
-W0–W2 sind erledigt (Gates P1.1/P2-Quote/P3/P4 geschlossen), alles auf GitHub `main`, **nichts
-deployt**. Der kritische Pfad hängt jetzt an **menschlichen Entscheidungen**:
+**W0, W1, W2, W3, W4, W5, W6 und die Backend-Teile von W7 sind code-komplett** (Gates P1.1/P2/P3/
+P4/P5/P6/P7/P8-Framework/P9-Code geschlossen), alles auf GitHub `main`, **nichts deployt**. Was noch
+offen ist, hängt fast nur an **menschlichen Entscheidungen bzw. Browser-Arbeit**:
 
-1. **Tor T0** — nach ~3–5 stabilen Postgres-Markttagen (seit Cutover 2026-07-15) Stabilität bestätigen
-   → entblockt **W3.1 (Scheibe 9)** und damit die ganze Welle W3.
-2. **Deploy-Freigabe W1+W2** — ändert Live-Trade-Verhalten (Risk-Gates scharf, Kill-Switch, broker-
-   seitige Partial-Fill-Stops). Vor Deploy Default-`RiskProfile` fürs Paper-Setup (5× Hebel, max. 5
-   Positionen) prüfen; dann gebündelt deployen, erst nach den Burn-in-Tagen.
-3. **Ohne Gate (2026-07-16/17 bearbeitet):** **W5 (Backtest-Härtung) KOMPLETT** (W5.1–W5.6, Gate P7);
-   **W4 zu großen Teilen** (W4.1 Logging, W4.2 Metriken, W4.3 Secrets ✅; offen: W4.4 OAuth, W4.5 Pakete).
-   Alles auf GitHub `main`, NICHT deployt. Sol ab 2026-07-17 rate-limited → Rest Manager-implementiert.
-4. **T4 (regulatorische Einordnung)** weiter offen — extern/langläufig, blockiert P11/P12.
+1. **Deploy-Freigabe W1+W2+W3(+W4/W5)** — ändert Live-Trade-Verhalten (Risk-Gates scharf, Kill-Switch,
+   broker-seitige Partial-Fill-Stops, **Alpaca-only Signalpfad**). Vor Deploy Default-`RiskProfile`
+   fürs Paper-Setup (5× Hebel, max. 5 Positionen) prüfen; gebündelt deployen, erst nach Burn-in-Tagen.
+2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code fertig, Flag AUS →
+   ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
+3. **W7-Visual-Integration** (braucht laufende App/Browser): Seiten-Templates auf die abgenommenen
+   Komponenten umstellen (Style-Phasen 3–5, Pflicht-Bestätigungsdialog, A11y), das **Mode-Report-Panel
+   (Paper/Shadow) im Dashboard rendern** (Daten liegen schon im `/dashboard-data`-JSON, W3.4), sowie die
+   Seams verdrahten (api_v1_router → webapp.py, callback_security → bot.py-Handler).
+4. **W8 (Paper-Burn-in)** — Kalenderzeit + menschliche Go/No-Go-Abzeichnung (Tor T5).
+5. **T4 (regulatorische Einordnung)** — extern/langläufig, blockiert P11/P12.
 
-Offene Nebenbefunde: vorbestehender `has_trade_today`-Datums-/Zeitzonen-Bug (eigener Debug-Task,
-`test_trade_read_mapping_order_and_day_contract[sqlite]`); `_audit_contexts`-Mini-Leak im OMS-Singleton.
-W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1), Backup-Timer + age-Key aktivieren.
+Offene Nebenbefunde (dokumentiert, eigene Debug-Tasks): vorbestehender `has_trade_today`-Datums-/
+Zeitzonen-Bug (`test_trade_read_mapping_order_and_day_contract[sqlite]`) UND Wall-Clock-Leak im
+OMS-Quote-Age-Gate (`test_quote_context.py`, 3 Tests) — beide DB-Zeitvertrag-/Determinismus-Klasse,
+in Prod fail-safe. `_audit_contexts`-Mini-Leak im OMS-Singleton. W0-Rest (menschlich): VPS-Migration
+stockbot-User (Tor T1), Backup-Timer + age-Key aktivieren.
 
 ## Kritische Dateien für die Umsetzung
 
