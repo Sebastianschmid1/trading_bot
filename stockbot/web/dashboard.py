@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
+from stockbot.core import mode_reporting
 from stockbot.core.settings import validate_config, assert_postgres_backend
 from stockbot.core.logging_setup import configure_logging
 from stockbot.broker import client as broker
@@ -412,6 +413,9 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "profit_factor": profit_factor,
             "active_count": len(active),
         },
+        # Mode-getrennte Reports (RES-002 / Gate P6): Paper aus den Legacy-Trades, Shadow separat
+        # (leer bis der Shadow-Scheduler in W3.5 Daten liefert). Nie über Modi hinweg vermischt.
+        "mode_reports":  mode_reporting.build_mode_reports(closed),
         "equity":        equity,
         "ticker_stats":  ticker_stats,
         "trades_curves": trades_curves,
