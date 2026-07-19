@@ -816,22 +816,23 @@ def test_dashboard_trades_curves_history_and_active():
 
 # ── Extended Hours (prepost) + Berliner Zeitachse ────────────────────────────
 
-def test_download_all_timeframes_uses_prepost():
-    from stockbot.market import analyzer
+def test_download_all_timeframes_uses_signal_provider_with_prepost():
+    from stockbot.market import analyzer, provider_factory
     calls = []
-    class _FakeYF:
-        @staticmethod
-        def download(*a, **k):
-            calls.append(k)
-            return None
-    orig = analyzer.yf
-    analyzer.yf = _FakeYF
+
+    class _FakeProvider:
+        def get_bars_batch(self, tickers, *, interval, period=None, prepost=True):
+            calls.append({"tickers": tickers, "interval": interval, "prepost": prepost})
+            return {}
+
+    provider_factory.set_signal_provider(_FakeProvider())
     try:
         analyzer._download_all_timeframes(["AAPL"])
     finally:
-        analyzer.yf = orig
-    # je Timeframe ein Download, jeweils mit Pre-/After-Market-Bars
-    assert calls and all(k.get("prepost") is True for k in calls)
+        provider_factory.reset_signal_provider()
+    # je Timeframe ein Provider-Batch, jeweils mit Extended-Hours-Wunsch — und NIE über yfinance.
+    assert calls and all(c["prepost"] is True for c in calls)
+    assert all(c["tickers"] == ["AAPL"] for c in calls)
 
 
 def test_dashboard_uses_berlin_time_for_ticks():

@@ -1,6 +1,13 @@
 """
 Technische Analyse der S&P 500 Aktien
 Indikatoren: RSI, MACD, Moving Averages, Volumen
+
+Datenherkunft (W3.2 / Leitplanke „kein yfinance im Produktionssignalpfad"):
+Die Signal-Indikatoren (`_download_all_timeframes` → `analyze_universe`) beziehen ihre Bars über
+den Produktions-Signalprovider (Alpaca, siehe `market/provider_factory.py`), NICHT direkt über
+yfinance. Die reinen Anzeige-/Research-Helfer `factor_history` (Detail-Chart im Dashboard) und
+`price_history_batch` (Sparklines) bleiben bewusst auf yfinance — sie erzeugen keine Trades,
+sondern visualisieren nur, und gelten damit als Research/Anzeige.
 """
 
 import logging
@@ -9,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from stockbot.market import provider_factory
 
 from stockbot.config import (
     WATCHLIST, TOP_N_SIGNALS, MIN_SIGNAL_STRENGTH,
@@ -561,9 +570,15 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None,
 # ── Batch-Download über mehrere Timeframes ──────────────────────────────────
 
 def _extract(data, ticker: str):
-    """Holt das OHLCV-Sub-DataFrame eines Tickers aus einem (ggf. gruppierten) Batch-Download."""
+    """Holt das OHLCV-Sub-DataFrame eines Tickers aus einem Timeframe-Batch.
+
+    Der Prod-Signalpfad liefert `data` als `{ticker: df}` (Provider-Batch, W3.2). Die noch
+    yfinance-basierten Anzeige-/Research-Helfer (`price_history_batch`) liefern ein rohes
+    yfinance-Batch-Objekt — beide Formen werden unterstützt."""
     if data is None:
         return None
+    if isinstance(data, dict):
+        return data.get(ticker)
     try:
         return data[ticker]
     except (KeyError, TypeError):
@@ -576,23 +591,21 @@ def _extract(data, ticker: str):
 
 
 def _download_all_timeframes(tickers: list[str], prepost: bool = True) -> dict:
-    """Lädt je konfiguriertem Timeframe einen Batch-Download – alle TF parallel.
+    """Lädt je konfiguriertem Timeframe die OHLCV-Bars über den PRODUKTIONS-Signalprovider
+    (Alpaca, nie yfinance — Leitplanke W3.2) – alle Timeframes parallel.
 
-    yfinance ist für getrennte download()-Aufrufe thread-safe; die 4 Timeframes
-    gleichzeitig zu laden spart den Großteil der Wartezeit (sonst seriell ~35-60 s).
-    `prepost` schaltet Pre-/After-Market-Bars zu (für Aktien sinnvoll, für 24/7-Werte
-    wie Krypto irrelevant). Gibt {interval -> data|None} zurück; ein Fehler reißt die
-    übrigen TF nicht mit.
-    """
+    Ein Provider-Batch pro Timeframe fügt die Ticker server-seitig zusammen; die 4 Timeframes
+    gleichzeitig zu laden spart den Großteil der Wartezeit. `prepost` schaltet – sofern der
+    Provider das unterstützt – Extended-Hours-Bars zu (bei Alpaca ohne Entsprechung → ignoriert).
+    Gibt `{interval -> {ticker: df} | None}` zurück; ein Fehler reißt die übrigen TF nicht mit."""
+    provider = provider_factory.get_signal_provider()
+
     def _one(tf):
         try:
-            return tf["interval"], yf.download(
-                tickers, period=tf["period"], interval=tf["interval"],
-                progress=False, auto_adjust=True, group_by="ticker",
-                prepost=prepost,   # Pre-/After-Market-Bars einbeziehen (Extended-Hours-Handel)
-            )
+            return tf["interval"], provider.get_bars_batch(
+                list(tickers), interval=tf["interval"], period=tf["period"], prepost=prepost)
         except Exception as e:
-            log.warning(f"Download {tf['interval']} fehlgeschlagen: {e}")
+            log.warning(f"Bars {tf['interval']} nicht abrufbar: {e}")
             return tf["interval"], None
 
     with ThreadPoolExecutor(max_workers=len(SIGNAL_TIMEFRAMES)) as ex:
