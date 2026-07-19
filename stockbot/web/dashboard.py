@@ -413,9 +413,10 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "profit_factor": profit_factor,
             "active_count": len(active),
         },
-        # Mode-getrennte Reports (RES-002 / Gate P6): Paper aus den Legacy-Trades, Shadow separat
-        # (leer bis der Shadow-Scheduler in W3.5 Daten liefert). Nie über Modi hinweg vermischt.
-        "mode_reports":  mode_reporting.build_mode_reports(closed),
+        # Mode-getrennte Reports (RES-002 / Gate P6): Paper aus den Legacy-Trades, Shadow aus den
+        # persistierten Shadow-Snapshots (W3.5). Strukturell nie über Modi hinweg vermischt.
+        "mode_reports":  mode_reporting.build_mode_reports(
+            closed, shadow_snapshots=db.get_shadow_snapshots()),
         "equity":        equity,
         "ticker_stats":  ticker_stats,
         "trades_curves": trades_curves,

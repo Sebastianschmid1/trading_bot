@@ -6,14 +6,11 @@ partitioniert nach Symbol/Datum/Timeframe (Plan.md §10.5) — getrennt von abge
 (Indikatoren etc. bleiben, wo sie heute berechnet werden; dieses Modul schreibt NUR die
 Rohdaten).
 
-Metadaten [Provider, Abrufzeit, Zeilenanzahl, Dateipfad] werden hier bewusst noch NICHT in
-PostgreSQL gespeichert — das setzt eine echte, von einem Menschen bereitgestellte
-Staging-Instanz voraus (derselbe Blocker wie bei PLAT-001, siehe dortige Notiz in
-docs/PLAN_CHECKLIST.md). Als Zwischenschritt liefert `write_bars` ein `RawDataArchiveEntry`-
-Wertobjekt mit denselben Feldern zurück, das der Aufrufer selbst persistieren kann (z. B. über
-den bestehenden `db_pool`-Seam, sobald eine Staging-Instanz existiert).
-
-Noch von KEINEM Live-Codepfad genutzt.
+Metadaten [Provider, Abrufzeit, Zeilenanzahl, Dateipfad] werden über den DB-Seam persistiert
+(`db.record_raw_data_archive_entry`) — nach dem Postgres-Cutover (W3.1) ist der frühere
+Staging-Blocker aufgelöst. `write_bars` liefert weiterhin das reine `RawDataArchiveEntry`-
+Wertobjekt (IO-frei bzgl. DB); `write_and_record` schreibt die Parquet-Datei UND persistiert die
+Metadaten in einem Schritt (W3.5).
 """
 
 from __future__ import annotations
@@ -64,6 +61,23 @@ def write_bars(
     return RawDataArchiveEntry(
         symbol=symbol.upper(), trading_date=trading_date, timeframe=timeframe,
         provider=provider, fetched_at=fetched_at, row_count=len(bars), file_path=str(path))
+
+
+def write_and_record(
+    symbol: str, trading_date: date, timeframe: str, bars: pd.DataFrame, *,
+    provider: str, fetched_at: datetime, base_dir: Path = RAW_DATA_ARCHIVE_DIR, record=None,
+) -> RawDataArchiveEntry:
+    """Schreibt die Rohdaten (Parquet) UND persistiert die Metadaten über den DB-Seam (W3.5).
+
+    ``record`` ist injizierbar (Tests brauchen keine DB); Default ist
+    ``db.record_raw_data_archive_entry`` (lazy importiert, kein Modul-Zyklus)."""
+    entry = write_bars(symbol, trading_date, timeframe, bars,
+                       provider=provider, fetched_at=fetched_at, base_dir=base_dir)
+    if record is None:
+        from stockbot.core import db
+        record = db.record_raw_data_archive_entry
+    record(entry)
+    return entry
 
 
 def read_bars(

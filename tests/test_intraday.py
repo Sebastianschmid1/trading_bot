@@ -119,10 +119,12 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # sechs wiederkehrende Jobs inklusive Risiko-Scan, OMS-Poll und Reconciliation
-    assert jq.run_repeating.call_count == 6
+    # sieben wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation und Shadow-Signale
+    assert jq.run_repeating.call_count == 7
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
+    assert by_name["shadow_signals"].args[0] is bot.run_shadow_signals
+    assert by_name["shadow_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
     assert by_name["monitor_trades"].kwargs["interval"] == config.MONITOR_INTERVAL_SEC
     assert by_name["intraday_signals"].args[0] is bot.scan_intraday
     assert by_name["intraday_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC

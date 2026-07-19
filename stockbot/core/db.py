@@ -381,12 +381,40 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
 
 CREATE INDEX IF NOT EXISTS idx_strategy_versions_key
     ON strategy_versions (strategy_key);
+
+CREATE TABLE IF NOT EXISTS raw_data_archive (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol        TEXT    NOT NULL,
+    trading_date  TEXT    NOT NULL,
+    timeframe     TEXT    NOT NULL,
+    provider      TEXT    NOT NULL,
+    fetched_at    TEXT    NOT NULL,
+    row_count     INTEGER NOT NULL,
+    file_path     TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,
+    UNIQUE (symbol, trading_date, timeframe)
+);
+
+CREATE TABLE IF NOT EXISTS shadow_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version_id INTEGER NOT NULL,
+    ticker              TEXT    NOT NULL,
+    captured_at         TEXT    NOT NULL,
+    net_pnl             REAL,
+    open_risk           REAL,
+    created_at          TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_snapshots_captured
+    ON shadow_snapshots (captured_at);
 """
 
 
 def init_db():
     """Legt data/-Ordner und Tabellen an (idempotent). Beim Start einmal aufrufen."""
+    global _STRATEGY_VERSIONS_BOOTSTRAPPED
     _STRATEGY_VERSION_CACHE.clear()   # frische DB → gecachte Strategie-Version-IDs verwerfen
+    _STRATEGY_VERSIONS_BOOTSTRAPPED = False
     if config.DB_BACKEND == "postgres":
         _migrate()
         return
@@ -1952,6 +1980,7 @@ def has_open_position(user_id: int, ticker: str) -> bool:
 # ── Strategieversionierung persistent (STRAT-003 / W3.3 → Gate P5) ───────────
 
 _STRATEGY_VERSION_CACHE: dict[str, int] = {}
+_STRATEGY_VERSIONS_BOOTSTRAPPED = False
 
 
 def _current_code_commit() -> str:
@@ -2037,6 +2066,7 @@ def _latest_strategy_version_id(strategy_key: str) -> int | None:
 def ensure_strategy_versions_published(code_commit: str | None = None) -> dict[str, int]:
     """Publiziert die produktiven V1-Strategien idempotent und liefert ``{strategy_key: id}``.
     Am Start (bot.main/dashboard.run) und lazy beim ersten Signal aufrufbar."""
+    global _STRATEGY_VERSIONS_BOOTSTRAPPED
     from stockbot.core.strategy_registry import StrategyVersionRegistry
     from stockbot.market import strategies
     commit = code_commit or _current_code_commit()
@@ -2048,22 +2078,25 @@ def ensure_strategy_versions_published(code_commit: str | None = None) -> dict[s
         snapshot = registry.snapshot_from_registry(key, code_commit=commit)
         mapping[key] = publish_strategy_version(key, snapshot)
     _STRATEGY_VERSION_CACHE.update(mapping)
+    _STRATEGY_VERSIONS_BOOTSTRAPPED = True
     return mapping
 
 
 def resolve_strategy_version_id(strategy_key: str) -> int | None:
     """Persistente ``strategy_version_id`` für einen Strategie-Key (nur produktive Strategien).
-    In-Prozess gecacht; bootet die Registry lazy, falls die Tabelle noch leer ist. Nicht-produktive
-    Keys → None."""
+    In-Prozess gecacht; bootet die Registry **höchstens einmal** lazy, falls die Tabelle noch leer
+    ist. Nicht-produktive Keys → None (ohne den Bootstrap zu wiederholen — sonst würden bei einem
+    abweichenden Default-Commit Duplikat-Versionen entstehen)."""
     if strategy_key in _STRATEGY_VERSION_CACHE:
         return _STRATEGY_VERSION_CACHE[strategy_key]
     version_id = _latest_strategy_version_id(strategy_key)
-    if version_id is None:
-        ensure_strategy_versions_published()
-        version_id = _STRATEGY_VERSION_CACHE.get(strategy_key)
-    else:
+    if version_id is not None:
         _STRATEGY_VERSION_CACHE[strategy_key] = version_id
-    return version_id
+        return version_id
+    if not _STRATEGY_VERSIONS_BOOTSTRAPPED:
+        ensure_strategy_versions_published()
+        return _STRATEGY_VERSION_CACHE.get(strategy_key)
+    return None
 
 
 def _with_strategy_version(signal: dict) -> dict:
@@ -2079,6 +2112,83 @@ def _with_strategy_version(signal: dict) -> dict:
     if version_id is None:
         return signal
     return {**signal, "strategy_version_id": version_id}
+
+
+# ── Rohdatenarchiv-Metadaten + Shadow-Snapshots (W3.5) ───────────────────────
+
+def record_raw_data_archive_entry(entry) -> int:
+    """Persistiert die Metadaten einer archivierten Rohdaten-Partition (``RawDataArchiveEntry``)
+    über den DB-Seam (nach dem Postgres-Cutover entblockt, W3.1). Idempotent je
+    (symbol, trading_date, timeframe): ein erneuter Abruf aktualisiert Provider/Abrufzeit/
+    Zeilenzahl/Pfad, statt zu duplizieren. Gibt die id zurück."""
+    trading_date = entry.trading_date
+    trading_date = trading_date.isoformat() if isinstance(trading_date, date) else str(trading_date)
+    fetched_at = entry.fetched_at
+    fetched_at = fetched_at.isoformat() if isinstance(fetched_at, datetime) else str(fetched_at)
+    symbol = entry.symbol.upper()
+    with _database().transaction() as transaction:
+        existing = transaction.one(
+            "SELECT id FROM raw_data_archive WHERE symbol = :s AND trading_date = :d "
+            "AND timeframe = :tf", {"s": symbol, "d": trading_date, "tf": entry.timeframe})
+        if existing:
+            transaction.execute(
+                "UPDATE raw_data_archive SET provider = :p, fetched_at = :f, row_count = :rc, "
+                "file_path = :fp WHERE id = :id",
+                {"p": entry.provider, "f": fetched_at, "rc": int(entry.row_count),
+                 "fp": entry.file_path, "id": existing["id"]})
+            return int(existing["id"])
+        return int(transaction.insert_id(
+            """INSERT INTO raw_data_archive (symbol, trading_date, timeframe, provider,
+                    fetched_at, row_count, file_path, created_at)
+               VALUES (:symbol, :trading_date, :timeframe, :provider, :fetched_at, :row_count,
+                    :file_path, :created_at)""",
+            {"symbol": symbol, "trading_date": trading_date, "timeframe": entry.timeframe,
+             "provider": entry.provider, "fetched_at": fetched_at,
+             "row_count": int(entry.row_count), "file_path": entry.file_path,
+             "created_at": _utc_timestamp()}))
+
+
+def list_raw_data_archive_entries(symbol: str | None = None) -> list[dict]:
+    """Archiv-Metadaten (jüngster Handelstag zuerst), optional auf ein Symbol gefiltert."""
+    with _database().transaction() as transaction:
+        if symbol:
+            rows = transaction.all(
+                "SELECT * FROM raw_data_archive WHERE symbol = :s "
+                "ORDER BY trading_date DESC, timeframe", {"s": symbol.upper()})
+        else:
+            rows = transaction.all(
+                "SELECT * FROM raw_data_archive ORDER BY trading_date DESC, symbol, timeframe", {})
+    return [dict(row) for row in rows]
+
+
+def record_shadow_snapshot(snapshot, ticker: str = "") -> int:
+    """Persistiert eine Shadow-``PerformanceSnapshot`` (Modus muss SHADOW sein, RES-002-Isolation)."""
+    from stockbot.core.domain import Mode
+    if snapshot.mode != Mode.SHADOW:
+        raise ValueError("record_shadow_snapshot erwartet mode=SHADOW")
+    with _database().transaction() as transaction:
+        return int(transaction.insert_id(
+            """INSERT INTO shadow_snapshots (strategy_version_id, ticker, captured_at, net_pnl,
+                    open_risk, created_at)
+               VALUES (:svid, :ticker, :captured_at, :net_pnl, :open_risk, :created_at)""",
+            {"svid": int(snapshot.strategy_version_id), "ticker": ticker or "",
+             "captured_at": snapshot.captured_at,
+             "net_pnl": None if snapshot.net_pnl is None else float(snapshot.net_pnl),
+             "open_risk": None if snapshot.open_risk is None else float(snapshot.open_risk),
+             "created_at": _utc_timestamp()}))
+
+
+def get_shadow_snapshots(limit: int = 500) -> list:
+    """Persistierte Shadow-``PerformanceSnapshot``s (jüngste zuerst) für den Shadow-Report."""
+    from stockbot.core.domain import Mode, PerformanceSnapshot
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            "SELECT * FROM shadow_snapshots ORDER BY captured_at DESC, id DESC LIMIT :lim",
+            {"lim": limit})
+    return [PerformanceSnapshot(
+        id=int(row["id"]), strategy_version_id=int(row["strategy_version_id"]),
+        mode=Mode.SHADOW, captured_at=row["captured_at"],
+        net_pnl=row["net_pnl"], open_risk=row["open_risk"]) for row in rows]
 
 
 def add_pending(user_id: int, signal: dict, message_id: int) -> bool:

@@ -31,6 +31,7 @@ from stockbot.core import exchange_calendar
 from stockbot.market import universes
 from stockbot.market import smartmoney
 from stockbot.market import strategies
+from stockbot.research import shadow_scheduler
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
 from stockbot.core.settings import validate_config, assert_postgres_backend
@@ -1483,6 +1484,17 @@ async def scan_smart_money(context: ContextTypes.DEFAULT_TYPE):
     log.info("Smart-Money-Scan abgeschlossen.")
 
 
+async def run_shadow_signals(context: ContextTypes.DEFAULT_TYPE):
+    """Job: erzeugt Schatten-Signale aus der produktiven Analyse und persistiert Shadow-Snapshots
+    (W3.5, RES-002). Läuft nur während der regulären US-Handelszeit; die blockierende Analyse
+    (Alpaca-Signalprovider) wird in einen Thread ausgelagert und bricht nie den Bot."""
+    if not _us_market_open(extended=False):
+        return
+    stored = await asyncio.to_thread(shadow_scheduler.generate_and_record)
+    if stored:
+        log.info(f"Shadow-Zyklus: {stored} Schatten-Signale persistiert.")
+
+
 # ── Manuelle Befehle (für registrierte Nutzer jederzeit verfügbar) ──────────
 
 def _registered_user(chat_id: int) -> dict | None:
@@ -2671,6 +2683,10 @@ def _register_jobs(app):
                 hour=LAB_DAILY_HOUR, minute=LAB_DAILY_MIN, second=0, microsecond=0).timetz(),
             days=LAB_DAILY_DAYS,
             name="daily_lab_optimization")
+    # Shadow-Signalerzeugung (RES-002): regelmäßig Schatten-Signale generieren + persistieren
+    # (getrennter Shadow-Report im Dashboard). Marktzeit-gated im Job selbst.
+    job_queue.run_repeating(run_shadow_signals, interval=INTRADAY_SCAN_INTERVAL_SEC,
+                            first=INTRADAY_SCAN_INTERVAL_SEC, name="shadow_signals")
     # Intraday: alle 30 Min während der Handelszeit nach NEUEN Signalen suchen und pushen.
     job_queue.run_repeating(scan_intraday, interval=INTRADAY_SCAN_INTERVAL_SEC,
                             first=INTRADAY_SCAN_INTERVAL_SEC, name="intraday_signals")
