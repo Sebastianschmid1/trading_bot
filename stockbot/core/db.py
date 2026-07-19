@@ -360,11 +360,33 @@ CREATE TABLE IF NOT EXISTS callback_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_callback_tokens_token
     ON callback_tokens (token);
+
+CREATE TABLE IF NOT EXISTS strategy_versions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_key     TEXT    NOT NULL,
+    strategy_id      INTEGER NOT NULL,
+    version          INTEGER NOT NULL,
+    params_json      TEXT    NOT NULL DEFAULT '{}',
+    feature_version  TEXT    NOT NULL DEFAULT 'unversioned',
+    universe_version TEXT    NOT NULL DEFAULT 'unversioned',
+    entry_rules      TEXT    NOT NULL DEFAULT '',
+    exit_rules       TEXT    NOT NULL DEFAULT '',
+    cost_model_json  TEXT    NOT NULL DEFAULT '{}',
+    release_status   TEXT    NOT NULL DEFAULT 'live',
+    code_commit      TEXT    NOT NULL DEFAULT '',
+    content_hash     TEXT    NOT NULL,
+    created_at       TEXT    NOT NULL,
+    UNIQUE (strategy_key, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_strategy_versions_key
+    ON strategy_versions (strategy_key);
 """
 
 
 def init_db():
     """Legt data/-Ordner und Tabellen an (idempotent). Beim Start einmal aufrufen."""
+    _STRATEGY_VERSION_CACHE.clear()   # frische DB → gecachte Strategie-Version-IDs verwerfen
     if config.DB_BACKEND == "postgres":
         _migrate()
         return
@@ -1927,10 +1949,143 @@ def has_open_position(user_id: int, ticker: str) -> bool:
     return row is not None
 
 
+# ── Strategieversionierung persistent (STRAT-003 / W3.3 → Gate P5) ───────────
+
+_STRATEGY_VERSION_CACHE: dict[str, int] = {}
+
+
+def _current_code_commit() -> str:
+    """Best-effort Code-Commit für die Strategie-Snapshots (aus ``CODE_COMMIT``, sonst 'unknown')."""
+    import os
+    return (os.getenv("CODE_COMMIT") or "unknown").strip() or "unknown"
+
+
+def _strategy_content_hash(*parts) -> str:
+    h = hashlib.sha256()
+    for part in parts:
+        h.update(str(part).encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def publish_strategy_version(strategy_key: str, snapshot) -> int:
+    """Persistiert einen unveränderlichen ``StrategyVersion``-Snapshot append-only in
+    ``strategy_versions``. Idempotent über (strategy_key, content_hash): identischer Inhalt liefert
+    die bestehende id, geänderter Inhalt hängt die nächste fortlaufende Version an. Gibt die
+    persistente id zurück (== ``Signal.strategy_version_id``)."""
+    params_json = json.dumps(dict(snapshot.params or {}), sort_keys=True, default=str)
+    cost_model_json = json.dumps(dict(snapshot.cost_model or {}), sort_keys=True, default=str)
+    content_hash = _strategy_content_hash(
+        strategy_key, snapshot.strategy_id, params_json, snapshot.feature_version,
+        snapshot.universe_version, snapshot.entry_rules, snapshot.exit_rules,
+        cost_model_json, snapshot.code_commit)
+    with _database().transaction() as transaction:
+        existing = transaction.one(
+            "SELECT id FROM strategy_versions WHERE strategy_key = :k AND content_hash = :h",
+            {"k": strategy_key, "h": content_hash})
+        if existing:
+            return int(existing["id"])
+        last = transaction.one(
+            "SELECT MAX(version) AS v FROM strategy_versions WHERE strategy_key = :k",
+            {"k": strategy_key})
+        next_version = int(last["v"]) + 1 if last and last["v"] is not None else 1
+        new_id = transaction.insert_id(
+            """INSERT INTO strategy_versions (strategy_key, strategy_id, version, params_json,
+                    feature_version, universe_version, entry_rules, exit_rules, cost_model_json,
+                    release_status, code_commit, content_hash, created_at)
+               VALUES (:strategy_key, :strategy_id, :version, :params_json, :feature_version,
+                    :universe_version, :entry_rules, :exit_rules, :cost_model_json,
+                    :release_status, :code_commit, :content_hash, :created_at)""",
+            {"strategy_key": strategy_key, "strategy_id": int(snapshot.strategy_id),
+             "version": next_version, "params_json": params_json,
+             "feature_version": snapshot.feature_version,
+             "universe_version": snapshot.universe_version,
+             "entry_rules": snapshot.entry_rules, "exit_rules": snapshot.exit_rules,
+             "cost_model_json": cost_model_json, "release_status": snapshot.release_status,
+             "code_commit": snapshot.code_commit, "content_hash": content_hash,
+             "created_at": _utc_timestamp()})
+    return int(new_id)
+
+
+def get_strategy_version(version_id: int) -> dict | None:
+    """Unveränderlicher Strategie-Snapshot zu einer persistenten id (oder None)."""
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT * FROM strategy_versions WHERE id = :id", {"id": version_id})
+    if not row:
+        return None
+    return {
+        "id": int(row["id"]), "strategy_key": row["strategy_key"],
+        "strategy_id": int(row["strategy_id"]), "version": int(row["version"]),
+        "params": json.loads(row["params_json"]),
+        "feature_version": row["feature_version"], "universe_version": row["universe_version"],
+        "entry_rules": row["entry_rules"], "exit_rules": row["exit_rules"],
+        "cost_model": json.loads(row["cost_model_json"]),
+        "release_status": row["release_status"], "code_commit": row["code_commit"],
+        "created_at": row["created_at"],
+    }
+
+
+def _latest_strategy_version_id(strategy_key: str) -> int | None:
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT id FROM strategy_versions WHERE strategy_key = :k "
+            "ORDER BY version DESC LIMIT 1", {"k": strategy_key})
+    return int(row["id"]) if row else None
+
+
+def ensure_strategy_versions_published(code_commit: str | None = None) -> dict[str, int]:
+    """Publiziert die produktiven V1-Strategien idempotent und liefert ``{strategy_key: id}``.
+    Am Start (bot.main/dashboard.run) und lazy beim ersten Signal aufrufbar."""
+    from stockbot.core.strategy_registry import StrategyVersionRegistry
+    from stockbot.market import strategies
+    commit = code_commit or _current_code_commit()
+    registry = StrategyVersionRegistry()
+    mapping: dict[str, int] = {}
+    for key, strat in strategies.REGISTRY.items():
+        if not getattr(strat, "production", False):
+            continue
+        snapshot = registry.snapshot_from_registry(key, code_commit=commit)
+        mapping[key] = publish_strategy_version(key, snapshot)
+    _STRATEGY_VERSION_CACHE.update(mapping)
+    return mapping
+
+
+def resolve_strategy_version_id(strategy_key: str) -> int | None:
+    """Persistente ``strategy_version_id`` für einen Strategie-Key (nur produktive Strategien).
+    In-Prozess gecacht; bootet die Registry lazy, falls die Tabelle noch leer ist. Nicht-produktive
+    Keys → None."""
+    if strategy_key in _STRATEGY_VERSION_CACHE:
+        return _STRATEGY_VERSION_CACHE[strategy_key]
+    version_id = _latest_strategy_version_id(strategy_key)
+    if version_id is None:
+        ensure_strategy_versions_published()
+        version_id = _STRATEGY_VERSION_CACHE.get(strategy_key)
+    else:
+        _STRATEGY_VERSION_CACHE[strategy_key] = version_id
+    return version_id
+
+
+def _with_strategy_version(signal: dict) -> dict:
+    """Ergänzt ein Signal um seine persistente ``strategy_version_id`` (Gate P5). Bricht nie —
+    bei Fehlern oder Nicht-Produktionsstrategien bleibt das Signal unverändert."""
+    if signal.get("strategy_version_id"):
+        return signal
+    try:
+        version_id = resolve_strategy_version_id(signal.get("strategy") or "standard")
+    except Exception as e:
+        log.warning(f"strategy_version_id nicht auflösbar: {e}")
+        return signal
+    if version_id is None:
+        return signal
+    return {**signal, "strategy_version_id": version_id}
+
+
 def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
     """Fügt einen vorgemerkten Trade hinzu. Gibt True zurück, wenn neu angelegt;
     False, wenn für diese Aktie heute bereits ein Datensatz existiert (Duplikat-Schutz —
     ein bereits aktiver/abgeschlossener Trade wird NICHT auf 'pending' zurückgesetzt)."""
+    signal = _with_strategy_version(signal)   # Gate P5: jedes persistierte Signal referenziert seine Version
     ticker, trade_date = signal["ticker"], _today()
     with _database().transaction() as transaction:
         trade_id = transaction.insert_id(

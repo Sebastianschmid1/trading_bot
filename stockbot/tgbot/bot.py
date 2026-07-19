@@ -100,9 +100,9 @@ def _load_oms_signal(signal_id: int) -> Signal | None:
         return None
     sig = trade.get("signal") or {}
     return Signal(
-        id=signal_id, strategy_version_id=0, ticker=trade["ticker"],
-        direction=trade["direction"], mode=Mode.PAPER, status=SignalStatus.ACCEPTED,
-        expires_at=sig.get("expires_at"),
+        id=signal_id, strategy_version_id=int(sig.get("strategy_version_id") or 0),
+        ticker=trade["ticker"], direction=trade["direction"], mode=Mode.PAPER,
+        status=SignalStatus.ACCEPTED, expires_at=sig.get("expires_at"),
     )
 
 
@@ -2696,6 +2696,7 @@ def main():
     validate_config()
     assert_postgres_backend()   # Prod läuft Postgres-only (Scheibe 9); SQLite nur Dev/Test
     db.init_db()
+    db.ensure_strategy_versions_published()   # Gate P5: produktive Strategieversionen persistent verfügbar
     kill_switch_service.reload()
 
     if RUN_DASHBOARD_IN_BOT:

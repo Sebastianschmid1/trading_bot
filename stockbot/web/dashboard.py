@@ -113,6 +113,7 @@ def _epoch_ms(ts: str | None) -> float | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    db.ensure_strategy_versions_published()   # Gate P5: produktive Strategieversionen persistent verfügbar
     try:
         removed = db.delete_expired_sessions()
         if removed:
