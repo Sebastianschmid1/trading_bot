@@ -20,7 +20,6 @@ from contextlib import contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
-import yfinance as yf
 from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 
 from stockbot import config
@@ -30,6 +29,31 @@ from stockbot.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
 DB_FILE = DATA_DIR / "bot.db"
+
+
+class _SignalQuoteSource:
+    """Kurschnittstelle für die Trade-Aktivierung (Einstiegskurs). Liefert `Ticker(t).fast_info.
+    last_price` aus dem PRODUKTIONS-Signalprovider (Alpaca, nie yfinance — Leitplanke W3.2) und
+    bewahrt dabei die bestehende Test-Naht ``db.yf`` (Tests ersetzen ``db.yf`` bzw. patchen
+    ``db.yf.Ticker`` weiterhin, ohne dass yfinance im Prod-Pfad landet)."""
+
+    class _FastInfo:
+        def __init__(self, price):
+            self.last_price = price
+
+    class _Ticker:
+        def __init__(self, price):
+            self.fast_info = _SignalQuoteSource._FastInfo(price)
+
+    def Ticker(self, ticker):
+        from stockbot.market import provider_factory
+        price = provider_factory.get_signal_provider().get_quote(ticker).price
+        return self._Ticker(float(price))
+
+
+# ``yf`` bleibt der Name der Kursnaht (Rückwärtskompatibilität für Tests), zeigt aber NICHT mehr
+# auf das yfinance-Modul, sondern auf den Alpaca-gestützten Signalprovider (Leitplanke W3.2).
+yf = _SignalQuoteSource()
 
 _fernet = Fernet(ENCRYPTION_KEY.encode())
 
