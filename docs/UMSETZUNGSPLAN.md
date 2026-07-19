@@ -17,6 +17,15 @@
   ein paar Markttage stabil lief).
 - Zuletzt erledigt: DB-Seam-Restsanierung (`set_trade_leverage`/`merge_active_trade_signal` auf den
   Seam, `bot.py` Zeitvertrag robust), Commit `11dda4a`, deployed & verifiziert.
+- **DEPLOY 2026-07-19 (Sonntag, Markt zu): VPS auf `4b99f65` — W0–W7-Backend inkl. GANZ W3 ist
+  jetzt PRODUKTIV.** Ablauf: `pg_dump`-Backup (`/root/backups/stockbot_pre_w1-w7_20260719_1317.sql.gz`),
+  ff-merge, `alembic upgrade head` (8 Migrationen sauber, Head `c9d0e1f2a3b4`), restart. Smoke grün:
+  Service aktiv, alle neuen Scheduler-Jobs registriert (shadow_signals, broker_order_poll,
+  post_trade_risk_scan, periodic_oms_reconciliation, daily_lab_optimization), Telegram ok,
+  Dashboard 200, keine Warnungen. `STRATEGY_EXITS_ENABLED` nicht gesetzt → Default AUS (Tor T2 zu).
+  Ältere „NICHT deployt"-Vermerke in den Wellen-Abschnitten unten sind damit historisch.
+  **Montag (erster Markttag) beobachten:** Risk-Gates scharf (Ablehnungen mit Default-RiskProfile
+  möglich), Signalpfad jetzt Alpaca statt yfinance.
 - **W0 komplett (2026-07-15, `c0e43bd`, auf GitHub `main`, NOCH NICHT auf VPS deployt):** alle vier
   Betriebsschutz-Tasks via parallele Sol-Worker gebaut, reviewt, gemergt, Suite grün (877 passed,
   27 skipped). W0.1 Postgres-Backups (PLAT-009), W0.2 Deps gepinnt (PLAT-006a), W0.3 systemd-Härtung
@@ -286,22 +295,23 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 | T5 | Ende W8 | Paper-Go/No-Go-Abzeichnung |
 | T6 | P11 | Canary-Live-Entscheidung (separat) |
 
-## Was jetzt (Stand 2026-07-19, nach W0–W7-Backend + GANZ W3)
+## Was jetzt (Stand 2026-07-19, nach DEPLOY von W0–W7-Backend + GANZ W3)
 
 **W0, W1, W2, W3, W4, W5, W6 und die Backend-Teile von W7 sind code-komplett** (Gates P1.1/P2/P3/
-P4/P5/P6/P7/P8-Framework/P9-Code geschlossen), alles auf GitHub `main`, **nichts deployt**. Was noch
-offen ist, hängt fast nur an **menschlichen Entscheidungen bzw. Browser-Arbeit**:
+P4/P5/P6/P7/P8-Framework/P9-Code geschlossen) **und seit 2026-07-19 auf dem VPS deployt**
+(`4b99f65`, Alembic `c9d0e1f2a3b4`, Details im Projektstand oben). Was noch offen ist:
 
-1. **Deploy-Freigabe W1+W2+W3(+W4/W5)** — ändert Live-Trade-Verhalten (Risk-Gates scharf, Kill-Switch,
-   broker-seitige Partial-Fill-Stops, **Alpaca-only Signalpfad**). Vor Deploy Default-`RiskProfile`
-   fürs Paper-Setup (5× Hebel, max. 5 Positionen) prüfen; gebündelt deployen, erst nach Burn-in-Tagen.
-2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code fertig, Flag AUS →
+1. **Montag-Beobachtung (erster Markttag nach Deploy):** Risk-Gates scharf (Default-`RiskProfile`:
+   max. 5 Positionen, Sizing-/Buying-Power-/Brokerstatus-Gates → Ablehnungen möglich), Signalpfad
+   Alpaca statt yfinance (Signale können abweichen), OMS-Polling/Reconcile live. Logs + Mode-Reports
+   prüfen, danach zählt der Paper-Burn-in (W8).
+2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
 3. **W7-Visual-Integration** (braucht laufende App/Browser): Seiten-Templates auf die abgenommenen
    Komponenten umstellen (Style-Phasen 3–5, Pflicht-Bestätigungsdialog, A11y), das **Mode-Report-Panel
    (Paper/Shadow) im Dashboard rendern** (Daten liegen schon im `/dashboard-data`-JSON, W3.4), sowie die
    Seams verdrahten (api_v1_router → webapp.py, callback_security → bot.py-Handler).
-4. **W8 (Paper-Burn-in)** — Kalenderzeit + menschliche Go/No-Go-Abzeichnung (Tor T5).
+4. **W8 (Paper-Burn-in)** — Kalenderzeit + menschliche Go/No-Go-Abzeichnung (Tor T5); läuft ab jetzt.
 5. **T4 (regulatorische Einordnung)** — extern/langläufig, blockiert P11/P12.
 
 Offene Nebenbefunde (dokumentiert, eigene Debug-Tasks): vorbestehender `has_trade_today`-Datums-/
