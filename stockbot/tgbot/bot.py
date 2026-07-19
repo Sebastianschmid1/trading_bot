@@ -24,7 +24,10 @@ from zoneinfo import ZoneInfo
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import Conflict, BadRequest
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application, CallbackQueryHandler, CommandHandler, ContextTypes,
+    MessageHandler, filters,
+)
 
 from stockbot.core import db
 from stockbot.core import exchange_calendar
@@ -55,6 +58,7 @@ from stockbot.broker import client as broker
 from stockbot.broker import sizing
 from stockbot.broker import reconcile as reconcile_mod
 from stockbot.tgbot.onboarding import onboarding_conv_handler
+from stockbot.tgbot import menu
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
@@ -2318,7 +2322,30 @@ HELP_TEXT = (
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/help — listet alle verfügbaren Befehle und den täglichen Ablauf auf."""
-    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+    await update.message.reply_text(
+        HELP_TEXT, parse_mode="Markdown", reply_markup=menu.main_menu_keyboard()
+    )
+
+
+# ── Hauptmenü (persistente Buttons an der Chat-Leiste) ──────────────────────
+
+MENU_BUTTON_HANDLERS = {
+    menu.BTN_SIGNALS: cmd_signals,
+    menu.BTN_EVALUATE: cmd_evaluate,
+    menu.BTN_DASHBOARD: cmd_dashboard,
+    menu.BTN_SETTINGS: cmd_settings,
+    menu.BTN_PROFILE: cmd_profile,
+    menu.BTN_HELP: cmd_help,
+}
+
+
+async def menu_button_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mappt die Reply-Keyboard-Buttons auf die bestehenden Befehls-Handler.
+    Unbekannte Texte werden ignoriert (kein Echo-Spam bei freiem Text)."""
+    text = (update.message.text or "").strip() if update.message else ""
+    handler = MENU_BUTTON_HANDLERS.get(text)
+    if handler is not None:
+        await handler(update, context)
 
 
 # ── Button-Handler ──────────────────────────────────────────────────────────
@@ -2752,6 +2779,14 @@ def _register_jobs(app):
     )
 
 
+async def _post_init(app):
+    """Nach dem Bot-Start das Telegram-Befehlsmenü setzen (fail-open: rein kosmetisch)."""
+    try:
+        await app.bot.set_my_commands(menu.BOT_COMMANDS)
+    except Exception as e:
+        log.warning(f"set_my_commands fehlgeschlagen (Menü bleibt alt): {e}")
+
+
 def main():
     validate_config()
     assert_postgres_backend()   # Prod läuft Postgres-only (Scheibe 9); SQLite nur Dev/Test
@@ -2762,7 +2797,7 @@ def main():
     if RUN_DASHBOARD_IN_BOT:
         _start_dashboard_thread()
 
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).post_init(_post_init).build()
 
     # Onboarding-Dialog (muss vor dem CallbackQueryHandler stehen, fängt /start ab)
     app.add_handler(onboarding_conv_handler)
@@ -2790,6 +2825,9 @@ def main():
     app.add_handler(CommandHandler("kicheck", cmd_kicheck))               # Selbsttest des KI-Rankings (Claude Haiku)
     app.add_handler(CommandHandler("brokercheck", cmd_brokercheck))       # Selbsttest der Alpaca-Anbindung
     app.add_handler(CommandHandler("disconnectalpaca", cmd_disconnect_alpaca))   # Alpaca-Keys löschen
+    # Hauptmenü-Buttons (Reply-Keyboard): NACH den ConversationHandlern registriert,
+    # damit deren Text-States (Setup-Dialog, Alpaca-Keys) Vorrang behalten.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_button_dispatch))
     # Button-Handler registrieren
     app.add_handler(CallbackQueryHandler(button_handler))
     # Globaler Error-Handler (saubere Logs statt Tracebacks)

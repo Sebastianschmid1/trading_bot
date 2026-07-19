@@ -13,6 +13,7 @@ from telegram.ext import (
 
 from stockbot.core import db
 from stockbot.config import TRADE_SIZE_EUR, SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN
+from stockbot.tgbot.menu import main_menu_keyboard
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if profile["onboarding_state"] == "complete":
         await update.message.reply_text(
             "👋 Du bist bereits eingerichtet und erhältst täglich Signale.\n"
-            "Nutze /profile, um deine Einstellungen zu sehen."
+            "Nutze /profile, um deine Einstellungen zu sehen.",
+            reply_markup=main_menu_keyboard(),
         )
         return ConversationHandler.END
 
@@ -142,7 +144,8 @@ async def finish_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE,
         f"💶 Demo-Trade-Größe: *{trade_size:.0f}€*\n"
         f"{broker_line}\n\n"
         f"Du erhältst ab jetzt täglich um {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr Signale.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
     )
     log.info(f"Onboarding abgeschlossen: user_id={user_id}")
     context.user_data.clear()
