@@ -482,9 +482,11 @@ Ziel: Belastbares Zustands- und Datenmodell.
       390 Handelsmin., Market-Close ≤15 Min], ai_adaptive [Eventfilter-Haken, ATR-Trailing,
       SuperTrend-Strukturbruch/MA200, Max-Haltedauer 40 T], bb_revert [%B≥0.5/MA20-Rückkehr,
       Zeit-Exit 10 T, MA200-Regimebruch]; Dispatcher `evaluate_strategy_exit`, Research-only ⇒
-      `no_policy`. SL/TP/Liquidation bleiben in `evaluate_active_trade`. Noch von KEINEM
-      Live-Codepfad genutzt — Verdrahtung = eigener Schritt mit Freigabe [ändert
-      Live-Trade-Verhalten]. 19 neue Tests, Suite 803/4.)
+      `no_policy`. SL/TP/Liquidation bleiben in `evaluate_active_trade`. 19 neue Tests, Suite 803/4.
+      **W3.6 (2026-07-19): verdrahtet.** `evaluate_active_trade` ruft `evaluate_strategy_exit` (Bars
+      über den Prod-Signalprovider + `exchange_calendar.minutes_to_close`) — hinter Flag
+      `STRATEGY_EXITS_ENABLED` [**Default AUS**]; Liquidation/SL/TP behalten Vorrang, `sl_tp_mode=aus`
+      überspringt. ⚠️ Einschalten ändert Live-Trade-Verhalten → nur nach menschlicher Freigabe (Tor T2).)
 
 **Gate P5 (Abnahme):**
 - [x] Max. 3 produktive Familien; kein globaler Score entscheidet über Entry/Exit
