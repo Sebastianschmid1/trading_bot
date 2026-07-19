@@ -226,19 +226,19 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `CorporateAction`] auf. Noch von KEINEM Live-Codepfad genutzt — Verdrahtung in den
       Produktionssignalpfad [Gate P2: „veraltete Quotes blockieren Orders"] setzt die noch
       offene Migration bestehender Aufrufer auf `MarketDataProvider` voraus.)
-- [!] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
+- [x] Rohdatenarchiv (Metadaten in PostgreSQL, Rohdaten als Parquet, Partition nach Symbol/Datum/Timeframe; Rohdaten getrennt von Features)
       (`stockbot/core/raw_data_archive.py`: `write_bars`/`read_bars` schreiben/lesen unveränderte
       OHLCV-Rohdaten als Parquet [neue Abhängigkeit `pyarrow`], partitioniert nach
       `<Symbol>/<Datum>/<Timeframe>.parquet` unter `data/raw_archive/` — getrennt von den
       bestehenden Feature-/Indikator-Berechnungen. Ein erneuter Schreibvorgang derselben Partition
       ersetzt den alten Snapshot statt zu duplizieren. `write_bars` liefert eine
       `RawDataArchiveEntry` [Provider/Abrufzeit/Zeilenanzahl/Dateipfad — dieselben
-      Provenance-Felder wie `Quote`/`Signal`, DATA-003/DATA-005] zurück. Blockiert wie die beiden
-      PLAT-001-Punkte oben: „Metadaten in PostgreSQL" braucht eine echte, von einem Menschen
-      bereitgestellte Staging-Instanz — kein Code-Task dieser Session und durch die
-      Kein-Deploy-Leitplanke dauerhaft ausgeschlossen; sobald sie existiert, kann
-      `RawDataArchiveEntry` über den bestehenden `db_pool`-Seam persistiert werden. Noch von
-      KEINEM Live-Codepfad genutzt.)
+      Provenance-Felder wie `Quote`/`Signal`, DATA-003/DATA-005] zurück.
+      **W3.5 (2026-07-19): Metadaten-Persistenz.** Nach dem Postgres-Cutover [W3.1] ist der frühere
+      Staging-Blocker aufgelöst — neue Tabelle `raw_data_archive` [SCHEMA_SQL + Alembic
+      `c9d0e1f2a3b4`, idempotent je (symbol, trading_date, timeframe)] + `db.record_raw_data_archive_
+      entry`/`list_raw_data_archive_entries`; `write_and_record` schreibt Parquet UND persistiert die
+      Metadaten über den DB-Seam in einem Schritt.)
 
 **Gate P2 (Abnahme):** — ⏳ TEILWEISE (Quote-Blockade + Kalender live über W1.2/DATA-002; **Provider im Prod-Signalpfad ✅ W3.2 [Alpaca-only]**; Datenversion je Signal offen → W3.3)
 - [x] DST-Wechsel + Half Days korrekt; keine Intraday-Position nach Entry-Cutoff
@@ -533,8 +533,12 @@ Ziel: Belastbares Zustands- und Datenmodell.
       validiert alle Eingaben auf EINEN Modus [fremder Modus ⇒ ValueError; Backtest-Daten können
       strukturell nicht in Live-Kennzahlen landen] und liefert Netto-P&L, Kosten, Drawdown,
       #Trades, Profitfaktor, Erwartungswert, offenes Risiko, Strategieversionen; Slippage ehrlich
-      None [nicht im Domain-Modell]. Volle Suite 784 passed/4 skipped. Offen: die getrennten
-      Dashboard-ANSICHTEN je Modus — folgen mit dem Web-App-Umbau/Design-System.)
+      None [nicht im Domain-Modell]. Volle Suite 784 passed/4 skipped.
+      **W3.4/W3.5 (2026-07-19): Verdrahtung.** Adapter `core/mode_reporting.py` überführt die realen
+      Daten in modus-reine Domänenobjekte [Paper aus Legacy-`trades`, Shadow aus persistierten
+      `shadow_snapshots`] und `build_dashboard_data` exponiert getrennte `mode_reports` [paper/shadow]
+      im Dashboard-JSON — strukturell nie über Modi vermischt. Das reine Frontend-Panel [JS/CSS-
+      Render der beiden Ansichten] folgt mit der Web-Visual-Integration.)
 - [x] Signaltreue: alle Signale (veröffentlicht/abgelehnt/abgelaufen/risk-blockiert/nicht gefüllt) bleiben gespeichert — keine nachträgliche Löschung aus Performance
       (Sol — Lebenszyklus löscht nichts [Beweis-Test `tests/test_signal_retention.py` für alle
       fünf Fälle]. Einzige Löschstelle war `db.reset_user_trades` [Nutzer-Reset]: archiviert
