@@ -194,8 +194,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `data_client`/`corporate_actions_client`/`trading_client` sind injizierbar, damit Tests ohne
       echte Alpaca-Keys/Netzwerk auskommen [gleiches Prinzip wie `tests/test_broker.py`].
       `LicensedProductionProvider` bleibt bewusst offen — noch keine konkrete lizenzierte
-      Datenquelle ausgewählt. Noch von KEINEM Live-Codepfad genutzt; DATA-003 damit abgeschlossen,
-      soweit ohne echte Alpaca-Keys/Lizenzentscheidung möglich.)
+      Datenquelle ausgewählt.
+      **W3.2 (2026-07-19): Live-Codepfad angebunden.** `provider_factory.get_signal_provider()`
+      erzwingt Alpaca im Prod-Signalpfad (nie yfinance; degradiert ohne Keys sauber statt zu
+      crashen). Neu: `MarketDataProvider.get_bars_batch` [yfinance-förmige OHLCV je Ticker] als
+      formatneutrale Migrationsgrundlage; Alpaca-Batch mit Spalten-/Index-Normalisierung.
+      Umgestellt: `analyzer._download_all_timeframes` [Signal-Indikatoren], `evaluator`
+      [Kurs+Tagesspanne], `db`-Aktivierungskurs [Alpaca-Adapter, `db.yf`-Naht bewahrt].
+      Smart-Money/`lookup`/`llm_ranker`/`factor_history`/`price_history_batch` bewusst als
+      Research/Anzeige klassifiziert [Eigentümer-/Insider-/Fundamentaldaten haben bei Alpaca keine
+      Entsprechung; erzeugen nie allein einen Trade]. Deterministischer Preissignalpfad = Alpaca-only.)
 - [x] **DATA-005** Datenherkunft je Berechnung speichern (Provider, Feed, Abrufzeit, Exchange-Zeit, Datenversion, Qualitätsstatus)
       (`stockbot/core/domain.py::Signal` trug bereits `data_provider`/`data_version` [PLAT-001];
       ergänzt um die restlichen vier Plan.md-§10.3-Felder: `data_feed`, `data_fetched_at`
@@ -232,7 +240,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
       `RawDataArchiveEntry` über den bestehenden `db_pool`-Seam persistiert werden. Noch von
       KEINEM Live-Codepfad genutzt.)
 
-**Gate P2 (Abnahme):** — ⏳ TEILWEISE (Quote-Blockade + Kalender live über W1.2/DATA-002; Provider/Version je Signal offen → W3)
+**Gate P2 (Abnahme):** — ⏳ TEILWEISE (Quote-Blockade + Kalender live über W1.2/DATA-002; **Provider im Prod-Signalpfad ✅ W3.2 [Alpaca-only]**; Datenversion je Signal offen → W3.3)
 - [x] DST-Wechsel + Half Days korrekt; keine Intraday-Position nach Entry-Cutoff
       (DATA-002: `exchange_calendar` session-relativ, Entry-Cutoff zentral in `services/trades.accept_trade`.)
 - [~] Signal speichert Provider + Datenversion; veraltete Quotes blockieren Orders
