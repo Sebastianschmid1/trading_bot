@@ -492,12 +492,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
       Auswahl-Gate. STRAT-004: kein Skalen-Quervergleich mehr [Rundlauf], Score-Exit war schon
       seit TSAFE-005 raus; MIN_SIGNAL_STRENGTH ist strategieINTERN [Standard-Strategie].
       STRAT-005: strategiespezifische Exit-Policies existieren als Seam.)
-- [~] Jedes Signal referenziert unveränderliche Strategieversion mit dokumentierter Entry/Exit-Logik
-      (Baustein fertig: STRAT-003-Registry [unveränderlich publiziert, Vorwärts-Promotion] +
-      `Signal.strategy_version_id`-Feld + dokumentierte Entry/Exit-Logik je Produktionsstrategie
-      [STRATEGY_INVENTORY/CLASSIFICATION/VERSIONING]. OFFEN: der LIVE-Signalpfad erzeugt noch
-      Legacy-Signal-Dicts ohne Versionsreferenz — Verdrahtung folgt mit der Domain-DB-Anbindung
-      [Postgres-Cutover], erst dann ist „jedes Signal" wörtlich erfüllt.)
+- [x] Jedes Signal referenziert unveränderliche Strategieversion mit dokumentierter Entry/Exit-Logik
+      (STRAT-003-Registry [unveränderlich publiziert, Vorwärts-Promotion] + `Signal.strategy_version_id`
+      + dokumentierte Entry/Exit-Logik je Produktionsstrategie [STRATEGY_INVENTORY/CLASSIFICATION/
+      VERSIONING]. **W3.3 (2026-07-19): persistente Verdrahtung.** Neue Tabelle `strategy_versions`
+      [append-only, idempotent per content_hash; SCHEMA_SQL + Alembic `b8c9d0e1f2a3`];
+      `db.ensure_strategy_versions_published` bootet die 3 produktiven V1-Strategien aus
+      `StrategyVersionRegistry.snapshot_from_registry`; `add_pending` stampt jedes persistierte Signal
+      mit seiner `strategy_version_id`, `_load_oms_signal` liest sie. Bootstrap am Start
+      [bot.main/dashboard-lifespan]. „Jedes Signal" ist damit wörtlich erfüllt.)
 
 ---
 
