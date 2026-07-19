@@ -4,25 +4,29 @@ Holt Tagesschlusskurs und berechnet P&L
 """
 
 import logging
-import yfinance as yf
+
+from stockbot.market import provider_factory
 
 log = logging.getLogger(__name__)
 
 
 def get_current_price(ticker: str, fallback: float) -> float:
-    """Holt den aktuellen Kurs einer Aktie."""
+    """Holt den aktuellen Kurs einer Aktie über den Prod-Signalprovider (Alpaca, nie yfinance —
+    Leitplanke W3.2). Bei fehlenden Keys/Daten wird `fallback` zurückgegeben."""
     try:
-        info = yf.Ticker(ticker).fast_info
-        return float(info.last_price)
+        return float(provider_factory.get_signal_provider().get_quote(ticker).price)
     except Exception as e:
         log.warning(f"Kurs für {ticker} nicht abrufbar: {e}")
         return fallback
 
 
 def get_day_high_low(ticker: str, fallback: float) -> tuple[float, float]:
-    """Holt Tages-Hoch und -Tief der laufenden/letzten Session (für SL/TP-Prüfung)."""
+    """Holt Tages-Hoch und -Tief der laufenden/letzten Session (für SL/TP-Prüfung) über den
+    Prod-Signalprovider (Alpaca, nie yfinance — Leitplanke W3.2)."""
     try:
-        hist = yf.Ticker(ticker).history(period="1d")
+        bars = provider_factory.get_signal_provider().get_bars_batch(
+            [ticker], interval="1d", period="1d")
+        hist = bars.get(ticker)
         if hist is not None and len(hist) > 0:
             return float(hist["High"].iloc[-1]), float(hist["Low"].iloc[-1])
     except Exception as e:
