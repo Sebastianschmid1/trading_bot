@@ -964,9 +964,14 @@ async def _run_signal_scan(context: ContextTypes.DEFAULT_TYPE, opening: bool):
 
 
 def _trade_age_days(trade: dict) -> int:
-    """Alter eines Trades in Kalendertagen seit Eröffnung (trade_date)."""
+    """Alter eines Trades in Kalendertagen seit Eröffnung (trade_date).
+
+    `trade_date` wird in UTC geschrieben (`db._today()`) — der Vergleich muss derselben
+    Zeitbasis folgen, sonst zählt ein Trade nahe Mitternacht auf einem Server mit
+    Zeitzonen-Offset einen Tag zu alt.
+    """
     try:
-        return (date.today() - date.fromisoformat(trade["trade_date"])).days
+        return (datetime.now(timezone.utc).date() - date.fromisoformat(trade["trade_date"])).days
     except Exception:
         return 0
 

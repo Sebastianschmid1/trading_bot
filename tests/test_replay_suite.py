@@ -180,3 +180,31 @@ def test_external_broker_position_shows_up_as_reconciliation_finding(order):
     kinds = {(f.kind, f.symbol) for f in findings}
     assert ("unknown_broker_position", "TSLA") in kinds
     assert not any(f.symbol == "AAPL" for f in findings)   # bekannte Position ist sauber
+
+
+# ── Audit-Kontext-Cache (Folgeaufgabe aus W1.4) ──────────────────────────────
+
+def test_audit_context_cache_is_released_when_the_order_becomes_terminal(order):
+    """Der Cache im langlebigen OMS-Singleton darf nicht unbegrenzt wachsen."""
+    oms, o = order
+    assert o.id in oms._audit_contexts          # waehrend der Order-Laufzeit gehalten
+
+    _replay(oms, o, [("fill", "f1", {"filled_qty": 10, "filled_avg_price": 100.0})])
+
+    assert oms._audit_contexts == {}
+
+
+def test_audit_context_is_reloaded_from_persistence_after_eviction(order):
+    """Nach dem Freigeben bleibt das Audit vollstaendig — der Cache ist read-through."""
+    oms, o = order
+    events = []
+    oms.audit_sink = events.append
+    _replay(oms, o, [("cancelled", "c1", {"detail": "user cancel"})])
+    assert oms._audit_contexts == {}
+
+    # Ein spaeteres Audit zum selben Order laedt den Intent wieder aus der Persistenz
+    # und behaelt Actor und Quelle bei, statt auf den Fallback zurueckzufallen.
+    oms._audit_transition(o, OrderStatus.CANCELLED, OrderStatus.CANCELLED, {})
+
+    assert events[-1].actor == f"user:{USER}"
+    assert events[-1].source_channel == "telegram"

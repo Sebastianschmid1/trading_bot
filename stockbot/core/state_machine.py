@@ -113,6 +113,11 @@ def order_transition_allowed(from_status: OrderStatus, to_status: OrderStatus) -
     return to_status in ORDER_TRANSITIONS.get(from_status, frozenset())
 
 
+def is_terminal_order_status(status: OrderStatus) -> bool:
+    """True, wenn aus `status` kein Übergang mehr herausführt (filled/cancelled/rejected/expired)."""
+    return not ORDER_TRANSITIONS.get(status, frozenset())
+
+
 def assert_order_transition(from_status: OrderStatus, to_status: OrderStatus) -> None:
     """Wirft `ValueError` bei einem ungültigen Order-Übergang."""
     if not order_transition_allowed(from_status, to_status):

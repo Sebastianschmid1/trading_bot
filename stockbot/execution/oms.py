@@ -20,7 +20,7 @@ from stockbot.core import db, metrics, risk
 from stockbot.core.audit_log import new_event_id
 from stockbot.core.logging_setup import logging_context, new_trace_id
 from stockbot.core.domain import AuditEvent, Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
-from stockbot.core.state_machine import assert_order_transition
+from stockbot.core.state_machine import assert_order_transition, is_terminal_order_status
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,13 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _as_utc(value: Any) -> datetime | None:
+    """Normalisiert eine Callsite-Zeitbasis auf tz-aware UTC; alles Unbrauchbare → None."""
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def _as_order(row: Mapping[str, Any], *, mode: Mode = Mode.PAPER) -> Order:
@@ -118,8 +125,12 @@ class OrderManagementSystem:
                 code="kill_switch_active",
             ))
 
+        # Die Callsite darf ihre Zeitbasis mitgeben (`now` im Risk-Kontext). Ohne Angabe
+        # bleibt es die Wanduhr — Prod verhaelt sich unveraendert, Tests werden deterministisch.
+        now = _as_utc(risk_context.get("now") if risk_context else None) or datetime.now(timezone.utc)
+
         signal = self.signal_loader(intent.signal_id)
-        invalid = self._validate_signal(intent, signal)
+        invalid = self._validate_signal(intent, signal, now=now)
         if invalid:
             return finish(invalid)
         assert signal is not None
@@ -134,7 +145,7 @@ class OrderManagementSystem:
             try:  # Metrik darf den Live-Order-Pfad nie brechen (untypische as_of-Werte)
                 if quote_as_of.tzinfo is None:
                     quote_as_of = quote_as_of.replace(tzinfo=timezone.utc)
-                metrics.QUOTE_AGE.observe(max(0.0, (datetime.now(timezone.utc) - quote_as_of).total_seconds()))
+                metrics.QUOTE_AGE.observe(max(0.0, (now - quote_as_of).total_seconds()))
             except (AttributeError, TypeError, ValueError):
                 pass
         if price is not None:
@@ -254,7 +265,8 @@ class OrderManagementSystem:
         return None
 
     @staticmethod
-    def _validate_signal(intent: TradeIntent, signal: Signal | None) -> OMSResult | None:
+    def _validate_signal(intent: TradeIntent, signal: Signal | None,
+                         *, now: datetime | None = None) -> OMSResult | None:
         if signal is None or signal.id != intent.signal_id:
             return OMSResult(False, reason="Signal nicht gefunden.", code="signal_not_found")
         if signal.direction.lower() != "long":
@@ -271,7 +283,7 @@ class OrderManagementSystem:
             expires = _parse_timestamp(signal.expires_at)
         except ValueError:
             return OMSResult(False, reason="Signalablauf ist ungueltig.", code="signal_invalid")
-        if expires and datetime.now(timezone.utc) > expires:
+        if expires and (now or datetime.now(timezone.utc)) > expires:
             return OMSResult(False, reason="Signal ist abgelaufen.", code="signal_expired")
         return None
 
@@ -283,6 +295,11 @@ class OrderManagementSystem:
         )
         transitioned = _as_order(row, mode=order.mode)
         self._audit_transition(transitioned, previous, target, event)
+        # Erreicht die Order einen Endzustand, faellt ihr Audit-Kontext raus — sonst wuechse
+        # der Cache im langlebigen OMS-Singleton unbegrenzt mit. Er ist ohnehin nur ein
+        # Read-through-Cache: ein spaeteres Event laedt den Intent wieder aus der Persistenz.
+        if is_terminal_order_status(target):
+            self._audit_contexts.pop(order.id, None)
         return transitioned
 
     def _audit_transition(self, order: Order, previous: OrderStatus, target: OrderStatus,

@@ -684,7 +684,15 @@ def _connect():
 
 
 def _today() -> str:
-    return str(date.today())
+    """Der Handelstag für die `trade_date`-Spalte — **UTC**, nicht Server-Lokalzeit.
+
+    Alle Zeitstempel in der DB folgen dem naiven UTC-Vertrag (`_utc_timestamp()`).
+    `date.today()` folgte dagegen der Server-Zeitzone: auf einer Maschine mit Offset
+    (z. B. CEST = UTC+2) lag `trade_date` zwischen Mitternacht und dem Offset einen Tag
+    vor `created_at` — Duplikatschutz und Tagesabfragen liefen dann auseinander.
+    Produktion (VPS, `Etc/UTC`) verhält sich unverändert.
+    """
+    return str(datetime.now(timezone.utc).date())
 
 
 # -- OMS persistence (Phase 4) -------------------------------------------------

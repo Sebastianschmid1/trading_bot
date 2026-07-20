@@ -6,7 +6,7 @@ not reliable in the sandbox.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -714,3 +714,37 @@ def test_postgres_startup_readiness_contract(users_backend):
         transaction.execute("DROP TABLE order_events")
     with pytest.raises(RuntimeError, match="order_events.*Alembic upgrade head ausführen"):
         db.init_db()
+
+
+def test_trade_date_follows_utc_not_the_server_timezone(users_backend, monkeypatch):
+    """`trade_date` und `created_at` müssen derselben Zeitbasis folgen (naiver UTC-Vertrag).
+
+    Regression: `_today()` nutzte `date.today()` (Server-Lokalzeit). Um 22:30 UTC ist in
+    Europe/Berlin bereits der Folgetag — der Handelstag lief dann dem UTC-Zeitstempel
+    einen Tag voraus, und Duplikatschutz (`has_trade_today`) sowie Tagesabfragen fielen
+    auseinander. Produktion (VPS `Etc/UTC`) war nie betroffen, Dev-Maschinen schon.
+    """
+    frozen = datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc)   # = 2026-07-21 00:30 in Berlin
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz else frozen.replace(tzinfo=None)
+
+    class LocalDate(date):
+        """Server-Lokalzeit liegt hier bereits im Folgetag — genau die Bruchstelle."""
+
+        @classmethod
+        def today(cls):
+            return date(2026, 7, 21)
+
+    monkeypatch.setattr(db, "datetime", FrozenDatetime)
+    monkeypatch.setattr(db, "date", LocalDate)
+
+    assert db._today() == "2026-07-20"            # UTC-Tag, nicht der lokale Folgetag
+
+    db.add_pending(CHAT, {"ticker": "TZTEST", "direction": "long"}, 0)
+    row = db.get_trade(CHAT, "TZTEST")
+    assert row["trade_date"] == "2026-07-20"
+    assert row["created_at"].startswith("2026-07-20")   # gleiche Zeitbasis wie trade_date
+    assert db.has_trade_today(CHAT, "TZTEST") is True

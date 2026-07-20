@@ -120,3 +120,30 @@ def test_real_oms_applies_quote_quality_gates(monkeypatch, quote, expected_ok, e
 
     assert result.ok is expected_ok
     assert result.code == expected_code
+
+
+@pytest.mark.parametrize(("now", "expected_code"), [
+    (NOW, ""),                              # Signal laeuft erst in 5 Minuten ab
+    (NOW + timedelta(minutes=10), "signal_expired"),
+])
+def test_signal_expiry_uses_the_callsite_clock_not_the_wall_clock(monkeypatch, now, expected_code):
+    """Der Ablaufcheck folgt `now` aus dem Risk-Kontext.
+
+    Ohne das lief die Ablaufpruefung gegen die echte Wanduhr — jeder Test mit fixem
+    Zeitpunkt wurde nach seinem Ablaufdatum rot (Wall-Clock-Leak). Prod uebergibt kein
+    `now` und bleibt damit unveraendert auf der Wanduhr.
+    """
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent(f"clock:{expected_code or 'fresh'}"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 100.0, "now": now,
+                      **risk_context.quote_context("AAPL", provider=_QuoteProvider(_quote()))},
+    )
+
+    assert result.code == expected_code
