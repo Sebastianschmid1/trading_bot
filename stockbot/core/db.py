@@ -903,6 +903,46 @@ def get_oms_order_events(order_id: int) -> list[dict]:
         )
 
 
+def burn_in_order_stats(since: str, until: str) -> dict:
+    """Kennzahlen des Paper-Burn-ins für den Zeitraum (naive UTC-Strings, W8/Gate P10).
+
+    Liefert eingereichte und abgelehnte Orders, doppelte Order-Zeilen je Idempotency-Key,
+    mehrfach verbuchte Broker-Events und Dead-Letter-Events. Auswertung in
+    `stockbot/core/burn_in.py`.
+    """
+    window = {"since": since, "until": until}
+    with _database().transaction() as transaction:
+        submitted = transaction.one(
+            "SELECT COUNT(*) AS n FROM orders WHERE created_at BETWEEN :since AND :until",
+            window)["n"]
+        failed = transaction.one(
+            """SELECT COUNT(*) AS n FROM orders
+               WHERE created_at BETWEEN :since AND :until
+                 AND status IN ('rejected', 'expired')""",
+            window)["n"]
+        # Der Unique-Index auf idempotency_key macht Doppel-Orders unmöglich; die Abfrage
+        # bleibt trotzdem, weil sie genau diese Zusage im Report belegt.
+        duplicate_orders = transaction.one(
+            """SELECT COUNT(*) AS n FROM (
+                   SELECT idempotency_key FROM orders
+                   WHERE created_at BETWEEN :since AND :until
+                   GROUP BY idempotency_key HAVING COUNT(*) > 1) d""",
+            window)["n"]
+        duplicate_events = transaction.one(
+            """SELECT COUNT(*) AS n FROM (
+                   SELECT order_id, broker_event_id FROM order_events
+                   WHERE broker_event_id IS NOT NULL
+                     AND occurred_at BETWEEN :since AND :until
+                   GROUP BY order_id, broker_event_id HAVING COUNT(*) > 1) d""",
+            window)["n"]
+        dead_letters = transaction.one(
+            """SELECT COUNT(*) AS n FROM outbox_events
+               WHERE status = 'dead' AND updated_at BETWEEN :since AND :until""",
+            window)["n"]
+    return {"submitted": submitted, "failed": failed, "duplicate_orders": duplicate_orders,
+            "duplicate_broker_events": duplicate_events, "dead_letter_events": dead_letters}
+
+
 # -- Persistentes Audit-Log ---------------------------------------------------
 
 def _audit_timestamp(value: str) -> str:
