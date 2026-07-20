@@ -328,11 +328,18 @@ Was noch offen ist:
 4. **Tor T1 (menschlich):** VPS-Migration auf `stockbot`-User/`/opt/stockbot` (docs/DEPLOY_HARDENING.md).
 5. **T4 (regulatorische Einordnung)** — extern/langläufig, blockiert P11/P12.
 
-Offene Nebenbefunde (dokumentiert, eigene Debug-Tasks): vorbestehender `has_trade_today`-Datums-/
-Zeitzonen-Bug (`test_trade_read_mapping_order_and_day_contract[sqlite]`) UND Wall-Clock-Leak im
-OMS-Quote-Age-Gate (`test_quote_context.py`, 3 Tests) — beide DB-Zeitvertrag-/Determinismus-Klasse,
-in Prod fail-safe. `_audit_contexts`-Mini-Leak im OMS-Singleton. W0-Rest (menschlich): VPS-Migration
-stockbot-User (Tor T1), Backup-Timer + age-Key aktivieren.
+**Nebenbefunde erledigt (2026-07-20, `cf3074a`, auf `main`, NICHT deployt):** alle drei
+dokumentierten Altlasten behoben — (1) `db._today()` folgt jetzt UTC statt Server-Lokalzeit
+(`trade_date` und `created_at` liefen auf Maschinen mit Offset nahe Mitternacht auseinander;
+`_trade_age_days` in bot.py mitgezogen; VPS ist `Etc/UTC` → prod unverändert), (2) der
+Signal-Ablaufcheck im OMS respektiert das `now` aus dem Risk-Kontext statt der Wanduhr
+(Prod übergibt keins → unverändert), (3) `OMS._audit_contexts` wird beim Übergang in einen
+Endzustand freigegeben (`is_terminal_order_status`, Cache ist read-through). Regressionstests
+zu allen dreien; der Zeitvertrag-Test macht den alten `date.today()`-Code nachweislich rot.
+**Volle Suite grün: 1048 passed + 80 Backtest-Tests.**
+
+W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
+2026-07-20 aktiv (PLAT-009 zu).
 
 ## Kritische Dateien für die Umsetzung
 
