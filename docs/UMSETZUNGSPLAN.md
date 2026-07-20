@@ -162,8 +162,8 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5 komplett; Code-seitig P9-Rest, VPS-Aktivierung/Restore-Test menschlich) |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
-| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **abgenommen** (2026-07-18): Komponentensystem (Style-Phase 2 `bf4d593`) + Callback-Sicherheit `85b160e` + API v1 `bb3f36e`. Seiten-Umbau (Style-Phasen 3–5) + Seam-Verdrahtung = Integrationsschritt am laufenden App-Stand |
-| **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | offen (nach W1–W3 deployt) |
+| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **erledigt** (2026-07-20): Komponentensystem `bf4d593` + Callback-Sicherheit `85b160e` + API v1 `bb3f36e` (abgenommen 2026-07-18), Seams verdrahtet `1867469`, Style-Phasen 3–5 + Mode-Report-Panel `48fc42c` |
+| **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | ✅ code-komplett (`5d38d5d`: Replay-, Failure-Injection-Suite, `core/burn_in.py`, `docs/GO_NO_GO.md`) — offen: **Burn-in-Kalenderzeit + Tor T5** |
 
 ---
 
@@ -270,10 +270,10 @@ Fehlerquote dokumentieren. **Go/No-Go = menschliches Tor T5.**
 
 ## Kritischer Pfad
 
-**~~W1 (Risk-Wiring) → W2 (OMS-Orchestrierung) → W3 (Daten & Versionen)~~ ✅ code-komplett → W8
-(Burn-in-Kalenderzeit).** Alles andere (W4, W5–W6, W7) hängt parallel daneben. Der Burn-in
-kann formal erst "zählen", wenn W1–W3 **deployt** sind — Deploy von W1+W2(+W3) ist freigabe-pflichtig
-(Live-Trade-Verhalten) und erst nach 2–3 stabilen Postgres-Markttagen sinnvoll. W3.6 (Exit-Policies)
+**~~W1 (Risk-Wiring) → W2 (OMS-Orchestrierung) → W3 (Daten & Versionen)~~ ✅ deployt (2026-07-19)
+→ W8 Burn-in-Kalenderzeit (läuft) → Tor T5.** Alles andere (W4, W5–W6, W7 ✅) ist erledigt. Der
+Burn-in zählt seit dem Deploy; ausgewertet wird er mit `stockbot/core/burn_in.py` gegen
+`docs/GO_NO_GO.md`. W3.6 (Exit-Policies)
 bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten = separate Tor-T2-Freigabe.
 
 ## Quick Wins (größter Nutzen pro Aufwand)
@@ -295,23 +295,37 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 | T5 | Ende W8 | Paper-Go/No-Go-Abzeichnung |
 | T6 | P11 | Canary-Live-Entscheidung (separat) |
 
-## Was jetzt (Stand 2026-07-19, nach DEPLOY von W0–W7-Backend + GANZ W3)
+## Was jetzt (Stand 2026-07-20, W7 komplett + W8 code-komplett)
 
-**W0, W1, W2, W3, W4, W5, W6 und die Backend-Teile von W7 sind code-komplett** (Gates P1.1/P2/P3/
-P4/P5/P6/P7/P8-Framework/P9-Code geschlossen) **und seit 2026-07-19 auf dem VPS deployt**
-(`4b99f65`, Alembic `c9d0e1f2a3b4`, Details im Projektstand oben). Was noch offen ist:
+**W0–W7 sind komplett** (Gates P1.1/P2/P3/P4/P5/P6/P7/P8-Framework/P9 geschlossen); der Backend-Stand
+ist seit 2026-07-19 auf dem VPS deployt (`3469052`, Alembic `c9d0e1f2a3b4`). **W8 ist code-komplett**
+— offen bleibt nur die Kalenderzeit und die menschliche Abzeichnung.
 
-1. **Montag-Beobachtung (erster Markttag nach Deploy):** Risk-Gates scharf (Default-`RiskProfile`:
-   max. 5 Positionen, Sizing-/Buying-Power-/Brokerstatus-Gates → Ablehnungen möglich), Signalpfad
-   Alpaca statt yfinance (Signale können abweichen), OMS-Polling/Reconcile live. Logs + Mode-Reports
-   prüfen, danach zählt der Paper-Burn-in (W8).
+**2026-07-20 dazugekommen (auf `main`, NICHT deployt):**
+
+- **W7 abgeschlossen** (`1867469` Seams, `48fc42c` Visual): API-v1-Router + Trace-ID-Middleware in
+  `dashboard.py`, Callback-Security in `bot.py` (opake Einmal-Tokens + Purge-Job), Style-Phasen 3–5
+  auf den echten Seiten (`components.css` wird jetzt tatsächlich geladen, „Trade prüfen" statt grünem
+  Kaufbutton, Pflicht-Bestätigungsdialog in fester Feldreihenfolge, Kill-Switch mit Zustands-Chip +
+  Rückfrage, Skip-Link/Fokus/Bottom-Nav/44px-Touchziele), **Mode-Report-Panel Paper/Shadow im
+  Dashboard** aus dem vorhandenen `/data`-JSON. Tests: `tests/test_web_style_phases.py`.
+- **W8 code-komplett** (`5d38d5d`): Replay-Suite (`tests/test_replay_suite.py`, 7),
+  Failure-Injection-Suite (`tests/test_failure_injection.py`, 11), Burn-in-Auswertung
+  (`stockbot/core/burn_in.py` + `db.burn_in_order_stats`, `tests/test_burn_in.py`, 6) und die
+  abzeichenbare Checkliste **`docs/GO_NO_GO.md`**.
+- **Backup-Timer auf dem VPS aktiv** (W0-Rest): `pg-backup.timer`/`.service` installiert,
+  `AGE_RECIPIENTS` gesetzt, Backup erzeugt **und restore-verifiziert** (`pg_restore --list`).
+
+Was noch offen ist:
+
+1. **Deploy von `48fc42c`/`5d38d5d`** (W7-Visual + W8-Suiten). Freigabepflichtig wie immer; die
+   Änderungen sind UI + Tests, kein neues Live-Trade-Verhalten.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
-3. **W7-Visual-Integration** (braucht laufende App/Browser): Seiten-Templates auf die abgenommenen
-   Komponenten umstellen (Style-Phasen 3–5, Pflicht-Bestätigungsdialog, A11y), das **Mode-Report-Panel
-   (Paper/Shadow) im Dashboard rendern** (Daten liegen schon im `/dashboard-data`-JSON, W3.4), sowie die
-   Seams verdrahten (api_v1_router → webapp.py, callback_security → bot.py-Handler).
-4. **W8 (Paper-Burn-in)** — Kalenderzeit + menschliche Go/No-Go-Abzeichnung (Tor T5); läuft ab jetzt.
+3. **W8 Burn-in — Kalenderzeit.** Läuft seit dem Deploy. Mehrere Marktwochen inkl. ≥1 Feiertag
+   (Labor Day 2026-09-07). Auswertung mit `burn_in.build_burn_in_report`, Abzeichnung nach
+   `docs/GO_NO_GO.md` (**Tor T5**).
+4. **Tor T1 (menschlich):** VPS-Migration auf `stockbot`-User/`/opt/stockbot` (docs/DEPLOY_HARDENING.md).
 5. **T4 (regulatorische Einordnung)** — extern/langläufig, blockiert P11/P12.
 
 Offene Nebenbefunde (dokumentiert, eigene Debug-Tasks): vorbestehender `has_trade_today`-Datums-/

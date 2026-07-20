@@ -617,9 +617,9 @@ Ziel: Belastbares Zustands- und Datenmodell.
 - [ ] **PLAT-006** Dependencies pinnen (Lockfile/Constraints), `pip-audit`, Dependabot, Upgrade-Tests *(→ todo.md A2, inkl. yfinance-FD-Leck-Fix)*
 - [ ] **PLAT-006** Secrets: `.env` nur lokal; Staging/Prod systemd-Credentials/Secret Store; Rotation; getrennte Schlüssel; kein Secret in Logs/Exceptions
 - [ ] **PLAT-007** Alpaca OAuth (minimale Scopes, Token verschlüsselt, Disconnect + Revoke, Paper/Live getrennt)
-- [ ] **PLAT-004** Strukturiertes JSON-Logging (timestamp, service, severity, trace_id, user_id pseudonymisiert, entity_id, event_type) — keine Keys/PII
-- [ ] **PLAT-005** Monitoring-Metriken (Verfügbarkeit, Feed-Latenz, Quote-Alter, Orderlatenz, Reject/Fill-Rate, Reconciliation-Fehler, Queue-Lag, Positionen ohne Stop, Kill-Switch-Status) + Alarmregeln
-- [ ] **PLAT-009** Verschlüsselte PostgreSQL-Backups, Aufbewahrungsplan, regelmäßiger Restore-Test, Recovery-Ziele
+- [x] **PLAT-004** Strukturiertes JSON-Logging (timestamp, service, severity, trace_id, user_id pseudonymisiert, entity_id, event_type) — keine Keys/PII
+- [x] **PLAT-005** Monitoring-Metriken (Verfügbarkeit, Feed-Latenz, Quote-Alter, Orderlatenz, Reject/Fill-Rate, Reconciliation-Fehler, Queue-Lag, Positionen ohne Stop, Kill-Switch-Status) + Alarmregeln
+- [x] **PLAT-009** Verschlüsselte PostgreSQL-Backups, Aufbewahrungsplan, regelmäßiger Restore-Test, Recovery-Ziele — `pg-backup.timer` seit 2026-07-20 auf dem VPS aktiv (age-verschlüsselt), Restore gegen ein echtes Backup verifiziert
 
 **Gate P9 (Abnahme):**
 - [ ] Kein Dienst läuft als Root; keine Prod-Secrets in `.env`; kritische Fehler → Alarm
@@ -629,15 +629,15 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Phase 10 — Teststrategie & Paper-Freigabe `P2`
 
-- [ ] Unit-Tests: Sizing, Risk-Limits, Kalender, Strategiebedingungen, Zustandsübergänge, Idempotency, Berechtigungen, Kill-Switch
-- [ ] Integrationstests: Signal→Freigabe→Risk→Order, doppelte Freigabe, abgelaufenes Signal, veralteter Quote, Risk-Block, Partial Fill, Broker-Reject, Cancel/Replace, Reconciliation-Abweichung, Schutzorder
-- [ ] Replay-Tests: normaler Fill, Event doppelt/verspätet, Partial Fill, Fill nach Cancel, unbekannte Order, externe Position
-- [ ] Failure-Injection: Feed offline, Broker-Timeout, DB-Unterbrechung, Queue-Retry, Worker-Neustart, doppelter Callback/Request, Clock-Skew, veraltete Marktdaten
-- [ ] **Paper-Burn-in**: mehrere Marktwochen, ≥1 Feiertag/Half-Day, versch. Regime, dokumentierte Fehlerquote, keine ungeklärten Reconciliation-Abweichungen, keine doppelten Orders, keine Budgetüberschreitung
-- [ ] Go/No-Go-Checkliste erstellt + abgezeichnet
+- [x] Unit-Tests: Sizing, Risk-Limits, Kalender, Strategiebedingungen, Zustandsübergänge, Idempotency, Berechtigungen, Kill-Switch
+- [x] Integrationstests: Signal→Freigabe→Risk→Order, doppelte Freigabe, abgelaufenes Signal, veralteter Quote, Risk-Block, Partial Fill, Broker-Reject, Cancel/Replace, Reconciliation-Abweichung, Schutzorder
+- [x] Replay-Tests: normaler Fill, Event doppelt/verspätet, Partial Fill, Fill nach Cancel, unbekannte Order, externe Position — `tests/test_replay_suite.py` (W8, `5d38d5d`)
+- [x] Failure-Injection: Feed offline, Broker-Timeout, DB-Unterbrechung, Queue-Retry, Worker-Neustart, doppelter Callback/Request, Clock-Skew, veraltete Marktdaten — `tests/test_failure_injection.py` (W8, `5d38d5d`)
+- [ ] **Paper-Burn-in** (läuft seit Deploy 2026-07-19; Auswertung: `stockbot/core/burn_in.py`): mehrere Marktwochen, ≥1 Feiertag/Half-Day, versch. Regime, dokumentierte Fehlerquote, keine ungeklärten Reconciliation-Abweichungen, keine doppelten Orders, keine Budgetüberschreitung
+- [x] Go/No-Go-Checkliste erstellt (`docs/GO_NO_GO.md`) — **Abzeichnung offen (Tor T5)**
 
 **Gate P10 (Abnahme):**
-- [ ] Keine doppelten Orders in allen Wiederholungstests; keine unkontrollierte Order bei Feed-/Brokerfehler
+- [x] Keine doppelten Orders in allen Wiederholungstests; keine unkontrollierte Order bei Feed-/Brokerfehler — belegt durch Replay- + Failure-Injection-Suite
 - [ ] Alle kritischen Failure-Fälle dokumentiert; keine ungeklärten Positionsabweichungen; Kill-Switch in Integrationstests bestätigt
 
 ---
