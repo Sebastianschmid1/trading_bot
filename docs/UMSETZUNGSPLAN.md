@@ -30,11 +30,24 @@
   2026-07-19 `4b99f65` (W0–W7-Backend) → am selben Tag `3469052` (Telegram-Hauptmenü) →
   2026-07-20 `47672dc`/`f601184` (W7-Visual + W8-Suiten) → **2026-07-20 abends `8d16547`
   (Nebenbefund-Fixes `cf3074a`). Maßgeblich ist immer der letzte Eintrag.**
-- **⚠️ OFFENER PROD-BEFUND (2026-07-20): auf dem VPS sind `ALPACA_API_KEY`/`ALPACA_API_SECRET`
-  nicht gesetzt.** Der Provider degradiert wie vorgesehen sauber, aber seit W3.2 ist der
-  Prod-Signalpfad Alpaca-only → im Log jede Minute „Bars … nicht abrufbar", keine Kurse, keine
-  Signale, keine Orders. **Der Paper-Burn-in (W8/Tor T5) sammelt damit keine Evidenz** und die
-  Kalenderzeit läuft ins Leere. Muss vor dem echten Burn-in-Start behoben werden.
+- **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
+  `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
+  jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
+  (davor 11 in 7 Tagen) — der Paper-Burn-in sammelte keine Evidenz.
+  **Lösung: systemd-Credentials statt `.env`** (PLAT-006b/W4.3 wird damit erstmals produktiv
+  genutzt): `/etc/stockbot/credentials/*.cred` via `systemd-creds encrypt`, geladen über das
+  Drop-in `deploy/stockbot-credentials.conf` → `/etc/systemd/system/stockbot.service.d/`.
+  `config._secret()` liest sie aus `$CREDENTIALS_DIRECTORY` (Präzedenz Credential > Env > .env).
+  Verifiziert: Warnungen weg, `get_quote("AAPL")` und `get_bars` liefern echte Daten.
+  **Bewusste Trennung:** der hinterlegte Key ist ein **Betreiber-Datenzugang** für den globalen
+  Scan, NICHT ein Trading-Key; Nutzer-Broker-Credentials bleiben pro Nutzer in der DB.
+- **⚠️ OFFEN (Sicherheit, aus demselben Befund):** `config.ALPACA_ENABLED` ist jetzt `True`,
+  dadurch liefert `webapp._alpaca_ready(user)` für **jeden** Nutzer `True` und
+  `_alpaca_client(user)` fällt ohne eigene Nutzer-Credentials auf `broker._get_client()` —
+  also auf den Betreiber-Key — zurück. Aktuell betroffen: 0 Nutzer (2 aktiv, 1 mit
+  `broker_exec` und eigenen Keys). Zu schließen: Order-Ausführung nur mit **eigenen**
+  Credentials, globaler Key ausschließlich für Marktdaten. **Ändert Live-Trade-Verhalten
+  (restriktiver) → Freigabe nötig.**
 - **W0 komplett (2026-07-15, `c0e43bd`, auf GitHub `main`, NOCH NICHT auf VPS deployt):** alle vier
   Betriebsschutz-Tasks via parallele Sol-Worker gebaut, reviewt, gemergt, Suite grün (877 passed,
   27 skipped). W0.1 Postgres-Backups (PLAT-009), W0.2 Deps gepinnt (PLAT-006a), W0.3 systemd-Härtung
@@ -331,8 +344,9 @@ Was noch offen ist:
    Pflicht-Bestätigungsdialog auf der Signalseite.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
-3. **W8 Burn-in — Kalenderzeit. ⚠️ Startet real erst mit gesetzten Alpaca-Keys** (siehe
-   Prod-Befund oben; ohne Marktdaten entstehen keine Signale/Orders, der Report bleibt leer).
+3. **W8 Burn-in — Kalenderzeit. Zählt effektiv erst ab 2026-07-20 abends** (davor fehlten die
+   Marktdaten-Credentials, es entstanden keine Signale/Orders — die Tage seit dem 19.07-Deploy
+   sind für Tor T5 wertlos). Erster echter Markttag ist damit **Dienstag, 2026-07-21**.
    Danach mehrere Marktwochen inkl. ≥1 Feiertag (Labor Day 2026-09-07). Auswertung mit
    `burn_in.build_burn_in_report`, Abzeichnung nach `docs/GO_NO_GO.md` (**Tor T5**).
    *Am VPS gegenverifiziert 2026-07-20:* die Auswertung lief unter Postgres zunächst auf einen
