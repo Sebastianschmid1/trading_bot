@@ -204,10 +204,11 @@
   {% endif %}
   {% if is_admin %}
   <div class="row" style="margin-top:.8rem">
-    <form method="post" action="/app/lab/apply" class="inline">
-      <button class="green">✓ Übernehmen (wird live)</button></form>
+    <form method="post" action="/app/lab/apply" class="inline"
+          onsubmit="return confirm('Parameter als Live-Override übernehmen? Der Bot handelt danach mit diesen Werten.');">
+      <button class="btn2 btn2--destructive">Als Live-Override übernehmen</button></form>
     <form method="post" action="/app/lab/reject" class="inline">
-      <button class="red">✕ Verwerfen</button></form>
+      <button class="btn2 btn2--secondary">Verwerfen</button></form>
     <span class="note">Übernehmen schreibt die Parameter als Live-Override — der Bot nutzt sie binnen ~20 s.</span>
   </div>
   {% else %}

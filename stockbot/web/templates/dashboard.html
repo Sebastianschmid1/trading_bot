@@ -182,7 +182,7 @@
     <div class="col">
       <section class="panel" data-panel="equity">
         <div class="panel-head"><h2>📈 Equity-Kurve <span class="desc" style="margin:0;font-weight:400">kumuliertes P&L</span></h2><span class="caret">▾</span></div>
-        <div class="panel-body"><canvas id="equityChart"></canvas></div>
+        <div class="panel-body"><canvas role="img" aria-label="Equity-Kurve: kumulierte P&L je Ausstiegsdatum" id="equityChart"></canvas></div>
       </section>
 
       <section class="panel tall" data-panel="trades">
@@ -194,7 +194,7 @@
             Position summiert ihr Ergebnis an ihrem <b>Ausstiegszeitpunkt</b> zur kumulierten P&L.
             <b>Offene Trades</b> steuern ihre aktuelle (unrealisierte) P&L bis „jetzt" bei (Häkchen
             „inkl. offene"). <b>Grün/rot</b> = Gesamt im Plus/Minus · Nulllinie = Break-even.</div>
-          <canvas id="tradesLogChart"></canvas>
+          <canvas role="img" aria-label="Kontowert über Zeit aus abgeschlossenen und offenen Trades" id="tradesLogChart"></canvas>
         </div>
       </section>
 
@@ -202,21 +202,34 @@
         <div class="panel-head"><h2>🕯 Kursverlauf heute</h2>
           <select id="priceTicker" class="dd" aria-label="Trade wählen" onclick="event.stopPropagation()"></select>
           <span class="caret">▾</span></div>
-        <div class="panel-body"><canvas id="priceChartSingle"></canvas></div>
+        <div class="panel-body"><canvas role="img" aria-label="Intraday-Kursverlauf des gewählten Trades" id="priceChartSingle"></canvas></div>
       </section>
     </div>
 
     <div class="col">
       <section class="panel" data-panel="ticker">
         <div class="panel-head"><h2>🎯 P&L pro Ticker</h2><span class="caret">▾</span></div>
-        <div class="panel-body"><canvas id="tickerChart"></canvas></div>
+        <div class="panel-body"><canvas role="img" aria-label="Ergebnis je Ticker" id="tickerChart"></canvas></div>
       </section>
 
       <section class="panel" data-panel="strength">
         <div class="panel-head"><h2>📶 Strategie-Rohscore heute</h2><span class="caret">▾</span></div>
         <div class="panel-body">
           <div class="desc">Rohwerte gelten nur innerhalb der genannten Strategie und sind keine Gewinnwahrscheinlichkeit. Klick auf einen Ticker in der Legende blendet ihn aus/ein.</div>
-          <canvas id="strengthChart"></canvas>
+          <canvas role="img" aria-label="Trefferquote nach Signalstärke" id="strengthChart"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <div class="col span-2">
+      <section class="panel" data-panel="modes">
+        <div class="panel-head"><h2>Modus-Report <span class="desc" style="margin:0;font-weight:400">Paper vs. Shadow</span></h2>
+          <span class="caret">▾</span></div>
+        <div class="panel-body">
+          <div class="desc">Kennzahlen werden <b>nie über Modi hinweg vermischt</b> (RES-002).
+            <b>Paper</b> = Broker-Orders im Alpaca-Papermodus, <b>Shadow</b> = Live-Daten ohne Broker-Order.
+            „—" bedeutet: die Datenlage trägt den Wert nicht, kein Nullwert.</div>
+          <div id="modeReports"></div>
         </div>
       </section>
     </div>
@@ -237,7 +250,7 @@
     <div class="modal">
       <div class="modal-head"><h2 id="modalTitle"></h2><span class="modal-x" id="modalClose">✕</span></div>
       <div id="modalBody"></div>
-      <canvas id="factorChart" height="120"></canvas>
+      <canvas role="img" aria-label="Faktorverlauf der gewählten Analyse" id="factorChart" height="120"></canvas>
     </div>
   </div>
 
@@ -536,6 +549,56 @@
       renderTradesCurves(d, noData);
       renderActive();                                    // nutzt state.data + Sort/Filter
       renderIntraday(d);
+      renderModeReports(d);
+    }
+
+    // ── Modus-Report (W3.4/RES-002): Paper und Shadow strikt getrennt ──
+    const MODE_ROWS = [
+      ["net_pnl",        "Netto-P&L",      "eur"],
+      ["costs",          "Kosten",         "eur"],
+      ["slippage",       "Slippage",       "eur"],
+      ["drawdown",       "Max. Drawdown",  "eur"],
+      ["trade_count",    "Trades",         "int"],
+      ["profit_factor",  "Profit-Faktor",  "num"],
+      ["expectancy",     "Erwartungswert", "eur"],
+      ["open_risk",      "Offenes Risiko", "eur"],
+    ];
+    const MODE_LABELS = { paper: "Paper", shadow: "Shadow" };
+
+    function modeCell(value, kind) {
+      if (value === null || value === undefined) return "—";
+      if (kind === "int") return String(value);
+      if (kind === "num") return Number(value).toFixed(2);
+      return Number(value).toLocaleString("de-DE",
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "€";
+    }
+
+    function renderModeReports(d) {
+      const host = document.getElementById("modeReports");
+      if (!host) return;
+      const reports = d.mode_reports || {};
+      const modes = ["paper", "shadow"].filter(m => reports[m]);
+      if (!modes.length) {
+        host.innerHTML = `<div class="empty">Noch keine Modus-Daten.</div>`;
+        return;
+      }
+      const head = modes.map(m => `<th class="r">${MODE_LABELS[m]}</th>`).join("");
+      const body = MODE_ROWS.map(([key, label, kind]) => {
+        const cells = modes.map(m => {
+          const v = reports[m][key];
+          const numeric = (kind !== "int" && typeof v === "number");
+          const tone = (key === "net_pnl" && numeric) ? ` class="r ${cls(v)}"` : ` class="r"`;
+          return `<td${tone}>${modeCell(v, kind)}</td>`;
+        }).join("");
+        return `<tr><td>${label}</td>${cells}</tr>`;
+      }).join("");
+      const versions = modes.map(m => {
+        const list = reports[m].strategy_versions || [];
+        return `<td class="r">${list.length ? esc(list.join(", ")) : "—"}</td>`;
+      }).join("");
+      host.innerHTML = `<div class="table-scroll"><table>`
+        + `<thead><tr><th>Kennzahl</th>${head}</tr></thead>`
+        + `<tbody>${body}<tr><td>Strategie-Versionen</td>${versions}</tr></tbody></table></div>`;
     }
 
     function renderEquity(eq, noData) {

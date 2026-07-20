@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components.html" import chip %}
 {% block title %}Einstellungen — Stock Signal Bot{% endblock %}
 {% block content %}
 <h1>Einstellungen</h1>
@@ -76,17 +77,24 @@
 </div>
 
 <div class="card">
-  <h2>{{ 'Globaler' if is_admin else 'Persönlicher' }} Kill-Switch</h2>
+  {% set ks_active = kill_switch and kill_switch.active %}
+  <div class="row" style="align-items:center;gap:.6rem">
+    <h2 style="border:0;margin:0;padding:0">{{ 'Globaler' if is_admin else 'Persönlicher' }} Kill-Switch</h2>
+    {% if ks_active %}{{ chip('Aktiv — Einstiege blockiert', 'warn') }}
+    {% else %}{{ chip('Inaktiv — Einstiege erlaubt', 'neutral') }}{% endif %}
+  </div>
   <p class="muted">Blockiert neue Positionen. Schutz-Verkäufe bleiben immer erlaubt.</p>
-  <form class="row" method="post" action="/app/settings/killswitch">
-    <input type="hidden" name="enabled" value="{{ '0' if kill_switch and kill_switch.active else '1' }}">
-    {% if not kill_switch or not kill_switch.active %}
-    <input type="text" name="reason" required placeholder="Grund">
+  <form class="row" method="post" action="/app/settings/killswitch"
+        {% if ks_active %}onsubmit="return confirm('Kill-Switch abschalten? Danach sind wieder neue Einstiege möglich.');"{% endif %}>
+    <input type="hidden" name="enabled" value="{{ '0' if ks_active else '1' }}">
+    {% if not ks_active %}
+    <input class="input2" style="max-width:18rem" type="text" name="reason" required
+           placeholder="Grund (wird protokolliert)" aria-label="Grund für die Aktivierung">
     {% endif %}
-    <button class="{{ 'red' if not kill_switch or not kill_switch.active else 'on' }}">
-      {{ 'Ausschalten' if kill_switch and kill_switch.active else 'Einschalten' }}
+    <button class="btn2 {{ 'btn2--secondary' if ks_active else 'btn2--destructive' }}">
+      {{ 'Kill-Switch abschalten' if ks_active else 'Kill-Switch aktivieren' }}
     </button>
-    <span class="muted">Status: {{ 'AN · ' ~ kill_switch.reason if kill_switch and kill_switch.active else 'AUS' }}</span>
+    {% if ks_active %}<span class="muted">Grund: {{ kill_switch.reason }}</span>{% endif %}
   </form>
 </div>
 
@@ -126,13 +134,13 @@
     <div class="row" style="margin:.3rem 0">
       <input type="text" name="api_key" placeholder="API-Key" style="min-width:240px" autocomplete="off">
       <input type="password" name="api_secret" placeholder="API-Secret" style="min-width:240px" autocomplete="new-password">
-      <button class="green">Speichern</button>
+      <button class="btn2 btn2--primary">Speichern</button>
     </div>
   </form>
   {% if has_alpaca %}
   <form class="inline" method="post" action="/app/settings/alpaca/clear"
         onsubmit="return confirm('Alpaca-Verbindung wirklich entfernen? Echte Broker-Order wird dabei deaktiviert.');">
-    <button class="red">Verbindung entfernen</button>
+    <button class="btn2 btn2--destructive">Verbindung entfernen</button>
   </form>
   {% endif %}
 </div>
@@ -141,7 +149,7 @@
   <h2>Sicherheit</h2>
   <p class="muted">Meldet dich auf allen Geräten/Browsern ab (beendet alle aktiven Sitzungen).</p>
   <form class="inline" method="post" action="/logout/all">
-    <button class="red">Überall abmelden</button>
+    <button class="btn2 btn2--destructive">Überall abmelden</button>
   </form>
   <p class="muted" style="margin-top:1rem">Erzeugt einen neuen privaten Dashboard-Link. Der alte
     Link (z.&nbsp;B. aus Telegram oder dem Browser-Verlauf) wird sofort ungültig — nützlich, wenn
@@ -159,7 +167,7 @@
     Alpaca-Verbindung bleiben erhalten. Das kann nicht rückgängig gemacht werden.</p>
   <form class="inline" method="post" action="/app/reset"
         onsubmit="return confirm('Wirklich alle Trades &amp; den Verlauf löschen und offene Alpaca-Positionen schließen?');">
-    <button class="red">🗑️ Zurücksetzen</button>
+    <button class="btn2 btn2--destructive">🗑️ Zurücksetzen</button>
   </form>
 </div>
 {% endblock %}

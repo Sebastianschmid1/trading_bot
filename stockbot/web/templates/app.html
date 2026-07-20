@@ -53,9 +53,12 @@
   {% if s.stop_loss and s.take_profit %}
   <div class="muted">🎯 TP ${{ '%.2f'|format(s.take_profit) }} · 🛑 SL ${{ '%.2f'|format(s.stop_loss) }}</div>
   {% endif %}
-  <form class="inline js-accept" method="post" action="/app/scan/accept" style="margin-top:.6rem">
+  <form class="inline js-accept js-confirm" method="post" action="/app/scan/accept" style="margin-top:.6rem"
+        data-kind="entry" data-ticker="{{ s.ticker }}" data-direction="{{ s.direction }}"
+        data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
+        data-leverage="{{ s.leverage or 1 }}">
     <input type="hidden" name="ticker" value="{{ s.ticker }}">
-    <button class="green">✅ Annehmen &amp; starten</button>
+    <button class="btn2 btn2--primary" type="submit">Trade prüfen</button>
   </form>
 </div>
 {% endfor %}
@@ -79,13 +82,16 @@
   <div class="muted">🎯 TP ${{ '%.2f'|format(s.take_profit) }} · 🛑 SL ${{ '%.2f'|format(s.stop_loss) }}</div>
   {% endif %}
   <div class="row" style="margin-top:.6rem">
-    <form class="inline js-accept" method="post" action="/app/accept">
+    <form class="inline js-accept js-confirm" method="post" action="/app/accept"
+          data-kind="entry" data-ticker="{{ s.ticker }}" data-direction="{{ s.direction }}"
+          data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
+          data-leverage="{{ s.leverage or 1 }}">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="green">✅ Annehmen</button>
+      <button class="btn2 btn2--primary" type="submit">Trade prüfen</button>
     </form>
     <form class="inline" method="post" action="/app/reject">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="red">❌ Ablehnen</button>
+      <button class="btn2 btn2--secondary" type="submit">Ablehnen</button>
     </form>
   </div>
 </div>
@@ -158,26 +164,126 @@
       {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}€ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)
     </span>
   </div>
-  <form class="inline" method="post" action="/app/sell" style="margin-top:.5rem">
+  <form class="inline js-confirm" method="post" action="/app/sell" style="margin-top:.5rem"
+        data-kind="sell" data-ticker="{{ t.ticker }}" data-direction="{{ t.direction }}"
+        data-price="{{ t.current }}" data-entry="{{ t.entry }}" data-leverage="{{ t.leverage or 1 }}"
+        data-pnl="{{ '%.2f'|format(t.pnl_eur) }}">
     <input type="hidden" name="ticker" value="{{ t.ticker }}">
-    <button class="red">💰 Verkaufen</button>
+    <button class="btn2 btn2--destructive" type="submit">Position schließen</button>
   </form>
 </div>
 {% endfor %}
 
+{# ── Pflicht-Bestätigungsdialog (§18.1): feste Reihenfolge Modus → Instrument → Entry →
+     Stop/Ziel → Risiko → Größe. Live bekäme dialog2--live + Volltext-Button („Echtes Geld"). #}
+<dialog id="tradeConfirm" class="dialog2 {{ 'dialog2--live' if trade_mode == 'live' }}"
+        aria-labelledby="tcTitle">
+  <div class="dialog2__body">
+    <h2 class="dialog2__title" id="tcTitle">Trade bestätigen</h2>
+    {% if trade_mode == 'live' %}
+    <div class="alert2 alert2--danger" role="alert">
+      <div><p class="alert2__title">Echtes Geld</p>
+      <div>Diese Order wird mit echtem Kapital an den Broker übermittelt.</div></div>
+    </div>
+    {% endif %}
+    <dl class="tc-grid">
+      <dt>Modus</dt>
+      <dd id="tcMode">{% if trade_mode == 'live' %}LIVE – ECHTES GELD{% elif trade_mode == 'paper' %}PAPER (Broker-Order, kein echtes Geld){% else %}DEMO (ohne Broker){% endif %}</dd>
+      <dt>Instrument</dt> <dd><span id="tcTicker" class="mono"></span> · <span id="tcDirection"></span></dd>
+      <dt id="tcPriceLabel">Entry (aktueller Kurs)</dt> <dd class="mono" id="tcPrice"></dd>
+      <dt>Stop-Loss</dt> <dd class="mono" id="tcStop">—</dd>
+      <dt>Take-Profit</dt> <dd class="mono" id="tcTarget">—</dd>
+      <dt>Risiko</dt> <dd class="mono" id="tcRisk">—</dd>
+      <dt>Größe</dt> <dd class="mono" id="tcSize">{{ '%.0f'|format(user.trade_size_eur) }} € × <span id="tcLev"></span></dd>
+    </dl>
+    <p class="muted" id="tcNote" style="margin:.6rem 0 0"></p>
+    <div class="dialog2__actions">
+      <button type="button" class="btn2 btn2--secondary" id="tcCancel" autofocus>Abbrechen</button>
+      <button type="button" class="btn2 {{ 'btn2--live' if trade_mode == 'live' else 'btn2--primary' }}" id="tcOk">
+        {% if trade_mode == 'live' %}Echtes Geld: Order jetzt ausführen{% else %}Trade bestätigen{% endif %}
+      </button>
+    </div>
+  </div>
+</dialog>
+<style>
+  .tc-grid { display:grid; grid-template-columns:auto 1fr; gap:.35rem .9rem; margin:.8rem 0 0; }
+  .tc-grid dt { color:var(--muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; align-self:center; }
+  .tc-grid dd { margin:0; }
+</style>
+
 <script>
-// Annehmen ohne Seiten-Neuladen: der Button zeigt direkt den Status (Wird angenommen → Angenommen).
+// Pflicht-Bestätigungsdialog (§18.1): jeder Entry/Close läuft über den Dialog.
 // Fällt ohne JS auf den normalen POST/Redirect zurück (Formular bleibt funktionsfähig).
+(function () {
+  var dlg = document.getElementById("tradeConfirm");
+  var pendingForm = null;
+  var fmt = function (v) { return "$" + Number(v).toFixed(2); };
+
+  function fillDialog(d) {
+    var isSell = d.kind === "sell";
+    document.getElementById("tcTitle").textContent = isSell ? "Position schließen" : "Trade bestätigen";
+    document.getElementById("tcPriceLabel").textContent = isSell ? "Aktueller Kurs" : "Entry (aktueller Kurs)";
+    document.getElementById("tcTicker").textContent = d.ticker;
+    document.getElementById("tcDirection").textContent = (d.direction || "").toUpperCase();
+    document.getElementById("tcPrice").textContent = fmt(d.price);
+    document.getElementById("tcLev").textContent = Number(d.leverage || 1).toFixed(1) + "×";
+    var stop = document.getElementById("tcStop"), target = document.getElementById("tcTarget"),
+        risk = document.getElementById("tcRisk"), note = document.getElementById("tcNote");
+    if (isSell) {
+      stop.textContent = "—"; target.textContent = "—";
+      risk.textContent = "Unrealisiert: " + d.pnl + " €";
+      note.textContent = "Die Position wird zum nächsten verfügbaren Kurs geschlossen.";
+    } else if (d.sl) {
+      var slDist = Math.abs(Number(d.price) - Number(d.sl)) / Number(d.price) * 100;
+      var riskEur = {{ '%.0f'|format(user.trade_size_eur) }} * (slDist / 100) * Number(d.leverage || 1);
+      stop.textContent = fmt(d.sl) + " (−" + slDist.toFixed(1) + "%)";
+      target.textContent = d.tp ? fmt(d.tp) : "—";
+      risk.textContent = "≈ " + riskEur.toFixed(2) + " € bis zum Stop";
+      note.textContent = "Stop-Loss und Take-Profit werden automatisch überwacht.";
+    } else {
+      stop.textContent = "aus"; target.textContent = "aus";
+      risk.textContent = "Kein Stop — Verlust erst bei Liquidation/Tagesende begrenzt";
+      note.textContent = "SL/TP ist für dieses Signal deaktiviert.";
+    }
+  }
+
+  document.querySelectorAll("form.js-confirm").forEach(function (form) {
+    form.addEventListener("submit", function (ev) {
+      if (form.dataset.confirmed === "1") return;   // Dialog wurde bestätigt → normal weiter
+      ev.preventDefault();
+      pendingForm = form;
+      fillDialog(form.dataset);
+      dlg.showModal();
+    });
+  });
+  document.getElementById("tcCancel").addEventListener("click", function () { dlg.close(); pendingForm = null; });
+  dlg.addEventListener("cancel", function () { pendingForm = null; });  // Esc
+  document.getElementById("tcOk").addEventListener("click", function () {
+    dlg.close();
+    if (!pendingForm) return;
+    var form = pendingForm; pendingForm = null;
+    form.dataset.confirmed = "1";
+    if (form.classList.contains("js-accept")) {
+      form.dispatchEvent(new Event("submit", { cancelable: true }));   // → fetch-Flow unten
+    } else {
+      form.submit();                                                    // Verkauf: normaler POST
+    }
+    form.dataset.confirmed = "";
+  });
+})();
+
+// Annehmen ohne Seiten-Neuladen: der Button zeigt direkt den Status (Wird angenommen → Angenommen).
 (function () {
   document.querySelectorAll("form.js-accept").forEach(function (form) {
     form.addEventListener("submit", function (ev) {
+      if (form.dataset.confirmed !== "1") return;   // ohne Dialog-Bestätigung kein Fetch-Start
       ev.preventDefault();
       var btn = form.querySelector("button");
       if (btn.dataset.busy === "1") return;
       btn.dataset.busy = "1";
       btn.disabled = true;
-      btn.classList.remove("green", "red");
-      btn.textContent = "⏳ Wird angenommen…";
+      btn.classList.remove("btn2--primary", "btn2--success", "btn2--destructive");
+      btn.textContent = "Wird ausgeführt …";
       var card = form.closest(".card");
       var others = card ? Array.prototype.slice.call(card.querySelectorAll("button")).filter(function (b) { return b !== btn; }) : [];
       others.forEach(function (b) { b.disabled = true; });
@@ -189,8 +295,8 @@
             // Nur DIESE Karte abschließen — die übrigen Signale bleiben unverändert (kein Reload).
             var pending = d.status === "broker_pending";
             var filled = d.status === "filled";
-            btn.classList.add("green");
-            btn.textContent = pending ? "⏳ Broker pending" : (filled ? "✅ Gekauft" : "✅ Angenommen");
+            btn.classList.add("btn2--success");
+            btn.textContent = pending ? "Broker-Order wartet" : (filled ? "Ausgeführt" : "Angenommen");
             others.forEach(function (b) { b.style.display = "none"; });   // Ablehnen/Hebel ausblenden
             if (card) card.style.opacity = pending ? ".85" : ".6";
             var note = document.createElement("span");
@@ -199,16 +305,16 @@
             note.textContent = d.msg || (pending ? "Broker-Order wartet auf Ausführung." : "Gestartet.");
             btn.parentNode.appendChild(note);
           } else {
-            btn.classList.add("red");
-            btn.textContent = "⚠️ " + (d.msg || "Nicht möglich");
+            btn.classList.add("btn2--destructive");
+            btn.textContent = d.msg || "Durch Risikoregel blockiert";
             others.forEach(function (b) { b.disabled = false; });
             btn.disabled = false;
             btn.dataset.busy = "";
           }
         })
         .catch(function () {
-          btn.classList.add("red");
-          btn.textContent = "⚠️ Fehler — nochmal versuchen";
+          btn.classList.add("btn2--destructive");
+          btn.textContent = "Fehler — bitte erneut versuchen";
           others.forEach(function (b) { b.disabled = false; });
           btn.disabled = false;
           btn.dataset.busy = "";

@@ -8,7 +8,7 @@
 <div class="card">
   <form class="row" method="post" action="/app/watchlist/add">
     <input type="text" name="symbol" placeholder="z. B. AAPL oder Apple" style="flex:1;min-width:180px" required>
-    <button class="green">Hinzufügen</button>
+    <button class="btn2 btn2--primary">Hinzufügen</button>
   </form>
   {% if suggestions %}
   <p class="muted" style="margin-top:.6rem">„{{ query }}" nicht gefunden. Meinten Sie:
@@ -28,7 +28,7 @@
   <div class="row" style="margin:.25rem 0">
     <strong style="min-width:90px">{{ sym }}</strong>
     <form class="inline" method="post" action="/app/watchlist/remove">
-      <input type="hidden" name="symbol" value="{{ sym }}"><button class="red">Entfernen</button>
+      <input type="hidden" name="symbol" value="{{ sym }}"><button class="btn2 btn2--destructive">Entfernen</button>
     </form>
   </div>
   {% endfor %}
