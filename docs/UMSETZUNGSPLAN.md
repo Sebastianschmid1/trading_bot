@@ -301,7 +301,7 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 ist seit 2026-07-19 auf dem VPS deployt (`3469052`, Alembic `c9d0e1f2a3b4`). **W8 ist code-komplett**
 — offen bleibt nur die Kalenderzeit und die menschliche Abzeichnung.
 
-**2026-07-20 dazugekommen (auf `main`, NICHT deployt):**
+**2026-07-20 dazugekommen — und am selben Tag DEPLOYT (VPS auf `47672dc`, Alembic-Head unverändert `c9d0e1f2a3b4`, Backup `/root/backups/stockbot_pre_w7visual_w8_20260720_1159.dump`; Smoke grün: purge_callback_tokens-Job registriert, /api/v1/health 200 mit x-trace-id, /static/components.css 200, unauth /api/v1/signals 401):**
 
 - **W7 abgeschlossen** (`1867469` Seams, `48fc42c` Visual): API-v1-Router + Trace-ID-Middleware in
   `dashboard.py`, Callback-Security in `bot.py` (opake Einmal-Tokens + Purge-Job), Style-Phasen 3–5
@@ -318,8 +318,8 @@ ist seit 2026-07-19 auf dem VPS deployt (`3469052`, Alembic `c9d0e1f2a3b4`). **W
 
 Was noch offen ist:
 
-1. **Deploy von `48fc42c`/`5d38d5d`** (W7-Visual + W8-Suiten). Freigabepflichtig wie immer; die
-   Änderungen sind UI + Tests, kein neues Live-Trade-Verhalten.
+1. **Visuelle Abnahme im Browser** (nur dort prüfbar): Mode-Report-Panel im Dashboard und der
+   Pflicht-Bestätigungsdialog auf der Signalseite.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
 3. **W8 Burn-in — Kalenderzeit.** Läuft seit dem Deploy. Mehrere Marktwochen inkl. ≥1 Feiertag
