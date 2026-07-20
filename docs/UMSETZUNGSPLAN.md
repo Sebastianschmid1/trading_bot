@@ -26,6 +26,15 @@
   Ältere „NICHT deployt"-Vermerke in den Wellen-Abschnitten unten sind damit historisch.
   **Montag (erster Markttag) beobachten:** Risk-Gates scharf (Ablehnungen mit Default-RiskProfile
   möglich), Signalpfad jetzt Alpaca statt yfinance.
+- **Deploy-Historie (eine Zeile, damit die Commit-Angaben unten nicht auseinanderlaufen):**
+  2026-07-19 `4b99f65` (W0–W7-Backend) → am selben Tag `3469052` (Telegram-Hauptmenü) →
+  2026-07-20 `47672dc`/`f601184` (W7-Visual + W8-Suiten) → **2026-07-20 abends `8d16547`
+  (Nebenbefund-Fixes `cf3074a`). Maßgeblich ist immer der letzte Eintrag.**
+- **⚠️ OFFENER PROD-BEFUND (2026-07-20): auf dem VPS sind `ALPACA_API_KEY`/`ALPACA_API_SECRET`
+  nicht gesetzt.** Der Provider degradiert wie vorgesehen sauber, aber seit W3.2 ist der
+  Prod-Signalpfad Alpaca-only → im Log jede Minute „Bars … nicht abrufbar", keine Kurse, keine
+  Signale, keine Orders. **Der Paper-Burn-in (W8/Tor T5) sammelt damit keine Evidenz** und die
+  Kalenderzeit läuft ins Leere. Muss vor dem echten Burn-in-Start behoben werden.
 - **W0 komplett (2026-07-15, `c0e43bd`, auf GitHub `main`, NOCH NICHT auf VPS deployt):** alle vier
   Betriebsschutz-Tasks via parallele Sol-Worker gebaut, reviewt, gemergt, Suite grün (877 passed,
   27 skipped). W0.1 Postgres-Backups (PLAT-009), W0.2 Deps gepinnt (PLAT-006a), W0.3 systemd-Härtung
@@ -322,13 +331,17 @@ Was noch offen ist:
    Pflicht-Bestätigungsdialog auf der Signalseite.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
-3. **W8 Burn-in — Kalenderzeit.** Läuft seit dem Deploy. Mehrere Marktwochen inkl. ≥1 Feiertag
-   (Labor Day 2026-09-07). Auswertung mit `burn_in.build_burn_in_report`, Abzeichnung nach
-   `docs/GO_NO_GO.md` (**Tor T5**).
+3. **W8 Burn-in — Kalenderzeit. ⚠️ Startet real erst mit gesetzten Alpaca-Keys** (siehe
+   Prod-Befund oben; ohne Marktdaten entstehen keine Signale/Orders, der Report bleibt leer).
+   Danach mehrere Marktwochen inkl. ≥1 Feiertag (Labor Day 2026-09-07). Auswertung mit
+   `burn_in.build_burn_in_report`, Abzeichnung nach `docs/GO_NO_GO.md` (**Tor T5**).
+   *Am VPS gegenverifiziert 2026-07-20:* die Auswertung lief unter Postgres zunächst auf einen
+   Typfehler (`created_at` ist TEXT, `datetime`-Parameter → `text >= timestamptz`); behoben in
+   `burn_in._as_utc_text` samt Regressionstest — genau die Klasse Bug, die SQLite-Tests verbergen.
 4. **Tor T1 (menschlich):** VPS-Migration auf `stockbot`-User/`/opt/stockbot` (docs/DEPLOY_HARDENING.md).
 5. **T4 (regulatorische Einordnung)** — extern/langläufig, blockiert P11/P12.
 
-**Nebenbefunde erledigt (2026-07-20, `cf3074a`, auf `main`, NICHT deployt):** alle drei
+**Nebenbefunde erledigt (2026-07-20, `cf3074a`, deployt am selben Tag mit `8d16547`):** alle drei
 dokumentierten Altlasten behoben — (1) `db._today()` folgt jetzt UTC statt Server-Lokalzeit
 (`trade_date` und `created_at` liefen auf Maschinen mit Offset nahe Mitternacht auseinander;
 `_trade_age_days` in bot.py mitgezogen; VPS ist `Etc/UTC` → prod unverändert), (2) der

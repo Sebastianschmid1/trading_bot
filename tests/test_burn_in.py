@@ -101,3 +101,28 @@ def test_report_formats_a_signable_summary():
     assert "Paper-Burn-in" in text
     assert "Fehlerquote —" in text             # ohne Datenlage kein Prozentwert
     assert "Gate P10: sauber" in text
+
+
+def test_datetime_window_is_bound_as_naive_utc_text():
+    """`created_at` ist auch unter Postgres TEXT — datetime-Parameter sprengen den Vergleich.
+
+    Der Report wird von Menschen/Jobs mit `datetime.now(timezone.utc)` aufgerufen; ohne
+    Normalisierung schlug das auf dem VPS mit `operator does not exist: text >= timestamp
+    with time zone` fehl, während SQLite still verglich.
+    """
+    seen = {}
+
+    class Recorder:
+        def burn_in_order_stats(self, since, until):
+            seen["since"], seen["until"] = since, until
+            return {"submitted": 0, "failed": 0, "duplicate_orders": 0,
+                    "duplicate_broker_events": 0, "dead_letter_events": 0}
+
+    since = datetime(2026, 7, 20, 12, 30, 45, tzinfo=timezone.utc)
+    until = datetime(2026, 7, 20, 16, 0, 0, tzinfo=timezone(timedelta(hours=2)))  # 14:00 UTC
+
+    report = burn_in.build_burn_in_report(since, until, persistence=Recorder())
+
+    assert seen == {"since": "2026-07-20 12:30:45", "until": "2026-07-20 14:00:00"}
+    assert all(isinstance(v, str) for v in seen.values())
+    assert (report.since, report.until) == (seen["since"], seen["until"])

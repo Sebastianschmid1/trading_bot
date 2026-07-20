@@ -16,12 +16,28 @@ schlicht noch nicht aussagekräftig (``orders_submitted``).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 
 from stockbot.core import db
 
 # Terminale Zustände, die eine Order als „nicht ausgeführt" kennzeichnen
 # (identisch zur Filterung in `db.burn_in_order_stats`).
 FAILED_ORDER_STATUSES = ("rejected", "expired")
+
+
+def _as_utc_text(moment: str | datetime) -> str:
+    """Zwingt eine Fenstergrenze auf den DB-Zeitvertrag: naiver UTC-String.
+
+    `orders.created_at` ist auch unter Postgres TEXT. Ein `datetime`-Parameter landet
+    dort als `timestamptz` und der Vergleich scheitert hart (`operator does not exist:
+    text >= timestamp with time zone`) — SQLite dagegen vergleicht klaglos, sodass die
+    Tests den Bruch nicht sehen. Deshalb wird hier normalisiert, nicht beim Aufrufer.
+    """
+    if isinstance(moment, datetime):
+        if moment.tzinfo is not None:
+            moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
+        return moment.strftime("%Y-%m-%d %H:%M:%S")
+    return str(moment)
 
 
 @dataclass(frozen=True)
@@ -52,14 +68,16 @@ class BurnInReport:
         return data
 
 
-def build_burn_in_report(since: str, until: str, *,
+def build_burn_in_report(since: str | datetime, until: str | datetime, *,
                          reconciliation_findings: int = 0,
                          persistence=db) -> BurnInReport:
-    """Wertet den Zeitraum ``[since, until]`` (naive UTC-Strings) aus.
+    """Wertet den Zeitraum ``[since, until]`` aus (Strings oder `datetime`).
 
     ``reconciliation_findings`` kommt von außen, weil Abweichungen gegen die Broker-Sicht
     laufen und nicht in einer eigenen Tabelle liegen (siehe `execution/reconciliation.py`).
     """
+    since = _as_utc_text(since)
+    until = _as_utc_text(until)
     stats = persistence.burn_in_order_stats(since, until)
     submitted = int(stats["submitted"])
     failed = int(stats["failed"])

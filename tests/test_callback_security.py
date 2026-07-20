@@ -1,5 +1,6 @@
 """Tests für sichere Telegram-Callbacks (W7)."""
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,8 +25,19 @@ def test_issue_and_resolve_returns_action_and_payload(fresh_db):
 
 
 def test_token_is_opaque(fresh_db):
-    token = cbs.issue(1, "close_position", {"trade_id": 99})
-    assert "close_position" not in token and "99" not in token   # kein Klartext in der callback_data
+    """Das Token trägt weder Aktion noch Payload — es ist reines Zufallsmaterial.
+
+    Der Payload-Anteil ließ sich nicht per Substring prüfen: eine zweistellige ID wie „99"
+    steht in rund 0,8 % aller `secrets.token_urlsafe(24)`-Werte zufällig drin, was den Test
+    sporadisch rot machte. Belegt wird deshalb die Eigenschaft selbst — gleiche Eingabe,
+    jedes Mal ein anderes, formatreines Token, also kein deterministischer Abdruck.
+    """
+    tokens = {cbs.issue(1, "close_position", {"trade_id": 99}) for _ in range(20)}
+
+    assert len(tokens) == 20
+    for token in tokens:
+        assert re.fullmatch(r"[A-Za-z0-9_-]{32,}", token)        # URL-safe, keine Struktur
+        assert "close_position" not in token                     # kein Klartext in der callback_data
 
 
 def test_one_time_use_blocks_replay(fresh_db):
