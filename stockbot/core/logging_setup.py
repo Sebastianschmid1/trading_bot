@@ -26,12 +26,31 @@ _SECRET_RE = re.compile(
     r"(?P<sep>\s*[:=]\s*)(?P<value>(?:bearer\s+)?[^\s,;]+)"
 )
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
+# Das Telegram-Bot-Token steht IN der URL (…/bot<id>:<secret>/getUpdates), also als Pfadsegment
+# ohne `name=wert`-Form — `_SECRET_RE` greift dort nicht. python-telegram-bot/httpx loggen diese
+# URLs auf INFO, wodurch das Token sonst in jeder Journal-Zeile steht.
+_TELEGRAM_TOKEN_RE = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
 
 
 def _redact(value: object) -> str:
     text = str(value)
     text = _SECRET_RE.sub(lambda match: f"{match.group('name')}{match.group('sep')}[REDACTED]", text)
+    text = _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", text)
     return _BEARER_RE.sub("Bearer [REDACTED]", text)
+
+
+class RedactingFilter(logging.Filter):
+    """Schwärzt Secrets in JEDER Ausgabe, nicht nur im JSON-Format.
+
+    `JsonFormatter` redigierte bisher als Einziger — Produktion läuft aber im Textformat
+    (`LOG_FORMAT=json` ist opt-in), dort ging also alles ungefiltert ins Journal. Als Filter
+    am Handler greift die Schwärzung formatunabhängig.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _redact(record.getMessage())
+        record.args = ()
+        return True
 
 
 def pseudonymize_user_id(user_id: object) -> str:
@@ -99,6 +118,13 @@ def configure_logging(
         formatter = JsonFormatter(service=service)
     else:
         formatter = logging.Formatter(TEXT_FORMAT)
+    redactor = RedactingFilter()
     for handler in handlers:
         handler.setFormatter(formatter)
+        handler.addFilter(redactor)
     logging.basicConfig(level=level, handlers=handlers)
+    # Diese Bibliotheken protokollieren vollständige Request-URLs auf INFO. Die Schwärzung oben
+    # fängt das Token bereits ab; die Zeilen gar nicht erst zu erzeugen ist die zweite Schicht
+    # (und hält das Journal lesbar). WARNING behält echte Fehler.
+    for chatty in ("httpx", "httpcore"):
+        logging.getLogger(chatty).setLevel(logging.WARNING)

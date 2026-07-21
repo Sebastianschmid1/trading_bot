@@ -83,19 +83,35 @@ from stockbot.web.dashboard import build_dashboard_data, broker_status_label, tr
 # ── Alpaca-Helfer (leichtgewichtig, ohne Telegram-Abhängigkeit) ──────────────
 
 def _alpaca_ready(user: dict) -> bool:
-    return bool(user and user.get("broker_platform") == "alpaca") or config.ALPACA_ENABLED
+    """Ob dieser Nutzer eine EIGENE Alpaca-Anbindung hat.
+
+    Bewusst NICHT `or config.ALPACA_ENABLED`: die globalen Keys sind der Betreiber-Datenzugang
+    für den Signal-Scan, kein Handelskonto für fremde Nutzer. Andernfalls genügte das Hinterlegen
+    globaler Marktdaten-Keys, damit jeder Nutzer „echte Broker-Order" aktivieren und über das
+    Betreiberkonto handeln kann.
+    """
+    return bool(user and user.get("broker_platform") == "alpaca")
 
 
 def _alpaca_client(user: dict):
+    """Client aus den EIGENEN, verschlüsselt gespeicherten Keys des Nutzers — sonst None.
+
+    Kein Rückfall auf `broker._get_client()` (globale Keys), Begründung siehe `_alpaca_ready`.
+    """
     if user and user.get("broker_platform") == "alpaca":
         creds = db.get_decrypted_credentials(user["user_id"])
         if creds:
             return broker.make_client(creds[0], creds[1], paper=config.ALPACA_PAPER)
-    return broker._get_client()
+    return None
 
 
 def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
-    """Roh-Keys (für Options-Marktdaten) des Nutzers oder die globalen .env-Keys."""
+    """Roh-Keys für **Options-Marktdaten**: eigene des Nutzers, sonst die globalen.
+
+    Der globale Rückfall ist hier korrekt und bleibt: Marktdaten sind nutzerunabhängig und der
+    globale Key ist genau dafür da (Betreiber-Datenzugang). Für die **Order-Ausführung** gilt das
+    Gegenteil — siehe `_alpaca_client`, das bewusst NICHT zurückfällt.
+    """
     if user and user.get("broker_platform") == "alpaca":
         creds = db.get_decrypted_credentials(user["user_id"])
         if creds:

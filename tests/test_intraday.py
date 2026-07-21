@@ -202,10 +202,27 @@ def test_broker_reconcile_enabled_for_own_alpaca_credentials_even_if_exec_off(mo
     assert bot._broker_reconcile_enabled(user, full=True) is True
 
 
-def test_broker_reconcile_global_keys_require_broker_exec(monkeypatch):
+def test_broker_reconcile_ignores_users_without_own_alpaca_connection(monkeypatch):
+    """Globale Keys machen einen Nutzer NICHT abgleichfähig (Änderung 2026-07-21).
+
+    Früher genügten globale .env-Keys plus `broker_exec`. Seit der Trennung ist der globale Key
+    reiner Marktdaten-Zugang des Betreibers — wer selbst nichts hinterlegt hat, hat auch keine
+    Broker-Positionen, die abzugleichen wären. Siehe tests/test_broker_key_isolation.py.
+    """
     monkeypatch.setattr(bot, "ALPACA_ENABLED", True)
-    assert bot._broker_reconcile_enabled({"broker_exec": False, "broker_platform": None}, full=True) is False
-    assert bot._broker_reconcile_enabled({"broker_exec": True, "broker_platform": None}, full=True) is True
+
+    ohne_anbindung = {"broker_exec": True, "broker_platform": None}
+    assert bot._broker_reconcile_enabled(ohne_anbindung, full=True) is False
+    assert bot._broker_reconcile_enabled({"broker_exec": False, "broker_platform": None},
+                                         full=True) is False
+
+    # Mit eigener Anbindung bleibt es wie gehabt: broker_exec sofort, sonst erst im Vollabgleich.
+    eigene = {"broker_exec": True, "broker_platform": "alpaca"}
+    assert bot._broker_reconcile_enabled(eigene, full=False) is True
+    assert bot._broker_reconcile_enabled({"broker_exec": False, "broker_platform": "alpaca"},
+                                         full=True) is True
+    assert bot._broker_reconcile_enabled({"broker_exec": False, "broker_platform": "alpaca"},
+                                         full=False) is False
 
 
 def test_daily_broker_reconcile_runs_both_directions_with_full_flag(monkeypatch):

@@ -253,8 +253,11 @@ def test_broker_exec_default_and_setter():
 def test_set_broker_button_updates_db_when_enabled():
     fresh_db()
     db.get_or_create_user(CHAT)
+    # Seit 2026-07-21 gated EIGENE Anbindung den Schalter, nicht mehr der globale Key:
+    # sonst könnte jeder Nutzer über das Betreiberkonto handeln (tests/test_broker_key_isolation.py).
+    db.set_alpaca_credentials(CHAT, "user-key", "user-secret")
     orig = bot.ALPACA_ENABLED
-    bot.ALPACA_ENABLED = True                           # Schalter ist nur bei aktivem Alpaca sichtbar
+    bot.ALPACA_ENABLED = True
     try:
         update, query = _fake_settings_query("set_broker:1")
         asyncio.run(bot.button_handler(update, MagicMock()))
@@ -276,6 +279,24 @@ def test_set_broker_button_ignored_when_disabled():
         update, query = _fake_settings_query("set_broker:1")
         asyncio.run(bot.button_handler(update, MagicMock()))
         assert db.get_user(CHAT)["broker_exec"] is False   # unverändert
+    finally:
+        bot.ALPACA_ENABLED = orig
+
+
+def test_set_broker_button_ignored_without_own_credentials():
+    """Globale Keys allein reichen nicht — sonst handelte der Nutzer über das Betreiberkonto.
+
+    Der globale Alpaca-Key ist seit 2026-07-21 der Marktdaten-Zugang des Betreibers; er darf
+    keine Broker-Ausführung für Nutzer freischalten, die selbst nichts hinterlegt haben.
+    """
+    fresh_db()
+    db.get_or_create_user(CHAT)                 # bewusst OHNE set_alpaca_credentials
+    orig = bot.ALPACA_ENABLED
+    bot.ALPACA_ENABLED = True
+    try:
+        update, query = _fake_settings_query("set_broker:1")
+        asyncio.run(bot.button_handler(update, MagicMock()))
+        assert db.get_user(CHAT)["broker_exec"] is False
     finally:
         bot.ALPACA_ENABLED = orig
 

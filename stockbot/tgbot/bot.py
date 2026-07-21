@@ -232,19 +232,25 @@ def _llm_enabled(user: dict) -> bool:
 
 
 def _alpaca_ready(user: dict) -> bool:
-    """Ob für diesen Nutzer eine Alpaca-Anbindung verfügbar ist: eigene Keys (über den Bot
-    hinterlegt) oder ersatzweise globale .env-Keys."""
-    return bool(user and user.get("broker_platform") == "alpaca") or ALPACA_ENABLED
+    """Ob für diesen Nutzer eine EIGENE Alpaca-Anbindung hinterlegt ist.
+
+    Bewusst ohne globalen Fallback: die globalen Keys sind der Betreiber-Datenzugang für den
+    Signal-Scan (Marktdaten sind nutzerunabhängig), kein Handelskonto für fremde Nutzer.
+    """
+    return bool(user and user.get("broker_platform") == "alpaca")
 
 
 def _alpaca_client(user: dict):
-    """Baut den Alpaca-Client für diesen Nutzer: bevorzugt die eigenen, verschlüsselt
-    gespeicherten Keys; sonst Fallback auf globale .env-Keys. None, wenn nichts verfügbar."""
+    """Baut den Alpaca-Client aus den EIGENEN, verschlüsselt gespeicherten Keys — sonst None.
+
+    Kein Rückfall auf die globalen Keys: sonst handelte ein Nutzer ohne eigene Anbindung über
+    das Konto des Betreibers.
+    """
     if user and user.get("broker_platform") == "alpaca":
         creds = db.get_decrypted_credentials(user["user_id"])
         if creds:
             return broker.make_client(creds[0], creds[1], paper=ALPACA_PAPER)
-    return broker._get_client()   # globale .env-Keys (oder None)
+    return None
 
 
 def _broker_reconcile_enabled(user: dict, *, full: bool = False) -> bool:
@@ -263,7 +269,11 @@ def _broker_reconcile_enabled(user: dict, *, full: bool = False) -> bool:
 
 
 def _alpaca_keys(user: dict) -> tuple[str | None, str | None]:
-    """Roh-Keys des Nutzers (für die Options-Marktdaten) oder die globalen .env-Keys."""
+    """Roh-Keys für die **Options-Marktdaten**: eigene des Nutzers, sonst die globalen.
+
+    Der globale Rückfall ist hier korrekt (Marktdaten sind nutzerunabhängig, dafür ist der
+    Betreiber-Zugang da). Für die **Order-Ausführung** gilt das Gegenteil — siehe `_alpaca_client`.
+    """
     if user and user.get("broker_platform") == "alpaca":
         creds = db.get_decrypted_credentials(user["user_id"])
         if creds:
