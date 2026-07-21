@@ -41,13 +41,35 @@
   Verifiziert: Warnungen weg, `get_quote("AAPL")` und `get_bars` liefern echte Daten.
   **Bewusste Trennung:** der hinterlegte Key ist ein **Betreiber-Datenzugang** für den globalen
   Scan, NICHT ein Trading-Key; Nutzer-Broker-Credentials bleiben pro Nutzer in der DB.
-- **⚠️ OFFEN (Sicherheit, aus demselben Befund):** `config.ALPACA_ENABLED` ist jetzt `True`,
-  dadurch liefert `webapp._alpaca_ready(user)` für **jeden** Nutzer `True` und
-  `_alpaca_client(user)` fällt ohne eigene Nutzer-Credentials auf `broker._get_client()` —
-  also auf den Betreiber-Key — zurück. Aktuell betroffen: 0 Nutzer (2 aktiv, 1 mit
-  `broker_exec` und eigenen Keys). Zu schließen: Order-Ausführung nur mit **eigenen**
-  Credentials, globaler Key ausschließlich für Marktdaten. **Ändert Live-Trade-Verhalten
-  (restriktiver) → Freigabe nötig.**
+- **Sicherheitsfolge des globalen Keys — GESCHLOSSEN (2026-07-21, `d107f97`, deployt).**
+  `config.ALPACA_ENABLED` wurde durch die Credentials `True`; darüber lieferte
+  `_alpaca_ready(user)` für **jeden** Nutzer `True` und `_alpaca_client(user)` fiel ohne eigene
+  Credentials auf `broker._get_client()` (Betreiber-Key) zurück — ein Nutzer ohne eigene
+  Anbindung hätte „echte Broker-Order" aktivieren und über das Betreiberkonto handeln können
+  (real betroffen: 0). Jetzt: **Order-Ausführung ausschließlich mit eigenen Nutzer-Credentials**
+  in `web/webapp.py` und `tgbot/bot.py`; `_alpaca_keys` (Options-**Marktdaten**) behält den
+  globalen Rückfall bewusst. Regressionstests: `tests/test_broker_key_isolation.py` (4).
+  Zwei Alt-Tests kodierten das alte Modell und wurden auf die neue Regel gezogen.
+  **Live-Verhalten geändert: restriktiver, kein neuer Handelspfad.**
+- **Secret-Leck im Journal — GESCHLOSSEN (2026-07-21, `d107f97`, deployt).** Das
+  Telegram-Bot-Token stand im Klartext in jeder Log-Zeile (httpx loggt die volle URL auf INFO,
+  das Token ist Teil des Pfades; gemessen 60 Zeilen/10 min). Zusätzlich lief `_redact` **nur**
+  im `JsonFormatter` — Produktion nutzt das Textformat, dort wurde nie etwas geschwärzt. Jetzt
+  schwärzt ein `RedactingFilter` formatunabhängig am Handler (Muster für `/bot<id>:<secret>`),
+  httpx/httpcore zusätzlich auf WARNING. **Verifiziert: 0 Treffer in 90 s nach Neustart.**
+  ⚠️ **Offen (menschlich): Token rotieren** — er steht weiterhin in den alten Journal-Daten.
+- **Prozess-Härtung aktiv (2026-07-21):** `deploy/stockbot-hardening.conf` →
+  `/etc/systemd/system/stockbot.service.d/hardening.conf`: `NoNewPrivileges`, `PrivateTmp`,
+  `PrivateDevices`, `ProtectSystem=strict` + `ReadWritePaths`, `ProtectKernel*`,
+  `RestrictSUIDSGID/Namespaces/Realtime`, `LockPersonality`. Vorher stand **alles** davon auf
+  `no`. `ProtectHome` und der unprivilegierte Nutzer bleiben Tor T1 (Dienst läuft als root aus
+  `/root/stockbot`). Nach Neustart keine Permission-Fehler, alle 11 Scheduler-Jobs da.
+- **Postgres-Gegenverifikation (2026-07-21):** Die 10 Contract-Tests, die lokal mangels Postgres
+  skippen, liefen erstmals gegen die echte Instanz (`tests/test_db_backend_users.py`: 47 passed).
+  Zusätzlich Read-only-Smoke aller selten benutzten Auswertungs-Abfragen (`burn_in_order_stats`,
+  Audit-Log, Shadow-Snapshots, Strategieversionen, Order-Events, Dashboard-Aggregat inkl.
+  `mode_reports`) — **keine weiteren Typvertrag-Verstöße**. Strategieversionen `standard`/
+  `bb_revert`/`ai_adaptive` lösen korrekt auf.
 - **W0 komplett (2026-07-15, `c0e43bd`, auf GitHub `main`, NOCH NICHT auf VPS deployt):** alle vier
   Betriebsschutz-Tasks via parallele Sol-Worker gebaut, reviewt, gemergt, Suite grün (877 passed,
   27 skipped). W0.1 Postgres-Backups (PLAT-009), W0.2 Deps gepinnt (PLAT-006a), W0.3 systemd-Härtung
@@ -338,7 +360,13 @@ ist seit 2026-07-19 auf dem VPS deployt (`3469052`, Alembic `c9d0e1f2a3b4`). **W
 - **Backup-Timer auf dem VPS aktiv** (W0-Rest): `pg-backup.timer`/`.service` installiert,
   `AGE_RECIPIENTS` gesetzt, Backup erzeugt **und restore-verifiziert** (`pg_restore --list`).
 
-Was noch offen ist:
+Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
+
+0. **Token rotieren** (menschlich, klein): Das Telegram-Bot-Token steht in den *alten*
+   Journal-Daten im Klartext. Das Leck selbst ist geschlossen, der bereits exponierte Wert
+   nicht. Optional zusätzlich `journalctl --rotate --vacuum-time=…` auf dem VPS.
+0b. **W4.5 verdrahten oder streichen:** Outbox/Domain-Events sind gebaut, aber nirgends
+   angeschlossen (siehe W4-Tabelle) — solange bleibt `burn_in.dead_letter_events` strukturell 0.
 
 1. **Visuelle Abnahme im Browser** (nur dort prüfbar): Mode-Report-Panel im Dashboard und der
    Pflicht-Bestätigungsdialog auf der Signalseite.
