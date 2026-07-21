@@ -16,13 +16,23 @@ from typing import Any, Callable, Mapping
 from stockbot import config
 from stockbot.broker import client as default_broker
 from stockbot.broker import sizing
-from stockbot.core import db, metrics, risk
+from stockbot.core import db, events, metrics, risk
 from stockbot.core.audit_log import new_event_id
 from stockbot.core.logging_setup import logging_context, new_trace_id
 from stockbot.core.domain import AuditEvent, Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
 from stockbot.core.state_machine import assert_order_transition, is_terminal_order_status
 
 log = logging.getLogger(__name__)
+
+# Welcher Orderzustand welches Domain-Event auslöst (W4.5). Zwischenschritte wie `created`
+# oder `validated` sind bewusst nicht dabei: nach außen zählt, was der Broker bestätigt hat.
+_STATUS_EVENT_TYPES = {
+    OrderStatus.SUBMITTED: events.ORDER_SUBMITTED,
+    OrderStatus.FILLED: events.ORDER_FILLED,
+    OrderStatus.PARTIALLY_FILLED: events.PARTIAL_FILL,
+    OrderStatus.REJECTED: events.ORDER_REJECTED,
+    OrderStatus.CANCELLED: events.ORDER_CANCELLED,
+}
 
 
 @dataclass(frozen=True)
@@ -295,12 +305,42 @@ class OrderManagementSystem:
         )
         transitioned = _as_order(row, mode=order.mode)
         self._audit_transition(transitioned, previous, target, event)
+        self._emit_domain_event(transitioned, target, event)
         # Erreicht die Order einen Endzustand, faellt ihr Audit-Kontext raus — sonst wuechse
         # der Cache im langlebigen OMS-Singleton unbegrenzt mit. Er ist ohnehin nur ein
         # Read-through-Cache: ein spaeteres Event laedt den Intent wieder aus der Persistenz.
         if is_terminal_order_status(target):
             self._audit_contexts.pop(order.id, None)
         return transitioned
+
+    def _emit_domain_event(self, order: Order, target: OrderStatus,
+                           metadata: Mapping[str, Any]) -> None:
+        """Schreibt den Statuswechsel als versioniertes Domain-Event in die Outbox.
+
+        Fail-open wie das Audit: die Transition ist bereits persistiert, ein Fehler beim
+        Einreihen darf den Handelspfad nicht brechen. Nur Zustände mit registriertem Event-Typ
+        werden gemeldet — Zwischenschritte (`created`/`validated`) erzeugen keins.
+        """
+        event_type = _STATUS_EVENT_TYPES.get(target)
+        if event_type is None:
+            return
+        enqueue = getattr(self.persistence, "enqueue_outbox_event", None)
+        if enqueue is None:            # Test-Doubles ohne Outbox: still überspringen
+            return
+        context = self._audit_contexts.get(order.id)
+        trace_id = (context[2] if context else None) or order.idempotency_key or f"order:{order.id}"
+        try:
+            enqueue(events.make_event(
+                event_type,
+                {
+                    "order_id": order.id, "user_id": order.user_id, "ticker": order.ticker,
+                    "qty": order.qty, "mode": order.mode.value,
+                    "reason": metadata.get("reason"), "price": metadata.get("filled_avg_price"),
+                },
+                trace_id=trace_id,
+            ))
+        except Exception as exc:                                     # pragma: no cover - Schutznetz
+            log.warning("Domain-Event nicht eingereiht (order=%s, %s): %s", order.id, target, exc)
 
     def _audit_transition(self, order: Order, previous: OrderStatus, target: OrderStatus,
                           metadata: Mapping[str, Any], *, action: str = "state_transition") -> None:

@@ -119,10 +119,13 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # acht wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale
-    # und Callback-Token-Purge (W7)
-    assert jq.run_repeating.call_count == 8
+    # neun wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale,
+    # Callback-Token-Purge (W7) und Outbox-Zustellung (W4.5)
+    assert jq.run_repeating.call_count == 9
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
+    # Ohne diesen Job bliebe die Outbox für immer liegen — sie war bis 2026-07-21 nie verdrahtet.
+    assert by_name["outbox_delivery"].args[0] is bot.outbox_delivery_job
+    assert by_name["outbox_delivery"].kwargs["interval"] == bot.OUTBOX_DELIVERY_SEC
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["shadow_signals"].args[0] is bot.run_shadow_signals
     assert by_name["shadow_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC

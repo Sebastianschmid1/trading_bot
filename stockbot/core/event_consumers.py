@@ -66,3 +66,25 @@ class NotificationConsumer:
     def handle(self, event: dict) -> None:
         # Wirft der Notifier, propagiert der Fehler → die Outbox retryt (mit Dedup idempotent).
         self._notifier(self._render(event))
+
+
+class ObservabilityConsumer:
+    """Protokolliert zugestellte Events — der Consumer, der in Produktion angeschlossen ist.
+
+    Bewusst **kein** `NotificationConsumer` im Live-Betrieb: Telegram-Nachrichten verschickt
+    `tgbot/bot.py` bereits direkt am Handelspfad. Ein zweiter Zustellweg über die Outbox
+    erzeugte dieselbe Nachricht ein zweites Mal. Bis der direkte Versand tatsächlich auf die
+    Outbox umgestellt ist, ist die Pipeline reine Beobachtung — sie belegt aber, dass Events
+    entstehen, zugestellt werden und ein Dead-Letter aussagekräftig ist (Gate P10).
+    """
+
+    def __init__(self, logger=None):
+        self._log = logger or log
+
+    def handle(self, event: dict) -> None:
+        payload = event.get("payload") or {}
+        self._log.info(
+            "domain-event zugestellt: %s v%s (order=%s, ticker=%s, trace_id=%s)",
+            event.get("event_type"), event.get("version"),
+            payload.get("order_id"), payload.get("ticker"), event.get("trace_id"),
+        )

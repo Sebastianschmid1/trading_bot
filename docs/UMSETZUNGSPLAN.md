@@ -203,7 +203,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W1** Risk-Wiring | `pretrade_check` mit echten Inputs live; Kill-Switch & Audit persistent | **P3, P1.1**, P2-Quote | ✅ erledigt (`5aa6ece`) |
 | **W2** OMS-Orchestrierung | Broker-Events, Reconciliation-Alarm, Partial-Fill-Handling live | **P4** | ✅ erledigt (`0ce4a65`) |
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ✅ code-komplett (Tor T0 ✅; W3.1 ✅; **W3.2 ✅ [P2]; W3.3 ✅ [P5]; W3.4 ✅ [P6/RES-002]; W3.5 ✅; W3.6 Exit-Policies ✅ CODE [Flag Default AUS, Aktivierung = Tor T2]**) |
-| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt bis auf **W4.5 (Outbox/Domain-Events: gebaut, aber nirgends verdrahtet — siehe Detailtabelle)**; Secrets-Pfad seit 2026-07-21 produktiv (systemd-Credentials) |
+| **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5); Secrets-Pfad und Outbox seit 2026-07-21 tatsächlich **in Betrieb**, nicht nur gebaut |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **erledigt** (2026-07-20): Komponentensystem `bf4d593` + Callback-Sicherheit `85b160e` + API v1 `bb3f36e` (abgenommen 2026-07-18), Seams verdrahtet `1867469`, Style-Phasen 3–5 + Mode-Report-Panel `48fc42c` |
@@ -276,7 +276,7 @@ stabilen Postgres-Markttagen bündeln.**
 | W4.2 | PLAT-005 Metriken + Alarmregeln (Quote-Alter, Reject/Fill-Rate, Reconciliation-Fehler, Positionen ohne Stop, Kill-Switch-Status) — **✅ ERLEDIGT** (`core/metrics.py` Registry + `core/alerts.py`, 9 Kennzahlen, schlanke Emits an OMS/Reconcile/Poll/Kill-Switch/Post-Trade/Heartbeat; Quote-Age-Emit try/except-gehärtet) | M/L | ✅ (nutzt W1.5/W2.2) |
 | W4.3 | PLAT-006b Secrets (systemd-Credentials, Rotation, kein Secret in Logs) — **✅ ERLEDIGT** (`_secret()` Präzedenz cred>env>.env, Settings-Maskierung, LoadCredential-Unit-Vorlage) | M | ✅ |
 | W4.4 | PLAT-007 Alpaca OAuth (Scopes, Token verschlüsselt, Revoke, Paper/Live getrennt) — **✅ ERLEDIGT** (`broker_oauth_connections`-Tabelle, Alembic `e5f6a7b8c9d0`; `execution/broker_oauth.py` additiv/opt-in, Fernet-verschlüsselte Token, Paper/Live getrennt, injizierbarer Revoke; API-Key-Pfad+TSAFE unberührt; Manager-implementiert) | L | ✅ |
-| W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) — **⚠️ CODE FERTIG, NICHT IN BETRIEB** (`core/events.py` versioniert, `core/outbox.py` Worker mit Retry/Dead-Letter/Backlog + `outbox_events`-Tabelle Alembic `f6a7b8c9d0e1`, `core/event_consumers.py` DedupConsumer + NotificationConsumer; Manager-implementiert). **Verifiziert 2026-07-21:** `outbox`/`events`/`event_consumers` kommen in `tgbot/`, `web/`, `execution/` **kein einziges Mal** vor — es wird nie ein Event erzeugt, nie zugestellt, und kein Scheduler ruft `deliver_due` auf. Folge: `burn_in.dead_letter_events` ist strukturell immer 0, das Gate-P10-Kriterium läuft ins Leere. **Offen: verdrahten (welche Events, welcher Consumer, Scheduler-Job) — bewusst nicht nebenbei gemacht, weil es den Live-Benachrichtigungspfad berührt.** | L | ⚠️ |
+| W4.5 | Pakete B/C/D (Domain Events, Outbox, Notifications als Consumer) — **✅ VERDRAHTET (2026-07-21)**: `OMS._emit_domain_event` reiht jeden Statuswechsel (submitted/filled/partial/rejected/cancelled) als versioniertes Event in die Outbox (fail-open — ein Outbox-Fehler bricht nie den Handelspfad), Scheduler-Job `outbox_delivery` (60 s) stellt an den neuen `ObservabilityConsumer` zu. **Bewusst NICHT der `NotificationConsumer`:** Telegram-Nachrichten verschickt `bot.py` weiterhin direkt am Handelspfad, ein zweiter Weg über die Outbox erzeugte Dubletten. Damit misst `burn_in.dead_letter_events` erstmals etwas Echtes. Tests: `tests/test_outbox_wiring.py` (5). Historie: bis dahin galt — (`core/events.py` versioniert, `core/outbox.py` Worker mit Retry/Dead-Letter/Backlog + `outbox_events`-Tabelle Alembic `f6a7b8c9d0e1`, `core/event_consumers.py` DedupConsumer + NotificationConsumer; Manager-implementiert). **Verifiziert 2026-07-21:** `outbox`/`events`/`event_consumers` kommen in `tgbot/`, `web/`, `execution/` **kein einziges Mal** vor — es wird nie ein Event erzeugt, nie zugestellt, und kein Scheduler ruft `deliver_due` auf. Folge: `burn_in.dead_letter_events` ist strukturell immer 0, das Gate-P10-Kriterium läuft ins Leere. **Offen: verdrahten (welche Events, welcher Consumer, Scheduler-Job) — bewusst nicht nebenbei gemacht, weil es den Live-Benachrichtigungspfad berührt.** | L | ⚠️ |
 
 ## W5 — Backtest-Härtung (Gate P7; Research-Strang, parallel zu W2–W4)
 
@@ -365,8 +365,10 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
 0. **Token rotieren** (menschlich, klein): Das Telegram-Bot-Token steht in den *alten*
    Journal-Daten im Klartext. Das Leck selbst ist geschlossen, der bereits exponierte Wert
    nicht. Optional zusätzlich `journalctl --rotate --vacuum-time=…` auf dem VPS.
-0b. **W4.5 verdrahten oder streichen:** Outbox/Domain-Events sind gebaut, aber nirgends
-   angeschlossen (siehe W4-Tabelle) — solange bleibt `burn_in.dead_letter_events` strukturell 0.
+0b. ~~W4.5 verdrahten oder streichen~~ → **erledigt 2026-07-21** (Events aus dem OMS, Zustelljob
+   `outbox_delivery`, `ObservabilityConsumer`; kein doppelter Telegram-Versand). Offen bleibt die
+   *fachliche* Frage, ob der direkte Nachrichtenversand später ganz auf die Outbox umziehen soll —
+   das wäre eine Änderung am Benachrichtigungsverhalten und gehört separat entschieden.
 
 1. **Visuelle Abnahme im Browser** (nur dort prüfbar): Mode-Report-Panel im Dashboard und der
    Pflicht-Bestätigungsdialog auf der Signalseite.

@@ -40,6 +40,8 @@ from stockbot.market import provider_factory
 from stockbot.research import shadow_scheduler
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
+from stockbot.core import outbox
+from stockbot.core.event_consumers import ObservabilityConsumer
 from stockbot.core.settings import validate_config, assert_postgres_backend
 from stockbot.core.logging_setup import configure_logging
 from stockbot.core.domain import Mode, Order, OrderStatus, Signal, SignalStatus, TradeIntent
@@ -98,6 +100,8 @@ log = logging.getLogger(__name__)
 
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
+OUTBOX_DELIVERY_SEC = 60          # Zustell-Takt der Domain-Event-Outbox (W4.5)
+_OUTBOX_CONSUMER = ObservabilityConsumer()
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
 
@@ -2801,6 +2805,22 @@ async def purge_callback_tokens_job(context):
         log.warning(f"Callback-Token-Purge fehlgeschlagen: {e}")
 
 
+async def outbox_delivery_job(context):
+    """Stellt fällige Domain-Events aus der Outbox zu (W4.5) — fail-open.
+
+    Ohne diesen Job blieben die Events für immer liegen: die Outbox war gebaut, aber nie
+    angeschlossen, sodass `burn_in.dead_letter_events` strukturell 0 meldete. Zugestellt wird
+    an den `ObservabilityConsumer` — der Telegram-Versand läuft weiterhin direkt am
+    Handelspfad und wird hier NICHT dupliziert.
+    """
+    try:
+        result = outbox.deliver_due([_OUTBOX_CONSUMER])
+        if result.dead:
+            log.warning(f"Outbox: {result.dead} Event(s) im Dead-Letter — Zustellung prüfen.")
+    except Exception as e:
+        log.warning(f"Outbox-Zustellung fehlgeschlagen: {e}")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2853,6 +2873,10 @@ def _register_jobs(app):
     job_queue.run_repeating(
         purge_callback_tokens_job, interval=24 * 3600, first=3600,
         name="purge_callback_tokens",
+    )
+    job_queue.run_repeating(
+        outbox_delivery_job, interval=OUTBOX_DELIVERY_SEC, first=OUTBOX_DELIVERY_SEC,
+        name="outbox_delivery",
     )
 
 
