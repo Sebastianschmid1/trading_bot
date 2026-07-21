@@ -206,7 +206,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5); Secrets-Pfad und Outbox seit 2026-07-21 tatsächlich **in Betrieb**, nicht nur gebaut |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
 | **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
-| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **erledigt** (2026-07-20): Komponentensystem `bf4d593` + Callback-Sicherheit `85b160e` + API v1 `bb3f36e` (abgenommen 2026-07-18), Seams verdrahtet `1867469`, Style-Phasen 3–5 + Mode-Report-Panel `48fc42c` |
+| **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **erledigt** (2026-07-20): Komponentensystem `bf4d593` + Callback-Sicherheit `85b160e` + API v1 `bb3f36e` (abgenommen 2026-07-18), Seams verdrahtet `1867469`, Style-Phasen 3–5 + Mode-Report-Panel `48fc42c`. **Stylekonzept-Audit v1.1 (2026-07-22, `docs/Stylekonzept.md` §32):** Tokens/Kernkomponenten bestätigt 1:1, Kontrast WCAG-AA verifiziert; Style-Rest-Tasks s. „Was jetzt" Punkt 1b |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | ✅ code-komplett (`5d38d5d`: Replay-, Failure-Injection-Suite, `core/burn_in.py`, `docs/GO_NO_GO.md`) — offen: **Burn-in-Kalenderzeit + Tor T5** |
 
 ---
@@ -372,6 +372,23 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
 
 1. **Visuelle Abnahme im Browser** (nur dort prüfbar): Mode-Report-Panel im Dashboard und der
    Pflicht-Bestätigungsdialog auf der Signalseite.
+1b. **Style-Nacharbeit aus dem Stylekonzept-Audit v1.1** (`docs/Stylekonzept.md` §32, 2026-07-22).
+   Das Konzept wurde gegen die W7-Umsetzung auditiert: Tokens (§27→`tokens.css`) und Kernkomponenten
+   sind 1:1 umgesetzt, **Kontrast durchgehend WCAG-AA verifiziert** (nur `--text-disabled` fällt
+   zulässig durch), der Locale-Widerspruch in §6.3 (Punkt/Komma gemischt) ist im Konzept gefixt. Als
+   **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Sol-Tasks, „Gate Style"-Rest):
+   (a) §32.3 Feed-Staleness dreistufig **an das Quote-Freshness-Gate (P2-quote) gekoppelt** —
+   `veraltet` blockiert orderrelevante Buttons sichtbar; Zeitzonen immer beschriftet (Marktzeit `ET`
+   vs. System `UTC`); (b) §32.4 Trade-Bestätigungsdialog: Fokus-Trap/ESC/Fokus-Rückgabe **und
+   Anti-Fehlklick** (Confirm nicht initial fokussiert, nicht per Enter auslösbar) — betrifft
+   Live-Sicherheit, vor Aktivierung eines Live-Pfads Pflicht; (c) §32.5 eigener „Daten unsicher"-Zustand
+   (warning-Banner + disabled Controls, kein optimistischer Schätzwert); (d) §32.6 §9.1-Navigation auf
+   die echten Routen mappen (`watchlist`/`history`/`backtest`/`lab` etc. dürfen nicht ungestylt
+   bleiben); (e) §32.7 kategoriale, farbenblind-sichere Chart-Palette `--cat-1…6` (getrennt von
+   Grün/Rot); (f) §32.8 gemeinsames matplotlib-Style-Mapping der Tokens, damit Backtest-/Report-PNGs
+   nicht von den Web-Charts abweichen; (g) §32.9 ein Web↔Telegram-Glossar (DoD §30 verlangt
+   Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**. Reihenfolge:
+   (a)+(b) zusammen mit der visuellen Abnahme (Punkt 1), Rest nach Bedarf.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
 3. **W8 Burn-in — Kalenderzeit. Zählt effektiv erst ab 2026-07-20 abends** (davor fehlten die

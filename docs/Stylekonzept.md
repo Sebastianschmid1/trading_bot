@@ -1,9 +1,13 @@
 # Stylekonzept: Trading Research & Execution Assistant
 
-**Version:** 1.0  
-**Stand:** 11. Juli 2026  
+**Version:** 1.1  
+**Stand:** 21. Juli 2026 (Audit-Nachtrag, s. §32) · v1.0 vom 11. Juli 2026  
 **Designrichtung:** modern, reduziert, professionell, Dark Mode  
 **Ziel:** Einheitliches visuelles und interaktives Design für Web-App, Dashboard und Telegram-Kommunikation
+
+**Kanonische Quelle der Tokens:** `stockbot/web/static/tokens.css` (in W7 1:1 aus §27 umgesetzt).
+Dieses Dokument ist die **Begründung/Spezifikation**; bei Abweichung gewinnt `tokens.css` und das
+Dokument wird nachgezogen. Änderungen an Tokens erfordern einen Eintrag im Changelog (§32).
 
 ---
 
@@ -332,16 +336,26 @@ Die Monospace-Schrift wird nur für tabellarische Zahlen, Kurse, Zeitstempel und
 - P&L: Monospace.
 - Prozente: maximal zwei Dezimalstellen.
 - Große Werte mit lokaler Tausendertrennung.
-- Positive Werte mit `+`, negative Werte mit `−`.
+- Positive Werte mit `+`, negative Werte mit `−` (echtes Minus U+2212, nicht Bindestrich).
 - Keine unnötig hohe Präzision.
+
+**Locale-Regel (v1.1, verbindlich — vorher uneinheitlich):** genau zwei Format-Domänen, nie
+gemischt:
+
+1. **Instrumentwerte** (Einzelkurse, Entry, Stop) in der **Währung und Konvention des Instruments**
+   — US-Aktien also `$184.26` mit Punkt-Dezimaltrennung.
+2. **Konto-/Portfoliowerte und P&L** in der **Kontowährung mit deutscher Konvention** — Komma als
+   Dezimal-, Punkt als Tausendertrennung, Währungssymbol nachgestellt: `1.250,00 €`, `−18,40 €`.
+
+Prozente immer mit Punkt und Leerzeichen vor `%`: `+2.41 %`.
 
 Beispiele:
 
 ```text
-$184.26
-+2.41 %
-−€18.40
-1.250,00 €
+$184.26        (Instrumentkurs)
+1.250,00 €     (Kontowert)
+−18,40 €       (P&L, Kontowährung)
++2.41 %        (Prozent)
 ```
 
 ---
@@ -1367,3 +1381,132 @@ Die wichtigsten visuellen Regeln sind:
 - keine übertriebene KI- oder Trading-Ästhetik.
 
 Das Ergebnis ist ein modernes Dark-Mode-Produkt, das wie ein professionelles Kontroll- und Analysewerkzeug wirkt.
+
+---
+
+## 32. Audit-Nachtrag & Präzisierungen (v1.1, 2026-07-22)
+
+Ergebnis eines Reviews von v1.0 gegen die tatsächliche W7-Umsetzung. v1.0 ist inhaltlich stark;
+die folgenden Punkte schließen konkrete Lücken und lösen zwei innere Widersprüche auf. Alles hier
+ist **normativ** und ergänzt bzw. präzisiert die referenzierten Abschnitte.
+
+### 32.1 Kontrast — verifiziert (WCAG 2.1 AA), ergänzt §24
+
+Die Token-Paare wurden gemessen. **Alle Text- und Semantikfarben bestehen AA (≥ 4.5:1)** auf
+`--bg-surface-2`; die Regel „kritische Info nie nur farblich" (§16.3) bleibt trotzdem Pflicht.
+
+| Paar (auf `#171C22` surface-2) | Ratio | Bewertung |
+|---|---:|---|
+| `--text-primary #F4F7FA` | 15.94 | AA ✓ |
+| `--text-secondary #B5C0CC` | 9.28 | AA ✓ |
+| `--text-muted #7F8B99` | 4.94 | AA ✓ (knapp — s. u.) |
+| `--text-disabled #56616D` | 2.71 | **fällt durch** — nur für *disabled* zulässig (WCAG-Ausnahme) |
+| `--primary #5B8CFF` | 5.42 | AA ✓ |
+| `--success #35C98F` | 8.08 | AA ✓ |
+| `--warning #F2B84B` | 9.57 | AA ✓ |
+| `--danger #FF667A` | 6.07 | AA ✓ |
+| `--info #66B7FF` | 7.98 | AA ✓ |
+| `--text-inverse` auf `--primary`/`--success`/`--warning`/`--danger` | 6.15 / 9.18 / 10.87 / 6.89 | AA ✓ (Button-Text lesbar) |
+
+Regeln daraus:
+- `--text-muted` liegt bei 4.94 nur knapp über AA und wird **auf helleren Flächen als surface-2
+  (surface-3/elevated/hover) nicht mehr für lesepflichtigen Text** verwendet, sondern nur für
+  Metadaten. Auf hellen Flächen `--text-secondary` nehmen.
+- `--text-disabled` ist **ausschließlich** für inaktive Controls — nie für dauerhaft zu lesenden
+  Inhalt, nie für Status.
+
+### 32.2 Modusfarben vs. Semantikfarben — Kollision aufgelöst, ergänzt §5/§16
+
+Die Modusfarben sind **absichtlich** identisch zu Semantikfarben (Paper = `--warning`,
+Live = `--danger`, Shadow = `--info`, Backtest ≈ Research-Violett). Das ist eine Kollision: ein
+gelber Chip könnte „Paper" oder „Warnung" heißen. Auflösung — Modus-Kennzeichen ist **nie nur
+Farbe**, sondern eine eigene, unverwechselbare Behandlung:
+- Modus-Chip trägt **immer** einen gefüllten Punkt **und** das Modus-Wort in Großbuchstaben
+  (`● LIVE`, `● PAPER`), sitzt an fester Position (Topbar/Kartenkopf) und ist **persistent**.
+- Transiente Semantik (Warnung/Fehler/Erfolg) erscheint **nie** in dieser Chip-Form an
+  Modus-Positionen, sondern als Alert/Inline-Status (§17).
+- Ein Element zeigt nie gleichzeitig Modus- und Semantikbedeutung in derselben Farbfläche.
+
+### 32.3 Datenaktualität & Zeit — an das Safety-Modell gekoppelt, neu
+
+Die Frische-Anzeige ist kein Kosmetik-, sondern ein Sicherheits-Element (Quote-Freshness-Gate,
+P2-quote). Verbindlich:
+- **Feed-Status** hat drei sichtbare Zustände, an denselben Schwellen wie das Backend-Gate:
+  `aktuell` (neutral/grün-Chip), `verzögert` (`--warning`, Alter anzeigen), `veraltet – Orders
+  blockiert` (`--danger`). Der veraltete Zustand **blockiert orderrelevante Aktionen sichtbar**
+  (Buttons disabled + Begründung), statt sie nur zu markieren.
+- **Zeitzonen** sind immer beschriftet. Marktbezogene Zeiten (Ablauf, Marktöffnung) in
+  **Marktzeit mit Kürzel** (`16:10 ET`); System-/Audit-Zeiten in **UTC**. Nie eine unbeschriftete
+  Lokalzeit rendern (der DB-Zeitvertrag ist naive UTC — die UI beschriftet explizit, was sie zeigt).
+
+### 32.4 Dialog- & Fokus-Verhalten — a11y-Pflicht, ergänzt §18/§22/§24
+
+Für alle modalen Dialoge, besonders den Trade-Bestätigungsdialog (§18.1):
+- `role="dialog"` / `aria-modal="true"`, Fokus wird **gefangen** (Fokus-Trap), ESC schließt,
+  beim Schließen kehrt der Fokus auf das auslösende Element zurück.
+- **Anti-Fehlklick (Live/verbindlich):** Der bestätigende Primärbutton ist **nicht**
+  initial fokussiert und **nicht** per Enter auslösbar; Initialfokus liegt auf „Abbrechen" bzw.
+  dem Bestätigungs-Eingabefeld. Damit löst kein versehentliches Enter eine Order aus.
+- Loading-Zustand des Bestätigungsbuttons verhindert Doppel-Submit (deckt sich mit der
+  OMS-Doppelklick-Absicherung; §12.5).
+
+### 32.5 „Unsicher/degradiert" als eigener visueller Zustand, ergänzt §20.3
+
+§20.3 fordert Markierung, definiert aber kein Muster. Festgelegt: ein **degradierter Zustand**
+nutzt ein `--warning`-umrandetes Banner mit Text „Daten unsicher — …" plus disabled-geschaltete
+orderrelevante Controls. Er ist visuell von „Loading" (Skeleton) und „Fehler" (`--danger`)
+klar unterscheidbar. Optimistische Schätzwerte sind in diesem Zustand verboten.
+
+### 32.6 Navigations-Taxonomie mit der echten App abgeglichen, ergänzt §9.1
+
+§9.1 listet eine generische Idealnavigation. Die reale App hat u. a. `dashboard`, `settings`,
+`lab` (Strategie-Labor), `reports`, `backtest`, `watchlist`, `history`, `login`. Verbindlich:
+Bevor die Seiten aufgebaut werden, wird §9.1 auf die **tatsächlichen Routen** gemappt (z. B.
+Watchlist/History als Erstklasse-Punkte, Backtest+Labor im Admin-/Research-Bereich). Das Konzept
+beschreibt Ziel-IA; die Umsetzung darf keine im Konzept fehlende Seite ungestylt lassen.
+
+### 32.7 Kategoriale Chart-Palette, ergänzt §15
+
+§15 deckt 2–3 Reihen ab, aber „Strategieaufteilung" braucht mehrere unterscheidbare Serien.
+Festgelegt: eine **feste, farbenblind-sichere kategoriale Palette** (getrennt von Grün/Rot, die
+semantisch reserviert bleiben), maximal 6 Kategorien, danach „Sonstige" aggregieren. Wird als
+eigene Token-Gruppe (`--cat-1 … --cat-6`) definiert, sobald die erste Mehrserien-Grafik gebaut wird.
+
+### 32.8 Web ↔ Matplotlib-Export-Parität, neu
+
+Backtest/Reports erzeugen server-seitige PNGs (matplotlib). Diese müssen dieselben Farben/
+Konventionen wie die Web-Charts verwenden (dunkler Hintergrund, Primärblau-Kurve, Benchmark grau,
+kategoriale Palette aus §32.7). Ein gemeinsames matplotlib-Style-Mapping der Tokens wird
+angelegt, damit Export und Web nicht auseinanderlaufen. Dies deckt auch die
+dataviz-Konsistenz aus §15 für Exporte ab.
+
+### 32.9 Begriffs-Parität Web ↔ Telegram, ergänzt §25/§26/§30
+
+Die DoD (§30) verlangt identische Terminologie über beide Kanäle, es fehlt aber die gemeinsame
+Quelle. Festgelegt: ein **einziges Glossar** (Web + Telegram referenzieren dieselben Strings für
+Status-, Modus- und Aktionsbegriffe — „Trade prüfen", „Durch Risikoregel blockiert",
+„Signal abgelaufen" …). Divergierende Formulierungen für denselben Zustand sind ein Defekt.
+
+### 32.10 Light Mode als bewusstes Nicht-Ziel, ergänzt §2.6/§24
+
+Dark-only ist eine **bewusste Produktentscheidung** (`color-scheme: dark`), kein Versäumnis.
+Explizit festgehalten, damit A11y-Reviews es als Scope-Grenze kennen. Falls je ein Hell-/
+Hochkontrast-Modus nötig wird, geschieht das über die bestehende Token-Ebene (ein zweites
+`:root`-Theme), nicht durch Einzelfarben — die Komponenten bleiben tokenbasiert.
+
+### 32.11 Umsetzungsstand (Abgleich mit W7)
+
+- **Umgesetzt (W7, deployt):** §27 Tokens → `tokens.css` (1:1, 100 Tokens); Kernkomponenten
+  (§11/§12/§14/§16/§17) → `components.css` + Makros; Pflicht-Bestätigungsdialog (§18.1),
+  „Trade prüfen" statt grünem Kaufbutton (§11.2/§12.4), Kill-Switch-Chip, Mode-Report-Panel
+  (§5); base.html lädt beide Stylesheets.
+- **Offen / durch diesen Nachtrag präzisiert:** §32.3 Staleness-Kopplung an das Gate,
+  §32.4 Fokus-Trap + Anti-Fehlklick im Live-Dialog, §32.5 degradierter Zustand, §32.6
+  Routen-Mapping, §32.7 kategoriale Palette, §32.8 Matplotlib-Parität, §32.9 Glossar. Diese
+  gehen als Style-Nacharbeit in den Umsetzungsplan (Gate Style / W7-Rest).
+
+### Changelog
+
+- **v1.1 (2026-07-22):** Audit-Nachtrag §32; §6.3 Locale-Regel vereinheitlicht (war
+  Punkt/Komma gemischt); Header: `tokens.css` als kanonische Quelle + Governance.
+- **v1.0 (2026-07-11):** Erstfassung.
