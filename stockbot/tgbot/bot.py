@@ -1189,7 +1189,9 @@ def _strategy_exit_reason(trade: dict, price: float | None) -> str | None:
     try:
         sig = trade.get("signal") or {}
         strategy_key = sig.get("strategy") or "standard"
-        now = datetime.now(timezone.utc)
+        # Naive UTC, konsistent mit dem naiven opened_at (reconcile_mod._parse_ts) und dem restlichen
+        # Code — sonst crasht `now - opened_at` in evaluate_strategy_exit (naiv vs. aware).
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         opened_at = reconcile_mod._parse_ts(trade.get("created_at"))
         # Bars des kürzesten konfigurierten Timeframes über den Prod-Signalprovider (nie yfinance).
         bars = None
