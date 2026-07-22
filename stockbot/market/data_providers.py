@@ -47,7 +47,13 @@ def _normalize_alpaca_bars(df: pd.DataFrame) -> pd.DataFrame:
     idx = out.index
     if isinstance(idx, pd.MultiIndex):
         idx = idx.get_level_values(-1)   # letzte Ebene ist der Zeitstempel
-    out.index = pd.DatetimeIndex(idx)
+    idx = pd.DatetimeIndex(idx)
+    # Zielvertrag ist yfinance-förmig (Daily-Index war naiv) und der Rest des Codes rechnet
+    # durchgehend mit naiver UTC (DB-Zeitvertrag). Alpaca liefert dagegen tz-aware UTC → hier auf
+    # naive UTC ziehen, sonst knallt jeder Vergleich mit einer naiven Zeit (tz-naive vs tz-aware).
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    out.index = idx
     return out
 
 

@@ -256,6 +256,33 @@ def test_alpaca_get_bars_batch_normalizes_multiindex_per_ticker():
     assert data_client.last_bars_request.symbol_or_symbols == ["AAPL", "MSFT"]
 
 
+def test_normalize_alpaca_bars_strips_tz_from_datetimeindex():
+    # Alpaca liefert tz-aware UTC; Zielvertrag ist yfinance-förmig/naive UTC (DB-Zeitvertrag).
+    ts = pd.DatetimeIndex(["2026-06-01 14:30", "2026-06-01 15:30"], tz="UTC")
+    df = pd.DataFrame(
+        {"open": [10, 11], "high": [12, 13], "low": [9, 10],
+         "close": [11, 12], "volume": [100, 200]},
+        index=ts)
+    out = dp._normalize_alpaca_bars(df)
+    assert out.index.tz is None
+    # Zeitwerte bleiben als UTC-Wanduhr erhalten
+    assert list(out.index) == [pd.Timestamp("2026-06-01 14:30"), pd.Timestamp("2026-06-01 15:30")]
+
+
+def test_normalize_alpaca_bars_strips_tz_from_multiindex():
+    ts = pd.DatetimeIndex(["2026-06-01 14:30", "2026-06-01 15:30"], tz="UTC")
+    idx = pd.MultiIndex.from_arrays(
+        [["AAPL", "AAPL"], ts], names=["symbol", "timestamp"])
+    df = pd.DataFrame(
+        {"open": [10, 11], "high": [12, 13], "low": [9, 10],
+         "close": [11, 12], "volume": [100, 200]},
+        index=idx)
+    out = dp._normalize_alpaca_bars(df)
+    assert not isinstance(out.index, pd.MultiIndex)
+    assert out.index.tz is None
+    assert list(out.index) == [pd.Timestamp("2026-06-01 14:30"), pd.Timestamp("2026-06-01 15:30")]
+
+
 def test_alpaca_get_bars_batch_empty_tickers_is_noop():
     provider = _alpaca_provider()
     assert provider.get_bars_batch([], interval="1d", period="5d") == {}
