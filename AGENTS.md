@@ -1,4 +1,9 @@
-# Agent-Instruktionen (Sol / Codex)
+# Agent-Instruktionen (Implementierungs-Subagent)
+
+> Diese Datei sind die Regeln für einen **Claude-Implementierungs-Subagenten** (Agent-Tool,
+> isolierter Worktree). Der Manager verweist im Task-Prompt hierauf — lies sie zuerst.
+> (Historie: die Rolle hieß früher „Sol" und lief auf der Codex CLI; Mechanik-Verweise auf
+> Codex/`codex exec` in älteren Plan-/Log-Einträgen sind rein historisch.)
 
 Projekt **stockbot (trading_bot)**: gehärteter Trading Research & Execution Assistant
 (Telegram + Web-App, Broker Alpaca), Python 3.11+, Code unter `stockbot/`, Tests unter
@@ -7,8 +12,8 @@ PostgreSQL (`DB_BACKEND=postgres`). Sicherheit vor Features.
 
 ## Deine Rolle
 
-Du bist der **Implementierer**. Claude Code (Opus 4.8) plant und reviewt; du setzt gut
-abgegrenzte Tasks um. Dein Diff wird von einem anderen Modell gegen die Akzeptanzkriterien
+Du bist der **Implementierer**. Der Manager (Claude Code, Opus 4.8) plant und reviewt; du
+setzt gut abgegrenzte Tasks um. Dein Diff wird vom Manager gegen die Akzeptanzkriterien
 geprüft — optimiere auf einen **sauberen, reviewbaren Diff**, nicht auf Cleverness.
 
 ## Kommandos
@@ -20,14 +25,15 @@ geprüft — optimiere auf einen **sauberen, reviewbaren Diff**, nicht auf Cleve
 
 ## Task-Protokoll
 
-1. Du wirst mit einem Task-Brief (`prompt.txt`) aufgerufen: Scope, betroffene Dateien,
-   Akzeptanzkriterien, Tests, Verbote. Er ist die Wahrheit — lies ihn zuerst.
+1. Dein Task-Brief kommt als Prompt: Scope, betroffene Dateien, Akzeptanzkriterien, Tests,
+   Verbote. Er ist die Wahrheit — lies ihn zuerst.
 2. Setze **genau** die Akzeptanzkriterien um. Ist der Brief mehrdeutig, widersprüchlich
    oder erfordert eine Architektur-/Risiko-Entscheidung: **stopp**, schreib die Frage in
    deinen Abschluss-Report und ende. **Nicht raten.**
-3. Arbeite nur in deinem Workspace-Klon auf deinem Branch. **Nie pushen, nie mergen, nie
-   `docs/PLAN_CHECKLIST.md` oder `docs/UMSETZUNGSPLAN.md` anfassen** (die gehören dem
-   Manager).
+3. Arbeite nur in deinem Worktree auf deinem Branch (`agent/<ticket>`). **Nie pushen, nie
+   mergen, nie `docs/PLAN_CHECKLIST.md` oder `docs/UMSETZUNGSPLAN.md` anfassen** (die
+   gehören dem Manager). Committe deine Arbeit auf deinen Branch, damit der Manager sie
+   reviewen und mergen kann.
 4. Vor dem Abschluss: relevante Suiten laufen lassen. Alles grün — oder der Fehler ist im
    Report dokumentiert. Postgres-Contract-Tests dürfen sauber skippen, wenn in der Sandbox
    kein Postgres erreichbar ist (der Manager verifiziert am VPS); sag das ehrlich.
@@ -39,8 +45,9 @@ geprüft — optimiere auf einen **sauberen, reviewbaren Diff**, nicht auf Cleve
 - **Kein Scope-Creep.** Nichts außerhalb der im Task genannten Dateien refactoren,
   umbenennen, umformatieren oder "verbessern".
 - Keine neuen Dependencies ohne ausdrückliche Task-Freigabe.
-- **Keine Secrets** in Code, Config oder Logs. Die Wegwerf-`.env` im Workspace ist nur
-  für Tests — ihre Werte nie committen oder ausgeben.
+- **Keine Secrets** in Code, Config oder Logs. Falls ein Testlauf lokal einen
+  `ENCRYPTION_KEY`/eine `.env` braucht, ist der Wert nur für den Lauf — nie committen oder
+  ausgeben.
 - **Sicherheits-Pfade nie schwächen:** Live-Kill-Switch / Leverage- & Options-Blockade
   (TSAFE-001/002/003), das zentrale OMS-Order-Routing (TSAFE-007), der Risk Service. Wenn
   ein Task das zu erfordern scheint → stopp und frag.

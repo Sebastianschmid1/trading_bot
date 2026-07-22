@@ -3,7 +3,9 @@
 > Sequenzierter Fahrplan für das offene Backlog aus [PLAN_CHECKLIST.md](PLAN_CHECKLIST.md).
 > Erstellt am 2026-07-15 (Fabel-Plan-Architekt, gegen den echten Code kalibriert).
 > **Arbeitsmodell:** Engineering-Manager (Claude) plant/reviewt, alle Coding-Aufgaben gehen an
-> parallele "Sol"-Worker (Codex CLI). Unabhängige Pakete → mehrere Sol-Worker gleichzeitig.
+> parallele **Claude-Implementierungs-Subagenten** (Agent-Tool, isolierter Worktree je Task).
+> Unabhängige Pakete → mehrere Subagenten gleichzeitig. (Ältere Einträge nennen die Rolle
+> „Sol"/Codex CLI — historisch; seit 2026-07-22 sind es Claude-Subagenten.)
 
 ## Projektstand (Einstieg für eine frische Sitzung)
 
@@ -128,9 +130,10 @@ gemergt + reviewt, volle Suite auf gemergtem main selbst gefahren:
 **Diese Session gemergt (lokal main, NICHT gepusht/deployt):** W4.1 Logging, W4.3 Secrets,
 W5.1 Backtest-Seam, W4.2 Metriken, W5.3 Kostenmodell, W5.2 Look-ahead — **6 Tasks**.
 
-**⚠️ Codex/Sol-Usage-Limit erreicht (2026-07-17)** — Sol kann bis zum Reset keine neuen
-Coding-Tasks fahren. **Nutzer-Override für diese Session: der Manager implementiert die
-restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt), bis Sol zurück ist.
+**⚠️ Codex/Sol-Usage-Limit erreicht (2026-07-17, historisch)** — der damalige Codex-Worker
+konnte bis zum Reset keine neuen Coding-Tasks fahren. **Nutzer-Override für jene Session: der
+Manager implementierte die restlichen ungateten Tasks selbst** (mit Tests + Review-Sorgfalt).
+*(Obsolet seit dem Wechsel auf Claude-Subagenten 2026-07-22 — kein externes Usage-Limit mehr.)*
 Manager-implementiert: **W5.5 ✅** (`a1d74a7`), **W5.4 ✅** (`05a17fd`), **W5.6 Validierung ✅**
 (`d1f53d4`) → **ganz W5 fertig (Gate P7)**, **W4.4 Alpaca-OAuth-Seam ✅** (`2bb1636`, Alembic-Head
 `e5f6a7b8c9d0`), **W4.5 Pakete B/C/D ✅** (`85ecf6c`, Alembic-Head `f6a7b8c9d0e1`) → **ganz W4 komplett**.
@@ -218,11 +221,11 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 
 Kein Eingriff in den Trading-Codepfad → stört den Postgres-Burn-in nicht.
 
-| # | Task (Sol-tauglich) | Scope | Aufwand | Abh. | Parallel? |
+| # | Task (Subagent-tauglich) | Scope | Aufwand | Abh. | Parallel? |
 |---|---|---|---|---|---|
 | W0.1 | **PLAT-009 Postgres-Backups** | `pg_dump` verschlüsselt (age/gpg) per Timer, Aufbewahrungsplan, Restore-Test-Skript + dokumentierter Test gegen Wegwerf-DB. **Höchste Dringlichkeit: Prod-DB hat aktuell kein Backup.** | M | — | ✅ |
 | W0.2 | **PLAT-006a Deps pinnen** | `requirements.lock` (pip-tools/freeze), `pip-audit`, yfinance-tz-Cache-FD-Leck prüfen (todo.md A2), Dependabot-Konfig. | S | — | ✅ |
-| W0.3 | **PLAT-008 systemd-Härtung** | Units umschreiben (eigener User `stockbot`, `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict` + `ReadWritePaths`, Limits), Pfad-Anpassung in `deploy/*.sh`/`upload.ps1`. Sol schreibt Units + Migrationsanleitung; **VPS-Migration = menschlicher Deploy-Schritt (Tor T1).** | M | — | ✅ |
+| W0.3 | **PLAT-008 systemd-Härtung** | Units umschreiben (eigener User `stockbot`, `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict` + `ReadWritePaths`, Limits), Pfad-Anpassung in `deploy/*.sh`/`upload.ps1`. Der Subagent schreibt Units + Migrationsanleitung; **VPS-Migration = menschlicher Deploy-Schritt (Tor T1).** | M | — | ✅ |
 | W0.4 | **Paket A Konfig/Flags** | Typisierte Settings-Klasse um `config.py`, Modusvalidierung beim Start, Start-Verweigerung bei riskanter Fehlkonfig. | M | — | ✅ |
 
 ## W1 — Risk-Wiring (Kern-Sicherheitswelle) — ✅ ERLEDIGT (`5aa6ece`)
@@ -295,7 +298,7 @@ Blockiert nicht den Paper-Burn-in, wohl aber Canary. Kann früh parallel anlaufe
 
 RES-006 Champion/Candidate (M) → Suchraumgrenzen/LLM-Validierung (M, parallel) → Pending-Workflow +
 RES-005 Holdout-Schutz (M, parallel) → Promotion-Gates (S, seriell zuletzt). **Jede Promotion =
-menschliches Tor T3, kein Sol-Task.**
+menschliches Tor T3, kein Subagent-Task.**
 
 ## W7 — UI/Design & Querschnitt (parallel zu W5/W6)
 
@@ -327,7 +330,7 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 3. **W1.1 Risk-Context-Loader** — schaltet ~10 fertige, getestete Risk-Checks scharf; fast reine Verdrahtung.
 4. **W1.5 Post-Trade-Scan** — S-Aufwand, erkennt ungeschützte Positionen (P9-Kriterium nebenbei).
 
-## Menschliche Entscheidungs-Tore (keine Sol-Tasks)
+## Menschliche Entscheidungs-Tore (keine Subagent-Tasks)
 
 | Tor | Wann | Inhalt |
 |---|---|---|
@@ -376,7 +379,7 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    Das Konzept wurde gegen die W7-Umsetzung auditiert: Tokens (§27→`tokens.css`) und Kernkomponenten
    sind 1:1 umgesetzt, **Kontrast durchgehend WCAG-AA verifiziert** (nur `--text-disabled` fällt
    zulässig durch), der Locale-Widerspruch in §6.3 (Punkt/Komma gemischt) ist im Konzept gefixt. Als
-   **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Sol-Tasks, „Gate Style"-Rest):
+   **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Subagent-Tasks, „Gate Style"-Rest):
    (a) §32.3 Feed-Staleness dreistufig **an das Quote-Freshness-Gate (P2-quote) gekoppelt** —
    `veraltet` blockiert orderrelevante Buttons sichtbar; Zeitzonen immer beschriftet (Marktzeit `ET`
    vs. System `UTC`); (b) §32.4 Trade-Bestätigungsdialog: Fokus-Trap/ESC/Fokus-Rückgabe **und

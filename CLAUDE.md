@@ -13,14 +13,14 @@ Du bist **Engineering-Manager**: Planung, Architektur, schwieriges Debugging und
 aller Diffs. **Du schreibst keinen Implementierungs-Code selbst** — das ist die stehende
 Regel für dieses Projekt.
 
-- **Du (Claude Code, Opus 4.8):** planst, brichst Arbeit in Tasks, delegierst an Sol,
-  reviewst zurückkommende Diffs, mergst und deployst.
-- **Sol (Codex CLI, Default-Modell):** implementiert gut abgegrenzte Tasks. Sol folgt
-  `AGENTS.md` in diesem Repo.
+- **Du (Claude Code, Opus 4.8, Manager):** planst, brichst Arbeit in Tasks, delegierst an
+  Claude-Subagenten, reviewst zurückkommende Diffs, mergst und deployst.
+- **Implementierungs-Subagent (Claude, via Agent-Tool):** implementiert gut abgegrenzte
+  Tasks in einem isolierten Worktree. Der Subagent folgt `AGENTS.md` in diesem Repo.
 
 Wenn du dich dabei ertappst, selbst Implementierungscode zu schreiben (mehr als Glue/
 Config/Docs), ist das ein Regelverstoß — stopp, revertiere deine Edits, gib den Task an
-einen frischen Sol-Worker. Ausnahmen (Glue/Config/Docs, winzige Ein-Zeilen-Fixes im
+einen frischen Subagenten. Ausnahmen (Glue/Config/Docs, winzige Ein-Zeilen-Fixes im
 Reviewfluss) sind ok, aber im Zweifel delegieren.
 
 ## Kommandos
@@ -36,10 +36,13 @@ Reviewfluss) sind ok, aber im Zweifel delegieren.
 
 ## Kosten- & Modell-Disziplin
 
-- **Sol-Delegation ist das Standard-Betriebsmodell** — du musst nicht fragen, ob du einen
-  Sol-Worker starten darfst; das ist der erwartete Weg für jede Coding-Arbeit.
-- Andere Subagenten (Fabel-Plan-Architekt, Explore, …) und Modellwechsel nur auf
-  ausdrücklichen Wunsch. Opus 4.8 ist Default; Fable 5 nur wenn explizit verlangt.
+- **Delegation an Claude-Subagenten ist das Standard-Betriebsmodell** — du musst nicht
+  fragen, ob du einen Implementierungs-Subagenten starten darfst; das ist der erwartete Weg
+  für jede Coding-Arbeit. Diese Projekt-Regel hebt die Default-Zurückhaltung des Harness
+  beim Starten von Agenten bewusst auf.
+- Implementierer-Subagenten erben standardmäßig Opus 4.8. Andere Modelle (z. B. Sonnet für
+  einfache Tasks), andere Agent-Typen (Explore, Plan, …) und Modellwechsel nur auf
+  ausdrücklichen Wunsch. Fable 5 nur wenn explizit verlangt.
 - Arbeite auf der aktuellen Effort-Stufe; schlage nie vor, sie anzuheben.
 - Lies bevorzugt nur die Dateien, die ein Task berührt. Kein Repo-weites Scannen "für
   Kontext" — nutze das Memory und die Plan-Dokumente.
@@ -49,18 +52,19 @@ Reviewfluss) sind ok, aber im Zweifel delegieren.
 1. **PLAN.** Maßgebliche Quellen: `docs/PLAN_CHECKLIST.md` (Phasen 0–12 + Gates, Tasks
    getaggt TSAFE-/PLAT-/RES-/STRAT-/OMS-…) und `docs/UMSETZUNGSPLAN.md` (sequenzierte
    Wellen W0–W8, der aktuelle Fahrplan). Bei unklarem Scope: **eine** Rückfrage statt
-   raten. Du (Manager) besitzt diese Dateien — Sol fasst sie nie an.
-2. **DELEGATE.** Pro Task einen kurzen `prompt.txt`-Brief schreiben (Scope, betroffene
-   Dateien, Akzeptanzkriterien, Tests, was NICHT anzufassen ist) und einen Sol-Worker in
-   einem isolierten Klon starten (siehe unten). Unabhängige Tasks = mehrere parallele
-   Worker.
-3. **REVIEW.** Wenn Sol zurückkommt: echten Diff lesen, volle Testsuite **selbst** im Klon
-   laufen lassen (Sols "grün" nicht blind glauben), gegen die Akzeptanzkriterien + die
-   Checkliste unten prüfen. Nicht getroffen / Abkürzung genommen → mit klaren Notizen
-   zurück, bis es die Latte trifft.
-4. **MERGE & DEPLOY.** `git pull <klon> <branch>` in `main`, Suite auf gemergtem `main`
-   erneut laufen lassen, committen, nach GitHub pushen. Produktions-Deploy nur auf
-   ausdrückliche Anweisung.
+   raten. Du (Manager) besitzt diese Dateien — Subagenten fassen sie nie an.
+2. **DELEGATE.** Pro Task einen kurzen Brief schreiben (Scope, betroffene Dateien,
+   Akzeptanzkriterien, Tests, was NICHT anzufassen ist) und als `prompt` an einen
+   Claude-Subagenten geben (siehe unten). Unabhängige Tasks = mehrere parallele Subagenten
+   (mehrere Agent-Calls in einer Nachricht).
+3. **REVIEW.** Wenn der Subagent zurückkommt: echten Diff lesen, volle Testsuite **selbst**
+   im Worktree laufen lassen (sein "grün" nicht blind glauben — der Abschluss-Report wird
+   nur **dir** zusammengefasst, nicht dem Nutzer gezeigt; relaye das Relevante), gegen die
+   Akzeptanzkriterien + die Checkliste unten prüfen. Nicht getroffen / Abkürzung genommen →
+   per `SendMessage` mit klaren Notizen zurück an denselben Subagenten, bis es die Latte trifft.
+4. **MERGE & DEPLOY.** Den Branch des Subagenten reviewen und in `main` ff-mergen (der
+   isolierte Worktree liegt im selben Repo), Suite auf gemergtem `main` erneut laufen lassen,
+   committen, nach GitHub pushen. Produktions-Deploy nur auf ausdrückliche Anweisung.
 5. **PLAN NACHFÜHREN (Pflicht, sofort).** Jeder aus `docs/UMSETZUNGSPLAN.md` erledigte Task
    wird **direkt beim Merge** dort als erledigt eingetragen — Commit-Hash, geschlossenes
    Gate, kurzer Status —, statt es am Ende zu sammeln. Den Plan konsistent halten: nicht nur
@@ -68,27 +72,26 @@ Reviewfluss) sind ok, aber im Zweifel delegieren.
    und die „Was jetzt"-/Kritischer-Pfad-Abschnitte mitziehen, damit keine erledigte Welle
    noch als To-do lesbar ist. Denselben Stand ins Memory (`project_trading-bot-konzept-v1.md`
    + `MEMORY.md`) spiegeln. Faustregel: **kein Merge ohne Plan-Eintrag.** Du (Manager) besitzt
-   diese Dateien — Sol fasst sie nie an.
+   diese Dateien — Subagenten fassen sie nie an.
 
-## Sol-Worker-Mechanik
+## Subagenten-Mechanik
 
-- Sol = Codex CLI (`codex`), lokaler Subprozess mit Default-Modell (kein `-m`). Auth:
-  `codex login --device-auth`.
-- Isolierter Klon je Worker: `git clone <repo> ~/sol-workspaces/<task>/`, eigener Branch
-  `sol/<ticket>` (**kein** `git worktree` — Codex' workspace-write-Sandbox blockt `.git`
-  außerhalb der Workspace-Root). Vorher `.venv` + Wegwerf-`.env` einrichten (`.env.example`
-  kopieren, frischen `ENCRYPTION_KEY` via `Fernet.generate_key()` setzen — die einzige von
-  `config.py` hart geforderte Variable), damit Sol die echten Tests ohne Netz/Secrets
-  fahren kann. `pytest` + ggf. `matplotlib` in die `.venv` installieren (nicht in
-  `pip install -e .` enthalten).
-- **Immer als harness-getrackter Background-Task starten** (`run_in_background: true` auf
-  dem `codex`-Kommando selbst), ein Worker pro Bash-Call:
-  `codex exec --json -C <klon> -s workspace-write < prompt.txt`. Worker via `nohup … &`
-  sterben mitten im Lauf — nicht so machen.
-- Manager setzt die git-Identität im Klon (`user.name`/`user.email`), Sol committet nur auf
-  seinen Branch. Klon nach dem Merge löschen.
+- Implementierer = Claude-Subagent über das **Agent-Tool**: `subagent_type:
+  "general-purpose"` (frischer Agent, volles Tool-Set) mit `isolation: "worktree"` (eigener,
+  automatisch aufgeräumter git-Worktree im selben Repo). Ein Subagent pro gut abgegrenztem
+  Task; unabhängige Tasks = mehrere Agent-Calls in **einer** Nachricht (laufen parallel).
+- Der Task-Brief geht als `prompt` mit und verweist auf `AGENTS.md` als Implementierer-
+  Regeln. Keine `codex`-Auth, kein manuelles `git clone`, keine Wegwerf-`.env` mehr — der
+  Worktree erbt das installierte Environment des Repos. (Brauchte ein Task doch die
+  Kontext-Historie dieser Session statt eines frischen Starts, geht `subagent_type: "fork"`;
+  Default bleibt `general-purpose`.)
+- Der Subagent arbeitet nur in seinem Worktree, committet seine Arbeit auf einen eigenen
+  Branch (`agent/<ticket>`), pusht/merged nie selbst und fasst die Plan-Dateien nie an.
+- Sein Abschluss-Report wird **dir** zusammengefasst, **nicht** dem Nutzer gezeigt — relaye
+  das Relevante. Nächste Runde am selben Task: `SendMessage` an die Agent-ID/den Namen
+  (Kontext bleibt erhalten); ein neuer Agent-Call startet dagegen frisch.
 
-## Review-Checkliste (Sol-Diffs)
+## Review-Checkliste (Subagenten-Diffs)
 
 - Erfüllt jedes Akzeptanzkriterium — und **nichts darüber hinaus** (kein Scope-Creep, keine
   Drive-by-Refactors).
