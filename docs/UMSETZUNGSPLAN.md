@@ -415,6 +415,17 @@ Endzustand freigegeben (`is_terminal_order_status`, Cache ist read-through). Reg
 zu allen dreien; der Zeitvertrag-Test macht den alten `date.today()`-Code nachweislich rot.
 **Volle Suite grün: 1048 passed + 80 Backtest-Tests.**
 
+**tz-aware/naive-Bug behoben (2026-07-22, `57fad48`+`05a3125`, GitHub main, NICHT deployt):**
+Laufzeitfehler `Cannot compare tz-naive and tz-aware timestamps` — Provider-Swap-Fallout (W3.2).
+Alpaca-Bars kommen tz-aware UTC, der „yfinance-förmige" Signalpfad + DB-Zeitvertrag erwarten aber
+naive UTC. Fix am Choke-Point `market/data_providers.py::_normalize_alpaca_bars` (Index nach
+naive UTC ziehen: `tz_convert("UTC").tz_localize(None)`) + Regressionstests (tz-aware→naiv, inkl.
+MultiIndex). Zweitbefund: `tgbot/bot.py::_strategy_exit_reason` setzte `now` tz-aware → latenter
+`now - opened_at`-Crash (hinter `STRATEGY_EXITS_ENABLED`=off); jetzt naive UTC. Umgesetzt per
+Claude-Subagent (Worktree), Manager-reviewt, 74 gezielte Tests grün. **Prod-relevant:** der
+laufende VPS-Paper-Burn-in dreht bis zum nächsten Deploy noch auf dem alten Code — Deploy
+approval-gated.
+
 W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
 2026-07-20 aktiv (PLAT-009 zu).
 
