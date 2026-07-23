@@ -383,18 +383,50 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    sind 1:1 umgesetzt, **Kontrast durchgehend WCAG-AA verifiziert** (nur `--text-disabled` fällt
    zulässig durch), der Locale-Widerspruch in §6.3 (Punkt/Komma gemischt) ist im Konzept gefixt. Als
    **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Subagent-Tasks, „Gate Style"-Rest):
-   (a) §32.3 Feed-Staleness dreistufig **an das Quote-Freshness-Gate (P2-quote) gekoppelt** —
-   `veraltet` blockiert orderrelevante Buttons sichtbar; Zeitzonen immer beschriftet (Marktzeit `ET`
-   vs. System `UTC`); (b) §32.4 Trade-Bestätigungsdialog: Fokus-Trap/ESC/Fokus-Rückgabe **und
-   Anti-Fehlklick** (Confirm nicht initial fokussiert, nicht per Enter auslösbar) — betrifft
-   Live-Sicherheit, vor Aktivierung eines Live-Pfads Pflicht; (c) §32.5 eigener „Daten unsicher"-Zustand
+   **(a) §32.3 ✅ ERLEDIGT** (`eefa106`+`b0db2c1`, s. u.); **(b) §32.4 ✅ ERLEDIGT** (`6982f0c`, s. u.);
+   (c) §32.5 eigener „Daten unsicher"-Zustand
    (warning-Banner + disabled Controls, kein optimistischer Schätzwert); (d) §32.6 §9.1-Navigation auf
    die echten Routen mappen (`watchlist`/`history`/`backtest`/`lab` etc. dürfen nicht ungestylt
    bleiben); (e) §32.7 kategoriale, farbenblind-sichere Chart-Palette `--cat-1…6` (getrennt von
    Grün/Rot); (f) §32.8 gemeinsames matplotlib-Style-Mapping der Tokens, damit Backtest-/Report-PNGs
    nicht von den Web-Charts abweichen; (g) §32.9 ein Web↔Telegram-Glossar (DoD §30 verlangt
    Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**. Reihenfolge:
-   (a)+(b) zusammen mit der visuellen Abnahme (Punkt 1), Rest nach Bedarf.
+   Rest nach Bedarf.
+
+**Style-Audit (a)+(b) erledigt (2026-07-23, `6982f0c`+`eefa106`+`b0db2c1`, auf `main`, NICHT deployt).**
+Zwei Claude-Subagenten (Worktree), sequentiell weil beide `web/templates/app.html` anfassen;
+Manager-reviewt, Suite selbst gegengefahren (225 passed, 1 skipped auf gemergtem `main`).
+- **(b) §32.4 Dialog- & Fokus-Verhalten** (`6982f0c`): `role="dialog"`/`aria-modal="true"`,
+  expliziter Tab-Fokus-Trap, ESC + Fokus-Rückgabe auf den auslösenden Button. **Anti-Fehlklick:**
+  Initialfokus hart auf „Abbrechen", **Enter auf dem Bestätigen-Button ist geblockt** (Space bleibt),
+  Confirm-Button sperrt sich beim Klick gegen Doppel-Submit (ergänzt den `dataset.busy`-Pfad und die
+  OMS-Doppelklick-Absicherung). Kein Backend-Eingriff, Nicht-JS-Fallback erhalten.
+  Tests: 5 neue in `tests/test_web_style_phases.py`; Negativprobe des Subagenten macht ohne die
+  Änderung genau diese 5 rot.
+- **(a) §32.3 Datenaktualität** (`eefa106` Erstwurf + `b0db2c1` Manager-Korrektur): neues IO-freies
+  Modul `stockbot/web/feed_status.py` (`FeedStatus`, `evaluate`, `is_stale`, `unknown`),
+  `_feed_status_for` in `webapp.py`, Chip + `role="alert"`-Banner in `app.html`.
+  **Zwei Blocker im Erstwurf, vom Subagenten selbst geflaggt, per `SendMessage` zurückgegeben:**
+  1. *Exits wurden mitgesperrt* — ein alter Scan hätte das Schließen einer laufenden Position
+     blockiert. Verschlechterung der Sicherheitslage, und die Datenbasis passt nicht (Status kommt
+     aus dem Scan-Cache, das Alter der Trade-Kurse ist davon unabhängig). **Jetzt: nur Einstiege
+     werden gesperrt, Exits nie** — im Template kommentiert, eigener Regressionstest.
+  2. *Die Gate-Kopplung saß an der falschen Kante* — `max_quote_age_seconds`=60 s vs. `SCAN_TTL_S`=600 s
+     hätte die Seite ~1 min nach jedem Scan selbst gesperrt, obwohl `risk_context.quote_context` beim
+     Order-Versuch eine **frische** Quote holt. Die UI hätte systematisch blockiert, was das Backend
+     durchlässt. **Auflösung: UI-Preisalter und Ausführungs-Quote-Alter sind zwei verschiedene Größen.**
+     `fresh` endet exakt an der Gate-Grenze (ruft `data_quality.check_quote_age` real auf — keine zweite
+     hartkodierte Zahl, per 5×7-Matrix-Test gepinnt) ⇒ „aktuell" wird nie für etwas behauptet, das das
+     Ausführungs-Gate ablehnen würde; gesperrt wird erst ab eigener UI-Konstante `UI_STALE_SECONDS=180`.
+     Faktisches Blockfenster damit 180–600 s (danach verfallen die Signalkarten ohnehin).
+  Für Signale/Trades ohne Kurs-Zeitstempel wird **nichts geraten**: expliziter `unknown`-Zustand
+  (`chip--caution`, blockiert nicht). Abrufzeit wird als `UTC` beschriftet, keine Umrechnung ohne
+  Grundlage. Backend/Order-Pfad unberührt (`data_quality.py`, `risk.py`, `oms.py`, `risk_context.py`,
+  `dashboard.py` nicht angefasst), keine neuen Dependencies, keine neuen CSS-Klassen.
+  Tests: `tests/test_feed_status.py` (neu) + 4 neue in `tests/test_web_style_phases.py`.
+- **Kein Live-Trade-Verhalten geändert** — beide Tasks härten nur die UI (Defense-in-Depth); das
+  Backend-Gate bleibt der eigentliche Schutz. Offen bleibt (c)–(g) sowie die visuelle Abnahme (Punkt 1),
+  die jetzt gegen diesen Stand laufen sollte.
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
 3. **W8 Burn-in — Kalenderzeit. Zählt effektiv erst ab 2026-07-20 abends** (davor fehlten die
