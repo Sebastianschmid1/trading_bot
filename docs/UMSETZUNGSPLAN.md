@@ -430,6 +430,17 @@ Claude-Subagent (Worktree), Manager-reviewt, 74 gezielte Tests grün. **Deployt 
 Health 200 mit x-trace-id, keine Fehler im Journal; Alembic-Head unverändert `c9d0e1f2a3b4`,
 keine Migration/Deps). Final beweist sich der Fix im `intraday_signals`-Lauf ab Marktöffnung.
 
+**Auto-Accept-Anti-Spam (2026-07-23, `8917b82`, lokal main, NICHT gepusht/deployt — LIVE-VERHALTEN):**
+Nutzeranforderung: Bei aktiviertem „automatische Trades annehmen" (`auto_accept`) sollen außerhalb
+der regulären US-Sitzung KEINE Signal-Karten mehr in den Telegram-Chat gepusht werden (Spam, v. a.
+via `EXTENDED_HOURS`-Intraday-Scan pre-market). Fix am Choke-Point `tgbot/bot.py::send_signal`:
+neuer Guard `_suppress_auto_accept_out_of_session(auto_accept, _us_market_open(extended=False))` →
+außerhalb der regulären Sitzung nur loggen + `return False` (kein Versand, kein Website-`notify`).
+Kauf bleibt unverändert: der In-Sitzung-Auto-Accept-Zweig + der Eröffnungs-/Intraday-Scan bewerten
+zur Öffnung frisch neu und kaufen dann automatisch. Nicht-`auto_accept`-Nutzer unverändert.
+`tests/test_signal_suppression.py` (4) + Regression `test_signals`/`test_signal_retention` (21) grün.
+**Deploy approval-gated** (ändert Live-Trade-/Benachrichtigungsverhalten).
+
 W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
 2026-07-20 aktiv (PLAT-009 zu).
 
