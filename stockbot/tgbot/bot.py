@@ -765,6 +765,13 @@ async def _maybe_broker_close_trade(bot: Bot, user: dict, trade: dict, *, broker
     return {"ok": True, "status": "broker_closing", "broker_status": status, "order_id": order_id}
 
 
+def _suppress_auto_accept_out_of_session(auto_accept: bool, regular_session_open: bool) -> bool:
+    """True, wenn ein Auto-Accept-Signal außerhalb der regulären US-Sitzung NICHT als
+    Telegram-Karte gesendet werden soll (Anti-Spam). Der Kauf wird ohnehin erst zur
+    regulären Öffnung frisch geprüft/ausgeführt (siehe Auto-Accept-Zweig in send_signal)."""
+    return auto_accept and not regular_session_open
+
+
 async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: float,
                       job_queue=None, market_open: bool = True,
                       sl_tp_mode: str = DEFAULT_SL_TP_MODE, leverage: float = DEFAULT_LEVERAGE,
@@ -801,6 +808,14 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
         elif result["reason"] == "entry_cutoff":
             log.info(f"[{chat_id}] Auto-Accept übersprungen (Entry-Sperre kurz vor Handelsschluss): {ticker}")
         return True
+
+    # Auto-Accept-Nutzer bekommen außerhalb der regulären US-Sitzung KEINE Karte in den Chat
+    # (Anti-Spam). Der Kauf wird ohnehin erst in der regulären Sitzung geprüft/ausgeführt
+    # (siehe Auto-Accept-Zweig oben); der Eröffnungs-/Intraday-Scan bewertet dann frisch neu.
+    if _suppress_auto_accept_out_of_session(auto_accept, _us_market_open(extended=False)):
+        log.info(f"[{chat_id}] Auto-Accept: {ticker} außerhalb der regulären Sitzung — nicht gesendet "
+                 f"(Kaufprüfung erfolgt zur Öffnung).")
+        return False
 
     text, keyboard = _signal_card(sig, trade_size_eur, market_open, expiry_min, user_id=chat_id)
     msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
