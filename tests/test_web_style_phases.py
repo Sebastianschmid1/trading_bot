@@ -172,10 +172,27 @@ def _scan_cache_aged(age_seconds: float, ticker="MSFT"):
     }
 
 
-def _submit_buttons(text: str) -> list[str]:
-    """Alle Submit-Buttons in orderrelevanten (js-confirm) Formularen."""
+def _active_trade(ticker="TSLA"):
+    """Ein aktiver Trade, damit „Position schließen" (Exit) auf der Seite auftaucht."""
+    db.add_pending(CHAT, {
+        "ticker": ticker, "price": 300.0, "direction": "long", "strategy": "sma_cross",
+        "strength": 3, "raw_score": 3.0, "reasons": ["Test"], "leverage": 1.0,
+    }, 0)
+    db.activate_trade(CHAT, ticker)
+
+
+def _entry_buttons(text: str) -> list[str]:
+    """Submit-Buttons der Einstiegs-Formulare (js-accept)."""
     out = []
-    for form in re.findall(r'<form[^>]*js-confirm.*?</form>', text, re.S):
+    for form in re.findall(r'<form[^>]*js-accept.*?</form>', text, re.S):
+        out += re.findall(r'<button[^>]*type="submit"[^>]*>', form)
+    return out
+
+
+def _exit_buttons(text: str) -> list[str]:
+    """Submit-Buttons der Ausstiegs-Formulare (/app/sell)."""
+    out = []
+    for form in re.findall(r'<form[^>]*action="/app/sell".*?</form>', text, re.S):
         out += re.findall(r'<button[^>]*type="submit"[^>]*>', form)
     return out
 
@@ -189,40 +206,57 @@ def test_feed_chip_is_rendered_fresh_and_leaves_order_buttons_enabled():
     assert "chip--go" in text
     assert "UTC" in text                              # §32.3: Zeitangabe beschriftet
     assert 'id="feedStaleAlert"' not in text
-    buttons = _submit_buttons(text)
-    assert buttons, "keine orderrelevanten Buttons gefunden"
+    buttons = _entry_buttons(text)
+    assert buttons, "keine Einstiegs-Buttons gefunden"
     assert all("disabled" not in b for b in buttons)
 
 
-def test_feed_chip_warns_when_data_is_delayed_but_still_allows_orders():
+def test_feed_chip_warns_past_the_gate_limit_but_still_allows_orders():
     _pending_signal()
-    _scan_cache_aged(40)                              # 40 s bei Grenze 60 s → verzögert
+    _scan_cache_aged(90)          # über der 60-s-Gate-Grenze, unter der UI-Blockgrenze
     text = _client().get("/app").text
     assert 'data-feed-state="delayed"' in text
     assert "chip--caution" in text
     assert "verzögert" in text
     assert 'id="feedStaleAlert"' not in text
-    assert all("disabled" not in b for b in _submit_buttons(text))
+    assert all("disabled" not in b for b in _entry_buttons(text))
 
 
-def test_stale_feed_disables_order_buttons_and_states_the_reason():
+def test_stale_feed_disables_entry_buttons_and_states_the_reason():
     _pending_signal()
-    _scan_cache_aged(300)                             # weit über der 60-s-Gate-Grenze
+    _scan_cache_aged(300)                             # über UI_STALE_SECONDS (180 s)
     text = _client().get("/app").text
     assert 'data-feed-state="stale"' in text
     assert "chip--warn" in text
-    assert "veraltet – Orders blockiert" in text
+    assert "veraltet – keine neuen Trades" in text
     # Begründung sichtbar, als Alert ausgezeichnet, nennt das gemessene Alter
     alert = re.search(r'<div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">.*?</div>\s*</div>',
                       text, re.S)
     assert alert, "Begründung mit role=alert fehlt"
     assert "300 s alt" in alert.group(0)
-    buttons = _submit_buttons(text)
+    buttons = _entry_buttons(text)
     assert buttons
-    assert all("disabled" in b for b in buttons), "orderrelevante Buttons sind nicht gesperrt"
+    assert all("disabled" in b for b in buttons), "Einstiegs-Buttons sind nicht gesperrt"
     # „Ablehnen" ist nicht orderrelevant und bleibt bedienbar
     reject = re.search(r'<form[^>]*action="/app/reject".*?</form>', text, re.S)
     assert reject and "disabled" not in reject.group(0)
+
+
+def test_stale_feed_never_blocks_closing_a_position():
+    """Ein blockierter Ausstieg wäre gefährlicher als ein Einstieg auf altem Kurs."""
+    _pending_signal()
+    _active_trade()
+    # 400 s: über UI_STALE_SECONDS, aber noch innerhalb der Scan-Cache-TTL (600 s) —
+    # danach verschwinden die Signalkarten ohnehin und der Status ist wieder „unbekannt".
+    _scan_cache_aged(400)
+    text = _client().get("/app").text
+    assert 'data-feed-state="stale"' in text
+    entries = _entry_buttons(text)
+    exits = _exit_buttons(text)
+    assert entries and all("disabled" in b for b in entries)
+    assert exits, "kein Button zum Schließen der Position gefunden"
+    assert all("disabled" not in b for b in exits), "Exit darf NIE gesperrt sein"
+    assert "Position schließen" in text
 
 
 def test_unknown_data_age_is_explicit_and_does_not_block():
@@ -233,7 +267,7 @@ def test_unknown_data_age_is_explicit_and_does_not_block():
     assert "Datenalter unbekannt" in text
     assert "chip--caution" in text
     assert 'id="feedStaleAlert"' not in text
-    assert all("disabled" not in b for b in _submit_buttons(text))
+    assert all("disabled" not in b for b in _entry_buttons(text))
 
 
 # ── Style-Phase 4: Kill-Switch ───────────────────────────────────────────────
