@@ -30,8 +30,11 @@
   möglich), Signalpfad jetzt Alpaca statt yfinance.
 - **Deploy-Historie (eine Zeile, damit die Commit-Angaben unten nicht auseinanderlaufen):**
   2026-07-19 `4b99f65` (W0–W7-Backend) → am selben Tag `3469052` (Telegram-Hauptmenü) →
-  2026-07-20 `47672dc`/`f601184` (W7-Visual + W8-Suiten) → **2026-07-20 abends `8d16547`
-  (Nebenbefund-Fixes `cf3074a`). Maßgeblich ist immer der letzte Eintrag.**
+  2026-07-20 `47672dc`/`f601184` (W7-Visual + W8-Suiten) → 2026-07-20 abends `8d16547`
+  (Nebenbefund-Fixes `cf3074a`) → 2026-07-21 `3c56f87`/`d107f97` (systemd-Credentials +
+  Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → **2026-07-23 `b531b33`
+  (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten). Maßgeblich ist immer
+  der letzte Eintrag.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
@@ -415,16 +418,17 @@ Endzustand freigegeben (`is_terminal_order_status`, Cache ist read-through). Reg
 zu allen dreien; der Zeitvertrag-Test macht den alten `date.today()`-Code nachweislich rot.
 **Volle Suite grün: 1048 passed + 80 Backtest-Tests.**
 
-**tz-aware/naive-Bug behoben (2026-07-22, `57fad48`+`05a3125`, GitHub main, NICHT deployt):**
+**tz-aware/naive-Bug behoben (2026-07-22, `57fad48`+`05a3125`, DEPLOYT 2026-07-23 auf VPS `b531b33`):**
 Laufzeitfehler `Cannot compare tz-naive and tz-aware timestamps` — Provider-Swap-Fallout (W3.2).
 Alpaca-Bars kommen tz-aware UTC, der „yfinance-förmige" Signalpfad + DB-Zeitvertrag erwarten aber
 naive UTC. Fix am Choke-Point `market/data_providers.py::_normalize_alpaca_bars` (Index nach
 naive UTC ziehen: `tz_convert("UTC").tz_localize(None)`) + Regressionstests (tz-aware→naiv, inkl.
 MultiIndex). Zweitbefund: `tgbot/bot.py::_strategy_exit_reason` setzte `now` tz-aware → latenter
 `now - opened_at`-Crash (hinter `STRATEGY_EXITS_ENABLED`=off); jetzt naive UTC. Umgesetzt per
-Claude-Subagent (Worktree), Manager-reviewt, 74 gezielte Tests grün. **Prod-relevant:** der
-laufende VPS-Paper-Burn-in dreht bis zum nächsten Deploy noch auf dem alten Code — Deploy
-approval-gated.
+Claude-Subagent (Worktree), Manager-reviewt, 74 gezielte Tests grün. **Deployt 2026-07-23**
+(Backup `stockbot-20260723-114559.dump.age`, ff-merge, Restart, Smoke grün: 12 Scheduler-Jobs,
+Health 200 mit x-trace-id, keine Fehler im Journal; Alembic-Head unverändert `c9d0e1f2a3b4`,
+keine Migration/Deps). Final beweist sich der Fix im `intraday_signals`-Lauf ab Marktöffnung.
 
 W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
 2026-07-20 aktiv (PLAT-009 zu).
