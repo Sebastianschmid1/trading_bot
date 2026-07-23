@@ -115,6 +115,12 @@ def _fake_bot():
 
 
 def test_auto_accept_skipped_outside_regular_session(monkeypatch):
+    """Integrations-Sicht auf send_signal: außerhalb der regulären US-Sitzung wird ein
+    Auto-Accept-Signal weder automatisch gestartet noch überhaupt in den Chat gepusht.
+
+    `tests/test_signal_suppression.py` prüft nur das reine Prädikat
+    `_suppress_auto_accept_out_of_session`; hier wird belegt, dass send_signal es auch
+    tatsächlich zieht — und dass dabei kein Trade angelegt wird (kein Auto-Start)."""
     import asyncio
     import tempfile
     from pathlib import Path
@@ -129,9 +135,11 @@ def test_auto_accept_skipped_outside_regular_session(monkeypatch):
 
     # market_open (extended) wird True übergeben, aber die reguläre Sitzung ist geschlossen.
     monkeypatch.setattr(bot, "_us_market_open", lambda extended=None: False)
-    sent = asyncio.run(bot.send_signal(_fake_bot(), CHAT, _make_signal("NVDA"), 25.0,
+    fake_bot = _fake_bot()
+    sent = asyncio.run(bot.send_signal(fake_bot, CHAT, _make_signal("NVDA"), 25.0,
                                        market_open=True, auto_accept=True))
-    assert sent is True
-    # KEIN Auto-Start: der Trade bleibt 'pending' (Button-Karte statt sofortiger Aktivierung).
-    t = db.get_trade(CHAT, "NVDA")
-    assert t is not None and t["status"] == "pending"
+    # Anti-Spam: keine Karte in den Chat (der Kauf wird erst zur Öffnung frisch geprüft).
+    assert sent is False
+    fake_bot.send_message.assert_not_awaited()
+    # Und KEIN Auto-Start: es entsteht auch kein Trade im Hintergrund.
+    assert db.get_trade(CHAT, "NVDA") is None
