@@ -42,6 +42,11 @@ log = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+# Sentinel-Fallback fuer `evaluator.get_current_price`: NaN ist kein moeglicher Kurs und
+# macht den (dort bewusst abgefangenen) Abruffehler fuer die UI erkennbar — §32.5, siehe
+# `_current_price`. Kein Eingriff in die Backend-Logik, nur ein erkennbarer Ersatzwert.
+_PRICE_UNAVAILABLE = float("nan")
+
 BROKER_STATUS_LABELS = {
     "accepted": "Broker hat angenommen",
     "filled": "Ausgeführt",
@@ -261,12 +266,19 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
     # Intraday-Ticks (für aktuellen Kurs + Verlaufs-Charts) — aus dem 60s-Monitor
     ticks = db.get_today_ticks(user_id)
 
-    def _current_price(t: dict) -> float:
-        """Aktueller Kurs: letzter 60s-Tick, sonst Live-Abruf (Fallback: Einstieg)."""
+    def _current_price(t: dict) -> float | None:
+        """Aktueller Kurs: letzter 60s-Tick, sonst Live-Abruf. ``None`` ⇔ nicht abrufbar.
+
+        §32.5: Frueher fiel der Live-Abruf still auf den **Einstiegskurs** zurueck — die
+        Oberflaeche zeigte dann den Einstieg als „aktuell" und 0 € P&L, also einen
+        Ersatzwert, der wie ein belastbarer Kurs aussah. `get_current_price` faengt den
+        Abruffehler selbst ab (fail-open, bleibt unveraendert), deshalb wird das Scheitern
+        hier ueber einen NaN-Sentinel als Fallback sichtbar gemacht statt geraten."""
         pts = ticks.get(t["ticker"], [])
         if pts:
             return pts[-1]["price"]
-        return get_current_price(t["ticker"], t["entry"])
+        price = get_current_price(t["ticker"], _PRICE_UNAVAILABLE)
+        return None if price != price else price      # NaN ⇒ Abruf fehlgeschlagen
 
     # Offene/aktive Trades (inkl. aktuellem Kurs + unrealisiertem P&L)
     size = user["trade_size_eur"] or 1.0
@@ -276,20 +288,24 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         cur = _current_price(t)
         leverage = effective_leverage(t["signal"])   # realisierter Hebel (Aktien-Fallback → 1×)
         # Optionsbewusst (Omega-Näherung im Web); für Aktien das lineare Hebelmodell.
-        pnl_pct, pnl_eur = trade_pnl(t, cur, size)
+        # §32.5: Ohne belastbaren Kurs gibt es kein belastbares P&L — die Felder bleiben
+        # leer (None ⇒ „—" in den Views), statt eine Zahl zu erfinden.
+        pnl_pct, pnl_eur = trade_pnl(t, cur, size) if cur is not None else (None, None)
         active_view.append({
             "ticker":      t["ticker"],
             "direction":   t["direction"],
             "status_text": trade_status_label("active"),
             "entry":       t["entry"],
             "current":     cur,
+            "price_degraded": cur is None,                    # §32.5: Kurs nicht abrufbar
             "leverage":    leverage,
             "option":      t["signal"].get("option_symbol"),
             "invested":    round(size, 2),                    # eingesetzte Margin (dein Geld)
             "exposure":    round(size * leverage, 2),         # Positionsgröße im Markt (Margin × Hebel)
-            "pnl_pct":     round(pnl_pct, 2),                 # reine Kursbewegung
-            "roi_pct":     round(pnl_eur / size * 100, 2),    # Rendite auf die Margin (inkl. Hebel) = passt zum €
-            "pnl_eur":     round(pnl_eur, 2),
+            "pnl_pct":     round(pnl_pct, 2) if pnl_pct is not None else None,   # reine Kursbewegung
+            # Rendite auf die Margin (inkl. Hebel) = passt zum €
+            "roi_pct":     round(pnl_eur / size * 100, 2) if pnl_eur is not None else None,
+            "pnl_eur":     round(pnl_eur, 2) if pnl_eur is not None else None,
             "stop_loss":   t["signal"].get("stop_loss"),
             "take_profit": t["signal"].get("take_profit"),
             "strategy":    _trade_strategy(t),

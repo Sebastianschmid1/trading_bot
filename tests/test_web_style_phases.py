@@ -270,6 +270,73 @@ def test_unknown_data_age_is_explicit_and_does_not_block():
     assert all("disabled" not in b for b in _entry_buttons(text))
 
 
+# ── Style §32.5: „Daten unsicher/degradiert" als eigener Zustand ─────────────
+
+def _price_fetch_fails(monkeypatch):
+    """Simuliert die fail-open-Stelle `core/evaluator.get_current_price`: der Abruffehler
+    wird dort abgefangen und der Fallback zurueckgegeben (stockbot/web/dashboard.py:
+    `_current_price`). Kein Netzzugriff im Test."""
+    monkeypatch.setattr(_dashboard, "get_current_price", lambda ticker, fallback: fallback)
+
+
+def test_degraded_data_is_a_warning_banner_and_not_the_error_banner(monkeypatch):
+    _pending_signal()
+    _active_trade()                       # TSLA, Einstieg 300.0
+    _price_fetch_fails(monkeypatch)
+    text = _client().get("/app").text
+    assert 'data-feed-state="degraded"' in text
+    assert "Daten unsicher" in text
+    banner = re.search(
+        r'<div class="alert2 alert2--warning" role="alert" id="feedDegradedAlert">.*?</div>\s*</div>',
+        text, re.S)
+    assert banner, "Warn-Banner (--warning, role=alert) fehlt"
+    assert "TSLA" in banner.group(0)                  # nennt konkret die unsicheren Daten
+    assert "Neue Einstiege sind gesperrt" in banner.group(0)
+    assert "schließen" in banner.group(0)             # Exits bleiben möglich
+    # Vom Fehler-/veraltet-Zustand (--danger) im Markup unterscheidbar
+    assert 'id="feedStaleAlert"' not in text
+
+
+def test_degraded_data_blocks_entries_but_never_exits(monkeypatch):
+    _pending_signal()
+    _active_trade()
+    _price_fetch_fails(monkeypatch)
+    text = _client().get("/app").text
+    entries = _entry_buttons(text)
+    exits = _exit_buttons(text)
+    assert entries and all("disabled" in b for b in entries), "Einstiege nicht gesperrt"
+    assert exits, "kein Button zum Schließen der Position gefunden"
+    assert all("disabled" not in b for b in exits), "Exit darf NIE gesperrt sein"
+
+
+def test_degraded_data_shows_no_estimated_value(monkeypatch):
+    """§32.5: statt eines optimistischen Ersatzwerts steht dort „nicht verfügbar"/„—"."""
+    _pending_signal()
+    _active_trade()
+    _price_fetch_fails(monkeypatch)
+    text = re.sub(r"\s+", " ", _client().get("/app").text)
+    tail = text[text.index("Aktive Trades"):]
+    assert "→ aktuell nicht verfügbar" in tail
+    assert "→ aktuell $" not in tail                  # nie der Einstieg als Ersatzkurs
+    assert not re.search(r'class="(pos|neg)"', tail)  # kein geschätztes P&L (0,00 €)
+    assert 'data-price=""' in tail                    # auch der Dialog bekommt keinen Wert
+    assert 'data-pnl="—"' in tail
+
+
+def test_stale_takes_precedence_over_degraded(monkeypatch):
+    """Beide sperren Einstiege; „veraltet" ist die schärfere Aussage und behält --danger."""
+    _pending_signal()
+    _active_trade()
+    _scan_cache_aged(400)
+    _price_fetch_fails(monkeypatch)
+    text = _client().get("/app").text
+    assert 'data-feed-state="stale"' in text
+    assert 'id="feedStaleAlert"' in text
+    assert 'id="feedDegradedAlert"' not in text
+    assert "nicht verfügbar" in text                  # Ersatzwert bleibt trotzdem verboten
+    assert all("disabled" not in b for b in _exit_buttons(text))
+
+
 # ── Style-Phase 4: Kill-Switch ───────────────────────────────────────────────
 
 def test_kill_switch_shows_state_chip_and_reason_field():

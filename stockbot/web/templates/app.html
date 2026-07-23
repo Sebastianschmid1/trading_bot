@@ -40,7 +40,15 @@
   {% if feed_as_of_utc %}<span class="muted" style="font-size:.8rem">Stand {{ feed_as_of_utc }} UTC</span>{% endif %}
 </div>
 {% endif %}
-{% if entries_blocked %}
+{# §32.5: „unsicher/degradiert" ist ein EIGENER Zustand — --warning-Banner, klar getrennt
+   vom Fehler-/veraltet-Fall (--danger) und vom Loading-Skeleton. In diesem Zustand wird an
+   den betroffenen Stellen KEIN Schätzwert gerendert, sondern „—". #}
+{% if feed_status and feed_status.state == "degraded" %}
+<div class="alert2 alert2--warning" role="alert" id="feedDegradedAlert">
+  <div><p class="alert2__title">Daten unsicher — aktuelle Kurse nicht abrufbar</p>
+  <div>{{ feed_status.reason }}</div></div>
+</div>
+{% elif entries_blocked %}
 <div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">
   <div><p class="alert2__title">Kursdaten veraltet — keine neuen Trades</p>
   <div>{{ feed_status.reason }}</div></div>
@@ -182,16 +190,23 @@
   <div class="row">
     <strong>{{ t.ticker }}</strong>
     <span class="dir {{ 'long' if t.direction == 'long' else 'short' }}">{{ t.direction|upper }}</span>
-    <span class="muted">{{ t.asset_label }} · Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell ${{ '%.2f'|format(t.current) }} · {{ '%.1f'|format(t.leverage) }}×</span>
+    {# §32.5: Ist der aktuelle Kurs nicht abrufbar, steht hier „—" — nie der Einstiegskurs
+       als Ersatz und nie ein daraus geschätztes Ergebnis. #}
+    <span class="muted">{{ t.asset_label }} · Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell {% if t.price_degraded %}nicht verfügbar{% else %}${{ '%.2f'|format(t.current) }}{% endif %} · {{ '%.1f'|format(t.leverage) }}×</span>
     <span class="spacer"></span>
+    {% if t.price_degraded %}
+    <span class="muted" data-degraded="pnl">— €</span>
+    {% else %}
     <span class="{{ 'pos' if t.pnl_eur >= 0 else 'neg' }}">
       {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}€ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)
     </span>
+    {% endif %}
   </div>
   <form class="inline js-confirm" method="post" action="/app/sell" style="margin-top:.5rem"
         data-kind="sell" data-ticker="{{ t.ticker }}" data-direction="{{ t.direction }}"
-        data-price="{{ t.current }}" data-entry="{{ t.entry }}" data-leverage="{{ t.leverage or 1 }}"
-        data-pnl="{{ '%.2f'|format(t.pnl_eur) }}">
+        data-price="{{ '' if t.price_degraded else t.current }}" data-entry="{{ t.entry }}"
+        data-leverage="{{ t.leverage or 1 }}"
+        data-pnl="{{ '—' if t.price_degraded else '%.2f'|format(t.pnl_eur) }}">
     <input type="hidden" name="ticker" value="{{ t.ticker }}">
     {# §32.3: KEIN `disabled` — Exits bleiben immer bedienbar. Ein blockierter Ausstieg wäre
        gefährlicher als ein Einstieg auf altem Kurs. Zudem passt die Datenbasis nicht: der
@@ -249,7 +264,11 @@
   var cancelBtn = document.getElementById("tcCancel");
   var pendingForm = null;
   var lastFocus = null;   // auslösendes Element — Fokus kehrt beim Schließen dorthin zurück (§32.4)
-  var fmt = function (v) { return "$" + Number(v).toFixed(2); };
+  // §32.5: fehlt der Wert (degradierter Zustand), zeigt der Dialog „—" statt „$NaN" —
+  // ein Ersatz-/Schätzwert ist hier ausdrücklich verboten. Kein Verhaltens-Change.
+  var fmt = function (v) {
+    return (v === "" || v == null || isNaN(Number(v))) ? "—" : "$" + Number(v).toFixed(2);
+  };
 
   function fillDialog(d) {
     var isSell = d.kind === "sell";

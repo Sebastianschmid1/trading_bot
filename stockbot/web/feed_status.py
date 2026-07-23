@@ -29,6 +29,22 @@ Aufloesung — die Gate-Grenze sitzt an der **fresh**-Kante, nicht an der Block-
 blockiert — ein blockierter Ausstieg waere gefaehrlicher als ein Einstieg auf altem
 Kurs (siehe ``templates/app.html``). Die UI-Blockade bleibt Defense-in-Depth; das
 Backend-Gate ist und bleibt der eigentliche Schutz.
+
+``unknown`` vs. ``degraded`` — zwei verschiedene Aussagen (§32.5)
+-----------------------------------------------------------------
+Beide sind „nicht aktuell belegbar", meinen aber Unterschiedliches und haben deshalb
+unterschiedliche Folgen:
+
+* :func:`unknown` — wir kennen das **Alter** nicht, der angezeigte Wert selbst ist
+  plausibel (er stammt aus einer erfolgreichen Abfrage, nur ohne Zeitstempel). Warnt,
+  blockiert nicht: das Backend-Gate wuerde ohne bekanntes Alter ebenfalls durchlassen.
+* :func:`degraded` — die **Datenquelle hat versagt**; der Wert waere ein Ersatzwert
+  (Fallback) und damit keine Entscheidungsgrundlage. Warnt **und** sperrt neue
+  Einstiege. §32.5 verbietet in diesem Zustand ausdruecklich optimistische
+  Schaetzwerte — die betroffene Stelle zeigt „—", keinen Ersatzwert.
+
+Visuell sind die drei Faelle klar getrennt: „Loading" ist ein Skeleton, ``degraded``
+ein ``alert2--warning``-Banner, der Fehler-/veraltet-Fall ein ``alert2--danger``-Banner.
 """
 
 from __future__ import annotations
@@ -55,11 +71,11 @@ _REFERENCE_NOW = datetime(2000, 1, 1, tzinfo=timezone.utc)
 class FeedStatus:
     """Dreistufiger Feed-Status (plus expliziter „unbekannt"-Fall) fuer die Templates."""
 
-    state: str                      # "fresh" | "delayed" | "stale" | "unknown"
+    state: str                      # "fresh" | "delayed" | "stale" | "unknown" | "degraded"
     label: str                      # sichtbarer Chip-Text (deutsch, sachlich, §25)
     chip_class: str                 # vorhandene Klasse aus components.css
     age_seconds: float | None       # None ⇒ Datenalter nicht bekannt
-    blocks_orders: bool             # nur im Zustand "stale" wahr; betrifft NUR Einstiege
+    blocks_orders: bool             # in "stale"/"degraded" wahr; betrifft NUR Einstiege
     reason: str = ""                # Begruendung fuer den blockierten Fall (sonst "")
 
 
@@ -89,6 +105,28 @@ def unknown() -> FeedStatus:
     return FeedStatus(
         state="unknown", label="Datenalter unbekannt", chip_class="chip--caution",
         age_seconds=None, blocks_orders=False,
+    )
+
+
+def degraded(detail: str = "Aktuelle Kursdaten sind nicht abrufbar.") -> FeedStatus:
+    """Die Datenquelle hat versagt — der angezeigte Wert waere nur ein Ersatzwert (§32.5).
+
+    Abgrenzung zu :func:`unknown`: dort ist der Wert plausibel und nur sein Alter
+    unbekannt. Hier gibt es gar keinen belastbaren Wert, deshalb ``blocks_orders=True``
+    — ein Einstieg braucht eine Entscheidungsgrundlage, und die existiert gerade nicht.
+    Wie ueberall gilt das nur fuer **neue Einstiege**; Exits bleiben bedienbar.
+
+    ``age_seconds`` bleibt ``None``: ein Alter zu nennen wuerde eine Aktualitaet
+    behaupten, die es nicht gibt."""
+    return FeedStatus(
+        # Chip-Text liest sich im Template als „Kursdaten: unsicher"; der Banner-Titel
+        # traegt die volle Formulierung „Daten unsicher — …" aus §32.5.
+        state="degraded", label="unsicher", chip_class="chip--caution",
+        age_seconds=None, blocks_orders=True,
+        reason=(f"{detail} Es wird bewusst kein Schätzwert angezeigt, sondern ein Strich. "
+                f"Neue Einstiege sind gesperrt, weil dafür gerade keine belastbare "
+                f"Entscheidungsgrundlage vorliegt. Bestehende Positionen lassen sich "
+                f"weiterhin schließen."),
     )
 
 

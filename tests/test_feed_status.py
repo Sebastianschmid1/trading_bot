@@ -93,6 +93,40 @@ def test_unknown_age_is_explicit_and_never_blocks():
     assert s == feed_status.unknown()
 
 
+# ── §32.5 „degradiert": eigener Zustand, klar getrennt von „unbekannt" ──────
+
+def test_degraded_blocks_new_entries_and_names_the_consequence():
+    s = feed_status.degraded()
+    assert s.state == "degraded"
+    assert s.label == "unsicher"                 # Chip: „Kursdaten: unsicher"
+    assert s.chip_class == "chip--caution"       # vorhandene Warn-Klasse, keine neue Farbe
+    assert s.age_seconds is None                 # kein Alter behaupten
+    assert s.blocks_orders is True               # keine belastbare Entscheidungsgrundlage
+    assert "Neue Einstiege sind gesperrt" in s.reason
+    assert "schließen" in s.reason               # Exits bleiben ausdruecklich moeglich
+    assert "kein Schätzwert" in s.reason         # §32.5 verbietet optimistische Werte
+
+
+def test_degraded_reason_carries_the_concrete_detail():
+    s = feed_status.degraded("Für TSLA ist der aktuelle Kurs nicht abrufbar.")
+    assert s.reason.startswith("Für TSLA ist der aktuelle Kurs nicht abrufbar.")
+
+
+def test_degraded_and_unknown_are_different_statements():
+    """„Alter unbekannt, Wert plausibel" (unknown) vs. „Datenquelle ausgefallen" (degraded)."""
+    d, u = feed_status.degraded(), feed_status.unknown()
+    assert d.state == "degraded" and u.state == "unknown"
+    assert d.blocks_orders is True and u.blocks_orders is False
+    assert d != u
+    assert d.age_seconds is None and u.age_seconds is None   # Unterschied ist nicht das Alter
+
+
+def test_evaluate_never_yields_degraded():
+    """`degraded` folgt nie aus einem Alter, sondern nur aus einer gescheiterten Quelle."""
+    for age in (None, 0.0, MAX_AGE, 200.0, 10_000.0):
+        assert feed_status.evaluate(age, max_quote_age_seconds=MAX_AGE).state != "degraded"
+
+
 def test_negative_age_is_clamped_instead_of_shown_as_future():
     s = _status(-5.0)
     assert s.state == "fresh"

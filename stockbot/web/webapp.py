@@ -541,13 +541,23 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     feed_as_of_utc = (
         datetime.fromtimestamp(entry["at"], timezone.utc).strftime("%H:%M:%S")
         if scanned and entry else None)
+    feed = _feed_status_for(user, scanned)
+    # §32.5: Konnte der aktuelle Kurs einer angezeigten Position gar nicht geholt werden
+    # (dashboard._current_price ⇒ `price_degraded`), ist das kein „unbekanntes Alter",
+    # sondern eine ausgefallene Datenquelle — eigener Zustand, Einstiege gesperrt.
+    # „veraltet" (stale) hat Vorrang: es blockiert bereits und ist die schaerfere Aussage.
+    degraded_tickers = [t["ticker"] for t in active_trades if t.get("price_degraded")]
+    if degraded_tickers and not feed.blocks_orders:
+        feed = feed_status_mod.degraded(
+            f"Für {', '.join(degraded_tickers)} ist der aktuelle Kurs nicht abrufbar, "
+            f"damit sind auch Bewertung und unrealisiertes Ergebnis dieser Positionen "
+            f"unbekannt.")
     return _render("app.html", request, user, active="home", msg=msg,
                    pending=pending, broker_pending=broker_pending,
                    broker_closing=broker_closing, active_trades=active_trades,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=scanned, trade_filter=atf,
-                   feed_status=_feed_status_for(user, scanned),
-                   feed_as_of_utc=feed_as_of_utc)
+                   feed_status=feed, feed_as_of_utc=feed_as_of_utc)
 
 
 @router.post("/app/asset")

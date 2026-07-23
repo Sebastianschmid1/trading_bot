@@ -688,7 +688,9 @@
                 const base = "Kontowert: " + (item.parsed.y >= 0 ? "+" : "") + item.parsed.y.toFixed(2) + "€";
                 if (!m) return base;
                 const s = (v) => (v >= 0 ? "+" : "") + v;
-                return [base, `${m.ticker} ${m.open ? "(offen)" : ""} ${s(m.final_eur)}€ · ${m.strategy}`];
+                // §32.5: unbekanntes Ergebnis (Kurs nicht abrufbar) wird als „—" gezeigt.
+                const eur = m.final_eur != null ? s(m.final_eur) + "€" : "—";
+                return [base, `${m.ticker} ${m.open ? "(offen)" : ""} ${eur} · ${m.strategy}`];
               } } },
           },
           onClick: (evt, els) => {
@@ -760,7 +762,7 @@
             <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
             <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
             <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
-            <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
+            <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 && t.pnl_pct != null ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
             <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
             <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
           </tr>`).join("")}</tbody></table></div>`;
