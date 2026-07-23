@@ -32,9 +32,9 @@
   2026-07-19 `4b99f65` (W0–W7-Backend) → am selben Tag `3469052` (Telegram-Hauptmenü) →
   2026-07-20 `47672dc`/`f601184` (W7-Visual + W8-Suiten) → 2026-07-20 abends `8d16547`
   (Nebenbefund-Fixes `cf3074a`) → 2026-07-21 `3c56f87`/`d107f97` (systemd-Credentials +
-  Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → **2026-07-23 `b531b33`
-  (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten). Maßgeblich ist immer
-  der letzte Eintrag.**
+  Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → 2026-07-23 `b531b33`
+  (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten) → **2026-07-23 `719c1af`
+  (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung). Maßgeblich ist immer der letzte Eintrag.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
@@ -430,7 +430,7 @@ Claude-Subagent (Worktree), Manager-reviewt, 74 gezielte Tests grün. **Deployt 
 Health 200 mit x-trace-id, keine Fehler im Journal; Alembic-Head unverändert `c9d0e1f2a3b4`,
 keine Migration/Deps). Final beweist sich der Fix im `intraday_signals`-Lauf ab Marktöffnung.
 
-**Auto-Accept-Anti-Spam (2026-07-23, `8917b82`, lokal main, NICHT gepusht/deployt — LIVE-VERHALTEN):**
+**Auto-Accept-Anti-Spam (2026-07-23, `8917b82`, DEPLOYT auf VPS `719c1af` — LIVE-VERHALTEN, freigegeben):**
 Nutzeranforderung: Bei aktiviertem „automatische Trades annehmen" (`auto_accept`) sollen außerhalb
 der regulären US-Sitzung KEINE Signal-Karten mehr in den Telegram-Chat gepusht werden (Spam, v. a.
 via `EXTENDED_HOURS`-Intraday-Scan pre-market). Fix am Choke-Point `tgbot/bot.py::send_signal`:
