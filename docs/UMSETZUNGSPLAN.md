@@ -34,7 +34,8 @@
   (Nebenbefund-Fixes `cf3074a`) → 2026-07-21 `3c56f87`/`d107f97` (systemd-Credentials +
   Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → 2026-07-23 `b531b33`
   (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten) → **2026-07-23 `719c1af`
-  (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung). Maßgeblich ist immer der letzte Eintrag.**
+  (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung) → **2026-07-23 `d4fc73e` (Style-Audit
+  §32.3 Feed-Staleness + §32.4 Dialog-a11y). Maßgeblich ist immer der letzte Eintrag.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
@@ -393,7 +394,16 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**. Reihenfolge:
    Rest nach Bedarf.
 
-**Style-Audit (a)+(b) erledigt (2026-07-23, `6982f0c`+`eefa106`+`b0db2c1`, auf `main`, NICHT deployt).**
+**Style-Audit (a)+(b) erledigt (2026-07-23, `6982f0c`+`eefa106`+`b0db2c1`, DEPLOYT auf VPS `d4fc73e`).**
+Deploy: Backup `/var/backups/stockbot/stockbot-20260723-215229.dump.age`, push→VPS+ff-merge, Restart.
+**Keine Migration, keine neuen Deps** (Alembic-Head unverändert `c9d0e1f2a3b4`). Smoke grün: 12
+Scheduler-Jobs, 0 Fehler im Journal des neuen Prozesses, `/api/v1/health` 200 mit `x-trace-id`.
+⚠️ **Betriebsbefund beim Deploy:** `run_bot.py` startet das Dashboard selbst in einem Thread
+(`bot._start_dashboard_thread`) und bindet damit Port 8000; das separate `dashboard.service` ist auf
+dem VPS **disabled und lief noch nie**. Wer beide Units startet, erzeugt einen Port-Konflikt
+(`Errno 98`) — der Bot läuft dann zwar weiter (Scheduler ok), aber ohne eigene Weboberfläche.
+**Deploy-Regel bleibt: nur `systemctl restart stockbot`, `dashboard.service` nicht anfassen.**
+(Passiert genau einmal beim Deploy 2026-07-23, sofort zurückgedreht.)
 Zwei Claude-Subagenten (Worktree), sequentiell weil beide `web/templates/app.html` anfassen;
 Manager-reviewt, Suite selbst gegengefahren (225 passed, 1 skipped auf gemergtem `main`).
 - **(b) §32.4 Dialog- & Fokus-Verhalten** (`6982f0c`): `role="dialog"`/`aria-modal="true"`,
