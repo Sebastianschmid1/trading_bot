@@ -1,13 +1,15 @@
 """Style-Phasen 3–5 (W7): die abgenommenen Komponenten sind in den echten Seiten verdrahtet.
 
 Prüft nicht das Aussehen, sondern die verbindlichen Punkte aus dem Stylekonzept:
-kein grüner Kaufbutton (§11.2), Pflicht-Bestätigungsdialog (§18.1), sachliche
+kein grüner Kaufbutton (§11.2), Pflicht-Bestätigungsdialog (§18.1) samt Fokus- und
+Anti-Fehlklick-Verhalten (§32.4), sachliche
 Microcopy (§25), Skip-Link/Fokus/Bottom-Nav (§23/§23.4) und das Modus-Report-Panel
 (RES-002 / W3.4).
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -89,6 +91,61 @@ def test_entry_flow_requires_the_mandatory_confirmation_dialog():
     order = [dialog.index(x) for x in ("Modus", "Instrument", "Entry", "Stop", "Risiko", "Größe")]
     assert order == sorted(order)
     assert 'dataset.confirmed' in text or 'confirmed = "1"' in text
+
+
+# ── Style §32.4: Dialog- & Fokus-Verhalten ───────────────────────────────────
+
+def _app_page() -> str:
+    _pending_signal()
+    r = _client().get("/app")
+    assert r.status_code == 200
+    return re.sub(r"\s+", " ", r.text)          # whitespace-robust vergleichen
+
+
+def test_confirm_dialog_is_declared_as_modal_dialog():
+    text = _app_page()
+    tag = text[text.index("<dialog"):]
+    tag = tag[:tag.index(">") + 1]
+    assert 'id="tradeConfirm"' in tag
+    assert 'role="dialog"' in tag
+    assert 'aria-modal="true"' in tag
+    assert 'aria-labelledby="tcTitle"' in tag
+
+
+def test_initial_focus_is_cancel_and_never_the_confirm_button():
+    text = _app_page()
+    cancel = re.search(r'<button[^>]*id="tcCancel"[^>]*>', text)
+    ok = re.search(r'<button[^>]*id="tcOk"[^>]*>', text)
+    assert cancel and ok
+    assert "autofocus" in cancel.group(0)        # Initialfokus auf „Abbrechen"
+    assert "autofocus" not in ok.group(0)        # Bestätigen ist NIE initial fokussiert
+    # …und wird zusätzlich explizit beim Öffnen gesetzt (autofocus allein reicht nicht)
+    assert re.search(r"cancelBtn\.focus\(\)|getElementById\(\"tcCancel\"\)\.focus\(\)", text)
+
+
+def test_confirm_button_cannot_be_triggered_by_enter():
+    # Anti-Fehlklick (§32.4): ein versehentliches Enter darf keine Order auslösen.
+    text = _app_page()
+    guard = re.search(
+        r'okBtn\.addEventListener\("keydown".{0,200}?"Enter".{0,80}?preventDefault\(\)', text)
+    assert guard, "Enter-Guard auf dem Bestätigen-Button fehlt"
+
+
+def test_dialog_traps_focus_and_returns_it_to_the_trigger():
+    text = _app_page()
+    # Fokus-Trap: Tab-Handler auf dem Dialog, der am Rand umschaltet
+    trap = re.search(r'dlg\.addEventListener\("keydown".{0,600}?"Tab".{0,600}?preventDefault\(\)', text)
+    assert trap, "Fokus-Trap (Tab-Handler auf dem Dialog) fehlt"
+    # Fokus-Rückgabe beim Schließen auf das auslösende Element
+    assert "function restoreFocus()" in text
+    assert 'dlg.addEventListener("close", restoreFocus)' in text
+    assert "lastFocus" in text
+
+
+def test_confirm_button_locks_against_double_submit():
+    text = _app_page()
+    assert re.search(r'okBtn\.addEventListener\("click".{0,120}?okBtn\.disabled = true', text)
+    assert "okBtn.disabled = false" in text      # beim nächsten Öffnen wieder aktiv
 
 
 def test_microcopy_stays_factual():

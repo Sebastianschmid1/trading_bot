@@ -177,7 +177,7 @@
 {# ── Pflicht-Bestätigungsdialog (§18.1): feste Reihenfolge Modus → Instrument → Entry →
      Stop/Ziel → Risiko → Größe. Live bekäme dialog2--live + Volltext-Button („Echtes Geld"). #}
 <dialog id="tradeConfirm" class="dialog2 {{ 'dialog2--live' if trade_mode == 'live' }}"
-        aria-labelledby="tcTitle">
+        role="dialog" aria-modal="true" aria-labelledby="tcTitle">
   <div class="dialog2__body">
     <h2 class="dialog2__title" id="tcTitle">Trade bestätigen</h2>
     {% if trade_mode == 'live' %}
@@ -199,6 +199,8 @@
     <p class="muted" id="tcNote" style="margin:.6rem 0 0"></p>
     <div class="dialog2__actions">
       <button type="button" class="btn2 btn2--secondary" id="tcCancel" autofocus>Abbrechen</button>
+      {# §32.4 Anti-Fehlklick: Initialfokus liegt auf „Abbrechen", der Bestätigen-Button ist
+         nicht per Enter auslösbar — ein versehentliches Enter darf keine Order auslösen. #}
       <button type="button" class="btn2 {{ 'btn2--live' if trade_mode == 'live' else 'btn2--primary' }}" id="tcOk">
         {% if trade_mode == 'live' %}Echtes Geld: Order jetzt ausführen{% else %}Trade bestätigen{% endif %}
       </button>
@@ -216,7 +218,10 @@
 // Fällt ohne JS auf den normalen POST/Redirect zurück (Formular bleibt funktionsfähig).
 (function () {
   var dlg = document.getElementById("tradeConfirm");
+  var okBtn = document.getElementById("tcOk");
+  var cancelBtn = document.getElementById("tcCancel");
   var pendingForm = null;
+  var lastFocus = null;   // auslösendes Element — Fokus kehrt beim Schließen dorthin zurück (§32.4)
   var fmt = function (v) { return "$" + Number(v).toFixed(2); };
 
   function fillDialog(d) {
@@ -247,19 +252,50 @@
     }
   }
 
+  // §32.4 Fokus-Trap: Tab/Shift-Tab führen nicht aus dem geöffneten Dialog heraus.
+  function focusables() {
+    var sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    return Array.prototype.slice.call(dlg.querySelectorAll(sel)).filter(function (el) { return !el.disabled; });
+  }
+  dlg.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Tab") return;
+    var items = focusables();
+    if (!items.length) return;
+    var first = items[0], last = items[items.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  });
+
+  // §32.4 Fokus-Rückgabe: Abbrechen, ESC und Bestätigen setzen den Fokus auf den Auslöser zurück.
+  function restoreFocus() {
+    var target = lastFocus; lastFocus = null;
+    if (target && target.isConnected && !target.disabled && typeof target.focus === "function") target.focus();
+  }
+  dlg.addEventListener("close", restoreFocus);
+
   document.querySelectorAll("form.js-confirm").forEach(function (form) {
     form.addEventListener("submit", function (ev) {
       if (form.dataset.confirmed === "1") return;   // Dialog wurde bestätigt → normal weiter
       ev.preventDefault();
       pendingForm = form;
+      lastFocus = form.querySelector("button[type=submit]") || form.querySelector("button") || document.activeElement;
       fillDialog(form.dataset);
+      okBtn.disabled = false;   // Loading-Zustand des letzten Öffnens zurücksetzen
       dlg.showModal();
+      cancelBtn.focus();        // Initialfokus explizit auf „Abbrechen" (autofocus allein reicht nicht)
     });
   });
-  document.getElementById("tcCancel").addEventListener("click", function () { dlg.close(); pendingForm = null; });
+  cancelBtn.addEventListener("click", function () { dlg.close(); pendingForm = null; });
   dlg.addEventListener("cancel", function () { pendingForm = null; });  // Esc
-  document.getElementById("tcOk").addEventListener("click", function () {
+  // §32.4 Anti-Fehlklick: Enter auf dem Bestätigen-Button tut nichts — ein versehentliches
+  // Enter darf keine Order auslösen. Space bleibt als bewusster Tastendruck erlaubt.
+  okBtn.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") ev.preventDefault();
+  });
+  okBtn.addEventListener("click", function () {
+    okBtn.disabled = true;   // Loading-Zustand: ein zweiter (Doppel-)Klick läuft ins Leere
     dlg.close();
+    restoreFocus();          // vor dem Submit, damit der Fokus auf dem Auslöser landet
     if (!pendingForm) return;
     var form = pendingForm; pendingForm = null;
     form.dataset.confirmed = "1";
