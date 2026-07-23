@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from stockbot.core import db
 from stockbot.core import trade_lifecycle
 from stockbot.core import logfilter
-from stockbot.core.domain import Mode, OrderStatus, Signal, SignalStatus, TradeIntent
+from stockbot.core.domain import Mode, OrderStatus, RiskProfile, Signal, SignalStatus, TradeIntent
 from stockbot.core.evaluator import trade_pnl
 from stockbot.backtest import engine as backtest_engine
 from stockbot.market import strategies
@@ -37,6 +37,7 @@ from stockbot.services import trades as trade_svc
 from stockbot.services import settings as settings_svc
 from stockbot.services import watchlist as watchlist_svc
 from stockbot.web import auth
+from stockbot.web import feed_status as feed_status_mod
 from stockbot.optimize import lab as lab_mod
 from stockbot.execution.oms import OrderManagementSystem
 from stockbot.execution import risk_context
@@ -405,6 +406,28 @@ def _scanned_for(user: dict) -> list:
     return out
 
 
+def _feed_status_for(user: dict, scanned: list) -> feed_status_mod.FeedStatus:
+    """Datenaktualität der auf /app gezeigten Kurse (Stylekonzept §32.3).
+
+    Einzige im Render-Pfad verfügbare, belastbare Kurs-Zeitstempel-Quelle ist der
+    Scan-Cache (`_scan_cache[...]["at"]`) — er stempelt genau den Moment, in dem die auf
+    den Signalkarten gezeigten Preise geholt wurden. Für DB-Signale (`get_pending_trades`)
+    und aktive Trades existiert hier KEIN Kurs-Zeitstempel: der Tages-Scan bzw. der
+    60s-Monitor speichert ihn nicht mit dem gerenderten Preis. In dem Fall wird das Alter
+    bewusst NICHT geraten, sondern explizit als „unbekannt" ausgewiesen (blockiert nicht).
+
+    Es wird keine neue Quote geholt — der Status wird rein aus vorhandenen Daten abgeleitet.
+    """
+    entry = _scan_cache.get(user["user_id"])
+    if not scanned or not entry:
+        return feed_status_mod.unknown()
+    # `scanned` ist nur nicht-leer, wenn `_scanned_for` den Cache-Eintrag als gültig
+    # akzeptiert hat — sein `at` gehört also zu den gerenderten Preisen.
+    profile = RiskProfile(user_id=int(user["user_id"]))
+    return feed_status_mod.evaluate(
+        time.time() - entry["at"], max_quote_age_seconds=profile.max_quote_age_seconds)
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @router.get("/login", response_class=HTMLResponse)
@@ -511,11 +534,20 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
     if atf in label_by_key:
         active_trades = [t for t in active_trades if t["asset_key"] == atf]
     asset_pref = user.get("asset_pref") or asset_classes.DEFAULT_ASSET
+    scanned = _scanned_for(user)
+    # §32.3: Datenaktualität + Abrufzeit. Die Abrufzeit ist eine System-/Audit-Zeit und wird
+    # deshalb als UTC gerendert und auch so beschriftet (keine Umrechnung ohne Grundlage).
+    entry = _scan_cache.get(user["user_id"])
+    feed_as_of_utc = (
+        datetime.fromtimestamp(entry["at"], timezone.utc).strftime("%H:%M:%S")
+        if scanned and entry else None)
     return _render("app.html", request, user, active="home", msg=msg,
                    pending=pending, broker_pending=broker_pending,
                    broker_closing=broker_closing, active_trades=active_trades,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
-                   scanned=_scanned_for(user), trade_filter=atf)
+                   scanned=scanned, trade_filter=atf,
+                   feed_status=_feed_status_for(user, scanned),
+                   feed_as_of_utc=feed_as_of_utc)
 
 
 @router.post("/app/asset")

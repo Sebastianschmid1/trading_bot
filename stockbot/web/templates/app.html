@@ -25,6 +25,27 @@
   </div>
 </div>
 
+{# ── §32.3 Datenaktualität: Sicherheits-Element, kein Deko-Element ──────────────────
+   EIN Chip pro Seite: alle hier gerenderten Kurse stammen aus demselben Scan-Ergebnis
+   (webapp._scan_cache) bzw. haben gar keinen Zeitstempel — es gibt also nur ein Datenalter,
+   kein Chip-pro-Karte. Die Schwellen kommen aus stockbot/web/feed_status.py und damit aus
+   demselben Gate-Wert wie core/data_quality.check_quote_age. #}
+{% set orders_blocked = feed_status and feed_status.blocks_orders %}
+{% if feed_status %}
+<div class="row" id="feedStatus" style="margin:.2rem 0 .6rem; gap:.5rem; align-items:center">
+  <span class="chip {{ feed_status.chip_class }}" data-feed-state="{{ feed_status.state }}">
+    <span class="chip__dot"></span>Kursdaten: {{ feed_status.label }}
+  </span>
+  {% if feed_as_of_utc %}<span class="muted" style="font-size:.8rem">Stand {{ feed_as_of_utc }} UTC</span>{% endif %}
+</div>
+{% endif %}
+{% if orders_blocked %}
+<div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">
+  <div><p class="alert2__title">Kursdaten veraltet — Orders blockiert</p>
+  <div>{{ feed_status.reason }}</div></div>
+</div>
+{% endif %}
+
 {% if scanned %}
 <h2>Angeforderte Signale ({{ scanned|length }})</h2>
 {% for s in scanned %}
@@ -58,7 +79,9 @@
         data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
         data-leverage="{{ s.leverage or 1 }}">
     <input type="hidden" name="ticker" value="{{ s.ticker }}">
-    <button class="btn2 btn2--primary" type="submit">Trade prüfen</button>
+    {# §32.3: veraltete Kursdaten blockieren orderrelevante Aktionen sichtbar — serverseitig
+       gerendert, nicht per JS nachgezogen. #}
+    <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if orders_blocked }}>Trade prüfen</button>
   </form>
 </div>
 {% endfor %}
@@ -87,7 +110,7 @@
           data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
           data-leverage="{{ s.leverage or 1 }}">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="btn2 btn2--primary" type="submit">Trade prüfen</button>
+      <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if orders_blocked }}>Trade prüfen</button>
     </form>
     <form class="inline" method="post" action="/app/reject">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
@@ -169,7 +192,7 @@
         data-price="{{ t.current }}" data-entry="{{ t.entry }}" data-leverage="{{ t.leverage or 1 }}"
         data-pnl="{{ '%.2f'|format(t.pnl_eur) }}">
     <input type="hidden" name="ticker" value="{{ t.ticker }}">
-    <button class="btn2 btn2--destructive" type="submit">Position schließen</button>
+    <button class="btn2 btn2--destructive" type="submit" {{ 'disabled' if orders_blocked }}>Position schließen</button>
   </form>
 </div>
 {% endfor %}

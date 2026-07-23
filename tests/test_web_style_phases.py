@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,85 @@ def test_microcopy_stays_factual():
     for hype in ("Jetzt zuschlagen", "Nicht verpassen", "🚀"):
         assert hype not in text
     assert "Durch Risikoregel blockiert" in text     # §25
+
+
+# ── Style §32.3: Datenaktualität, gekoppelt an das Quote-Freshness-Gate ──────
+
+def _scan_cache_aged(age_seconds: float, ticker="MSFT"):
+    """Legt ein Scan-Ergebnis mit definiertem Alter in den Cache (kein echter Scan)."""
+    webapp._scan_cache[CHAT] = {
+        "at": time.time() - age_seconds,
+        "asset": db.get_user(CHAT).get("asset_pref") or "stocks",
+        "signals": [{
+            "ticker": ticker, "price": 210.0, "direction": "long", "strategy": "sma_cross",
+            "strength": 3, "raw_score": 3.0, "stop_loss": 200.0, "take_profit": 230.0,
+            "leverage": 1.0, "spark_closes": [],
+        }],
+    }
+
+
+def _submit_buttons(text: str) -> list[str]:
+    """Alle Submit-Buttons in orderrelevanten (js-confirm) Formularen."""
+    out = []
+    for form in re.findall(r'<form[^>]*js-confirm.*?</form>', text, re.S):
+        out += re.findall(r'<button[^>]*type="submit"[^>]*>', form)
+    return out
+
+
+def test_feed_chip_is_rendered_fresh_and_leaves_order_buttons_enabled():
+    _pending_signal()
+    _scan_cache_aged(1)
+    text = _client().get("/app").text
+    assert 'id="feedStatus"' in text
+    assert 'data-feed-state="fresh"' in text
+    assert "chip--go" in text
+    assert "UTC" in text                              # §32.3: Zeitangabe beschriftet
+    assert 'id="feedStaleAlert"' not in text
+    buttons = _submit_buttons(text)
+    assert buttons, "keine orderrelevanten Buttons gefunden"
+    assert all("disabled" not in b for b in buttons)
+
+
+def test_feed_chip_warns_when_data_is_delayed_but_still_allows_orders():
+    _pending_signal()
+    _scan_cache_aged(40)                              # 40 s bei Grenze 60 s → verzögert
+    text = _client().get("/app").text
+    assert 'data-feed-state="delayed"' in text
+    assert "chip--caution" in text
+    assert "verzögert" in text
+    assert 'id="feedStaleAlert"' not in text
+    assert all("disabled" not in b for b in _submit_buttons(text))
+
+
+def test_stale_feed_disables_order_buttons_and_states_the_reason():
+    _pending_signal()
+    _scan_cache_aged(300)                             # weit über der 60-s-Gate-Grenze
+    text = _client().get("/app").text
+    assert 'data-feed-state="stale"' in text
+    assert "chip--warn" in text
+    assert "veraltet – Orders blockiert" in text
+    # Begründung sichtbar, als Alert ausgezeichnet, nennt das gemessene Alter
+    alert = re.search(r'<div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">.*?</div>\s*</div>',
+                      text, re.S)
+    assert alert, "Begründung mit role=alert fehlt"
+    assert "300 s alt" in alert.group(0)
+    buttons = _submit_buttons(text)
+    assert buttons
+    assert all("disabled" in b for b in buttons), "orderrelevante Buttons sind nicht gesperrt"
+    # „Ablehnen" ist nicht orderrelevant und bleibt bedienbar
+    reject = re.search(r'<form[^>]*action="/app/reject".*?</form>', text, re.S)
+    assert reject and "disabled" not in reject.group(0)
+
+
+def test_unknown_data_age_is_explicit_and_does_not_block():
+    # Ohne Scan-Ergebnis gibt es keinen belastbaren Kurs-Zeitstempel → nicht raten.
+    _pending_signal()
+    text = _client().get("/app").text
+    assert 'data-feed-state="unknown"' in text
+    assert "Datenalter unbekannt" in text
+    assert "chip--caution" in text
+    assert 'id="feedStaleAlert"' not in text
+    assert all("disabled" not in b for b in _submit_buttons(text))
 
 
 # ── Style-Phase 4: Kill-Switch ───────────────────────────────────────────────
