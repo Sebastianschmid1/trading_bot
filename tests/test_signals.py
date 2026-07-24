@@ -15,7 +15,7 @@ Alle Tests laufen offline (yfinance + Telegram werden gemockt).
 import sys
 import asyncio
 import tempfile
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -394,6 +394,60 @@ def test_auto_accept_is_silent_and_sends_one_daily_report():
     finally:
         bot._us_market_open, bot.evaluate_trades = o_open, o_eval
         exchange_calendar.is_past_entry_cutoff = o_cutoff
+
+
+class _LocalDateAhead(date):
+    """`date` eines Servers, dessen **lokales** Datum dem UTC-Datum einen Tag voraus ist.
+
+    Genau die Lage, die auf einer Maschine mit positivem Zeitzonen-Offset (CEST = UTC+2,
+    Pacific/Auckland = UTC+12) zwischen Mitternacht und dem Offset herrscht.
+    """
+    @classmethod
+    def today(cls):
+        return db.today_utc_date() + timedelta(days=1)
+
+
+def test_auto_accept_daily_report_follows_utc_day_not_server_local_day():
+    """Der Tagesreport muss den Handelstag in UTC bilden (`db.today_utc()`).
+
+    `trade_date` und die Event-`ts` sind UTC-gestempelt; der Report fragte den Tag früher
+    mit `date.today()` (Server-Lokalzeit) ab. Sobald beide auseinanderlaufen, fand
+    `get_all_trades_between()` die heutigen Käufe nicht — der Report meldete „Gekauft (0)",
+    obwohl gekauft wurde.
+
+    Deterministisch: die lokale Datumsquelle des Prozesses wird fest einen Tag vor das
+    UTC-Datum gesetzt, statt sich auf die echte Uhrzeit des Testlaufs zu verlassen (genau
+    diese Zeitabhängigkeit hat den Bug so lange verdeckt).
+    """
+    fresh_db()
+    db.get_or_create_user(CHAT, "u")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.set_auto_accept(CHAT, True)
+
+    o_open, o_eval = bot._us_market_open, bot.evaluate_trades
+    o_cutoff, o_date = exchange_calendar.is_past_entry_cutoff, bot.date
+    bot._us_market_open = lambda extended=None: True
+    exchange_calendar.is_past_entry_cutoff = lambda *a, **k: False
+    bot.date = _LocalDateAhead              # Server-Lokaldatum ≠ UTC-Datum
+    try:
+        asyncio.run(bot.send_signal(fake_bot(), CHAT, make_signal("NVDA", 100.0), 25.0,
+                                    market_open=True, auto_accept=True))
+        assert db.get_trade(CHAT, "NVDA")["status"] == "active"
+        assert db.get_trade(CHAT, "NVDA")["trade_date"] == db.today_utc()
+
+        bot.evaluate_trades = lambda trades, size: [
+            {"ticker": t["ticker"], "entry": t["entry"], "exit": 105.0,
+             "pnl_eur": 1.25, "pnl_pct": 5.0, "exit_reason": "Schlusskurs"} for t in trades]
+        ctx = MagicMock()
+        ctx.bot = fake_bot()
+        asyncio.run(bot.close_and_evaluate(ctx))
+
+        text = ctx.bot.send_message.await_args.kwargs["text"]
+        assert "Gekauft (1)" in text and "NVDA" in text
+    finally:
+        bot._us_market_open, bot.evaluate_trades = o_open, o_eval
+        exchange_calendar.is_past_entry_cutoff = o_cutoff
+        bot.date = o_date
 
 
 def test_auto_accept_skips_activation_within_entry_cutoff():

@@ -15,7 +15,7 @@ import math
 import logging
 from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -228,7 +228,10 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         closed = [t for t in closed if _trade_strategy(t) == strategy]
         active = [t for t in active if _trade_strategy(t) == strategy]
     if days:
-        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        # Fenstergrenze in UTC bilden: `trade_date` ist UTC-gestempelt (`db.today_utc()`).
+        # Mit `date.today()` verschob sich das Fenster auf Servern mit Zeitzonen-Offset
+        # um einen Tag.
+        cutoff = (db.today_utc_date() - timedelta(days=days)).isoformat()
         closed = [t for t in closed if (t.get("trade_date") or "") >= cutoff]
 
     # Equity-Kurve: tägliches P&L kumuliert

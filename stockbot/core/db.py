@@ -683,16 +683,28 @@ def _connect():
         conn.close()
 
 
-def _today() -> str:
-    """Der Handelstag für die `trade_date`-Spalte — **UTC**, nicht Server-Lokalzeit.
+def today_utc_date() -> date:
+    """Der heutige Handelstag als `date` — **UTC**, nicht Server-Lokalzeit.
 
-    Alle Zeitstempel in der DB folgen dem naiven UTC-Vertrag (`_utc_timestamp()`).
-    `date.today()` folgte dagegen der Server-Zeitzone: auf einer Maschine mit Offset
-    (z. B. CEST = UTC+2) lag `trade_date` zwischen Mitternacht und dem Offset einen Tag
-    vor `created_at` — Duplikatschutz und Tagesabfragen liefen dann auseinander.
+    Die eine Wahrheit für „welcher Tag ist heute" in der gesamten Anwendung (Backtests
+    haben mit `backtest/clock.py` bewusst einen eigenen Zeitbegriff). Alle Zeitstempel in
+    der DB folgen dem naiven UTC-Vertrag (`_utc_timestamp()`), `trade_date` ebenso.
+    `date.today()` folgt dagegen der Server-Zeitzone: auf einer Maschine mit Offset
+    (z. B. CEST = UTC+2) liegt der lokale Tag zwischen Mitternacht und dem Offset einen
+    Tag vor/nach dem UTC-Tag — wer damit gegen DB-Werte vergleicht, greift ins Leere.
     Produktion (VPS, `Etc/UTC`) verhält sich unverändert.
     """
-    return str(datetime.now(timezone.utc).date())
+    return datetime.now(timezone.utc).date()
+
+
+def today_utc() -> str:
+    """Derselbe Handelstag als ISO-String 'YYYY-MM-DD' (Format der `trade_date`-Spalte)."""
+    return str(today_utc_date())
+
+
+def _today() -> str:
+    """DB-interner Name für `today_utc()` (stempelt die `trade_date`-Spalte)."""
+    return today_utc()
 
 
 # -- OMS persistence (Phase 4) -------------------------------------------------

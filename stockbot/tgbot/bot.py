@@ -139,7 +139,7 @@ def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
 
 # ── Kandidaten-Cache (für das Nachrücken ohne Duplikate) ────────────────────
 
-_candidates_cache: dict[str, dict] = {}   # key -> {"date": date, "ranked": [signal, ...]}
+_candidates_cache: dict[str, dict] = {}   # key -> {"date": 'YYYY-MM-DD' (UTC), "ranked": [signal, ...]}
 
 
 def _auto_uni(user: dict) -> bool:
@@ -344,12 +344,12 @@ def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_ST
 
 
 def _cache_candidates(key: str, ranked: list[dict]):
-    _candidates_cache[key] = {"date": date.today(), "ranked": ranked}
+    _candidates_cache[key] = {"date": db.today_utc(), "ranked": ranked}
 
 
 def _get_candidates(key: str) -> list[dict]:
     e = _candidates_cache.get(key)
-    return e["ranked"] if e and e["date"] == date.today() else []
+    return e["ranked"] if e and e["date"] == db.today_utc() else []
 
 
 # ── Nachrichten senden ──────────────────────────────────────────────────────
@@ -829,7 +829,7 @@ async def send_signal(bot: Bot, chat_id: int, signal: dict, trade_size_eur: floa
                 expire_pending_trade,
                 when=timedelta(minutes=expiry_min),
                 data={"chat_id": chat_id, "ticker": ticker, "message_id": msg.message_id},
-                name=f"expire_{chat_id}_{ticker}_{date.today()}"
+                name=f"expire_{chat_id}_{ticker}_{db.today_utc()}"
             )
     else:
         log.info(f"[{chat_id}] Info-Signal (Börse geschlossen): {ticker}")
@@ -995,12 +995,12 @@ async def _run_signal_scan(context: ContextTypes.DEFAULT_TYPE, opening: bool):
 def _trade_age_days(trade: dict) -> int:
     """Alter eines Trades in Kalendertagen seit Eröffnung (trade_date).
 
-    `trade_date` wird in UTC geschrieben (`db._today()`) — der Vergleich muss derselben
+    `trade_date` wird in UTC geschrieben (`db.today_utc()`) — der Vergleich muss derselben
     Zeitbasis folgen, sonst zählt ein Trade nahe Mitternacht auf einem Server mit
     Zeitzonen-Offset einen Tag zu alt.
     """
     try:
-        return (datetime.now(timezone.utc).date() - date.fromisoformat(trade["trade_date"])).days
+        return (db.today_utc_date() - date.fromisoformat(trade["trade_date"])).days
     except Exception:
         return 0
 
@@ -1101,9 +1101,14 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
 async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[dict]):
     """Gebündelter Tagesreport für Auto-Accept-Nutzer: was heute gekauft, verkauft und welche
     Verkäufe nicht funktioniert haben — in EINER Nachricht (alle Einzelmeldungen sind unterdrückt).
-    Quelle: heutige Trades + heutiger Status-Event-Log."""
+    Quelle: heutige Trades + heutiger Status-Event-Log.
+
+    Der Abfragetag muss in **UTC** gebildet werden (`db.today_utc()`): `trade_date` und die
+    Event-`ts` sind UTC-gestempelt. Mit `date.today()` lief der Report auf einem Server mit
+    Zeitzonen-Offset zwischen Mitternacht und dem Offset einen Tag daneben und meldete
+    „Gekauft (0)", obwohl gekauft wurde."""
     uid = user["user_id"]
-    today = date.today().isoformat()
+    today = db.today_utc()
     today_trades = db.get_all_trades_between(uid, today, today)
     events = db.get_trade_events_between(uid, today, today)
 
@@ -1173,7 +1178,7 @@ async def _maybe_warn_sltp_off(bot: Bot, uid: int, trade: dict, price: float, st
         return
     if strength is None or strength >= SIGNAL_CLOSE_THRESHOLD:
         return
-    key = (uid, trade["ticker"], date.today().isoformat())
+    key = (uid, trade["ticker"], db.today_utc())
     if key in _weak_warned:
         return
     _weak_warned.add(key)

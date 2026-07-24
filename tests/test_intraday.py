@@ -787,6 +787,34 @@ def test_dashboard_days_filter():
     assert last7["days"] == 7 and 30 in last7["ranges"]
 
 
+def test_dashboard_days_filter_window_is_utc(monkeypatch):
+    """Der `days`-Cutoff muss aus dem UTC-Tag gebildet werden (`db.today_utc_date()`).
+
+    `trade_date` ist UTC-gestempelt; mit `date.today()` (Server-Lokalzeit) rutschte die
+    Fenstergrenze auf Maschinen mit Zeitzonen-Offset um einen Tag und der Trade genau auf
+    der Grenze fiel heraus. Der Test friert „heute" ein, damit er nicht von der echten
+    Uhrzeit des Testlaufs abhängt.
+    """
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    frozen = date(2026, 3, 10)
+    monkeypatch.setattr(db, "today_utc_date", lambda: frozen)
+    monkeypatch.setattr(db, "today_utc", lambda: str(frozen))
+
+    sj = '{"strategy": "standard"}'
+    with db._connect() as conn:
+        for off, pnl in [(7, 10.0), (8, -5.0)]:   # genau auf / knapp außerhalb der 7-Tage-Grenze
+            conn.execute(
+                "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status, "
+                "entry, exit, pnl_eur, pnl_pct) VALUES (?, ?, ?, 'long', ?, 'closed', 100, 110, ?, 10)",
+                (CHAT, (frozen - timedelta(days=off)).isoformat(), f"T{off}", sj, pnl),
+            )
+
+    last7 = dashboard.build_dashboard_data(db.get_user(CHAT), days=7)
+    assert last7["summary"]["total_closed"] == 1 and last7["summary"]["total_pnl"] == 10.0
+
+
 def test_dashboard_trades_curves_history_and_active():
     """Gemeinsame Zeitachse: x = echter Zeitpunkt (Epoch-ms). Ein geschlossener Trade endet an
     seinem Ausstiegs-Zeitpunkt (vor 'jetzt'); ein offener läuft bis 'jetzt' (rechter Rand)."""
