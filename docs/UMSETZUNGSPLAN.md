@@ -457,8 +457,10 @@ Ausgelöst durch einen externen Fabel-Audit des Projekts (Analyse s. u. „Audit
   `DASHBOARD_BASE_URL`) via `setdefault` ⇒ frischer Checkout sammelt jetzt 1237 Tests / **0 Errors**
   (vorher 69 Collection-Errors). Sicherheits-Defaults unverschoben. (3) **`.github/workflows/tests.yml`**
   neu: erste CI (`push`/`pull_request` auf `main`), **Python 3.12** (Prod-Parität mit dem VPS, nicht
-  Repo-Minimum 3.11), Install aus `requirements.lock`. ⚠️ Workflow ungetestet — erster Push zeigt's;
-  `requirements.lock` stammt aus einer 3.14-Dev-venv, cp312-Wheels ungeprüft.
+  Repo-Minimum 3.11), Install aus `requirements.lock`. **Erster CI-Lauf (`30074981868`, push `cf4e3a7`)
+  grün** — `requirements.lock` installiert unter 3.12 sauber, volle Suite läuft auf frischem Runner
+  ohne Secrets durch (dank `conftest.py`). Der Push brauchte einmalig `gh auth refresh -s workflow`
+  (Token-Scope für die Workflow-Datei).
 - **UTC-Datum-Bugfix** (`8aaddaa`, Claude-Subagent — Spend-Limit mitten im Abschluss, Manager hat die
   fertige, uncommittete Worktree-Arbeit reviewt + committet + gemergt): `_send_autoaccept_daily_report`
   bildete den Abfragetag mit `date.today()` (Server-Lokalzeit), während `trade_date` via `db._today()`
