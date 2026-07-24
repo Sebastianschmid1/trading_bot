@@ -35,7 +35,9 @@
   Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → 2026-07-23 `b531b33`
   (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten) → **2026-07-23 `719c1af`
   (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung) → **2026-07-23 `d4fc73e` (Style-Audit
-  §32.3 Feed-Staleness + §32.4 Dialog-a11y). Maßgeblich ist immer der letzte Eintrag.**
+  §32.3 Feed-Staleness + §32.4 Dialog-a11y) DEPLOYT. Danach auf `main`, NOCH NICHT deployt:
+  §32.5 (`ad87da8`), Testsuite-Hygiene/erste CI (`dd28789`), UTC-Datum-Bugfix (`8aaddaa`).
+  Maßgeblich ist immer der letzte deployte Eintrag = `d4fc73e`.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
@@ -385,8 +387,7 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    zulässig durch), der Locale-Widerspruch in §6.3 (Punkt/Komma gemischt) ist im Konzept gefixt. Als
    **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Subagent-Tasks, „Gate Style"-Rest):
    **(a) §32.3 ✅ ERLEDIGT** (`eefa106`+`b0db2c1`, s. u.); **(b) §32.4 ✅ ERLEDIGT** (`6982f0c`, s. u.);
-   (c) §32.5 eigener „Daten unsicher"-Zustand
-   (warning-Banner + disabled Controls, kein optimistischer Schätzwert); (d) §32.6 §9.1-Navigation auf
+   **(c) §32.5 ✅ ERLEDIGT** (`ad87da8`, s. u.); (d) §32.6 §9.1-Navigation auf
    die echten Routen mappen (`watchlist`/`history`/`backtest`/`lab` etc. dürfen nicht ungestylt
    bleiben); (e) §32.7 kategoriale, farbenblind-sichere Chart-Palette `--cat-1…6` (getrennt von
    Grün/Rot); (f) §32.8 gemeinsames matplotlib-Style-Mapping der Tokens, damit Backtest-/Report-PNGs
@@ -435,8 +436,60 @@ Manager-reviewt, Suite selbst gegengefahren (225 passed, 1 skipped auf gemergtem
   `dashboard.py` nicht angefasst), keine neuen Dependencies, keine neuen CSS-Klassen.
   Tests: `tests/test_feed_status.py` (neu) + 4 neue in `tests/test_web_style_phases.py`.
 - **Kein Live-Trade-Verhalten geändert** — beide Tasks härten nur die UI (Defense-in-Depth); das
-  Backend-Gate bleibt der eigentliche Schutz. Offen bleibt (c)–(g) sowie die visuelle Abnahme (Punkt 1),
-  die jetzt gegen diesen Stand laufen sollte.
+  Backend-Gate bleibt der eigentliche Schutz.
+
+**Style-Audit (c) + Testsuite-Hygiene + UTC-Bugfix erledigt (2026-07-24, auf `main`, NOCH NICHT deployt).**
+Ausgelöst durch einen externen Fabel-Audit des Projekts (Analyse s. u. „Audit-Befunde").
+- **(c) §32.5 „Daten unsicher/degradiert"** (`ad87da8`, Claude-Subagent, Manager-reviewt): eigener
+  UI-Zustand `degraded` in `feed_status.py` (Konstruktor `degraded(detail)`, `blocks_orders=True`,
+  `chip--caution`). Ausgelöst durch die reale Fallback-Stelle `dashboard.py::_current_price`, die bei
+  fehlgeschlagenem Kursabruf **den Einstiegskurs** als „aktuell" zeigte (⇒ „$300 → $300, +0.00 €",
+  ein erfundener Wert). Jetzt: NaN-Sentinel ⇒ `None` ⇒ „nicht verfügbar"/„—" + `alert2--warning`-Banner
+  (`role="alert"`), das die betroffenen Ticker nennt; Einstiege gesperrt, **Exits nie**. Abgrenzung
+  `unknown` (Alter unbekannt, Wert plausibel → warnt) vs. `degraded` (Quelle ausgefallen → sperrt).
+  Backend/Order-Pfad unberührt (fail-open in `risk_context.py` bewusst NICHT angefasst — separate
+  Entscheidung). Tests: 4+4 neu. **Betriebshinweis:** der Zustand sperrt neue Einstiege seitenweit,
+  sobald für EINE angezeigte Position kein Kurs abrufbar ist (bewusst über-blockierend, heilt selbst).
+- **Testsuite-Hygiene** (`a4ed426`+`b6498b6`+`dd28789`, Claude-Subagent + Manager-CI-Tweak):
+  (1) roter Test `test_roundup_queue.py::…outside_regular_session` auf das `8917b82`-Anti-Spam-Verhalten
+  gezogen (umgebaut, nicht weggeworfen — der „kein Auto-Start"-Kern blieb, den `test_signal_suppression`
+  NICHT abdeckt). (2) **`tests/conftest.py`** neu: setzt Import-Defaults (Dummy-`ENCRYPTION_KEY`,
+  `DASHBOARD_BASE_URL`) via `setdefault` ⇒ frischer Checkout sammelt jetzt 1237 Tests / **0 Errors**
+  (vorher 69 Collection-Errors). Sicherheits-Defaults unverschoben. (3) **`.github/workflows/tests.yml`**
+  neu: erste CI (`push`/`pull_request` auf `main`), **Python 3.12** (Prod-Parität mit dem VPS, nicht
+  Repo-Minimum 3.11), Install aus `requirements.lock`. ⚠️ Workflow ungetestet — erster Push zeigt's;
+  `requirements.lock` stammt aus einer 3.14-Dev-venv, cp312-Wheels ungeprüft.
+- **UTC-Datum-Bugfix** (`8aaddaa`, Claude-Subagent — Spend-Limit mitten im Abschluss, Manager hat die
+  fertige, uncommittete Worktree-Arbeit reviewt + committet + gemergt): `_send_autoaccept_daily_report`
+  bildete den Abfragetag mit `date.today()` (Server-Lokalzeit), während `trade_date` via `db._today()`
+  in UTC gestempelt wird ⇒ auf Nicht-UTC-Maschinen „Gekauft (0)" trotz Kauf. **Prod (VPS `Etc/UTC`)
+  nicht betroffen**, aber die Suite war dadurch zeitabhängig rot. Zentrale `db.today_utc_date()`/
+  `today_utc()` als einzige Wahrheit, DB-vergleichende Aufrufer gezogen (Tagesreport, `_trade_age_days`,
+  Kandidaten-Cache, `dashboard` days-cutoff, sltp-Warn-Key); `broker/client.py` (Options-Verfallsfenster,
+  Broker-Kalender) bewusst gelassen. Deterministische Regressionstests, grün über TZ=UTC/Auckland/LA.
+- **`main` damit wieder vollständig grün** (voller Suite-Lauf nach dem Merge). Offen aus dem Style-Audit:
+  (d)–(g). Offen aus dem Fabel-Audit (priorisiert, s. u.): `update.ps1`/`upload.ps1` auf `requirements.lock`,
+  fail-closed-Frage (Live-Verhalten, freigabepflichtig), `realized_pnl_today`+persistiertes RiskProfile,
+  Backtest-Ehrlichkeit (universe_history/Gap-Fills/Kosten), Doc-Rot, OAuth/Telegram-Transport.
+
+### Audit-Befunde (externer Fabel-Audit, 2026-07-24) — Manager-Bewertung gegen den echten Code
+6 von 7 Blöcken treffen zu, einer ist überholt:
+- **Punkt 2 „Live-Pfad hängt an yfinance" = ÜBERHOLT** (beschreibt den Stand vor W3.2). `db.py:56`
+  `yf = _SignalQuoteSource()` ist ein Alpaca-Shim (Name nur aus Test-Kompat), `analyzer` läuft über
+  `provider_factory.get_signal_provider()`. Verbliebene `yf.download` sind Research-Tier (Sparklines,
+  factor_history, llm_ranker). **ABER echter Teilbefund:** Docstrings lügen — `data_quality.py` sagt
+  „von KEINEM Live-Codepfad genutzt", während `risk.py:121` es aufruft. → Doc-Rot als eigenes Ticket.
+- **Punkt 1 Backtest ≠ Live** (bestätigt, hohe Priorität für Tor T5): 1d-only vs. Multi-TF-Confluence;
+  `universe_history.py` hat 0 Aufrufer (Survivorship-Bias); `_walk_exit` füllt exakt am Level (Gap-blind);
+  Kosten-Defaults Spread/Slippage=0; `pf_key` sortiert `PF=None→inf` nach oben.
+- **Punkt 3 Risiko teils tot verdrahtet** (bestätigt, aus Manager-Sicht schwerster Punkt):
+  `quote_context` fail-open ⇒ `{}` ⇒ Frische/Spread still übersprungen; `realized_pnl_today` nie gesetzt
+  ⇒ Tagesverlustlimit inaktiv; RiskProfile-Defaults (max_position_pct=100, Exposure je 100 %) binden nicht.
+- **Punkt 4** Broker-Secrets über Telegram-Chat + `broker_oauth.py` gebaut aber 0 Aufrufer (bestätigt).
+- **Punkt 5** Suite rot + keine CI (bestätigt — **jetzt behoben**, s. o.).
+- **Punkt 6** `update.ps1:56`/`upload.ps1:82` installieren `requirements.txt` statt `.lock` (bestätigt).
+- **Punkt 7** Web-Kleinigkeiten (Token in URLs, toleranter CSRF, Monolithen, `utcnow()`-Deprecations).
+- Rechtlicher Hinweis (Multi-User-Anlageberatung) deckt sich mit **Tor T4** (schon als extern/gated notiert).
 2. **Tor T2 — W3.6 Exit-Policies aktivieren** (`STRATEGY_EXITS_ENABLED=true`). Code deployt, Flag AUS →
    ohne diese ausdrückliche Freigabe ändert sich nichts am Live-Trade-Verhalten.
 3. **W8 Burn-in — Kalenderzeit. Zählt effektiv erst ab 2026-07-20 abends** (davor fehlten die
