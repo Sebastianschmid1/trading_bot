@@ -25,6 +25,7 @@ from wedding.auth import (
     SESSION_COOKIE,
     SESSION_MAX_AGE,
     LoginRateLimiter,
+    can_delete,
     can_upload,
     display_name_for,
     load_or_create_secret,
@@ -310,6 +311,7 @@ def create_app(
                 "username": username,
                 "display_name": display_name_for(users, username),
                 "can_upload": can_upload(users, username),
+                "can_delete": can_delete(users, username),
                 "photos": photos,
                 "max_mb": max(1, request.app.state.settings.max_bytes // (1024 * 1024)),
                 "max_files": MAX_FILES_PER_REQUEST,
@@ -389,9 +391,11 @@ def create_app(
         username = _current_user(request)
         if username is None:
             return RedirectResponse(_url(request, "/login"), status_code=303)
-        # Ein Gast besitzt zwar nie eigene Fotos, aber der Check gehört trotzdem hierher.
-        if not can_upload(load_users(request.app.state.settings.users_file), username):
-            raise HTTPException(status_code=403, detail="Dieser Zugang kann Fotos nur ansehen.")
+        # Der geteilte Gäste-Zugang darf hochladen, aber nicht löschen — sonst könnte
+        # jeder Gast fremde „gast"-Uploads entfernen. Serverseitig blocken, nicht bloß
+        # im Template verstecken.
+        if not can_delete(load_users(request.app.state.settings.users_file), username):
+            raise HTTPException(status_code=403, detail="Dieser Zugang kann keine Fotos löschen.")
         try:
             request.app.state.store.delete(name, username=username)
         except FileNotFoundError:

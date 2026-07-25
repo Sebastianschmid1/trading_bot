@@ -54,6 +54,7 @@ def users_file(tmp_path: Path) -> Path:
         "gast": {
             "display_name": "Gast",
             "can_upload": True,
+            "can_delete": False,
             **hash_password(GAST_PW, iterations=TEST_ITERATIONS),
         },
         "nurgucker": {
@@ -302,6 +303,57 @@ def test_loeschen_ohne_login_leitet_auf_login(client: TestClient, app, data_dir:
 
 
 # --------------------------------------------------------------------------- #
+# Lösch-Recht (can_delete) — unabhängig von can_upload
+# --------------------------------------------------------------------------- #
+def test_gast_darf_eigenes_foto_nicht_loeschen(client: TestClient, data_dir: Path) -> None:
+    # Der Gast darf hochladen (can_upload=true), aber nicht löschen (can_delete=false) —
+    # auch nicht das selbst hochgeladene Foto.
+    client.post("/gast", data={"password": GAST_PW})
+    name = upload_png(client, "gastfoto.png").json()["results"][0]["name"]
+    assert (photos_dir(data_dir) / name).is_file()
+
+    response = client.post(f"/photos/{name}/delete")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Dieser Zugang kann keine Fotos löschen."
+    # Das Foto liegt danach noch da.
+    assert (photos_dir(data_dir) / name).is_file()
+
+
+def test_galerie_zeigt_gast_keinen_loeschen_button(client: TestClient) -> None:
+    # Gast lädt ein eigenes Foto hoch — trotzdem darf kein Lösch-Formular erscheinen.
+    client.post("/gast", data={"password": GAST_PW})
+    assert upload_png(client, "gastfoto.png").status_code == 200
+
+    gallery = client.get("/")
+    assert gallery.status_code == 200
+    assert "/delete" not in gallery.text
+    assert "tile__delete" not in gallery.text
+
+
+def test_galerie_zeigt_berechtigtem_user_den_loeschen_button(client: TestClient) -> None:
+    login(client, "amelie", AMELIE_PW)
+    assert upload_png(client).status_code == 200
+
+    gallery = client.get("/")
+    assert gallery.status_code == 200
+    assert "/delete" in gallery.text
+    assert "tile__delete" in gallery.text
+
+
+def test_user_ohne_can_delete_feld_darf_eigenes_foto_loeschen(
+    client: TestClient, users_file: Path, data_dir: Path
+) -> None:
+    # Abwärtskompatibilität: amelie hat kein can_delete-Feld → darf weiter löschen.
+    assert "can_delete" not in json.loads(users_file.read_text("utf-8"))["amelie"]
+    login(client, "amelie", AMELIE_PW)
+    name = upload_png(client).json()["results"][0]["name"]
+
+    response = client.post(f"/photos/{name}/delete")
+    assert response.status_code == 303
+    assert not (photos_dir(data_dir) / name).exists()
+
+
+# --------------------------------------------------------------------------- #
 # Nur-Ansehen-Zugang (can_upload=false)
 # --------------------------------------------------------------------------- #
 def test_nurgucker_sieht_die_galerie_ohne_upload_karte(client: TestClient, app) -> None:
@@ -513,6 +565,33 @@ def test_set_upload_kennt_nur_bestehende_benutzer(tmp_path: Path) -> None:
     ziel.write_text(json.dumps({"amelie": {"display_name": "Amelie"}}), encoding="utf-8")
     with pytest.raises(SystemExit):
         manage_main(["--file", str(ziel), "set-upload", "gibtsnicht", "on"])
+
+
+def test_set_delete_schaltet_hin_und_her(tmp_path: Path) -> None:
+    original = {
+        "gast": {"display_name": "Gast", **hash_password("pw", iterations=TEST_ITERATIONS)},
+    }
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps(original), encoding="utf-8")
+
+    assert manage_main(["--file", str(ziel), "set-delete", "gast", "off"]) == 0
+    entry = json.loads(ziel.read_text("utf-8"))["gast"]
+    assert entry["can_delete"] is False
+
+    assert manage_main(["--file", str(ziel), "set-delete", "gast", "on"]) == 0
+    entry = json.loads(ziel.read_text("utf-8"))["gast"]
+    assert entry["can_delete"] is True
+
+    # Alle übrigen Felder sind unverändert geblieben.
+    for feld, wert in original["gast"].items():
+        assert entry[feld] == wert
+
+
+def test_set_delete_kennt_nur_bestehende_benutzer(tmp_path: Path) -> None:
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps({"amelie": {"display_name": "Amelie"}}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        manage_main(["--file", str(ziel), "set-delete", "gibtsnicht", "off"])
 
 
 def test_seed_legt_datei_an_wenn_sie_fehlt(tmp_path: Path) -> None:

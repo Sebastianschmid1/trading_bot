@@ -14,6 +14,7 @@
   "gast": {
     "display_name": "Gast",
     "can_upload": true,
+    "can_delete": false,
     "salt_hex": "b2a5307caeebb50ed26cbd94049155e2",
     "hash_hex": "312b96043da4293b3c7a1cc1051502d9cfe174750f992e5a67f7eed423c17504",
     "iterations": 600000

@@ -95,13 +95,30 @@ def display_name_for(users: Mapping[str, Mapping[str, Any]], username: str) -> s
 
 
 def can_upload(users: Mapping[str, Mapping[str, Any]], username: str) -> bool:
-    """Darf der Nutzer Fotos hochladen und löschen?
+    """Darf der Nutzer Fotos hochladen?
 
     Das Feld `can_upload` ist optional: **fehlt es, gilt `True`** — bestehende
     users.json-Dateien funktionieren damit unverändert weiter. Nur ein explizites
     `"can_upload": false` macht einen Nur-Ansehen-Zugang („Gast") daraus.
     """
     value = (users.get(username) or {}).get("can_upload", True)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "nein", "off"}
+    return bool(value)
+
+
+def can_delete(users: Mapping[str, Mapping[str, Any]], username: str) -> bool:
+    """Darf der Nutzer Fotos löschen?
+
+    Unabhängig von `can_upload`: der geteilte `gast`-Zugang darf zwar hochladen,
+    aber nicht löschen (sonst könnte jeder Gast fremde „gast"-Uploads entfernen).
+    Das Feld `can_delete` ist optional: **fehlt es, gilt `True`** — bestehende
+    users.json-Dateien (amelie/tobi ohne Feld) dürfen unverändert weiter löschen.
+    Nur ein explizites `"can_delete": false` sperrt das Löschen.
+    """
+    value = (users.get(username) or {}).get("can_delete", True)
     if isinstance(value, bool):
         return value
     if isinstance(value, str):

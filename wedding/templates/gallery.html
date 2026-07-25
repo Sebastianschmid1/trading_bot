@@ -69,7 +69,7 @@
                 <div class="tile__actions">
                     <a class="tile__action" href="{{ base }}/photos/{{ photo.name }}"
                        download="{{ photo.original_name }}">Download</a>
-                    {% if photo.uploader == username %}
+                    {% if can_delete and photo.uploader == username %}
                     <form class="tile__delete" method="post"
                           action="{{ base }}/photos/{{ photo.name }}/delete"
                           data-confirm="Dieses Foto wirklich löschen?">
