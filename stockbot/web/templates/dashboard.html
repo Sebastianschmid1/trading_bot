@@ -787,7 +787,14 @@
     });
 
     // ── Intraday: strategiespezifische Rohscores + Kursverlauf ─────────────
-    const palette = ["#74C7FF", "#3ECF8E", "#E7B24C", "#B98CFF", "#E85C4A", "#4FD0C0"];
+    // Kategoriale Serienpalette (§32.7): direkt aus den --cat-1..6 Tokens (tokens.css)
+    // gelesen, damit Web und Matplotlib-Export (core/chart_palette.py) nicht
+    // auseinanderlaufen. Fallback = dieselben Hex-Werte, falls die Tokens fehlen.
+    const palette = (() => {
+      const cs = getComputedStyle(document.documentElement);
+      const cats = [1, 2, 3, 4, 5, 6].map(i => cs.getPropertyValue(`--cat-${i}`).trim()).filter(Boolean);
+      return cats.length ? cats : ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#9085e9"];
+    })();
     function renderIntraday(d) {
       const intraday = (d.intraday || []).filter(s => s.points && s.points.length);
       state.intraday = intraday;

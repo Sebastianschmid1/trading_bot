@@ -20,6 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from stockbot.backtest import engine as backtest
+from stockbot.core import chart_palette
 from stockbot.core import metrics as metrics_mod
 from stockbot.market import strategies
 
@@ -63,7 +64,7 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
     E0 = 10000.0
     bench_eq = E0 * bclose / bclose[0]
 
-    colors = ["#4f8cff", "#2ecc71", "#e67e22", "#9b59b6", "#1abc9c"]
+    colors = chart_palette.CATEGORICAL  # §32.7 kategoriale Serienpalette (--cat-1..6)
     runs = []
     for key in keys:
         print(f"▶ Backtest {key} (Hebel {leverage:g}×, {top_n}/Tag, {years}J) …")
@@ -99,8 +100,8 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
     for i, r in enumerate(runs):
         ax1.plot(bdates, r["eq"], color=colors[i % len(colors)], lw=1.8,
                  label=f"{r['label']} ({r['ret']:+.0f}%)")
-    ax1.plot(bdates, bench_eq, color="#e6e9ef", lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
-    ax1.axhline(E0, color="#8a93a6", lw=0.8, alpha=0.5)
+    ax1.plot(bdates, bench_eq, color=chart_palette.BENCHMARK, lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
+    ax1.axhline(E0, color=chart_palette.BENCHMARK, lw=0.8, alpha=0.5)
     ax1.set_title("Equity-Kurven (Start 10.000 €)"); ax1.set_ylabel("€")
     ax1.legend(loc="upper left", fontsize=8); ax1.grid(alpha=0.15)
     for lbl in ax1.get_xticklabels():
@@ -109,16 +110,16 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
     names = [r["label"].split(" (")[0][:16] for r in runs] + ["S&P 500"]
     rets = [r["ret"] for r in runs] + [bench_ret]
     dds = [r["maxdd"] for r in runs] + [bench_maxdd]
-    bar_colors = [colors[i % len(colors)] for i in range(len(runs))] + ["#e6e9ef"]
+    bar_colors = [colors[i % len(colors)] for i in range(len(runs))] + [chart_palette.BENCHMARK]
     x = np.arange(len(names))
 
     ax2 = fig.add_subplot(gs[1, 0])
-    ax2.bar(x, rets, color=bar_colors); ax2.axhline(0, color="#8a93a6", lw=0.8)
+    ax2.bar(x, rets, color=bar_colors); ax2.axhline(0, color=chart_palette.BENCHMARK, lw=0.8)
     ax2.set_xticks(x); ax2.set_xticklabels(names, rotation=30, ha="right", fontsize=7)
     ax2.set_title("Gesamt-Rendite %"); ax2.grid(alpha=0.15, axis="y")
 
     ax3 = fig.add_subplot(gs[1, 1])
-    ax3.bar(x, dds, color=bar_colors); ax3.axhline(0, color="#8a93a6", lw=0.8)
+    ax3.bar(x, dds, color=bar_colors); ax3.axhline(0, color=chart_palette.BENCHMARK, lw=0.8)
     ax3.set_xticks(x); ax3.set_xticklabels(names, rotation=30, ha="right", fontsize=7)
     ax3.set_title("Max. Drawdown %"); ax3.grid(alpha=0.15, axis="y")
 
@@ -176,20 +177,22 @@ def exit_mode_analysis(keys=("standard", "adx_trend", "rsi_revert", "breakout", 
     x = np.arange(len(names)); w = 0.38
 
     ax1 = fig.add_subplot(gs[0, :])
-    ax1.bar(x - w/2, [r["ret_eod"] for r in rows], w, color="#e74c3c", label="Tagesende (1 Tag)")
-    ax1.bar(x + w/2, [r["ret_hold"] for r in rows], w, color="#2ecc71", label="Halten bis SL/TP")
-    ax1.axhline(0, color="#8a93a6", lw=0.8)
+    # Zwei Halte-Modi = zwei Kategorien (nicht Positiv/Negativ) -> kategoriale Palette
+    # statt Gruen/Rot (§15.3: Gruen/Rot nur fuer echte Vorzeichen).
+    ax1.bar(x - w/2, [r["ret_eod"] for r in rows], w, color=chart_palette.CATEGORICAL[0], label="Tagesende (1 Tag)")
+    ax1.bar(x + w/2, [r["ret_hold"] for r in rows], w, color=chart_palette.CATEGORICAL[1], label="Halten bis SL/TP")
+    ax1.axhline(0, color=chart_palette.BENCHMARK, lw=0.8)
     ax1.set_xticks(x); ax1.set_xticklabels(names, rotation=20, ha="right")
     ax1.set_title("Gesamt-Rendite % je Halte-Modus"); ax1.set_ylabel("%")
     ax1.legend(); ax1.grid(alpha=0.15, axis="y")
 
     ax2 = fig.add_subplot(gs[1, 0])
-    ax2.bar(x, [r["spd"]["avg"] for r in rows], color="#4f8cff")
+    ax2.bar(x, [r["spd"]["avg"] for r in rows], color=chart_palette.PRIMARY)
     ax2.set_xticks(x); ax2.set_xticklabels(names, rotation=20, ha="right", fontsize=8)
     ax2.set_title("Ø Signale pro Tag"); ax2.grid(alpha=0.15, axis="y")
 
     ax3 = fig.add_subplot(gs[1, 1])
-    ax3.bar(x, [r["avg_hold"] for r in rows], color="#9b59b6")
+    ax3.bar(x, [r["avg_hold"] for r in rows], color=chart_palette.CATEGORICAL[5])
     ax3.set_xticks(x); ax3.set_xticklabels(names, rotation=20, ha="right", fontsize=8)
     ax3.set_title("Ø Haltedauer (bis SL/TP) in Tagen"); ax3.grid(alpha=0.15, axis="y")
 
@@ -246,23 +249,23 @@ def main(strategy_key="standard", years=2, top_n=10, leverage=5.0,
     gs = fig.add_gridspec(2, 2, height_ratios=[2, 1], hspace=0.32, wspace=0.25)
 
     ax1 = fig.add_subplot(gs[0, :])
-    ax1.plot(bdates, strat_eq, color="#4f8cff", lw=2, label=f"{res['label']} (+{strat_ret:.0f}%)")
-    ax1.plot(bdates, bench_eq, color="#e6e9ef", lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
-    ax1.axhline(E0, color="#8a93a6", lw=0.8, alpha=0.5)
+    ax1.plot(bdates, strat_eq, color=chart_palette.PRIMARY, lw=2, label=f"{res['label']} (+{strat_ret:.0f}%)")
+    ax1.plot(bdates, bench_eq, color=chart_palette.BENCHMARK, lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
+    ax1.axhline(E0, color=chart_palette.BENCHMARK, lw=0.8, alpha=0.5)
     ax1.set_title("Equity-Kurve (Start 10.000 €)"); ax1.set_ylabel("€")
     ax1.legend(loc="upper left"); ax1.grid(alpha=0.15)
 
     ax2 = fig.add_subplot(gs[1, 0])
-    ax2.fill_between(bdates, strat_dd, 0, color="#4f8cff", alpha=0.4)
-    ax2.fill_between(bdates, bench_dd, 0, color="#e6e9ef", alpha=0.25)
+    ax2.fill_between(bdates, strat_dd, 0, color=chart_palette.PRIMARY, alpha=0.4)
+    ax2.fill_between(bdates, bench_dd, 0, color=chart_palette.BENCHMARK, alpha=0.25)
     ax2.set_title("Drawdown (Unterwasser)"); ax2.set_ylabel("%"); ax2.grid(alpha=0.15)
 
     ax3 = fig.add_subplot(gs[1, 1])
     labels = ["Rendite %", "Max DD %"]
     x = np.arange(len(labels)); w = 0.38
-    ax3.bar(x - w/2, [strat_ret, strat_dd.min()], w, color="#4f8cff", label="Strategie")
-    ax3.bar(x + w/2, [bench_ret, bench_dd.min()], w, color="#e6e9ef", label="S&P 500")
-    ax3.set_xticks(x); ax3.set_xticklabels(labels); ax3.axhline(0, color="#8a93a6", lw=0.8)
+    ax3.bar(x - w/2, [strat_ret, strat_dd.min()], w, color=chart_palette.PRIMARY, label="Strategie")
+    ax3.bar(x + w/2, [bench_ret, bench_dd.min()], w, color=chart_palette.BENCHMARK, label="S&P 500")
+    ax3.set_xticks(x); ax3.set_xticklabels(labels); ax3.axhline(0, color=chart_palette.BENCHMARK, lw=0.8)
     ax3.set_title(f"Profitfaktor {pf} · Winrate {m['win_rate']:.0f}% · {m['trades']} Trades")
     ax3.legend(fontsize=8); ax3.grid(alpha=0.15, axis="y")
 

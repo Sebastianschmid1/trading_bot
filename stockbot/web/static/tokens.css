@@ -37,6 +37,24 @@
   --info: #66B7FF;
   --info-soft: rgba(102, 183, 255, 0.13);
 
+  /* Kategoriale Chart-Palette (§32.7): feste, farbenblind-sichere Serienfarben
+     fuer Mehrserien-Grafiken (max. 6 Kategorien, danach "Sonstige" aggregieren).
+     KATEGORIAL, nicht semantisch — bewusst getrennt von --success/--danger
+     (Gruen/Rot bleiben fuer echte Positiv/Negativ-Werte reserviert). Die
+     Reihenfolge ist der CVD-Schutz und darf nicht umsortiert werden. Aus der
+     dataviz-Methodik abgeleitet und validiert (Machado-Oliveira-Fernandes 2009
+     CVD-Simulation auf dunkler Flaeche: schlechtestes benachbartes Paar ΔE 8.4,
+     Ziel ≥ 8; Normalsicht-Boden ΔE 19.3 ≥ 15). Kanonische Quelle fuer den
+     Matplotlib-Export ist stockbot/core/chart_palette.py — es haelt DIESELBEN
+     Hex-Werte; tests/test_chart_palette_parity.py nagelt die Kopplung fest.
+     Beim Aendern IMMER beide Seiten anpassen. */
+  --cat-1: #3987e5; /* blau */
+  --cat-2: #d95926; /* orange */
+  --cat-3: #199e70; /* aqua */
+  --cat-4: #c98500; /* gelb */
+  --cat-5: #d55181; /* magenta */
+  --cat-6: #9085e9; /* violett */
+
   --border-subtle: #242B33;
   --border-default: #303945;
   --border-strong: #45515F;
