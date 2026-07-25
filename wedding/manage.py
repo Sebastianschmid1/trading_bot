@@ -46,16 +46,46 @@ def load(path: Path) -> dict[str, dict]:
 
 
 def save(path: Path, users: dict[str, dict]) -> None:
-    """Atomar schreiben und dabei bestehende Dateirechte übernehmen."""
+    """Atomar schreiben und dabei bestehende Dateirechte übernehmen.
+
+    Neben dem Modus werden auch Owner/Gruppe der bestehenden Zieldatei
+    übernommen: Auf dem Server ist ``users.json`` bewusst ``root:wedding``
+    mit Modus ``0640``, damit der unprivilegierte Dienst-User via Gruppe
+    lesen kann. Ohne das ``chown`` entstünde die neue Datei (als root
+    geschrieben) als ``root:root`` und der Dienst könnte sie nicht mehr
+    lesen. Bei Erstanlage (Datei fehlt) wird kein Owner erzwungen.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        mode = stat.S_IMODE(path.stat().st_mode)
+        existing = path.stat()
+        mode = stat.S_IMODE(existing.st_mode)
+        owner: tuple[int, int] | None = (existing.st_uid, existing.st_gid)
     except FileNotFoundError:
         mode = 0o640
+        owner = None
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(users, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.chmod(mode)
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(
+            json.dumps(users, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        tmp.chmod(mode)
+        if owner is not None:
+            # Nur der Server (als root) darf/muss Owner/Gruppe setzen. Ohne die
+            # nötigen Rechte (Nicht-root im Dev/CI) oder auf Plattformen ohne
+            # os.chown (Windows) ist das kein Fehler: os.replace behält den
+            # bestehenden Owner ohnehin bei, wenn er sich nicht ändert.
+            try:
+                os.chown(tmp, owner[0], owner[1])
+            except (PermissionError, NotImplementedError, AttributeError, OSError):
+                pass
+        os.replace(tmp, path)
+    except BaseException:
+        # tmp-Datei nicht als Leiche liegen lassen, falls os.replace nie erreicht wird.
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def ask_password(username: str) -> str:

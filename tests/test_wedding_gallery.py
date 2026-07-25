@@ -8,6 +8,8 @@ selbst erzeugten Hashes (bewusst NICHT die echten Einträge aus
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ from fastapi.testclient import TestClient
 from wedding.app import create_app
 from wedding.auth import SESSION_COOKIE, hash_password, make_session_cookie
 from wedding.manage import main as manage_main
+from wedding.manage import save as manage_save
 
 # Kleine Rundenzahl: die Tests loggen sich oft ein, 600k Runden wären reine Wartezeit.
 TEST_ITERATIONS = 1_000
@@ -519,6 +522,61 @@ def test_seed_legt_datei_an_wenn_sie_fehlt(tmp_path: Path) -> None:
 
     assert manage_main(["--file", str(ziel), "seed", str(quelle)]) == 0
     assert json.loads(ziel.read_text("utf-8"))["gast"]["can_upload"] is False
+
+
+# --------------------------------------------------------------------------- #
+# manage.py save(): atomarer Schreibvorgang erhält Modus + Owner/Gruppe
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(os.name != "posix", reason="POSIX-Modi sind auf Windows unzuverlässig.")
+def test_save_erhaelt_den_modus_der_bestehenden_datei(tmp_path: Path) -> None:
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps({"amelie": {"display_name": "Amelie"}}), encoding="utf-8")
+    ziel.chmod(0o600)
+
+    manage_save(ziel, {"amelie": {"display_name": "Amelie neu"}})
+
+    assert stat.S_IMODE(ziel.stat().st_mode) == 0o600
+    assert json.loads(ziel.read_text("utf-8"))["amelie"]["display_name"] == "Amelie neu"
+
+
+def test_save_als_nichtroot_wirft_nicht_und_schreibt_inhalt(tmp_path: Path) -> None:
+    # Realer Dev-/CI-Fall: die Datei gehört dem aktuellen (Nicht-root-)User, ein
+    # echtes chown auf einen fremden Owner scheiterte an fehlenden Rechten — save()
+    # darf deshalb nicht werfen und muss den Inhalt trotzdem korrekt schreiben.
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps({"gast": {"display_name": "Gast"}}), encoding="utf-8")
+
+    manage_save(ziel, {"gast": {"display_name": "Gast", "can_upload": True}})
+
+    danach = json.loads(ziel.read_text("utf-8"))
+    assert danach["gast"]["can_upload"] is True
+    # Keine tmp-Leiche zurückgelassen.
+    assert not ziel.with_name(ziel.name + ".tmp").exists()
+
+
+def test_save_chownt_tmp_auf_bestehenden_owner_und_schluckt_permissionerror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps({"gast": {"display_name": "Gast"}}), encoding="utf-8")
+    st = ziel.stat()
+
+    aufrufe: list[tuple[str, int, int]] = []
+
+    def fake_chown(pfad, uid, gid):  # noqa: ANN001
+        aufrufe.append((os.fspath(pfad), uid, gid))
+        raise PermissionError("Operation not permitted")
+
+    monkeypatch.setattr("wedding.manage.os.chown", fake_chown, raising=False)
+
+    # Trotz der geworfenen PermissionError gelingt der Schreibvorgang.
+    manage_save(ziel, {"gast": {"display_name": "Gast", "can_upload": False}})
+
+    assert len(aufrufe) == 1
+    _, uid, gid = aufrufe[0]
+    assert (uid, gid) == (st.st_uid, st.st_gid)
+    assert json.loads(ziel.read_text("utf-8"))["gast"]["can_upload"] is False
+    assert not ziel.with_name(ziel.name + ".tmp").exists()
 
 
 # --------------------------------------------------------------------------- #
