@@ -1,19 +1,22 @@
 """MarketDataProvider-Interface (Phase 2 / DATA-003, siehe docs/Plan.md §10.2/§10.6,
 docs/PLAN_CHECKLIST.md Phase 2).
 
-Abstraktion für Marktdaten-Zugriffe, die heute uneinheitlich und direkt über `yfinance` in
-mehreren Modulen laufen (`market/analyzer.py`, `core/evaluator.py`, `market/smartmoney.py`,
-`market/lookup.py`, `core/db.py`). Erster Schritt: nur das Interface + Wertobjekte, noch KEINE
-Umstellung bestehender Aufrufer — das folgt mit den konkreten Implementierungen
-(`YFinanceResearchProvider`/`AlpacaPaperMarketDataProvider`, zweiter DATA-003-Punkt in
-docs/PLAN_CHECKLIST.md) und ist Voraussetzung für die Leitplanke „kein yfinance im
-Produktionssignalpfad".
+Abstraktion für Marktdaten-Zugriffe. Seit W3.2 ist die Leitplanke „kein yfinance im
+Produktionssignalpfad" umgesetzt: der Signalpfad (Analyzer-Indikatoren, Trade-Bewertung,
+Aktivierungskurs in `core/evaluator.py`/`core/db.py`) läuft über
+`market/provider_factory.get_signal_provider()` (Alpaca, nie yfinance). Die konkreten
+Implementierungen `AlpacaPaperMarketDataProvider`/`YFinanceResearchProvider` liegen in
+`market/data_providers.py`; yfinance bleibt nur noch in den Research-/Anzeige-Helfern
+(`market/smartmoney.py`, `market/lookup.py`, Analyzer-Sparklines/`factor_history`), die keine
+Trades erzeugen.
 
 Bars werden bewusst als `pandas.DataFrame` (OHLCV, `DatetimeIndex`) zurückgegeben — dasselbe
 Format, das die bestehende Indikator-Berechnung schon erwartet, damit die spätere Umstellung
 bestehender Aufrufer keinen Format-Bruch erzwingt.
 
-Reine, IO-freie Definition (Interface + Wertobjekte) — noch von KEINEM Live-Codepfad genutzt.
+Reine, IO-freie Definition (Interface + Wertobjekte) — im Live-Codepfad genutzt (u. a.
+`market/provider_factory.py`, `market/data_providers.py`, `core/risk.py` via `core/data_quality.py`,
+`web/feed_status.py`).
 """
 
 from __future__ import annotations

@@ -6,9 +6,10 @@ Reine, IO-freie Prüf-Funktionen auf den DATA-003-Wertobjekten (`Quote`/`MarketS
 `stockbot/core/risk.py::pretrade_check` (ein Entscheidungs-Dataclass statt Exceptions, damit
 Aufrufer den Ablehnungsgrund direkt anzeigen können, z. B. im UI).
 
-Noch von KEINEM Live-Codepfad genutzt. Das Verdrahten in den Produktionssignalpfad (Gate P2:
-„veraltete Quotes blockieren Orders") setzt eine echte `MarketDataProvider`-Anbindung bestehender
-Aufrufer voraus (DATA-003, konkrete Migration folgt separat).
+Im Produktions-Pre-Trade-Gate verdrahtet (Gate P2: „veraltete Quotes blockieren Orders"):
+`stockbot/core/risk.py::pretrade_check` ruft `check_quote_age`/`check_spread` auf und lehnt
+Orders auf veralteten Quotes bzw. zu weiten Spreads ab. Die dafür nötigen Quote-Eingaben lädt
+der Kontext-Loader `stockbot/execution/risk_context.py` (fail-open) über den `MarketDataProvider`.
 """
 
 from __future__ import annotations
