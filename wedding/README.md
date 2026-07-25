@@ -33,6 +33,34 @@ Beim ersten Lauf werden die Benutzer `amelie` und `tobi` aus `deploy/wedding-use
 übernommen. Spätere Passwortänderungen bleiben erhalten, weil die Datei nur angelegt wird,
 wenn sie fehlt.
 
+### Repo unter `/root` oder `/home`?
+
+Der Dienst läuft als unprivilegierter Systemuser `wedding`. Liegt das Repo unter `/root`
+(Standardrechte 0700) oder in einem Home-Verzeichnis, kommt dieser User dort nicht heran —
+zusätzlich blockt `ProtectHome=true` in der Unit den Zugriff auf `/home` und `/root`.
+
+`setup_wedding.sh` erkennt das selbst (Lesetest auf `wedding/run.py` und das venv als User
+`wedding`) und schaltet dann automatisch auf einen **Fallback** um:
+
+* Der App-Code wird nach **`/opt/wedding/app/wedding/`** kopiert (`cp -a`, Paket-Layout
+  bleibt erhalten, kein `rsync` nötig).
+* Unter **`/opt/wedding/venv`** entsteht ein eigenes Mini-venv mit nur den vier benötigten
+  Paketen (fastapi, uvicorn, jinja2, python-multipart). Beim Re-Run ist die Installation ein
+  schneller No-op.
+* Die Unit bekommt `WorkingDirectory=/opt/wedding/app` und startet
+  `/opt/wedding/venv/bin/python /opt/wedding/app/wedding/run.py`. Weil der Code damit unter
+  `/opt` liegt, ist `ProtectHome=true` unkritisch und bleibt aktiv.
+* Das Skript sagt am Ende deutlich, dass der Fallback aktiv ist.
+
+**Wichtig:** In diesem Modus läuft der Dienst aus einer *Kopie*. Nach **jedem** `git pull`
+also erneut `bash deploy/setup_wedding.sh` ausführen — das aktualisiert die Kopie unter
+`/opt/wedding/app` und startet den Dienst neu. Ohne den zweiten Schritt läuft die Galerie
+weiter mit dem alten Code.
+
+Sobald das Repo an einem für `wedding` lesbaren Ort liegt (z. B. nach der Migration nach
+`/opt/stockbot`), wählt derselbe Aufruf wieder den Direktbetrieb aus dem Repo — es ist
+nichts von Hand zurückzubauen.
+
 ## URL-Schema
 
 * **Mit `DOMAIN` in der `.env`** (Regelfall): Caddy terminiert TLS und leitet
