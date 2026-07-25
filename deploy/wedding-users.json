@@ -10,5 +10,12 @@
     "salt_hex": "29a9e1d5f3e3a557ede9fc64d095255f",
     "hash_hex": "89e347f878b6c0ef3da6af818430efec29d836cd67a69855f1c4efa5553f067c",
     "iterations": 600000
+  },
+  "gast": {
+    "display_name": "Gast",
+    "can_upload": false,
+    "salt_hex": "93dac7cafeb88195f3fcf46c1394e028",
+    "hash_hex": "585f37bff39de3ca8154ac1bb1d6b7d591c4b1dd09926b588386e8698be68ab0",
+    "iterations": 600000
   }
 }

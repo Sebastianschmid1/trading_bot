@@ -98,11 +98,44 @@ Lokal starten: `python wedding/run.py` → <http://127.0.0.1:8100/>.
 /opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
     --file /etc/wedding/users.json add-user oma "Oma Erna"
 
+# Nur-Ansehen-Zugang anlegen (kein Upload, kein Löschen)
+/opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
+    --file /etc/wedding/users.json add-user schwiegermutter "Renate" --guest
+
+# Fehlende Benutzer aus dem Repo nachziehen — bestehende bleiben unberührt
+/opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
+    --file /etc/wedding/users.json seed /opt/stockbot/deploy/wedding-users.json
+
 systemctl restart wedding   # nicht nötig, die users.json wird pro Login gelesen
 ```
 
 Ohne `--file` nimmt das CLI `WEDDING_USERS_FILE`, sonst `./data/wedding/users.json`.
 Geschrieben wird atomar (tmp + rename), die Dateirechte bleiben erhalten.
+
+`seed` ist der Weg, einen **neuen** Zugang auf einen bereits laufenden Server zu bringen:
+es fügt ausschließlich Benutzer ein, die im Ziel noch fehlen, und fasst bestehende Einträge
+(inklusive der dort gesetzten Passwörter) nie an. Ein zweiter Lauf ist ein No-op.
+`setup_wedding.sh` ruft das automatisch auf, wenn `/etc/wedding/users.json` schon existiert.
+
+## Gast-Zugang (nur ansehen)
+
+Ein Benutzer mit `"can_upload": false` in der users.json darf die Galerie ansehen und Fotos
+herunterladen, aber **nicht hochladen und nicht löschen**. Das Feld ist optional — fehlt es,
+gilt `true`, bestehende Einträge funktionieren also unverändert. Erzwungen wird das
+serverseitig (`POST /upload` und `POST /photos/…/delete` antworten mit `403`), nicht bloß
+durch Ausblenden im UI; die Upload-Karte wird für solche Zugänge zusätzlich gar nicht erst
+gerendert.
+
+Ausgeliefert wird der Benutzer `gast` (Anzeigename „Gast"). Für ihn gibt es einen
+**Direktlink ohne Anmeldemaske**:
+
+* mit Domain: `https://<DOMAIN>/hochzeit/gast`
+* ohne Domain: `http://<server-ip>:8100/gast`
+
+Der Aufruf setzt direkt die Gast-Session und landet in der Galerie. **Wer den Link hat, kann
+die Fotos sehen** — der Link selbst ist das Zugangsgeheimnis, also nur an Leute schicken, die
+die Bilder sehen dürfen. Der normale Login mit `gast` + Passwort funktioniert zusätzlich
+weiterhin. Gibt es keinen `gast`-Eintrag in der users.json, liefert `/gast` ein 404.
 
 ## Daten & Backup
 

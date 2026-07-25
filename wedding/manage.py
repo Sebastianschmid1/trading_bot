@@ -3,6 +3,8 @@
 
     python wedding/manage.py set-password amelie
     python wedding/manage.py add-user oma "Oma Erna"
+    python wedding/manage.py add-user gast "Gast" --guest
+    python wedding/manage.py --file /etc/wedding/users.json seed deploy/wedding-users.json
 
 Die Ziel-Datei kommt aus ``--file``, sonst aus ``WEDDING_USERS_FILE``, sonst
 ``./data/wedding/users.json``. Das Passwort wird per getpass abgefragt; ist
@@ -93,11 +95,46 @@ def cmd_add_user(args: argparse.Namespace) -> int:
         raise SystemExit("Ungültiger Benutzername (leer oder enthält '|').")
     if username in users:
         raise SystemExit(f"Benutzer {username!r} existiert bereits — 'set-password' nutzen.")
-    entry = {"display_name": args.display_name.strip() or username}
+    entry: dict = {"display_name": args.display_name.strip() or username}
+    if args.guest:
+        entry["can_upload"] = False
     entry.update(hash_password(ask_password(username), iterations=DEFAULT_ITERATIONS))
     users[username] = entry
     save(path, users)
-    print(f"Benutzer {username!r} in {path} angelegt.")
+    art = "Nur-Ansehen-Zugang" if args.guest else "Benutzer"
+    print(f"{art} {username!r} in {path} angelegt.")
+    return 0
+
+
+def cmd_seed(args: argparse.Namespace) -> int:
+    """Fügt nur *fehlende* Benutzer aus einer Quelldatei ein.
+
+    Bestehende Einträge bleiben unangetastet — auch ihre Passwörter und Felder.
+    Genau dafür ist das Kommando da: eine bereits ausgerollte users.json um neue
+    Zugänge ergänzen, ohne die auf dem Server gesetzten Passwörter zu verlieren.
+    """
+    path = resolve_users_file(args.file)
+    source = Path(args.source)
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SystemExit(f"Quelle {source} nicht lesbar: {exc}") from None
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Quelle {source} ist kein gültiges JSON: {exc}") from None
+    if not isinstance(data, dict):
+        raise SystemExit(f"{source} enthält kein JSON-Objekt.")
+
+    users = load(path)
+    missing = [
+        name for name, entry in data.items() if isinstance(entry, dict) and name not in users
+    ]
+    if not missing:
+        print(f"seed: nichts zu tun — alle Benutzer aus {source} sind bereits in {path}.")
+        return 0
+    for name in missing:
+        users[name] = data[name]
+    save(path, users)
+    print(f"seed: ergänzt in {path}: {', '.join(sorted(missing))}")
     return 0
 
 
@@ -116,7 +153,18 @@ def build_parser() -> argparse.ArgumentParser:
     add = sub.add_parser("add-user", help="Neuen Benutzer anlegen")
     add.add_argument("username")
     add.add_argument("display_name")
+    add.add_argument(
+        "--guest",
+        action="store_true",
+        help="Nur-Ansehen-Zugang anlegen (can_upload=false: kein Upload, kein Löschen)",
+    )
     add.set_defaults(func=cmd_add_user)
+
+    seed = sub.add_parser(
+        "seed", help="Fehlende Benutzer aus einer Quelldatei ergänzen (bestehende bleiben)"
+    )
+    seed.add_argument("source", help="Quell-users.json, z. B. deploy/wedding-users.json")
+    seed.set_defaults(func=cmd_seed)
     return parser
 
 

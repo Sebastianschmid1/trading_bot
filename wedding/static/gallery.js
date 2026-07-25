@@ -95,7 +95,8 @@
         xhr.send(data);
     }
 
-    if (form && input) {
+    // Gast-Zugang: die Upload-Karte wird gar nicht gerendert — dann alles hier überspringen.
+    if (form && input && progress && fill && label && results && refreshBtn) {
         form.addEventListener("submit", function (event) {
             event.preventDefault();
             upload(input.files);

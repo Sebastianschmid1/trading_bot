@@ -23,6 +23,7 @@
 </header>
 
 <main class="wrap">
+    {% if can_upload %}
     <section class="card card--upload">
         <h2 class="card__title">Fotos hochladen</h2>
         <p class="card__hint">Bis zu {{ max_files }} Fotos auf einmal, je max. {{ max_mb }} MB
@@ -56,6 +57,16 @@
             Galerie aktualisieren
         </button>
     </section>
+    {% else %}
+    <section class="card card--guest">
+        <span class="card--guest__icon" aria-hidden="true">&#128064;</span>
+        <div>
+            <h2 class="card__title">Schön, dass du reinschaust!</h2>
+            <p class="card__hint">Dieser Zugang ist zum Stöbern gedacht: Fotos anschauen und
+                herunterladen geht, hochladen können nur Amelie &amp; Tobi.</p>
+        </div>
+    </section>
+    {% endif %}
 
     <section class="gallery-section">
         <h2 class="section-title">

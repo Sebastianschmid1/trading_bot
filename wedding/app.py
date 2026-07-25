@@ -25,6 +25,7 @@ from wedding.auth import (
     SESSION_COOKIE,
     SESSION_MAX_AGE,
     LoginRateLimiter,
+    can_upload,
     display_name_for,
     load_or_create_secret,
     load_users,
@@ -45,6 +46,8 @@ log = logging.getLogger(__name__)
 _PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = "./data/wedding"
 DEFAULT_MAX_BYTES = 30 * 1024 * 1024
+#: Benutzername des Nur-Ansehen-Zugangs (Direktlink `/gast`).
+GUEST_USERNAME = "gast"
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -230,6 +233,21 @@ def create_app(
         _set_session_cookie(response, request, name)
         return response
 
+    @application.get("/gast")
+    async def guest_link(request: Request):
+        """Direktlink für den Nur-Ansehen-Zugang: loggt ohne Formular als `gast` ein.
+
+        Bewusst ohne Passwort — der verschickte Link **ist** das Zugangsgeheimnis.
+        Das Rate-Limit des Formular-Logins bleibt davon unberührt; der reguläre
+        Login mit `gast` + Passwort funktioniert weiterhin zusätzlich.
+        """
+        users = load_users(request.app.state.settings.users_file)
+        if GUEST_USERNAME not in users:
+            raise HTTPException(status_code=404, detail="Es gibt keinen Gast-Zugang.")
+        response = RedirectResponse(_url(request, "/"), status_code=303)
+        _set_session_cookie(response, request, GUEST_USERNAME)
+        return response
+
     @application.post("/logout")
     async def logout(request: Request):
         response = RedirectResponse(_url(request, "/login"), status_code=303)
@@ -250,6 +268,7 @@ def create_app(
             {
                 "username": username,
                 "display_name": display_name_for(users, username),
+                "can_upload": can_upload(users, username),
                 "photos": photos,
                 "max_mb": max(1, request.app.state.settings.max_bytes // (1024 * 1024)),
                 "max_files": MAX_FILES_PER_REQUEST,
@@ -267,6 +286,16 @@ def create_app(
             return JSONResponse(
                 {"error": "Bitte neu anmelden.", "login": _url(request, "/login")}, status_code=401
             )
+
+        settings: Settings = request.app.state.settings
+        store: PhotoStore = request.app.state.store
+        users = load_users(settings.users_file)
+        # Nur-Ansehen-Zugang: serverseitig blocken, nicht bloß im Template verstecken.
+        if not can_upload(users, username):
+            return JSONResponse(
+                {"error": "Dieser Zugang kann Fotos nur ansehen.", "results": []}, status_code=403
+            )
+
         if not files:
             return JSONResponse({"error": "Keine Datei ausgewählt.", "results": []}, status_code=400)
         if len(files) > MAX_FILES_PER_REQUEST:
@@ -278,9 +307,6 @@ def create_app(
                 status_code=400,
             )
 
-        settings: Settings = request.app.state.settings
-        store: PhotoStore = request.app.state.store
-        users = load_users(settings.users_file)
         display = display_name_for(users, username)
 
         results = []
@@ -322,6 +348,9 @@ def create_app(
         username = _current_user(request)
         if username is None:
             return RedirectResponse(_url(request, "/login"), status_code=303)
+        # Ein Gast besitzt zwar nie eigene Fotos, aber der Check gehört trotzdem hierher.
+        if not can_upload(load_users(request.app.state.settings.users_file), username):
+            raise HTTPException(status_code=403, detail="Dieser Zugang kann Fotos nur ansehen.")
         try:
             request.app.state.store.delete(name, username=username)
         except FileNotFoundError:

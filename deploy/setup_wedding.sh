@@ -67,15 +67,20 @@ install -d -o wedding -g wedding -m 0750 "$DATA_DIR"
 install -d -o wedding -g wedding -m 0750 "$DATA_DIR/photos"
 install -d -o root -g wedding -m 0750 "$CONF_DIR"
 
-# --- 4) users.json (niemals überschreiben!) -------------------------------- #
+# --- 4) users.json (bestehende Einträge NIE überschreiben) ----------------- #
 if [ ! -f "$CONF_DIR/users.json" ]; then
     echo "→ users.json aus dem Repo übernehmen..."
     install -o root -g wedding -m 0640 deploy/wedding-users.json "$CONF_DIR/users.json"
 else
-    echo "→ $CONF_DIR/users.json existiert bereits — bleibt unverändert."
-    chown root:wedding "$CONF_DIR/users.json"
-    chmod 0640 "$CONF_DIR/users.json"
+    # Datei existiert (typisch nach dem ersten Deploy): nur *fehlende* Benutzer ergänzen.
+    # Bestehende Einträge inkl. der auf dem Server gesetzten Passwörter bleiben unberührt.
+    echo "→ $CONF_DIR/users.json existiert — fehlende Benutzer ergänzen..."
+    ( cd "$CODE_DIR" && "$WEDDING_PY" "$CODE_DIR/wedding/manage.py" \
+        --file "$CONF_DIR/users.json" seed "$APP_DIR/deploy/wedding-users.json" ) \
+        || echo "  WARN: seed fehlgeschlagen — users.json bleibt unverändert."
 fi
+chown root:wedding "$CONF_DIR/users.json"
+chmod 0640 "$CONF_DIR/users.json"
 
 # --- 5) Session-Secret ----------------------------------------------------- #
 if [ ! -f "$CONF_DIR/secret" ]; then

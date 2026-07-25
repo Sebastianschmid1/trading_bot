@@ -94,6 +94,21 @@ def display_name_for(users: Mapping[str, Mapping[str, Any]], username: str) -> s
     return name or username
 
 
+def can_upload(users: Mapping[str, Mapping[str, Any]], username: str) -> bool:
+    """Darf der Nutzer Fotos hochladen und löschen?
+
+    Das Feld `can_upload` ist optional: **fehlt es, gilt `True`** — bestehende
+    users.json-Dateien funktionieren damit unverändert weiter. Nur ein explizites
+    `"can_upload": false` macht einen Nur-Ansehen-Zugang („Gast") daraus.
+    """
+    value = (users.get(username) or {}).get("can_upload", True)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "nein", "off"}
+    return bool(value)
+
+
 # --------------------------------------------------------------------------- #
 # Session-Cookie:  "username|expires_epoch|hexdigest"
 # --------------------------------------------------------------------------- #
