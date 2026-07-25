@@ -1,5 +1,6 @@
 """Deterministische Tests fuer das Backtest-Kostenmodell."""
 
+import pandas as pd
 import pytest
 
 from stockbot.backtest.cost_model import CostModel
@@ -42,12 +43,18 @@ def test_partial_fill_limits_costs_to_fillable_daily_volume():
     assert costs.commission == pytest.approx(10.0)  # zwei Seiten mal fuenf gefuellte Aktien
 
 
-def test_default_cost_model_is_equivalent_to_legacy_cost_pct():
+def test_default_cost_model_adds_conservative_slippage_to_legacy_spread():
+    """Der Default ist bewusst NICHT mehr slippage-blind: auf die Legacy-Spread-Pauschale
+    (2× legacy_pct je Round-Trip) kommt die konservative Slippage (Bruchteil des Spreads).
+    Kosten werden dadurch eher über- als unterschätzt (Backtest-Ehrlichkeit)."""
     legacy_pct = 0.05
+    frac = CostModel().slippage_spread_fraction
+    assert frac > 0                                   # Nicht-Null-Default (nicht mehr geschönt)
     net_pct, pnl_eur = engine._net_pnl(100.0, 105.0, "long", 1000.0, 2.0, legacy_pct)
 
-    assert net_pct == pytest.approx(5.0 - 2 * legacy_pct)
-    assert pnl_eur == pytest.approx(1000.0 * (5.0 - 2 * legacy_pct) / 100.0 * 2.0)
+    cost_pct = 2 * legacy_pct * (1 + frac)            # Spread beidseitig + Slippage darauf
+    assert net_pct == pytest.approx(5.0 - cost_pct)
+    assert pnl_eur == pytest.approx(1000.0 * (5.0 - cost_pct) / 100.0 * 2.0)
 
 
 def test_engine_trade_exposes_separate_costs_and_slippage():
@@ -58,5 +65,31 @@ def test_engine_trade_exposes_separate_costs_and_slippage():
     )
 
     assert costs.commission > 0.0
-    assert costs.slippage == 0.0  # ohne Quote keine behauptete Slippage-Annahme
+    assert costs.slippage == 0.0  # ohne Quote UND ohne Legacy-Spread keine Slippage-Basis
     assert net_pct < 5.0
+
+
+def _one_fire_df():
+    """Ein Gewinner-Long-Setup, das am zweiten Bar das TP (110) trifft (Volumen groß → voll fillbar)."""
+    idx = pd.bdate_range("2020-01-01", periods=4)
+    return pd.DataFrame({"Open": [100, 105, 110, 110], "High": [101, 111, 111, 111],
+                         "Low": [99, 104, 109, 109], "Close": [100, 105, 110, 110],
+                         "Volume": 1e7}, index=idx)
+
+
+def test_default_costs_reach_walk_exit_results_and_penalize_pnl():
+    """Part C: Der Nicht-Null-Default (inkl. Slippage) kommt über simulate_portfolio/_walk_exit
+    im Ergebnis an — derselbe Trade ist mit Default-Kosten schlechter als kostenlos."""
+    df = _one_fire_df()
+    data = {"X": df}
+    by_date = {str(df.index[0].date()): [{"ticker": "X", "idx": 0, "strength": 1.0,
+                                          "direction": "long", "entry": 100.0,
+                                          "sl": 95.0, "tp": 110.0}]}
+    kw = dict(top_n=1, leverage=1.0, trade_size=1000.0, max_concurrent=1, max_hold=40)
+    gross = engine.simulate_portfolio(data, by_date, cost_pct=0.0, **kw)
+    default = engine.simulate_portfolio(data, by_date, **kw)   # cost_pct=None → Config-Default + Slippage
+
+    assert gross[0]["reason"] == "Take-Profit" and gross[0]["exit"] == 110.0
+    assert default[0]["pnl_eur"] < gross[0]["pnl_eur"]          # Kosten kommen an
+    cb = default[0]["cost_breakdown"]
+    assert cb["spread"] > 0.0 and cb["slippage"] > 0.0         # beides Nicht-Null im Default

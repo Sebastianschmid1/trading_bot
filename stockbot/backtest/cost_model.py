@@ -1,8 +1,13 @@
 """Deterministisches Kostenmodell fuer Backtests.
 
-Die Defaultwerte sind bewusst neutral. ``legacy_cost_pct`` bildet ausschliesslich die
-bisherige Backtest-Pauschale je Orderseite nach; alle weiteren Werte sind explizite,
-konservative Modellannahmen und keine Aussage ueber aktuelle Broker- oder Behoerdenpreise.
+``legacy_cost_pct`` bildet die bisherige Backtest-Spread-Pauschale je Orderseite nach
+(im Live-Report ueber ``config.BACKTEST_COST_PCT`` = 5 bps je Seite gespeist). ``slippage_spread_fraction``
+traegt zusaetzlich eine **konservative Nicht-Null-Slippage** als Bruchteil dieses Spreads:
+kurz nach dem US-Open sind Spreads real breiter, und eine marktnahe Order kreuzt einen Teil
+davon. Der Default ist bewusst so gewaehlt, dass Kosten eher **ueber**- als unterschaetzt
+werden (Backtest-Ehrlichkeit) — keine Aussage ueber tagesaktuelle Broker- oder Behoerdenpreise.
+Alle uebrigen Werte (SEC/FINRA, Liquiditaetsaufschlag, Market Impact) bleiben deaktiviert und
+muessen fuer einen Validierungslauf bewusst gesetzt werden.
 """
 
 from dataclasses import asdict, dataclass
@@ -40,17 +45,23 @@ class CostBreakdown:
 class CostModel:
     """Parametrisierbare, reine Kostenannahmen fuer US-Aktien-Backtests.
 
-    Alpaca-kommissionsfrei ist deshalb der Default. SEC/FINRA sowie Spread, Slippage,
-    Liquiditaetsaufschlag und Market Impact sind standardmaessig deaktiviert: ihre Saetze
-    haengen von Markt, Broker und Zeitpunkt ab und muessen fuer einen Validierungslauf
-    bewusst gesetzt werden. ``legacy_cost_pct`` ist die vorhandene Pauschale in Prozent je
-    Seite und dient nur der rueckwaertskompatiblen Standardkonfiguration.
+    Alpaca-kommissionsfrei ist deshalb der Kommissions-Default. ``legacy_cost_pct`` ist die
+    vorhandene Spread-Pauschale in Prozent je Seite (der Live-Report speist sie aus
+    ``config.BACKTEST_COST_PCT`` = 0.05 % = 5 bps). ``slippage_spread_fraction`` steht
+    **bewusst auf 0.5**: eine marktnahe Order schluckt real rund die Haelfte des (nach dem
+    US-Open breiteren) Spreads als Slippage. So ist ein Default-Backtest **nicht mehr
+    slippage-blind** und schoent das Ergebnis nicht; konservativ heisst hier lieber Kosten
+    ueberschaetzen. SEC/FINRA, Liquiditaetsaufschlag und Market Impact bleiben deaktiviert
+    (0.0): ihre Saetze haengen von Markt, Broker und Zeitpunkt ab und muessen fuer einen
+    Validierungslauf bewusst gesetzt werden.
     """
 
     legacy_cost_pct: float = 0.0
     commission_per_share: float = 0.0
     commission_pct: float = 0.0
-    slippage_spread_fraction: float = 0.0
+    # Konservative Nicht-Null-Slippage: 50 % des (nach dem US-Open breiteren) Spreads.
+    # Bewusst kostenueberschaetzend statt slippage-blind (Backtest-Ehrlichkeit).
+    slippage_spread_fraction: float = 0.5
     sec_fee_rate: float = 0.0
     finra_taf_per_share: float = 0.0
     finra_taf_cap: float = 0.0

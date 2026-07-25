@@ -246,7 +246,10 @@ def test_backtest_engine_detects_tp_then_sl():
 
 
 def test_backtest_engine_applies_transaction_costs():
-    """Round-Trip-Kosten (cost_pct % je Seite) mindern P&L in % und € — Default aus der Config."""
+    """Round-Trip-Kosten (Spread cost_pct % je Seite + konservative Slippage) mindern P&L in
+    % und €. Der Default folgt der Config und ist NICHT mehr slippage-blind."""
+    from stockbot.backtest.cost_model import CostModel
+    frac = CostModel().slippage_spread_fraction        # Default-Slippage als Bruchteil des Spreads
     n = 15
     close = np.full(n, 100.0)
     high = close + 0.5
@@ -260,13 +263,15 @@ def test_backtest_engine_applies_transaction_costs():
                                      max_hold=10, warmup=2, cost_pct=0.0)
     net = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
                                    max_hold=10, warmup=2, cost_pct=0.1)
-    assert round(gross[0]["pnl_pct"] - net[0]["pnl_pct"], 2) == 0.2      # 2 × 0.1 %
-    assert round(gross[0]["pnl_eur"] - net[0]["pnl_eur"], 2) == 2.0      # 0.2 % von 1000 €
-    # Default (None) folgt der Config und ist teurer als kostenlos.
+    exp_pct = 2 * 0.1 * (1 + frac)                      # Spread beidseitig + Slippage darauf
+    assert round(gross[0]["pnl_pct"] - net[0]["pnl_pct"], 4) == round(exp_pct, 4)
+    assert round(gross[0]["pnl_eur"] - net[0]["pnl_eur"], 4) == round(1000.0 * exp_pct / 100.0, 4)
+    # Default (None) folgt der Config und ist teurer als kostenlos (Spread + Slippage).
     default = backtest.backtest_ticker(_dummy_long(), "X", df, trade_size=1000.0,
                                        max_hold=10, warmup=2)
     from stockbot import config as _cfg
-    assert round(gross[0]["pnl_pct"] - default[0]["pnl_pct"], 2) == round(2 * _cfg.BACKTEST_COST_PCT, 2)
+    assert round(gross[0]["pnl_pct"] - default[0]["pnl_pct"], 4) == \
+        round(2 * _cfg.BACKTEST_COST_PCT * (1 + frac), 4)
 
 
 def _provider_bars():
@@ -395,6 +400,105 @@ def test_generate_uses_shared_strategy_and_analyzer_paths(monkeypatch):
 
     assert calls == ["strategy", ("analyzer", True)]
     assert signal == {"ok": True, "strategy": "standard"}
+
+
+# ── Survivorship-Bias: Point-in-Time-Universum (Part A) ──────────────────────
+
+def test_resolve_universe_uses_historical_members_when_pit_data_present():
+    """Mit vorhandener Point-in-Time-Historie zieht ein vergangener Backtest die DAMALIGE
+    Mitgliederliste — inkl. seither entfernter Titel, ohne Survivorship-Warnung."""
+    from stockbot.backtest.universe_history import PointInTimeUniverse, UniverseSnapshot
+    pit = PointInTimeUniverse([
+        UniverseSnapshot("2016-01-01", ["AAA", "OLD1", "OLD2"]),
+        UniverseSnapshot("2024-01-01", ["AAA", "NEW1"]),
+    ])
+    tickers, warn = backtest.resolve_backtest_universe(5, pit_universe=pit, as_of="2017-06-30")
+    assert tickers == ["AAA", "OLD1", "OLD2"]
+    assert warn is None
+
+
+def test_resolve_universe_degrades_honestly_without_pit_data(monkeypatch):
+    """Ohne Historie NICHT still die heutige Liste nehmen, sondern degradieren + warnen."""
+    monkeypatch.setattr(backtest, "_load_point_in_time_universe", lambda region: None)
+    monkeypatch.setattr(backtest.universes, "get_tickers",
+                        lambda region, auto=False: ["TODAY1", "TODAY2"])
+    tickers, warn = backtest.resolve_backtest_universe(5, as_of="2017-06-30")
+    assert tickers == ["TODAY1", "TODAY2"]
+    assert warn == backtest.SURVIVORSHIP_WARNING
+
+
+def test_resolve_universe_degrades_when_date_before_history(monkeypatch):
+    """Deckt die Historie den Stichtag nicht ab (Datum vor erster Aufnahme) → ehrliche Warnung."""
+    from stockbot.backtest.universe_history import PointInTimeUniverse, UniverseSnapshot
+    pit = PointInTimeUniverse([UniverseSnapshot("2020-01-01", ["A", "B"])])
+    monkeypatch.setattr(backtest.universes, "get_tickers",
+                        lambda region, auto=False: ["TODAY1"])
+    tickers, warn = backtest.resolve_backtest_universe(5, pit_universe=pit, as_of="2015-06-30")
+    assert tickers == ["TODAY1"]
+    assert warn == backtest.SURVIVORSHIP_WARNING
+
+
+def test_resolve_universe_keeps_explicit_tickers_without_bias_claim():
+    tickers, warn = backtest.resolve_backtest_universe(5, tickers=["X", "Y"])
+    assert tickers == ["X", "Y"] and warn is None
+
+
+def test_run_backtest_surfaces_survivorship_warning(monkeypatch):
+    """Die Degradations-Warnung landet im Ergebnis (statt still verschwiegen zu werden)."""
+    df = _provider_bars()
+    strategy = _dummy_long()
+    monkeypatch.setattr(backtest.strat_mod, "get", lambda key: strategy)
+    monkeypatch.setattr(backtest, "_load_point_in_time_universe", lambda region: None)
+    monkeypatch.setattr(backtest.universes, "get_tickers", lambda region, auto=False: ["X"])
+    monkeypatch.setattr(backtest, "_download_daily",
+                        lambda tickers, years, *a, **k: {"X": df.copy()})
+    res = backtest.run_backtest("dummy", years=2, jobs=1, cost_pct=0.0)
+    assert res["universe_warning"] == backtest.SURVIVORSHIP_WARNING
+    # Bei explizit vorgegebenen Tickern gibt es keine Bias-Aussage.
+    res2 = backtest.run_backtest("dummy", tickers=["X"], data={"X": df.copy()}, jobs=1, cost_pct=0.0)
+    assert res2["universe_warning"] is None
+
+
+# ── Gap-blinde Exits (Part B): Fill am Open statt am Level ────────────────────
+
+def _walk_df(rows):
+    idx = pd.bdate_range("2020-01-01", periods=len(rows["Open"]))
+    return pd.DataFrame({**rows, "Volume": 1e6}, index=idx)
+
+
+def test_walk_exit_long_gap_below_stop_fills_at_open():
+    """Öffnet die Bar per Gap UNTER dem Stop, füllt der reale Fill am (schlechteren) Open."""
+    df = _walk_df({"Open": [100, 92, 100, 100], "High": [101, 93, 101, 101],
+                   "Low": [99, 90, 99, 99], "Close": [100, 92, 100, 100]})
+    j, price, reason = backtest._walk_exit(df, 0, sl=95.0, tp=200.0, leverage=1.0, direction="long")
+    assert reason == "Stop-Loss" and j == 1
+    assert price == 92.0            # Open, NICHT das SL-Level 95
+
+
+def test_walk_exit_long_non_gap_fills_at_level():
+    """Öffnet die Bar diesseits und berührt den Stop erst intrabar → Fill am Level (Abgrenzung)."""
+    df = _walk_df({"Open": [100, 99, 100, 100], "High": [101, 100, 101, 101],
+                   "Low": [99, 94, 99, 99], "Close": [100, 99, 100, 100]})
+    j, price, reason = backtest._walk_exit(df, 0, sl=95.0, tp=200.0, leverage=1.0, direction="long")
+    assert reason == "Stop-Loss" and j == 1
+    assert price == 95.0            # intrabar am SL-Level
+
+
+def test_walk_exit_short_gap_above_stop_fills_at_open():
+    """Short-Analogon: Gap ÜBER den (oben liegenden) Short-Stop → Fill am schlechteren Open."""
+    df = _walk_df({"Open": [100, 108, 100, 100], "High": [101, 110, 101, 101],
+                   "Low": [99, 107, 99, 99], "Close": [100, 108, 100, 100]})
+    j, price, reason = backtest._walk_exit(df, 0, sl=105.0, tp=90.0, leverage=1.0, direction="short")
+    assert reason == "Stop-Loss" and j == 1
+    assert price == 108.0           # Open, NICHT das SL-Level 105
+
+
+def test_walk_exit_short_non_gap_fills_at_level():
+    df = _walk_df({"Open": [100, 101, 100, 100], "High": [101, 106, 101, 101],
+                   "Low": [99, 100, 99, 99], "Close": [100, 101, 100, 100]})
+    j, price, reason = backtest._walk_exit(df, 0, sl=105.0, tp=90.0, leverage=1.0, direction="short")
+    assert reason == "Stop-Loss" and j == 1
+    assert price == 105.0           # intrabar am SL-Level
 
 
 if __name__ == "__main__":

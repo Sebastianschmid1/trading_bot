@@ -15,9 +15,11 @@ Es gibt bewusst kein Resampling: Der Backtest verarbeitet ausschließlich vom Pr
 """
 
 import os
+import json
 import logging
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -26,6 +28,7 @@ from dataclasses import asdict as _dc_asdict
 from stockbot.backtest.clock import BarClock, Clock
 from stockbot.backtest.cost_model import CostBreakdown, CostModel
 from stockbot.backtest.reproducibility import DEFAULT_SEED, capture_run_metadata, set_seed
+from stockbot.backtest.universe_history import PointInTimeUniverse, UniverseSnapshot
 from stockbot.core import evaluator
 from stockbot.core import metrics as metrics_mod
 from stockbot.core.market_data import MarketDataProvider
@@ -33,6 +36,7 @@ from stockbot.market import strategies as strat_mod
 from stockbot.market import analyzer
 from stockbot.market.data_providers import YFinanceResearchProvider
 from stockbot.market import universes
+from stockbot.paths import DATA_DIR
 from stockbot import config
 from stockbot.config import TRADE_SIZE_EUR, DEFAULT_REGION, BACKTEST_JOBS
 
@@ -41,6 +45,70 @@ log = logging.getLogger(__name__)
 WARMUP_BARS = 260      # genug für EMA200 + ADX + Hüllkurven-Z-Scores (env_base=150)
 MAX_HOLD_DAYS = 40     # ~2 Handelsmonate Obergrenze je Trade
 PARALLEL_MIN = 8       # ab so vielen Tickern lohnt der Prozess-Pool (darunter: seriell, kein Spawn)
+
+# Point-in-Time-Universum: ehrlicher Umgang mit Survivorship-Bias. Liegt für die Region eine
+# historische Mitgliedschaftshistorie vor (data/universe_history/<region>.json), zieht ein
+# Backtest die zum Fensterbeginn GÜLTIGE Liste. Fehlt sie, degradiert der Lauf ehrlich auf die
+# HEUTIGE Liste und trägt diese Warnung ins Ergebnis (statt die Verzerrung zu verschweigen).
+SURVIVORSHIP_WARNING = ("Universum = heutige Liste, Survivorship-Bias möglich "
+                        "(keine Point-in-Time-Mitgliedschaftshistorie für den Zeitraum verfügbar).")
+
+
+def _universe_history_path(region: str) -> "os.PathLike":
+    """Dateipfad der (optionalen) Point-in-Time-Mitgliedschaftshistorie einer Region."""
+    return DATA_DIR / "universe_history" / f"{region}.json"
+
+
+def _load_point_in_time_universe(region: str) -> PointInTimeUniverse | None:
+    """Lädt die historische Indexzusammensetzung einer Region, falls vorhanden.
+
+    Erwartetes JSON: {"snapshots": [{"as_of": "YYYY-MM-DD", "members": [...], "delisted": [...]}, ...]}.
+    Gibt None zurück, wenn keine (lesbare, nicht-leere) Historie existiert — der Aufrufer
+    degradiert dann ehrlich auf die heutige Liste. Rät nie Daten zusammen."""
+    path = _universe_history_path(region)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        log.warning(f"Universums-Historie '{region}' nicht lesbar ({e}) — degradiere auf heutige Liste.")
+        return None
+    snaps = raw.get("snapshots") if isinstance(raw, dict) else None
+    if not snaps:
+        return None
+    try:
+        return PointInTimeUniverse([
+            UniverseSnapshot(s["as_of"], s.get("members") or [], s.get("delisted") or [])
+            for s in snaps
+        ])
+    except Exception as e:
+        log.warning(f"Universums-Historie '{region}' ungültig ({e}) — degradiere auf heutige Liste.")
+        return None
+
+
+def resolve_backtest_universe(years: int, region: str = DEFAULT_REGION,
+                              tickers: list[str] | None = None,
+                              pit_universe: PointInTimeUniverse | None = None,
+                              as_of: str | None = None) -> tuple[list[str], str | None]:
+    """Wählt die Backtest-Ticker **point-in-time** und meldet mögliche Survivorship-Verzerrung.
+
+    Rückgabe: (tickers, survivorship_warning|None).
+    - Explizit vorgegebene `tickers` werden unverändert übernommen (keine Bias-Aussage).
+    - Liegt eine Point-in-Time-Historie vor und deckt den Fensterbeginn ab, wird die DAMALS
+      gültige Mitgliederliste genutzt (kein Bias, keine Warnung).
+    - Sonst ehrliche Degradation: heutige (kuratierte) Liste + `SURVIVORSHIP_WARNING`.
+    `as_of` (Default: heute − `years`) ist der Stichtag, zu dem die Mitgliedschaft gilt."""
+    if tickers is not None:
+        return list(tickers), None
+    pit = pit_universe if pit_universe is not None else _load_point_in_time_universe(region)
+    if as_of is None:
+        as_of = (datetime.now(timezone.utc).date()
+                 - timedelta(days=int(years * 365.25))).isoformat()
+    if pit is not None:
+        members = pit.members_as_of(as_of)
+        if members:
+            return sorted(members), None
+    return universes.get_tickers(region, auto=False), SURVIVORSHIP_WARNING
 
 
 def _resolve_cost(cost_pct: float | None) -> float:
@@ -289,8 +357,7 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
         p = strat_mod.strategy_runtime_params("ai_adaptive")
         if p.get("trail_mult"):
             trail_mode, trail_mult = "atr", float(p["trail_mult"])
-    if tickers is None:
-        tickers = universes.get_tickers(DEFAULT_REGION, auto=False)   # kuratierter Korb
+    tickers, universe_warning = resolve_backtest_universe(years, tickers=tickers)
     if data is None:
         data = (_download_daily(tickers, years, data_provider) if data_provider is not None
                 else _download_daily(tickers, years))
@@ -307,7 +374,7 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
     for trades in _pmap(_bt_one, args, jobs):
         all_trades.extend(trades)
     result = _assemble_result(strategy, len(data), years, allow_short, trade_size, all_trades,
-                              cost_pct=cost_pct)
+                              cost_pct=cost_pct, universe_warning=universe_warning)
     if capture_metadata:
         result["run_metadata"] = capture_run_metadata(
             strategy_key=strategy.key, tickers=list(data.keys()), years=years,
@@ -320,8 +387,11 @@ def run_backtest(strategy_key: str, tickers: list[str] | None = None, years: int
 
 def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
                      trade_size: float, trades: list[dict],
-                     cost_pct: float | None = None) -> dict:
-    """Baut das Backtest-Ergebnis-Dict (Trades chronologisch nach Ausstiegsdatum)."""
+                     cost_pct: float | None = None,
+                     universe_warning: str | None = None) -> dict:
+    """Baut das Backtest-Ergebnis-Dict (Trades chronologisch nach Ausstiegsdatum).
+    `universe_warning` (None → keine) meldet einen möglichen Survivorship-Bias, wenn das
+    Universum mangels Point-in-Time-Historie auf die heutige Liste degradieren musste."""
     trades = sorted(trades, key=lambda x: x["exit_date"])
     return {
         "strategy":  strategy.key,
@@ -330,6 +400,7 @@ def _assemble_result(strategy, n_tickers: int, years: int, allow_short: bool,
         "years":     years,
         "allow_short": allow_short,
         "cost_pct":  _resolve_cost(cost_pct),
+        "universe_warning": universe_warning,
         "direction_split": _direction_split(trades),
         "metrics":   metrics_mod.compute_metrics(trades, initial_capital=trade_size * 10),
         "cost_breakdown": _total_cost_breakdown(trades),
@@ -357,8 +428,7 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
     Lädt die Kurse **einmal** (statt K× neu) und verteilt **alle (Strategie × Ticker)-Aufgaben
     über EINEN gemeinsamen Prozess-Pool** — so wird der Worker-Start-/Import-Overhead nur einmal
     bezahlt und alle Kerne bleiben über alle Strategien hinweg ausgelastet."""
-    if tickers is None:
-        tickers = universes.get_tickers(DEFAULT_REGION, auto=False)
+    tickers, universe_warning = resolve_backtest_universe(years, tickers=tickers)
     if data is None:
         data = (_download_daily(tickers, years, data_provider) if data_provider is not None
                 else _download_daily(tickers, years))
@@ -379,7 +449,7 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
         for r in flat[ki * T:(ki + 1) * T]:
             trades.extend(r)
         results.append(_assemble_result(strat_mod.get(k), T, years, allow_short, trade_size, trades,
-                                        cost_pct=cost_pct))
+                                        cost_pct=cost_pct, universe_warning=universe_warning))
 
     def pf_key(r):
         pf = r["metrics"]["profit_factor"]
@@ -424,29 +494,37 @@ def _walk_exit(df: pd.DataFrame, i: int, sl: float, tp: float, leverage: float,
                trail_mode: str | None = None, trail_mult: float | None = None):
     """Ausstieg ab Bar i+1: Liquidation (Hebel) → SL → TP (intrabar via High/Low), sonst Zeitlimit.
     Bei `direction="short"` ist alles gespiegelt: SL liegt ÜBER, TP UNTER dem Einstieg, und
-    liquidiert wird bei steigendem Kurs (Hoch ≥ Liquidationskurs)."""
+    liquidiert wird bei steigendem Kurs (Hoch ≥ Liquidationskurs).
+
+    Fill-Reihenfolge je Bar (gap-realistisch): pro Level wird geprüft, ob die Bar bereits
+    **jenseits** des Levels eröffnet (Overnight-Gap). Dann wird zum **Open** gefüllt, nicht zum
+    Level — ein Gap unter den Long-Stop füllt real am (schlechteren) Open, ein Gap über das
+    Long-TP am (besseren) Open; für Short gespiegelt. Öffnet die Bar diesseits, greift wie bisher
+    der intrabar-Touch am Level. Prioritätsreihenfolge bleibt Liquidation → SL → TP; die
+    konservative Regel „bei SL+TP in derselben Bar gewinnt der SL" bleibt (SL wird zuerst geprüft)."""
     n = len(df)
     liq = evaluator.liquidation_price(float(df["Close"].iloc[i]), leverage, direction)
     trailing = (trail_mode or "").lower() == "atr" and bool(trail_mult and trail_mult > 0)
     j = i + 1
     while j < n and (j - i) <= max_hold:
         lo, hi = float(df["Low"].iloc[j]), float(df["High"].iloc[j])
+        op = float(df["Open"].iloc[j])
         sl = _update_trailing_stop(df, j, direction, sl, trail_mode, trail_mult)
         stop_reason = "Trailing-Stop" if trailing else "Stop-Loss"
         if direction == "long":
-            if liq is not None and lo <= liq:
-                return j, liq, "Liquidation"
-            if lo <= sl:
-                return j, sl, stop_reason
-            if not trailing and hi >= tp:
-                return j, tp, "Take-Profit"
+            if liq is not None and lo <= liq:            # Gap unter Liquidation → Open (schlechter)
+                return j, (op if op <= liq else liq), "Liquidation"
+            if lo <= sl:                                 # Gap unter SL → Open (schlechter)
+                return j, (op if op <= sl else sl), stop_reason
+            if not trailing and hi >= tp:                # Gap über TP → Open (besser)
+                return j, (op if op >= tp else tp), "Take-Profit"
         else:                                # short: Liquidation/SL oben, TP unten
-            if liq is not None and hi >= liq:
-                return j, liq, "Liquidation"
-            if hi >= sl:
-                return j, sl, stop_reason
-            if not trailing and lo <= tp:
-                return j, tp, "Take-Profit"
+            if liq is not None and hi >= liq:            # Gap über Liquidation → Open (schlechter)
+                return j, (op if op >= liq else liq), "Liquidation"
+            if hi >= sl:                                 # Gap über SL → Open (schlechter)
+                return j, (op if op >= sl else sl), stop_reason
+            if not trailing and lo <= tp:                # Gap unter TP → Open (besser)
+                return j, (op if op <= tp else tp), "Take-Profit"
         j += 1
     j = min(j, n - 1)
     return j, float(df["Close"].iloc[j]), "Zeitlimit"
@@ -547,8 +625,7 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
         p = strat_mod.strategy_runtime_params("ai_adaptive")
         if p.get("trail_mult"):
             trail_mode, trail_mult = "atr", float(p["trail_mult"])
-    if tickers is None:
-        tickers = universes.get_tickers(DEFAULT_REGION, auto=False)
+    tickers, universe_warning = resolve_backtest_universe(years, tickers=tickers)
     if max_concurrent is None:
         max_concurrent = top_n
     if trade_size is None:
@@ -559,7 +636,8 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
                 else _download_daily(tickers, years))
     if not data:
         return {"trades": [], "metrics": metrics_mod.compute_metrics([], initial_capital),
-                "cost_breakdown": _total_cost_breakdown([])}
+                "cost_breakdown": _total_cost_breakdown([]),
+                "universe_warning": universe_warning}
 
     last = max(df.index[-1] for df in data.values())
     start_after = last - pd.Timedelta(days=int(years * 365.25))
@@ -582,4 +660,5 @@ def backtest_portfolio(strategy_key: str, tickers: list[str] | None = None, year
         "liquidations": sum(1 for t in trades if t["reason"] == "Liquidation"),
         "signals_per_day": signals_per_day(by_date),
         "start": str(start_after.date()), "end": str(last.date()),
+        "universe_warning": universe_warning,
     }
