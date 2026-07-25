@@ -102,6 +102,10 @@ Lokal starten: `python wedding/run.py` → <http://127.0.0.1:8100/>.
 /opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
     --file /etc/wedding/users.json add-user schwiegermutter "Renate" --guest
 
+# Upload-Recht eines bestehenden Benutzers umschalten
+/opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
+    --file /etc/wedding/users.json set-upload gast on     # oder: off
+
 # Fehlende Benutzer aus dem Repo nachziehen — bestehende bleiben unberührt
 /opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
     --file /etc/wedding/users.json seed /opt/stockbot/deploy/wedding-users.json
@@ -117,25 +121,49 @@ es fügt ausschließlich Benutzer ein, die im Ziel noch fehlen, und fasst besteh
 (inklusive der dort gesetzten Passwörter) nie an. Ein zweiter Lauf ist ein No-op.
 `setup_wedding.sh` ruft das automatisch auf, wenn `/etc/wedding/users.json` schon existiert.
 
-## Gast-Zugang (nur ansehen)
+## Gäste-Zugang `/gast`
 
-Ein Benutzer mit `"can_upload": false` in der users.json darf die Galerie ansehen und Fotos
-herunterladen, aber **nicht hochladen und nicht löschen**. Das Feld ist optional — fehlt es,
-gilt `true`, bestehende Einträge funktionieren also unverändert. Erzwungen wird das
-serverseitig (`POST /upload` und `POST /photos/…/delete` antworten mit `403`), nicht bloß
-durch Ausblenden im UI; die Upload-Karte wird für solche Zugänge zusätzlich gar nicht erst
-gerendert.
-
-Ausgeliefert wird der Benutzer `gast` (Anzeigename „Gast"). Für ihn gibt es einen
-**Direktlink ohne Anmeldemaske**:
+Für alle Feiernden gibt es einen **geteilten Zugang** `gast` (Anzeigename „Gast") mit einer
+vereinfachten Anmeldeseite — dieselbe Login-Karte, aber ohne Namensfeld, nur Passwort:
 
 * mit Domain: `https://<DOMAIN>/hochzeit/gast`
 * ohne Domain: `http://<server-ip>:8100/gast`
 
-Der Aufruf setzt direkt die Gast-Session und landet in der Galerie. **Wer den Link hat, kann
-die Fotos sehen** — der Link selbst ist das Zugangsgeheimnis, also nur an Leute schicken, die
-die Bilder sehen dürfen. Der normale Login mit `gast` + Passwort funktioniert zusätzlich
-weiterhin. Gibt es keinen `gast`-Eintrag in der users.json, liefert `/gast` ein 404.
+Auf die Einladung gehört also der Link **und** das Passwort. `GET /gast` zeigt nur das
+Formular und loggt niemanden ein; erst `POST /gast` mit dem richtigen Passwort setzt die
+Session und leitet in die Galerie. Fehlversuche laufen über **dasselbe** Rate-Limit wie der
+normale Login (5 pro Minute und IP, danach 429) — `/gast` ist damit kein Schlupfloch, um das
+Limit zu umgehen. Der reguläre Login mit `gast` + Passwort über `/login` funktioniert
+weiterhin. Gibt es keinen `gast`-Eintrag in der users.json, liefern `GET`/`POST /gast` ein 404.
+
+Gäste dürfen **auch hochladen** (`"can_upload": true`).
+
+### Nur-Ansehen-Zugänge
+
+Ein Benutzer mit `"can_upload": false` darf die Galerie ansehen und Fotos herunterladen, aber
+**nicht hochladen und nicht löschen**. Das Feld ist optional — fehlt es, gilt `true`,
+bestehende Einträge funktionieren also unverändert. Erzwungen wird das serverseitig
+(`POST /upload` und `POST /photos/…/delete` antworten mit `403`), nicht bloß durch Ausblenden
+im UI; Upload-Karte und „+ Fotos hinzufügen"-Button werden für solche Zugänge zusätzlich gar
+nicht erst gerendert. Anlegen mit `add-user … --guest`, umschalten mit `set-upload <user> off`.
+
+### Rollout auf einen bereits laufenden Server
+
+`seed` legt nur **fehlende** Benutzer an und fasst bestehende Einträge nie an. Wenn `gast`
+dort schon existiert (z. B. mit dem alten Passwort oder noch als Nur-Ansehen-Zugang), müssen
+Passwort und Upload-Recht einmal von Hand nachgezogen werden:
+
+```bash
+cd /opt/stockbot && git pull
+bash deploy/setup_wedding.sh                      # legt fehlende Benutzer an
+
+/opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
+    --file /etc/wedding/users.json set-password gast
+/opt/stockbot/venv/bin/python /opt/stockbot/wedding/manage.py \
+    --file /etc/wedding/users.json set-upload gast on
+```
+
+Ein Neustart ist nicht nötig, die users.json wird bei jedem Login frisch gelesen.
 
 ## Daten & Backup
 

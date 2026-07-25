@@ -23,7 +23,8 @@ TEST_ITERATIONS = 1_000
 # Frei erfundene Test-Passwörter — sie haben nichts mit den echten Zugängen zu tun.
 AMELIE_PW = "brautstrauss"
 TOBI_PW = "trauzeuge"
-GAST_PW = "nurgucken"
+GAST_PW = "einladungskarte"
+NURGUCKER_PW = "nurgucken"
 
 # 1x1-PNG (echte Bytes, damit der Upload nicht nur „irgendwas" ist).
 PNG_BYTES = bytes.fromhex(
@@ -42,15 +43,20 @@ def secret_file(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def users_file(tmp_path: Path) -> Path:
-    # amelie/tobi bewusst OHNE `can_upload` — das prüft die Abwärtskompatibilität mit,
-    # `gast` ist der Nur-Ansehen-Zugang.
+    # amelie/tobi bewusst OHNE `can_upload` — das prüft die Abwärtskompatibilität mit.
+    # `gast` ist der geteilte Zugang (darf hochladen), `nurgucker` der Nur-Ansehen-Fall.
     users = {
         "amelie": {"display_name": "Amelie", **hash_password(AMELIE_PW, iterations=TEST_ITERATIONS)},
         "tobi": {"display_name": "Tobi", **hash_password(TOBI_PW, iterations=TEST_ITERATIONS)},
         "gast": {
             "display_name": "Gast",
-            "can_upload": False,
+            "can_upload": True,
             **hash_password(GAST_PW, iterations=TEST_ITERATIONS),
+        },
+        "nurgucker": {
+            "display_name": "Nur Gucker",
+            "can_upload": False,
+            **hash_password(NURGUCKER_PW, iterations=TEST_ITERATIONS),
         },
     }
     path = tmp_path / "users.json"
@@ -293,18 +299,19 @@ def test_loeschen_ohne_login_leitet_auf_login(client: TestClient, app, data_dir:
 
 
 # --------------------------------------------------------------------------- #
-# Nur-Ansehen-Zugang „Gast" (can_upload=false)
+# Nur-Ansehen-Zugang (can_upload=false)
 # --------------------------------------------------------------------------- #
-def test_gast_sieht_die_galerie_ohne_upload_karte(client: TestClient, app) -> None:
+def test_nurgucker_sieht_die_galerie_ohne_upload_karte(client: TestClient, app) -> None:
     with TestClient(app, follow_redirects=False) as amelie:
         login(amelie, "amelie", AMELIE_PW)
         name = upload_png(amelie).json()["results"][0]["name"]
 
-    assert login(client, "gast", GAST_PW).status_code == 303
+    assert login(client, "nurgucker", NURGUCKER_PW).status_code == 303
     gallery = client.get("/")
     assert gallery.status_code == 200
     assert "Fotos hochladen" not in gallery.text
     assert 'id="upload-form"' not in gallery.text
+    assert "+ Fotos hinzufügen" not in gallery.text
     assert "Schön, dass du reinschaust!" in gallery.text
     # Ansehen und Herunterladen bleiben erlaubt.
     assert name in gallery.text
@@ -313,20 +320,22 @@ def test_gast_sieht_die_galerie_ohne_upload_karte(client: TestClient, app) -> No
     assert foto.content == PNG_BYTES
 
 
-def test_gast_darf_nicht_hochladen(client: TestClient, data_dir: Path) -> None:
-    login(client, "gast", GAST_PW)
+def test_nurgucker_darf_nicht_hochladen(client: TestClient, data_dir: Path) -> None:
+    login(client, "nurgucker", NURGUCKER_PW)
     response = upload_png(client)
     assert response.status_code == 403
     assert response.json()["error"] == "Dieser Zugang kann Fotos nur ansehen."
     assert list(photos_dir(data_dir).iterdir()) == []
 
 
-def test_gast_darf_fremdes_foto_nicht_loeschen(client: TestClient, app, data_dir: Path) -> None:
+def test_nurgucker_darf_fremdes_foto_nicht_loeschen(
+    client: TestClient, app, data_dir: Path
+) -> None:
     with TestClient(app, follow_redirects=False) as amelie:
         login(amelie, "amelie", AMELIE_PW)
         name = upload_png(amelie).json()["results"][0]["name"]
 
-    login(client, "gast", GAST_PW)
+    login(client, "nurgucker", NURGUCKER_PW)
     assert client.post(f"/photos/{name}/delete").status_code == 403
     assert (photos_dir(data_dir) / name).is_file()
 
@@ -339,23 +348,76 @@ def test_user_ohne_can_upload_feld_darf_weiterhin_hochladen(
     assert upload_png(client).status_code == 200
 
 
+def test_galerie_zeigt_den_upload_button_fuer_berechtigte(client: TestClient) -> None:
+    login(client, "amelie", AMELIE_PW)
+    gallery = client.get("/")
+    assert gallery.status_code == 200
+    assert "+ Fotos hinzufügen" in gallery.text
+    assert 'id="upload-fab"' in gallery.text
+    assert 'id="upload-shell"' in gallery.text
+
+
 # --------------------------------------------------------------------------- #
-# Direktlink /gast
+# Gäste-Zugang /gast (Passwortabfrage, gemeinsames Rate-Limit mit /login)
 # --------------------------------------------------------------------------- #
-def test_gast_direktlink_loggt_ohne_formular_ein(client: TestClient, data_dir: Path) -> None:
+def test_gast_seite_zeigt_nur_ein_passwortfeld(client: TestClient) -> None:
     response = client.get("/gast")
+    assert response.status_code == 200
+    assert 'action="/gast"' in response.text
+    assert 'name="password"' in response.text
+    assert 'name="username"' not in response.text
+    # Das reine Aufrufen loggt niemanden ein.
+    assert SESSION_COOKIE not in client.cookies
+
+
+def test_gast_login_mit_richtigem_passwort(client: TestClient, data_dir: Path) -> None:
+    response = client.post("/gast", data={"password": GAST_PW})
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert SESSION_COOKIE in client.cookies
 
     gallery = client.get("/")
     assert gallery.status_code == 200
-    assert "Schön, dass du reinschaust!" in gallery.text
-    assert upload_png(client).status_code == 403
-    assert list(photos_dir(data_dir).iterdir()) == []
+    # Gäste dürfen jetzt ebenfalls hochladen.
+    assert "+ Fotos hinzufügen" in gallery.text
+    assert upload_png(client, "gastfoto.png").status_code == 200
+    assert len(list(photos_dir(data_dir).glob("*.png"))) == 1
 
 
-def test_gast_direktlink_ohne_gast_benutzer_ist_404(
+def test_gast_login_mit_falschem_passwort(client: TestClient) -> None:
+    response = client.post("/gast", data={"password": "falsch"})
+    assert response.status_code == 401
+    assert SESSION_COOKIE not in client.cookies
+    assert 'action="/gast"' in response.text
+
+
+def test_gast_upload_landet_mit_uploader_gast_im_sidecar(
+    client: TestClient, data_dir: Path
+) -> None:
+    client.post("/gast", data={"password": GAST_PW})
+    name = upload_png(client, "Tanzflaeche.png").json()["results"][0]["name"]
+
+    assert (photos_dir(data_dir) / name).is_file()
+    sidecar = json.loads((photos_dir(data_dir) / (Path(name).stem + ".json")).read_text("utf-8"))
+    assert sidecar["uploader"] == "gast"
+    assert sidecar["display_name"] == "Gast"
+    assert sidecar["original_name"] == "Tanzflaeche.png"
+
+
+def test_gast_rate_limit_zaehlt_gemeinsam_mit_login(client: TestClient) -> None:
+    # Drei Fehlversuche am normalen Login …
+    for _ in range(3):
+        assert login(client, "amelie", "falsch").status_code == 401
+    # … und zwei am Gäste-Formular ergeben zusammen fünf.
+    for _ in range(2):
+        assert client.post("/gast", data={"password": "falsch"}).status_code == 401
+    # Der sechste Versuch ist gesperrt — egal über welches Formular.
+    assert client.post("/gast", data={"password": "falsch"}).status_code == 429
+    assert client.post("/gast", data={"password": GAST_PW}).status_code == 429
+    assert login(client, "amelie", AMELIE_PW).status_code == 429
+
+
+def test_gast_seite_ohne_gast_benutzer_ist_404(
     tmp_path: Path, data_dir: Path, secret_file: Path
 ) -> None:
     ohne_gast = tmp_path / "ohne_gast.json"
@@ -370,16 +432,22 @@ def test_gast_direktlink_ohne_gast_benutzer_ist_404(
         max_bytes=2048, cookie_secure=False,
     )
     with TestClient(app, follow_redirects=False) as test_client:
-        response = test_client.get("/gast")
-        assert response.status_code == 404
+        assert test_client.get("/gast").status_code == 404
+        assert test_client.post("/gast", data={"password": "egal"}).status_code == 404
         assert SESSION_COOKIE not in test_client.cookies
 
 
-def test_gast_direktlink_beruecksichtigt_den_root_path(app) -> None:
+def test_gast_login_ueber_das_normale_formular_geht_weiterhin(client: TestClient) -> None:
+    assert login(client, "gast", GAST_PW).status_code == 303
+    assert client.get("/").status_code == 200
+
+
+def test_gast_seite_beruecksichtigt_den_root_path(app) -> None:
     with TestClient(app, follow_redirects=False, root_path="/hochzeit") as sub:
-        response = sub.get("/gast")
-        assert response.status_code == 303
-        assert response.headers["location"] == "/hochzeit/"
+        page = sub.get("/gast")
+        assert page.status_code == 200
+        assert 'action="/hochzeit/gast"' in page.text
+        assert sub.post("/gast", data={"password": GAST_PW}).headers["location"] == "/hochzeit/"
 
 
 # --------------------------------------------------------------------------- #
@@ -415,6 +483,33 @@ def test_seed_ergaenzt_nur_fehlende_benutzer(tmp_path: Path) -> None:
     unveraendert = ziel.read_bytes()
     assert manage_main(["--file", str(ziel), "seed", str(quelle)]) == 0
     assert ziel.read_bytes() == unveraendert
+
+
+def test_set_upload_schaltet_hin_und_her(tmp_path: Path) -> None:
+    original = {
+        "gast": {"display_name": "Gast", **hash_password("pw", iterations=TEST_ITERATIONS)},
+    }
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps(original), encoding="utf-8")
+
+    assert manage_main(["--file", str(ziel), "set-upload", "gast", "off"]) == 0
+    entry = json.loads(ziel.read_text("utf-8"))["gast"]
+    assert entry["can_upload"] is False
+
+    assert manage_main(["--file", str(ziel), "set-upload", "gast", "on"]) == 0
+    entry = json.loads(ziel.read_text("utf-8"))["gast"]
+    assert entry["can_upload"] is True
+
+    # Alle übrigen Felder sind unverändert geblieben.
+    for feld, wert in original["gast"].items():
+        assert entry[feld] == wert
+
+
+def test_set_upload_kennt_nur_bestehende_benutzer(tmp_path: Path) -> None:
+    ziel = tmp_path / "users.json"
+    ziel.write_text(json.dumps({"amelie": {"display_name": "Amelie"}}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        manage_main(["--file", str(ziel), "set-upload", "gibtsnicht", "on"])
 
 
 def test_seed_legt_datei_an_wenn_sie_fehlt(tmp_path: Path) -> None:

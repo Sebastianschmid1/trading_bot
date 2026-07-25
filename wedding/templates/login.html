@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Anmelden &middot; Amelie &amp; Tobi{% endblock %}
+{% block title %}{% if guest %}Gäste-Zugang{% else %}Anmelden{% endif %} &middot; Amelie &amp; Tobi{% endblock %}
 {% block body_class %}page-login{% endblock %}
 
 {% block content %}
@@ -19,28 +19,43 @@
 
         <h1 class="brand">Amelie &amp; Tobi <span class="brand__ring">&#128141;</span></h1>
         <p class="brand__sub">Unsere Hochzeits&shy;galerie</p>
+
+        {% if guest %}
+        <p class="lede">Gäste-Zugang: Gib das Passwort von der Einladung ein &mdash;
+            dann geht&rsquo;s direkt zu den Fotos.</p>
+        {% else %}
         <p class="lede">Schön, dass ihr da wart! Meldet euch an, um eure Fotos hochzuladen
             und alle Erinnerungen anzuschauen.</p>
+        {% endif %}
 
         {% if error %}
         <p class="alert alert--error" role="alert">{{ error }}</p>
         {% endif %}
 
-        <form class="form" method="post" action="{{ base }}/login">
+        <form class="form" method="post" action="{{ base }}/{% if guest %}gast{% else %}login{% endif %}">
+            {% if not guest %}
             <label class="field">
                 <span class="field__label">Name</span>
                 <input class="field__input" type="text" name="username" autocomplete="username"
                        autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
             </label>
+            {% endif %}
             <label class="field">
                 <span class="field__label">Passwort</span>
                 <input class="field__input" type="password" name="password"
-                       autocomplete="current-password" required>
+                       autocomplete="current-password" required{% if guest %} autofocus{% endif %}>
             </label>
-            <button class="btn btn--primary btn--block" type="submit">Anmelden</button>
+            <button class="btn btn--primary btn--block" type="submit">
+                {% if guest %}Rein zu den Fotos{% else %}Anmelden{% endif %}
+            </button>
         </form>
 
+        {% if guest %}
+        <p class="footnote">Du hast einen eigenen Zugang?
+            <a class="footnote__link" href="{{ base }}/login">Hier anmelden</a></p>
+        {% else %}
         <p class="footnote">Nur für geladene Gäste &middot; mit Liebe gemacht</p>
+        {% endif %}
     </section>
 </main>
 {% endblock %}

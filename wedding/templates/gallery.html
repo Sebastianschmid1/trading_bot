@@ -23,47 +23,13 @@
 </header>
 
 <main class="wrap">
-    {% if can_upload %}
-    <section class="card card--upload">
-        <h2 class="card__title">Fotos hochladen</h2>
-        <p class="card__hint">Bis zu {{ max_files }} Fotos auf einmal, je max. {{ max_mb }} MB
-            ({{ allowed_extensions }}).</p>
-
-        <form id="upload-form" class="dropzone" method="post" action="{{ base }}/upload"
-              enctype="multipart/form-data">
-            <div class="dropzone__icon" aria-hidden="true">
-                <svg viewBox="0 0 48 48" role="presentation">
-                    <rect x="5" y="12" width="38" height="27" rx="5" fill="none"
-                          stroke="#cfa8b8" stroke-width="2.2"/>
-                    <path d="M17 12 l3 -4 h8 l3 4" fill="none" stroke="#cfa8b8"
-                          stroke-width="2.2" stroke-linejoin="round"/>
-                    <circle cx="24" cy="26" r="8" fill="none" stroke="#e08ba4" stroke-width="2.2"/>
-                    <circle cx="24" cy="26" r="3" fill="#f3c9d6"/>
-                </svg>
-            </div>
-            <p class="dropzone__text">Fotos hierher ziehen &mdash; oder</p>
-            <label class="btn btn--primary" for="file-input">Fotos auswählen</label>
-            <input id="file-input" class="visually-hidden" type="file" name="files"
-                   accept="image/*" multiple>
-        </form>
-
-        <div id="upload-progress" class="progress" hidden>
-            <div class="progress__bar"><span id="progress-fill" class="progress__fill"></span></div>
-            <p id="progress-label" class="progress__label">Lade hoch …</p>
-        </div>
-
-        <ul id="upload-results" class="results" hidden></ul>
-        <button id="refresh-gallery" class="btn btn--ghost btn--block" type="button" hidden>
-            Galerie aktualisieren
-        </button>
-    </section>
-    {% else %}
+    {% if not can_upload %}
     <section class="card card--guest">
         <span class="card--guest__icon" aria-hidden="true">&#128064;</span>
         <div>
             <h2 class="card__title">Schön, dass du reinschaust!</h2>
             <p class="card__hint">Dieser Zugang ist zum Stöbern gedacht: Fotos anschauen und
-                herunterladen geht, hochladen können nur Amelie &amp; Tobi.</p>
+                herunterladen geht, hochladen ist für ihn nicht freigeschaltet.</p>
         </div>
     </section>
     {% endif %}
@@ -122,8 +88,57 @@
         {% endif %}
     </section>
 
+    {% if can_upload %}
+    {# Ohne JS bleibt die Karte einfach sichtbar; das Skript klappt sie ein und
+       blendet dafür den schwebenden Button ein. #}
+    <div id="upload-shell" class="upload-shell">
+        <section class="card card--upload">
+            <div class="card__head">
+                <h2 class="card__title">Fotos hochladen</h2>
+                <button id="upload-close" class="card__close" type="button"
+                        aria-label="Hochladen schließen" hidden>&times;</button>
+            </div>
+            <p class="card__hint">Bis zu {{ max_files }} Fotos auf einmal, je max. {{ max_mb }} MB
+                ({{ allowed_extensions }}).</p>
+
+            <form id="upload-form" class="dropzone" method="post" action="{{ base }}/upload"
+                  enctype="multipart/form-data">
+                <div class="dropzone__icon" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" role="presentation">
+                        <rect x="5" y="12" width="38" height="27" rx="5" fill="none"
+                              stroke="#cfa8b8" stroke-width="2.2"/>
+                        <path d="M17 12 l3 -4 h8 l3 4" fill="none" stroke="#cfa8b8"
+                              stroke-width="2.2" stroke-linejoin="round"/>
+                        <circle cx="24" cy="26" r="8" fill="none" stroke="#e08ba4" stroke-width="2.2"/>
+                        <circle cx="24" cy="26" r="3" fill="#f3c9d6"/>
+                    </svg>
+                </div>
+                <p class="dropzone__text">Fotos hierher ziehen &mdash; oder</p>
+                <label class="btn btn--primary" for="file-input">Fotos auswählen</label>
+                <input id="file-input" class="visually-hidden" type="file" name="files"
+                       accept="image/*" multiple>
+            </form>
+
+            <div id="upload-progress" class="progress" hidden>
+                <div class="progress__bar"><span id="progress-fill" class="progress__fill"></span></div>
+                <p id="progress-label" class="progress__label">Lade hoch …</p>
+            </div>
+
+            <ul id="upload-results" class="results" hidden></ul>
+            <button id="refresh-gallery" class="btn btn--ghost btn--block" type="button" hidden>
+                Galerie aktualisieren
+            </button>
+        </section>
+    </div>
+    {% endif %}
+
     <footer class="page-footer">Danke, dass ihr mit uns gefeiert habt &#10084;</footer>
 </main>
+
+{% if can_upload %}
+<button id="upload-fab" class="fab" type="button" aria-controls="upload-shell"
+        aria-expanded="false" hidden>+ Fotos hinzufügen</button>
+{% endif %}
 
 <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Foto groß">
     <button id="lightbox-close" class="lightbox__btn lightbox__close" type="button"

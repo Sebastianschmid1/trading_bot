@@ -320,7 +320,8 @@ img {
     z-index: 1;
     max-width: 1100px;
     margin: 0 auto;
-    padding: 1.1rem 0.9rem 3rem;
+    /* Unten Platz lassen, damit der schwebende Button den Footer nicht verdeckt. */
+    padding: 1.1rem 0.9rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
     display: grid;
     gap: 1.4rem;
 }
@@ -333,6 +334,82 @@ img {
 }
 
 /* --- Upload -------------------------------------------------------------- */
+/* Upload-Karte am Seitenende: ohne JS sichtbar, mit JS eingeklappt hinter dem „+"-Button. */
+.upload-shell {
+    overflow: hidden;
+    max-height: 250vh;
+    opacity: 1;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
+}
+
+.upload-shell.is-collapsed {
+    max-height: 0;
+    opacity: 0;
+    visibility: hidden;
+}
+
+.card__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.card__close {
+    flex: none;
+    border: 0;
+    border-radius: 999px;
+    width: 2rem;
+    height: 2rem;
+    font: inherit;
+    font-size: 1.4rem;
+    line-height: 1;
+    color: var(--rose-deep);
+    background: #fdeef3;
+    cursor: pointer;
+}
+
+.card__close:hover {
+    background: var(--rose-soft);
+}
+
+/* Schwebender Aktionsbutton — Daumenreichweite auf dem Handy, mit Safe-Area. */
+.fab {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    z-index: 40;
+    min-height: 3rem;
+    padding: 0.8rem 1.4rem;
+    border: 0;
+    border-radius: 999px;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #fff;
+    background: linear-gradient(135deg, var(--rose) 0%, #d9799a 100%);
+    box-shadow: 0 10px 26px rgba(185, 95, 122, 0.45);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.fab:hover {
+    background: linear-gradient(135deg, #d9799a 0%, #c96a8b 100%);
+}
+
+.fab:active {
+    transform: translateY(1px);
+}
+
+.fab.is-open {
+    background: linear-gradient(135deg, #b0929c 0%, #8f757f 100%);
+    box-shadow: 0 8px 20px rgba(90, 70, 78, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .upload-shell { transition: none; }
+}
+
 /* Hinweis-Karte für den Nur-Ansehen-Zugang (Gast). */
 .card--guest {
     display: flex;

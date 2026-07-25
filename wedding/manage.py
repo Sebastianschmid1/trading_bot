@@ -4,6 +4,7 @@
     python wedding/manage.py set-password amelie
     python wedding/manage.py add-user oma "Oma Erna"
     python wedding/manage.py add-user gast "Gast" --guest
+    python wedding/manage.py set-upload gast on
     python wedding/manage.py --file /etc/wedding/users.json seed deploy/wedding-users.json
 
 Die Ziel-Datei kommt aus ``--file``, sonst aus ``WEDDING_USERS_FILE``, sonst
@@ -106,6 +107,27 @@ def cmd_add_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_set_upload(args: argparse.Namespace) -> int:
+    """Setzt `can_upload` eines bestehenden Benutzers explizit auf true/false.
+
+    Nötig für den Rollout auf einem laufenden Server: `seed` fasst bestehende
+    Einträge grundsätzlich nicht an, Rechte-Änderungen laufen deshalb hierüber.
+    """
+    path = resolve_users_file(args.file)
+    users = load(path)
+    username = args.username.strip().lower()
+    if username not in users:
+        raise SystemExit(f"Benutzer {username!r} existiert nicht in {path}.")
+    allowed = args.value == "on"
+    entry = dict(users[username])
+    entry["can_upload"] = allowed
+    users[username] = entry
+    save(path, users)
+    zustand = "darf hochladen" if allowed else "kann nur ansehen"
+    print(f"{username!r}: can_upload={str(allowed).lower()} ({zustand}) — {path}")
+    return 0
+
+
 def cmd_seed(args: argparse.Namespace) -> int:
     """Fügt nur *fehlende* Benutzer aus einer Quelldatei ein.
 
@@ -159,6 +181,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Nur-Ansehen-Zugang anlegen (can_upload=false: kein Upload, kein Löschen)",
     )
     add.set_defaults(func=cmd_add_user)
+
+    upload_flag = sub.add_parser(
+        "set-upload", help="Upload-Recht eines bestehenden Benutzers setzen (on/off)"
+    )
+    upload_flag.add_argument("username")
+    upload_flag.add_argument(
+        "value", choices=["on", "off"], help="on = darf hochladen, off = nur ansehen"
+    )
+    upload_flag.set_defaults(func=cmd_set_upload)
 
     seed = sub.add_parser(
         "seed", help="Fehlende Benutzer aus einer Quelldatei ergänzen (bestehende bleiben)"

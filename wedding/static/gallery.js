@@ -13,6 +13,9 @@
     var label = document.getElementById("progress-label");
     var results = document.getElementById("upload-results");
     var refreshBtn = document.getElementById("refresh-gallery");
+    var shell = document.getElementById("upload-shell");
+    var fab = document.getElementById("upload-fab");
+    var closeBtn = document.getElementById("upload-close");
 
     function showResults(items, fallbackError) {
         results.innerHTML = "";
@@ -95,8 +98,35 @@
         xhr.send(data);
     }
 
-    // Gast-Zugang: die Upload-Karte wird gar nicht gerendert — dann alles hier überspringen.
-    if (form && input && progress && fill && label && results && refreshBtn) {
+    // Nur-Ansehen-Zugang: die Upload-Karte wird gar nicht gerendert — dann alles überspringen.
+    if (form && input && progress && fill && label && results && refreshBtn && shell && fab) {
+        // Ausklapp-Steuerung. Im Markup ist die Karte sichtbar (damit sie ohne JS
+        // benutzbar bleibt); hier wird sie eingeklappt und der „+"-Button aktiviert.
+        var setOpen = function (open) {
+            shell.classList.toggle("is-collapsed", !open);
+            fab.classList.toggle("is-open", open);
+            fab.setAttribute("aria-expanded", open ? "true" : "false");
+            fab.textContent = open ? "Schließen" : "+ Fotos hinzufügen";
+            if (open) {
+                var smooth = !window.matchMedia
+                    || !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                shell.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+            }
+        };
+
+        setOpen(false);
+        fab.hidden = false;
+        if (closeBtn) {
+            closeBtn.hidden = false;
+            closeBtn.addEventListener("click", function () {
+                setOpen(false);
+                fab.focus({ preventScroll: true });
+            });
+        }
+        fab.addEventListener("click", function () {
+            setOpen(shell.classList.contains("is-collapsed"));
+        });
+
         form.addEventListener("submit", function (event) {
             event.preventDefault();
             upload(input.files);

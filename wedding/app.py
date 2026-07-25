@@ -136,6 +136,11 @@ def _current_user(request: Request) -> str | None:
     return username
 
 
+def _guest_entry(request: Request) -> dict | None:
+    """users.json-Eintrag des geteilten Gäste-Zugangs — oder ``None``, wenn es keinen gibt."""
+    return load_users(request.app.state.settings.users_file).get(GUEST_USERNAME)
+
+
 def _set_session_cookie(response, request: Request, username: str) -> None:
     settings: Settings = request.app.state.settings
     response.set_cookie(
@@ -197,7 +202,7 @@ def create_app(
     async def login_form(request: Request):
         if _current_user(request) is not None:
             return RedirectResponse(_url(request, "/"), status_code=303)
-        return render(request, "login.html", {"error": None})
+        return render(request, "login.html", {"error": None, "guest": False})
 
     @application.post("/login")
     async def login_submit(
@@ -211,7 +216,10 @@ def create_app(
             return render(
                 request,
                 "login.html",
-                {"error": "Zu viele Versuche. Bitte eine Minute warten und dann nochmal probieren."},
+                {
+                    "error": "Zu viele Versuche. Bitte eine Minute warten und dann nochmal probieren.",
+                    "guest": False,
+                },
                 status_code=429,
             )
 
@@ -224,7 +232,7 @@ def create_app(
             return render(
                 request,
                 "login.html",
-                {"error": "Name oder Passwort stimmt nicht. Versuch's nochmal!"},
+                {"error": "Name oder Passwort stimmt nicht. Versuch's nochmal!", "guest": False},
                 status_code=401,
             )
 
@@ -234,16 +242,49 @@ def create_app(
         return response
 
     @application.get("/gast")
-    async def guest_link(request: Request):
-        """Direktlink für den Nur-Ansehen-Zugang: loggt ohne Formular als `gast` ein.
+    async def guest_form(request: Request):
+        """Vereinfachte Anmeldung für den geteilten Gäste-Zugang: nur ein Passwortfeld."""
+        if _guest_entry(request) is None:
+            raise HTTPException(status_code=404, detail="Es gibt keinen Gäste-Zugang.")
+        if _current_user(request) is not None:
+            return RedirectResponse(_url(request, "/"), status_code=303)
+        return render(request, "login.html", {"error": None, "guest": True})
 
-        Bewusst ohne Passwort — der verschickte Link **ist** das Zugangsgeheimnis.
-        Das Rate-Limit des Formular-Logins bleibt davon unberührt; der reguläre
-        Login mit `gast` + Passwort funktioniert weiterhin zusätzlich.
-        """
-        users = load_users(request.app.state.settings.users_file)
-        if GUEST_USERNAME not in users:
-            raise HTTPException(status_code=404, detail="Es gibt keinen Gast-Zugang.")
+    @application.post("/gast")
+    async def guest_submit(request: Request, password: str = Form("")):
+        entry = _guest_entry(request)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Es gibt keinen Gäste-Zugang.")
+
+        # Bewusst derselbe Limiter und derselbe Schlüssel wie beim normalen Login:
+        # sonst wäre /gast ein Schlupfloch, um das Limit von /login zu umgehen.
+        limiter: LoginRateLimiter = request.app.state.rate_limiter
+        key = _client_key(request)
+        if limiter.is_blocked(key):
+            return render(
+                request,
+                "login.html",
+                {
+                    "error": "Zu viele Versuche. Bitte eine Minute warten und dann nochmal probieren.",
+                    "guest": True,
+                },
+                status_code=429,
+            )
+
+        if not verify_password(entry, password):
+            limiter.record_failure(key)
+            log.info("Fehlgeschlagener Gäste-Login von %s.", key)
+            return render(
+                request,
+                "login.html",
+                {
+                    "error": "Das Passwort stimmt nicht — schau nochmal auf der Einladung nach!",
+                    "guest": True,
+                },
+                status_code=401,
+            )
+
+        limiter.reset(key)
         response = RedirectResponse(_url(request, "/"), status_code=303)
         _set_session_cookie(response, request, GUEST_USERNAME)
         return response

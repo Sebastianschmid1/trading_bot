@@ -13,9 +13,9 @@
   },
   "gast": {
     "display_name": "Gast",
-    "can_upload": false,
-    "salt_hex": "93dac7cafeb88195f3fcf46c1394e028",
-    "hash_hex": "585f37bff39de3ca8154ac1bb1d6b7d591c4b1dd09926b588386e8698be68ab0",
+    "can_upload": true,
+    "salt_hex": "b2a5307caeebb50ed26cbd94049155e2",
+    "hash_hex": "312b96043da4293b3c7a1cc1051502d9cfe174750f992e5a67f7eed423c17504",
     "iterations": 600000
   }
 }
