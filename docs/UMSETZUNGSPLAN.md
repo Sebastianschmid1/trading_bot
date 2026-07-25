@@ -34,10 +34,10 @@
   (Nebenbefund-Fixes `cf3074a`) → 2026-07-21 `3c56f87`/`d107f97` (systemd-Credentials +
   Betreiber-Key-Trennung + Log-Härtung) → `0104d94` (W4.5-Outbox) → 2026-07-23 `b531b33`
   (tz-aware/naive-Bugfix + Betriebsmodell-Doku Codex→Claude-Subagenten) → **2026-07-23 `719c1af`
-  (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung) → **2026-07-23 `d4fc73e` (Style-Audit
-  §32.3 Feed-Staleness + §32.4 Dialog-a11y) DEPLOYT. Danach auf `main`, NOCH NICHT deployt:
-  §32.5 (`ad87da8`), Testsuite-Hygiene/erste CI (`dd28789`), UTC-Datum-Bugfix (`8aaddaa`).
-  Maßgeblich ist immer der letzte deployte Eintrag = `d4fc73e`.**
+  (Auto-Accept-Anti-Spam außerhalb der regulären Sitzung) → 2026-07-23 `d4fc73e` (Style-Audit
+  §32.3 + §32.4) → **2026-07-25 `af9e546` DEPLOYT: §32.5 + Testsuite-Hygiene/erste CI + UTC-Bugfix +
+  6-Task-Audit-Abarbeitung (Charts/Glossar/Risiko-Wiring/Backtest/fail-closed) + PS-Lock. Maßgeblich
+  ist immer der letzte deployte Eintrag = `af9e546`.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
@@ -510,6 +510,13 @@ alle Templates `extends base.html` — Rest ist visuelle Abnahme).
   **Aktivierung = freigabepflichtig (Live-Verhalten).** Der fail-closed-Branch hing an `ee96fdc` (vor dem
   Risiko-Merge) → Manager hat beim Rebase den `risk_context.py`-Konflikt von Hand aufgelöst, sodass
   **beide** Features erhalten bleiben (Profil-Laden + Sentinel); per Suite bestätigt.
+
+**DEPLOYT 2026-07-25: VPS auf `af9e546`** (Backup `/var/backups/stockbot/stockbot-20260725-111541.dump.age`,
+push→VPS+ff-merge, **`alembic upgrade head` c9d0e1f2a3b4 → `d0e1f2a3b4c5`** [risk_profiles], nur
+`systemctl restart stockbot`). Smoke grün: 0 Fehler im neuen Prozess, 12 Scheduler-Jobs, `/api/v1/health`
+200 mit `x-trace-id`, Live-Flags unset (fail-closed + Exit-Policies AUS). **Postgres-Gegenverifikation der
+neuen Tabelle:** `db.get_risk_profile(0)`→None, `db.get_realized_pnl_today(0)`→0.0 (kein Typvertrag-Verstoß).
+Keine neuen Deps. `dashboard.service` unangetastet (inactive, Ops-Regel).
 
 **Audit-Status danach:** Punkt 1 (Backtest) ✅, Punkt 3 realized_pnl/Profil ✅ + fail-closed ✅ (beide
 freigabe-/opt-in-gated; Exposure-Default-Bindung kommt mit einer künftigen Profil-UI), Punkt 5 (CI/Suite) ✅,
