@@ -469,10 +469,53 @@ Ausgelöst durch einen externen Fabel-Audit des Projekts (Analyse s. u. „Audit
   `today_utc()` als einzige Wahrheit, DB-vergleichende Aufrufer gezogen (Tagesreport, `_trade_age_days`,
   Kandidaten-Cache, `dashboard` days-cutoff, sltp-Warn-Key); `broker/client.py` (Options-Verfallsfenster,
   Broker-Kalender) bewusst gelassen. Deterministische Regressionstests, grün über TZ=UTC/Auckland/LA.
-- **`main` damit wieder vollständig grün** (voller Suite-Lauf nach dem Merge). Offen aus dem Style-Audit:
-  (d)–(g). Offen aus dem Fabel-Audit (priorisiert, s. u.): `update.ps1`/`upload.ps1` auf `requirements.lock`,
-  fail-closed-Frage (Live-Verhalten, freigabepflichtig), `realized_pnl_today`+persistiertes RiskProfile,
-  Backtest-Ehrlichkeit (universe_history/Gap-Fills/Kosten), Doc-Rot, OAuth/Telegram-Transport.
+- **`main` damit wieder vollständig grün** (voller Suite-Lauf nach dem Merge).
+
+**Audit-Abarbeitung + Style-Rest (d)–(g) erledigt (2026-07-25, auf `main`, NOCH NICHT deployt).**
+Sechs parallele Claude-Subagenten (unabhängige Dateien), Manager-reviewt + einzeln gemergt, volle Suite
+nach den Merges grün (**1271 passed, 29 skipped**). §32.6 fiel weg (Nav mappt bereits auf echte Routen,
+alle Templates `extends base.html` — Rest ist visuelle Abnahme).
+- **Deploy-Lock + Doc-Rot** (`25b6d39`): `upload.ps1`/`update.ps1` installieren jetzt `requirements.lock`
+  statt `requirements.txt` (schließt das Supply-Chain-Leck, das `deploy/*.sh` schon zu hatte, in der
+  PowerShell-Hintertür). Doc-Rot in `data_quality.py`/`market_data.py` korrigiert (die „von keinem
+  Live-Pfad genutzt"-Lügen). Nur Docstrings/Dateinamen, kein Verhaltenscode.
+- **§32.7 + §32.8 Charts** (`394ff30`): Token-Gruppe `--cat-1…6` (farbenblind-sicher, dataviz-validiert,
+  ΔE-Prüfung bestanden) in `tokens.css` + neue Python-Quelle `core/chart_palette.py`, aus der `report.py`
+  seine Matplotlib-Farben zieht (keine Hex-Literale mehr). Parität Token↔Python per Test festgenagelt.
+  Web-Mehrserien-Chart (`strengthChart`) auf `--cat-1…6` gezogen. **Review-Befund akzeptiert:** zwei
+  Report-Balken waren Grün/Rot-codiert für Kategorien (§15.3-Missbrauch) → auf `--cat-1/2` umgestellt,
+  Grün/Rot-Semantik unberührt (sichtbare Farbänderung an einem Report-PNG).
+- **§32.9 Glossar** (`5a98bdb`): `core/glossary.py` als einzige Quelle für Status-/Modus-/Aktionsbegriffe;
+  `web/dashboard.py` re-exportiert (Aufrufer unverändert), `bot.py` zieht `broker_status_label`. **Gefundene
+  Divergenz behoben:** Telegram zeigte rohe englische Broker-Codes („rejected"), Web deutsche §25.2-Labels
+  → auf die Web-Formulierung vereinheitlicht. Reine Anzeige-Strings, kein Verhaltenscode.
+- **Risiko-Verdrahtung** (`051c67f`, Alembic-Head `c9d0e1f2a3b4` → **`d0e1f2a3b4c5`**): `db.get_realized_pnl_today`
+  + persistiertes `risk_profiles` (Tabelle in SCHEMA_SQL UND Alembic). **Inert-by-default bewährt** — der
+  Subagent sah selbst, dass Default-`daily_loss_limit_pct=1.00` bei bedingungslosem Durchreichen alle
+  Bestandsnutzer sofort scharf schaltet; deshalb wird `realized_pnl_today` NUR bei gespeichertem Profil
+  gesetzt, ohne Profil exakt das alte Verhalten (per OMS-Gate-Test bewiesen). `save_risk_profile` gebaut,
+  aber noch keine UI (separates Ticket). **Postgres-Contract-Test der neuen Tabelle am VPS gegenzuverifizieren.**
+- **Backtest-Ehrlichkeit** (`fa2c03f`, Audit-Punkt 1): (A) `resolve_backtest_universe` + `universe_history`
+  verdrahtet — Point-in-Time-Liste ist Default, sobald `data/universe_history/<region>.json` existiert;
+  **die Daten fehlen im Repo**, also greift der ehrliche Degradations-Pfad (heutige Liste + sichtbare
+  `SURVIVORSHIP_WARNING` im Report statt stiller Schönung). (B) `_walk_exit` gap-realistisch: Bar öffnet per
+  Gap jenseits des Levels → Fill am Open (Risiko-Seite schlechter = konservativ), sonst intrabar am Level;
+  „SL vor TP" bleibt. (C) `slippage_spread_fraction` Default `0.0 → 0.5` (Kosten eher über- als
+  unterschätzen). **Kein Live-Handelspfad berührt** — reine Backtest-Auswertung, aber Tor-T5-relevant.
+- **fail-closed** (`93cad46`, hinter Flag `RISK_FAIL_CLOSED_ON_QUOTE`, **Default AUS = heutiges Verhalten**):
+  `quote_context` gibt bei nicht abrufbarer Quote (Exception/`None`) nur bei gesetztem Flag das additive
+  Sentinel `{"quote_required": True}` zurück; `pretrade_check` bekommt additiv `quote_required=False` und
+  blockt bei `quote_required and quote is None` mit `quote_unavailable` (analog `order_context_missing`,
+  Kernlogik unangetastet). Flag wirkt global (Paper wie Live), Empfehlung „für Live-Konten AN" im Docstring.
+  **Aktivierung = freigabepflichtig (Live-Verhalten).** Der fail-closed-Branch hing an `ee96fdc` (vor dem
+  Risiko-Merge) → Manager hat beim Rebase den `risk_context.py`-Konflikt von Hand aufgelöst, sodass
+  **beide** Features erhalten bleiben (Profil-Laden + Sentinel); per Suite bestätigt.
+
+**Audit-Status danach:** Punkt 1 (Backtest) ✅, Punkt 3 realized_pnl/Profil ✅ + fail-closed ✅ (beide
+freigabe-/opt-in-gated; Exposure-Default-Bindung kommt mit einer künftigen Profil-UI), Punkt 5 (CI/Suite) ✅,
+Punkt 6 (PS-Lock) ✅, Doc-Rot ✅. **Offen:** OAuth/Telegram-Secret-Transport (braucht externe
+Alpaca-OAuth-App-Registrierung — menschlich), Punkt 7 Web-Kleinigkeiten (Token-in-URL,
+`utcnow()`-Deprecations, Monolithen), `pf_key`-Sortierung.
 
 ### Audit-Befunde (externer Fabel-Audit, 2026-07-24) — Manager-Bewertung gegen den echten Code
 6 von 7 Blöcken treffen zu, einer ist überholt:
