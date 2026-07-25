@@ -1,0 +1,44 @@
+# systemd-Unit für die Hochzeits-Foto-Galerie „Amelie & Tobi" — komplett getrennter
+# Dienst neben stockbot: eigener Systemuser `wedding`, eigenes Datenverzeichnis
+# /var/lib/wedding, eigene Konfiguration /etc/wedding/wedding.env.
+# Das Repo unter /opt/stockbot wird nur als Code-Quelle (venv + wedding/) genutzt und
+# bleibt für diesen Dienst schreibgeschützt.
+#
+# Installation: bash deploy/setup_wedding.sh   (ersetzt /opt/stockbot durch den echten Pfad)
+
+[Unit]
+Description=Hochzeits-Foto-Galerie — Amelie & Tobi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wedding
+Group=wedding
+WorkingDirectory=/opt/stockbot
+EnvironmentFile=/etc/wedding/wedding.env
+ExecStart=/opt/stockbot/venv/bin/python /opt/stockbot/wedding/run.py
+Restart=always
+RestartSec=10
+
+# Hardening analog dashboard.service. Schreibrechte gibt es ausschließlich auf das
+# eigene Datenverzeichnis — bewusst NICHT auf /opt/stockbot/data (das gehört stockbot).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+ReadWritePaths=/var/lib/wedding
+CacheDirectory=wedding
+Environment=XDG_CACHE_HOME=/var/cache/wedding
+Environment=PYTHONUNBUFFERED=1
+
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

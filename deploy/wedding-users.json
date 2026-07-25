@@ -1,0 +1,14 @@
+{
+  "amelie": {
+    "display_name": "Amelie",
+    "salt_hex": "e204d6b4b42196b4277a0bf7edd0cd64",
+    "hash_hex": "b19bad02f4e0ab2b96dc8196f0f9ece4081f06db060aaecdb3fddadbfd2edb3a",
+    "iterations": 600000
+  },
+  "tobi": {
+    "display_name": "Tobi",
+    "salt_hex": "29a9e1d5f3e3a557ede9fc64d095255f",
+    "hash_hex": "89e347f878b6c0ef3da6af818430efec29d836cd67a69855f1c4efa5553f067c",
+    "iterations": 600000
+  }
+}

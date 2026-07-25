@@ -15,13 +15,26 @@
 #
 # Danach laufen Dashboard (/dashboard/<token>) und Web-App (/app, /login) verschlüsselt
 # unter https://DEINE-DOMAIN — Port 8000 ist von außen nicht mehr erreichbar.
+# Zusätzlich hängt unter /hochzeit die eigenständige Hochzeits-Foto-Galerie (Port 8100,
+# eigener systemd-Dienst `wedding`, siehe deploy/setup_wedding.sh).
 
 DEINE-DOMAIN {
     encode gzip
-    reverse_proxy 127.0.0.1:8000 {
-        # SSE (Mitteilungen-Live-Feed) braucht ungepufferte, langlebige Verbindungen.
-        flush_interval -1
-    }
     # Sinnvolle Defaults; App-spezifische Header setzt die FastAPI-Middleware.
     header -Server
+
+    redir /hochzeit /hochzeit/ 308
+    handle_path /hochzeit/* {
+        request_body {
+            max_size 200MB
+        }
+        reverse_proxy 127.0.0.1:8100
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:8000 {
+            # SSE (Mitteilungen-Live-Feed) braucht ungepufferte, langlebige Verbindungen.
+            flush_interval -1
+        }
+    }
 }

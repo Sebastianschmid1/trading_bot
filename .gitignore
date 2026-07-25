@@ -18,3 +18,7 @@ _imported_transcripts/
 data/lab/
 # Rohdatenarchiv (Parquet-Snapshots, Laufzeit-Cache) nicht versionieren
 data/raw_archive/
+# Hochzeits-Galerie: lokal hochgeladene Fotos/Metadaten bleiben lokal,
+# die Benutzerdatei (nur PBKDF2-Hashes) gehoert dagegen ins Repo (Ausnahme von *.json)
+data/wedding/
+!deploy/wedding-users.json
