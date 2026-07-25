@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from stockbot import config
 from stockbot.broker import client as broker
 from stockbot.core import db
 from stockbot.core.domain import RiskProfile, Signal, TradeIntent
@@ -29,23 +30,34 @@ log = logging.getLogger(__name__)
 def quote_context(
     ticker: str, *, provider: Any = None, risk_profile: RiskProfile | None = None,
 ) -> dict[str, Any]:
-    """Lade optionale Quote-Risk-Eingaben; Providerfehler bleiben lokal und fail-open.
+    """Lade optionale Quote-Risk-Eingaben.
 
     ``quote_context`` kennt keine ``user_id`` (Aufruf nur mit ``ticker``); ein persistiertes
     Profil laedt daher ``signal_context``. Ruft ein Aufrufer mit einem bereits geladenen
     ``risk_profile`` auf, wird dieses genutzt, sonst das permissive Default.
+
+    Default (``RISK_FAIL_CLOSED_ON_QUOTE`` AUS): Providerfehler bleiben lokal und fail-open —
+    ohne belastbare Quote kommt ``{}`` zurueck und ``pretrade_check`` ueberspringt die
+    Frische-/Spread-Checks (heutiges Verhalten, unveraendert).
+
+    Fail-closed (Flag AN): ist keine belastbare Quote abrufbar (Exception oder ``None``),
+    kommt stattdessen das additive Sentinel ``{"quote_required": True}`` zurueck. Das signalisiert
+    ``pretrade_check``, die Order explizit mit Grund ``quote_unavailable`` abzulehnen, statt sie
+    still durchzulassen. Der Erfolgsfall ist in beiden Modi identisch.
     """
     profile = risk_profile or RiskProfile(user_id=0)
+    # Ein leeres dict laesst das Gate fail-open (heute); das Sentinel macht es fail-closed.
+    unavailable: dict[str, Any] = {"quote_required": True} if config.RISK_FAIL_CLOSED_ON_QUOTE else {}
     try:
         quote_provider = provider or AlpacaPaperMarketDataProvider()
         quote = quote_provider.get_quote(ticker)
     except Exception as exc:
         log.warning("Risk-Kontext: Quote fuer ticker=%s nicht lesbar: %s",
                     ticker, type(exc).__name__)
-        return {}
+        return unavailable
     if quote is None:
         log.warning("Risk-Kontext: Quote fuer ticker=%s nicht verfuegbar", ticker)
-        return {}
+        return unavailable
     return {
         "quote": quote,
         "max_quote_age_seconds": profile.max_quote_age_seconds,

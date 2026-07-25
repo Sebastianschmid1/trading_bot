@@ -47,6 +47,7 @@ def pretrade_check(
     signal_status: SignalStatus | None = None, signal_expires_at: datetime | None = None,
     strategy_key: str | None = None, allowed_strategies: tuple[str, ...] | None = None,
     market_open: bool | None = None, quote: Quote | None = None,
+    quote_required: bool = False,
     max_quote_age_seconds: float | None = None, max_spread_bps: float | None = None,
     average_dollar_volume: float | None = None, min_average_dollar_volume: float | None = None,
     realized_pnl_today: float | None = None, account_value: float | None = None,
@@ -70,6 +71,11 @@ def pretrade_check(
       5. Strategie erlaubt (nur geprüft, wenn `strategy_key`+`allowed_strategies` übergeben
          wurden und `allowed_strategies` nicht leer ist — eine leere Liste blockiert nichts),
       6. Markt offen (nur geprüft, wenn `market_open` übergeben wurde),
+      6a. fail-CLOSED-Quote (nur geprüft, wenn `quote_required=True` übergeben wurde — dann
+          blockiert eine fehlende Quote [`quote=None`] die Order mit `quote_unavailable`,
+          statt die folgenden Quote-Checks still zu überspringen; Default `False` = heutiges
+          fail-open-Verhalten. Der Aufrufer setzt das i. d. R. aus `RISK_FAIL_CLOSED_ON_QUOTE`,
+          Empfehlung: für Live-Konten AN),
       7. Quote frisch (nur geprüft, wenn `quote`+`max_quote_age_seconds` übergeben wurden),
       8. Spread nicht zu groß (nur geprüft, wenn `quote`+`max_spread_bps` übergeben wurden),
       9. Liquidität ausreichend (nur geprüft, wenn `average_dollar_volume`+
@@ -118,6 +124,14 @@ def pretrade_check(
                 "strategy_not_allowed")
     if market_open is False:
         return RiskDecision(False, "Markt ist geschlossen — keine neue Position.", "market_closed")
+    if quote_required and quote is None:
+        # fail-CLOSED (Audit-Punkt 3): der Aufrufer verlangt eine belastbare Quote, konnte aber
+        # keine liefern (Provider-Fehler oder `None`). Statt die Frische-/Spread-Checks still zu
+        # überspringen, wird die Order hier explizit abgelehnt. Additiv und inert: ohne
+        # `quote_required=True` (Default) bleibt das heutige fail-open-Verhalten unverändert.
+        return RiskDecision(
+            False, "Keine belastbare Quote verfügbar — Order blockiert (fail-closed).",
+            "quote_unavailable")
     if quote is not None and max_quote_age_seconds is not None:
         d = data_quality.check_quote_age(quote, max_age_seconds=max_quote_age_seconds, now=now)
         if not d.ok:

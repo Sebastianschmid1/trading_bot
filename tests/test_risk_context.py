@@ -2,8 +2,27 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from stockbot.core.domain import Mode, RiskProfile, Signal, SignalStatus, TradeIntent
+from stockbot.core.market_data import Quote
 from stockbot.execution import risk_context
 from stockbot.execution.oms import OrderManagementSystem
+
+
+class _QuoteProvider:
+    """Test-Provider fuer quote_context: liefert eine Quote, ``None`` oder wirft."""
+
+    def __init__(self, *, quote=None, raises=False):
+        self._quote = quote
+        self._raises = raises
+
+    def get_quote(self, ticker):
+        if self._raises:
+            raise RuntimeError("offline")
+        return self._quote
+
+
+def _fresh_quote() -> Quote:
+    now = datetime.now(timezone.utc)
+    return Quote(ticker="AAPL", price=100.0, as_of=now, fetched_at=now, provider="stub")
 
 
 def _signal() -> Signal:
@@ -137,6 +156,42 @@ def test_account_context_broker_failure_does_not_raise():
     assert risk_context.account_context(SimpleNamespace(get_account=fail), user_id=42) == {}
 
 
+def test_quote_context_fail_open_default_on_provider_error(monkeypatch):
+    # Default (Flag AUS): Providerfehler → {} (Checks werden still uebersprungen, heute).
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", False)
+    assert risk_context.quote_context("AAPL", provider=_QuoteProvider(raises=True)) == {}
+
+
+def test_quote_context_fail_open_default_on_none(monkeypatch):
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", False)
+    assert risk_context.quote_context("AAPL", provider=_QuoteProvider(quote=None)) == {}
+
+
+def test_quote_context_fail_closed_sentinel_on_provider_error(monkeypatch):
+    # Flag AN: Providerfehler → Sentinel, das pretrade_check zum Blocken bewegt.
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", True)
+    assert risk_context.quote_context(
+        "AAPL", provider=_QuoteProvider(raises=True)) == {"quote_required": True}
+
+
+def test_quote_context_fail_closed_sentinel_on_none(monkeypatch):
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", True)
+    assert risk_context.quote_context(
+        "AAPL", provider=_QuoteProvider(quote=None)) == {"quote_required": True}
+
+
+def test_quote_context_success_identical_in_both_modes(monkeypatch):
+    # Der Erfolgsfall setzt KEIN quote_required — unabhaengig vom Flag.
+    provider = _QuoteProvider(quote=_fresh_quote())
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", True)
+    ctx_on = risk_context.quote_context("AAPL", provider=provider)
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", False)
+    ctx_off = risk_context.quote_context("AAPL", provider=provider)
+    assert ctx_on == ctx_off
+    assert "quote_required" not in ctx_on
+    assert ctx_on["quote"].ticker == "AAPL"
+
+
 class _Persistence:
     def __init__(self):
         self.orders = {}
@@ -190,7 +245,12 @@ def test_real_oms_applies_loaded_position_limit_and_allows_clean_case(monkeypatc
     assert accepted.ok is True
 
 
-def _oms_service():
+def _oms_service(monkeypatch=None):
+    # Die fail-closed-Tests reichen `monkeypatch` durch, damit der Loader keine echte DB
+    # anspricht; die Profil-Inertness-Tests patchen selbst inline und rufen ohne Argument.
+    if monkeypatch is not None:
+        monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+        monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
     return OrderManagementSystem(
         signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
         broker_adapter=_Broker(), persistence=_Persistence(),
@@ -227,3 +287,37 @@ def test_real_oms_daily_loss_limit_bites_with_stored_profile(monkeypatch):
         risk_context={"account_value": 10000.0, "candidate_notional": 100.0},
     )
     assert rejected.ok is False and rejected.code == "daily_loss_limit_reached"
+
+
+def test_oms_fail_open_default_lets_missing_quote_through(monkeypatch):
+    # Regression/Inertness: OHNE gesetztes Flag laeuft die Order trotz Quote-Fehler durch —
+    # das Sentinel entsteht gar nicht erst, es gibt KEINE Verhaltensaenderung.
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", False)
+    service = _oms_service(monkeypatch)
+    callsite = {"entry_price": 100.0, "candidate_notional": 100.0,
+                **risk_context.quote_context("AAPL", provider=_QuoteProvider(raises=True))}
+    result = service.submit_intent(
+        _intent(), price=100.0, trade_size=100.0, risk_context=callsite)
+    assert result.ok is True
+
+
+def test_oms_fail_closed_blocks_missing_quote(monkeypatch):
+    # Flag AN: derselbe Quote-Fehler blockt die Order mit maschinenlesbarem Grund.
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", True)
+    service = _oms_service(monkeypatch)
+    callsite = {"entry_price": 100.0, "candidate_notional": 100.0,
+                **risk_context.quote_context("AAPL", provider=_QuoteProvider(raises=True))}
+    result = service.submit_intent(
+        _intent("risk:42:19"), price=100.0, trade_size=100.0, risk_context=callsite)
+    assert result.ok is False and result.code == "quote_unavailable"
+
+
+def test_oms_fail_closed_allows_good_quote(monkeypatch):
+    # Flag AN, aber Quote vorhanden → unveraendert durchgelassen.
+    monkeypatch.setattr(risk_context.config, "RISK_FAIL_CLOSED_ON_QUOTE", True)
+    service = _oms_service(monkeypatch)
+    callsite = {"entry_price": 100.0, "candidate_notional": 100.0,
+                **risk_context.quote_context("AAPL", provider=_QuoteProvider(quote=_fresh_quote()))}
+    result = service.submit_intent(
+        _intent("risk:42:20"), price=100.0, trade_size=100.0, risk_context=callsite)
+    assert result.ok is True

@@ -93,6 +93,26 @@ def test_quote_checks_skipped_without_quote():
     assert risk.pretrade_check(max_quote_age_seconds=1, max_spread_bps=1).ok is True
 
 
+def test_fail_open_default_allows_missing_quote():
+    # Default (kein quote_required): fehlende Quote blockiert NICHT — heutiges fail-open.
+    assert risk.pretrade_check(quote=None, max_quote_age_seconds=1).ok is True
+
+
+def test_fail_closed_blocks_missing_quote():
+    # quote_required=True + keine Quote → explizite Ablehnung statt stillem Ueberspringen.
+    d = risk.pretrade_check(quote_required=True, quote=None, max_quote_age_seconds=1)
+    assert d.ok is False and d.code == "quote_unavailable"
+
+
+def test_fail_closed_allows_present_fresh_quote():
+    # quote_required aendert nichts, solange eine belastbare (frische) Quote vorliegt.
+    now = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    q = Quote(ticker="AAPL", price=100.0, as_of=now - timedelta(seconds=5),
+             fetched_at=now, provider="stub")
+    assert risk.pretrade_check(
+        quote_required=True, quote=q, max_quote_age_seconds=30, now=now).ok is True
+
+
 def test_leverage_check_still_wins_over_market_closed():
     # Reihenfolge: Kill-Switch/Hebel/Optionen zuerst, dann erst Markt-offen (RISK-003-Reihenfolge)
     d = risk.pretrade_check(leverage=config.MAX_LEVERAGE + 1, market_open=False)

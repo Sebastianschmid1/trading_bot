@@ -412,6 +412,15 @@ ALLOW_SHORTS       = os.getenv("ALLOW_SHORTS", "false").strip().lower() in ("1",
 # zusätzlich früher schließen (Momentumbruch, Strukturbruch, Timeout, Marktende, Mean-Reversion).
 STRATEGY_EXITS_ENABLED = os.getenv("STRATEGY_EXITS_ENABLED", "false").strip().lower() in ("1", "true", "yes")
 
+# Audit-Punkt 3: fail-CLOSED für die Quote-/Spread-Checks im Pre-Trade-Gate.
+# ÄNDERT LIVE-TRADE-VERHALTEN → bewusst per Default AUS (heutiges Verhalten = fail-open:
+# ist keine belastbare Quote abrufbar, überspringt `pretrade_check` die Frische-/Spread-
+# Checks still). Ist der Schalter AN, blockt eine nicht abrufbare Quote (Exception oder
+# `None`) die Order explizit (Grund `quote_unavailable`), statt sie durchzulassen. Der
+# Schalter wirkt global (Paper wie Live); die EMPFEHLUNG ist, ihn für Live-Konten zu
+# setzen. Nur nach menschlicher Freigabe einschalten.
+RISK_FAIL_CLOSED_ON_QUOTE = os.getenv("RISK_FAIL_CLOSED_ON_QUOTE", "false").strip().lower() in ("1", "true", "yes")
+
 try:
     MAX_LEVERAGE = float(os.getenv("MAX_LEVERAGE", "1") or 1)
 except ValueError:
