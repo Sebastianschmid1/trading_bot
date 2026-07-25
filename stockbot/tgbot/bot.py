@@ -31,6 +31,7 @@ from telegram.ext import (
 
 from stockbot.core import db
 from stockbot.core import exchange_calendar
+from stockbot.core.glossary import broker_status_label  # §32.9: geteiltes Web↔Telegram-Glossar
 from stockbot.market import universes
 from stockbot.market import smartmoney
 from stockbot.market import strategies
@@ -654,13 +655,15 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
         db.mark_broker_failed(chat_id, ticker, broker_status=status)
         await _tg_status(
             bot, user,
-            f"⚠️ Alpaca-Order nicht ausgeführt (Status: {status}). Es wurde nichts gekauft.")
+            f"⚠️ Alpaca-Order nicht ausgeführt (Status: {broker_status_label(status)}). "
+            f"Es wurde nichts gekauft.")
     else:
         db.mark_broker_pending(chat_id, ticker, order_id=res.get("id", ""), broker_status=status)
         # angenommen, aber (noch) nicht gefüllt — z. B. Markt zu / Limit nicht erreicht
         await _tg_status(
             bot, user,
-            (f"⏳ Alpaca-Order angenommen, aber noch nicht ausgeführt (Status: {status}).\n"
+            (f"⏳ Alpaca-Order angenommen, aber noch nicht ausgeführt "
+             f"(Status: {broker_status_label(status)}).\n"
              f"Es ist eine DAY-Order — sie füllt sich automatisch, sobald der Markt/Kurs passt, "
              f"sonst verfällt sie zum Handelsschluss. Du musst nichts tun."))
 

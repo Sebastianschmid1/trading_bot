@@ -27,6 +27,14 @@ from stockbot.core import db
 from stockbot.market import strategies
 from stockbot.core import metrics as metrics_mod
 from stockbot.core import mode_reporting
+# §32.9: gemeinsames Web↔Telegram-Glossar — die Status-Labels leben zentral in
+# core.glossary (re-exportiert, damit bestehende Aufrufer `dashboard.<label>` erhalten bleiben).
+from stockbot.core.glossary import (
+    BROKER_STATUS_LABELS,
+    TRADE_STATUS_LABELS,
+    broker_status_label,
+    trade_status_label,
+)
 from stockbot.core.settings import validate_config, assert_postgres_backend
 from stockbot.core.logging_setup import configure_logging
 from stockbot.broker import client as broker
@@ -47,49 +55,6 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # `_current_price`. Kein Eingriff in die Backend-Logik, nur ein erkennbarer Ersatzwert.
 _PRICE_UNAVAILABLE = float("nan")
 
-BROKER_STATUS_LABELS = {
-    "accepted": "Broker hat angenommen",
-    "filled": "Ausgeführt",
-    "canceled": "Abgebrochen",
-    "rejected": "Abgelehnt",
-    "expired": "Abgelaufen",
-    "repriced": "Neu bepreist",
-    "not_submitted": "Noch nicht gesendet",
-    "reconciled_missing_position": "Als verkauft erkannt",
-    "adopted_orphan": "Aus Broker übernommen",
-    "insufficient_buying_power": "Buying Power zu gering",
-    "queued_regular": "Vorgemerkt (wartet auf reguläre Sitzung)",
-    "queue_expired": "Vorgemerkt — verfallen (Signal veraltet)",
-    # Ablehnungsgründe im UI sichtbar (PLAN_CHECKLIST.md Phase 3): Terminologie nach
-    # Stylekonzept.md §25.2 ("Durch Risikoregel blockiert" statt Ticket-ID/Fachjargon).
-    "leverage_blocked": "Durch Risikoregel blockiert (Hebel über Maximum)",
-    "submit_failed": "Order konnte nicht gesendet werden",
-    "missing_order_id": "Order ohne Broker-Bestätigung",
-    "requested": "Verkauf angefragt",
-}
-
-TRADE_STATUS_LABELS = {
-    "active": "Aktiv",
-    "broker_pending": "Broker wartet",
-    "broker_closing": "Verkauf läuft",
-    "broker_failed": "Broker fehlgeschlagen",
-    "closed": "Geschlossen",
-}
-
-
-def broker_status_label(broker_status: str | None) -> str:
-    if not broker_status:
-        return "—"
-    return BROKER_STATUS_LABELS.get(broker_status, broker_status.replace("_", " ").title())
-
-
-def trade_status_label(status: str | None, broker_status: str | None = None) -> str:
-    base = TRADE_STATUS_LABELS.get(status or "", (status or "").replace("_", " ").title() or "—")
-    if status == "broker_pending" and broker_status:
-        return f"{base} · {broker_status_label(broker_status)}"
-    if status == "broker_closing" and broker_status:
-        return f"{base} · {broker_status_label(broker_status)}"
-    return base
 
 def _berlin_hhmm(ts: str | None) -> str:
     """SQLite-Zeitstempel (UTC, 'YYYY-MM-DD HH:MM:SS') → 'HH:MM' in Berliner Zeit."""

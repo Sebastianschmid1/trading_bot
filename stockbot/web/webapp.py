@@ -46,6 +46,10 @@ from stockbot.core.kill_switch import KillSwitchService
 log = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# §32.9: das gemeinsame Web↔Telegram-Glossar den Templates als `glossary` bereitstellen,
+# damit Aktions-/Status-Begriffe aus einer einzigen Quelle gerendert werden.
+from stockbot.core import glossary as glossary
+templates.env.globals["glossary"] = glossary
 
 
 def _load_oms_signal(signal_id: int) -> Signal | None:

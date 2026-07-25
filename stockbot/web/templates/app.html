@@ -90,7 +90,7 @@
     <input type="hidden" name="ticker" value="{{ s.ticker }}">
     {# §32.3: veraltete Kursdaten sperren neue Einstiege sichtbar — serverseitig gerendert,
        nicht per JS nachgezogen. #}
-    <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>Trade prüfen</button>
+    <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
   </form>
 </div>
 {% endfor %}
@@ -119,7 +119,7 @@
           data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
           data-leverage="{{ s.leverage or 1 }}">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>Trade prüfen</button>
+      <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
     </form>
     <form class="inline" method="post" action="/app/reject">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
@@ -388,7 +388,7 @@
             btn.parentNode.appendChild(note);
           } else {
             btn.classList.add("btn2--destructive");
-            btn.textContent = d.msg || "Durch Risikoregel blockiert";
+            btn.textContent = d.msg || "{{ glossary.RISK_BLOCKED }}";
             others.forEach(function (b) { b.disabled = false; });
             btn.disabled = false;
             btn.dataset.busy = "";
