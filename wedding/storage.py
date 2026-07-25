@@ -101,6 +101,13 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _human_size(num_bytes: int) -> str:
+    """Größenangabe für Fehlermeldungen — MB, bei kleinen Limits KB."""
+    if num_bytes >= 1024 * 1024:
+        return f"{num_bytes // (1024 * 1024)} MB"
+    return f"{max(1, num_bytes // 1024)} KB"
+
+
 class PhotoStore:
     """Liest/schreibt Fotos + Sidecar-Metadaten unter ``data_dir/photos``."""
 
@@ -202,9 +209,7 @@ class PhotoStore:
                         break
                     size += len(chunk)
                     if size > max_bytes:
-                        raise PhotoRejected(
-                            f"Datei ist zu groß (max. {max_bytes // (1024 * 1024)} MB)."
-                        )
+                        raise PhotoRejected(f"Datei ist zu groß (max. {_human_size(max_bytes)}).")
                     handle.write(chunk)
             if size == 0:
                 raise PhotoRejected("Datei ist leer.")
