@@ -99,7 +99,11 @@ def test_galerie_ohne_login_leitet_auf_login(client: TestClient) -> None:
 
 
 def test_kaputte_cookie_signatur_gilt_als_ausgeloggt(client: TestClient) -> None:
-    client.cookies.set(SESSION_COOKIE, make_session_cookie("a" * 64, "amelie")[:-1] + "0")
+    cookie = make_session_cookie("a" * 64, "amelie")
+    # Letztes Hex-Zeichen garantiert veraendern (nicht blind "0" anhaengen —
+    # endet der Digest zufaellig auf "0", waere der Cookie sonst weiterhin gueltig).
+    flipped = "1" if cookie[-1] == "0" else "0"
+    client.cookies.set(SESSION_COOKIE, cookie[:-1] + flipped)
     response = client.get("/")
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
