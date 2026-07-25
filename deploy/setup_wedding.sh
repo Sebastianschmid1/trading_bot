@@ -91,10 +91,27 @@ chown root:wedding "$CONF_DIR/secret"
 chmod 0640 "$CONF_DIR/secret"
 
 # --- 6) Konfiguration ------------------------------------------------------ #
-# DOMAIN aus der .env des Bots lesen (gleiche Logik wie deploy/sync_caddy.sh).
+# Zwei mögliche Reverse-Proxy-Wege (beide über die .env des Bots gesteuert):
+#   WEDDING_DOMAIN → eigene TLS-Domain NUR für die Galerie (stockbot bleibt unberührt).
+#   DOMAIN         → gemeinsamer Caddy mit stockbot, Galerie unter /hochzeit.
+# WEDDING_DOMAIN hat Vorrang. Ohne beides: Direktbetrieb auf Port 8100 (kein TLS).
+WEDDING_DOMAIN="$(sed -nE 's/^[[:space:]]*WEDDING_DOMAIN[[:space:]]*=[[:space:]]*"?([^"#]*)"?[[:space:]]*$/\1/p' "$APP_DIR/.env" 2>/dev/null | tail -n1 | xargs 2>/dev/null || true)"
 DOMAIN="$(sed -nE 's/^[[:space:]]*DOMAIN[[:space:]]*=[[:space:]]*"?([^"#]*)"?[[:space:]]*$/\1/p' "$APP_DIR/.env" 2>/dev/null | tail -n1 | xargs 2>/dev/null || true)"
 
-if [ -n "${DOMAIN}" ]; then
+if [ -n "${WEDDING_DOMAIN}" ]; then
+    echo "→ WEDDING_DOMAIN=${WEDDING_DOMAIN} → eigene TLS-Domain nur für die Galerie."
+    cat > "$CONF_DIR/wedding.env" <<EOF
+# Von deploy/setup_wedding.sh erzeugt — eigene TLS-Domain (Caddy) nur für die Galerie.
+WEDDING_BIND=127.0.0.1
+WEDDING_PORT=${PORT}
+WEDDING_ROOT_PATH=
+WEDDING_COOKIE_SECURE=true
+WEDDING_DATA_DIR=${DATA_DIR}
+WEDDING_USERS_FILE=${CONF_DIR}/users.json
+WEDDING_SECRET_FILE=${CONF_DIR}/secret
+WEDDING_MAX_BYTES=31457280
+EOF
+elif [ -n "${DOMAIN}" ]; then
     echo "→ DOMAIN=${DOMAIN} → Galerie läuft hinter Caddy unter /hochzeit."
     cat > "$CONF_DIR/wedding.env" <<EOF
 # Von deploy/setup_wedding.sh erzeugt — hinter Caddy (TLS) unter /hochzeit.
@@ -108,7 +125,7 @@ WEDDING_SECRET_FILE=${CONF_DIR}/secret
 WEDDING_MAX_BYTES=31457280
 EOF
 else
-    echo "→ Keine DOMAIN in .env → Galerie direkt auf Port ${PORT} (ohne TLS)."
+    echo "→ Keine (WEDDING_)DOMAIN in .env → Galerie direkt auf Port ${PORT} (ohne TLS)."
     cat > "$CONF_DIR/wedding.env" <<EOF
 # Von deploy/setup_wedding.sh erzeugt — Direktbetrieb ohne Reverse-Proxy.
 WEDDING_BIND=0.0.0.0
@@ -136,7 +153,52 @@ systemctl enable wedding >/dev/null 2>&1 || true
 systemctl restart wedding
 
 # --- 8) Netzwerk / Reverse-Proxy ------------------------------------------- #
-if [ -n "${DOMAIN}" ]; then
+if [ -n "${WEDDING_DOMAIN}" ]; then
+    echo "→ Caddy (eigene TLS-Domain für die Galerie) einrichten..."
+    # Caddy installieren, falls nicht vorhanden (gleiche Quelle wie deploy/sync_caddy.sh).
+    if ! command -v caddy >/dev/null 2>&1; then
+        echo "  → installiere Caddy ..."
+        apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl gnupg >/dev/null 2>&1 || true
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+            | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+            > /etc/apt/sources.list.d/caddy-stable.list
+        apt-get update -qq
+        apt-get install -y -qq caddy
+    fi
+    # WICHTIG: Dieser Weg besitzt /etc/caddy/Caddyfile allein (nur der Galerie-Block).
+    # Er ist NICHT mit dem stockbot-DOMAIN/sync_caddy-Weg kombinierbar — der würde
+    # dieselbe Datei überschreiben. Immer nur EINEN der beiden Wege verwenden.
+    mkdir -p /etc/caddy
+    cat > /etc/caddy/Caddyfile <<EOF
+# Von deploy/setup_wedding.sh erzeugt — eigene TLS-Domain NUR für die Hochzeits-Galerie.
+# Zeigt ausschließlich auf die Galerie (Port ${PORT}); der stockbot-Dienst (Port 8000)
+# wird NICHT über Caddy bedient und bleibt unberührt.
+${WEDDING_DOMAIN} {
+    encode gzip
+    header -Server
+    request_body {
+        max_size 200MB
+    }
+    reverse_proxy 127.0.0.1:${PORT}
+}
+EOF
+    systemctl enable caddy >/dev/null 2>&1 || true
+    if caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        systemctl reload caddy 2>/dev/null || systemctl restart caddy
+        echo "  → Caddy neu geladen."
+    else
+        echo "  WARN: Caddyfile-Validierung fehlgeschlagen — KEIN Reload (alte Config bleibt aktiv)."
+    fi
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow 80/tcp  >/dev/null 2>&1 || true
+        ufw allow 443/tcp >/dev/null 2>&1 || true
+        echo "→ Firewall: Ports 80/443 geöffnet."
+    fi
+    URL="https://${WEDDING_DOMAIN}/"
+    echo "  Hinweis: Für das Let's-Encrypt-Zertifikat müssen Ports 80/443 aus dem Internet"
+    echo "  erreichbar sein und der DNS-Eintrag von ${WEDDING_DOMAIN} auf diesen Server zeigen."
+elif [ -n "${DOMAIN}" ]; then
     echo "→ Caddy synchronisieren (Hochzeits-Block ist im Template enthalten)..."
     bash deploy/sync_caddy.sh || echo "  WARN: Caddy-Sync fehlgeschlagen (Setup läuft weiter)."
     URL="https://${DOMAIN}/hochzeit/"
@@ -154,6 +216,7 @@ systemctl status wedding --no-pager --lines=5 || true
 echo
 echo "✅ Fertig — die Hochzeits-Galerie läuft."
 echo "   URL:      ${URL}"
+echo "   Gäste-Link:  ${URL}gast"
 echo "   Status:   systemctl status wedding"
 echo "   Logs:     journalctl -u wedding -f"
 echo "   Fotos:    ${DATA_DIR}/photos"

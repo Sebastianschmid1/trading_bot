@@ -61,12 +61,40 @@ Sobald das Repo an einem für `wedding` lesbaren Ort liegt (z. B. nach der Migra
 `/opt/stockbot`), wählt derselbe Aufruf wieder den Direktbetrieb aus dem Repo — es ist
 nichts von Hand zurückzubauen.
 
+## Eigene HTTPS-Domain (empfohlen, ohne den Trading-Bot zu berühren)
+
+Wenn die Galerie eine **eigene Domain nur für sich** bekommen soll (z. B. eine kostenlose
+DuckDNS-Subdomain), ohne dass Caddy auch das stockbot-Dashboard bedient:
+
+1. Domain auf die Server-IP zeigen lassen (bei DuckDNS: Subdomain anlegen, „current ip" auf
+   die Server-IP setzen). Der DNS-Eintrag muss stehen, **bevor** das Zertifikat geholt wird.
+2. In `/root/stockbot/.env` (bzw. dem Repo-Ordner) setzen:
+   ```
+   WEDDING_DOMAIN=<deine-sub>.duckdns.org
+   ```
+3. Als root `bash deploy/setup_wedding.sh` ausführen.
+
+`setup_wedding.sh` installiert dann Caddy (falls nötig), schreibt ein **dediziertes**
+`/etc/caddy/Caddyfile`, das ausschließlich auf die Galerie (`127.0.0.1:8100`) zeigt, holt
+automatisch ein Let's-Encrypt-Zertifikat und öffnet 80/443. Ergebnis:
+**`https://<WEDDING_DOMAIN>/`**, Gäste-Link **`https://<WEDDING_DOMAIN>/gast`**. Der Dienst
+lauscht dann nur noch auf `127.0.0.1:8100` — der alte `http://<ip>:8100`-Zugang entfällt
+bewusst; Cookies sind `Secure`.
+
+> **Hinweis:** `WEDDING_DOMAIN` und der stockbot-`DOMAIN`-Weg (siehe unten) teilen sich
+> dieselbe Caddy-Konfiguration (`/etc/caddy/Caddyfile`) und dürfen **nicht gleichzeitig**
+> genutzt werden — immer nur einen der beiden Wege wählen. `WEDDING_DOMAIN` hat Vorrang.
+> Ports 80/443 müssen aus dem Internet erreichbar sein.
+
 ## URL-Schema
 
-* **Mit `DOMAIN` in der `.env`** (Regelfall): Caddy terminiert TLS und leitet
-  `/hochzeit/*` an `127.0.0.1:8100` weiter → **`https://<DOMAIN>/hochzeit/`**.
+* **Mit `WEDDING_DOMAIN`** (eigene Domain nur für die Galerie, empfohlen): Caddy terminiert
+  TLS an der Wurzel → **`https://<WEDDING_DOMAIN>/`**, Gäste-Link `…/gast`. stockbot bleibt
+  unberührt. Dienst nur auf localhost, Cookies `Secure`.
+* **Mit `DOMAIN` in der `.env`**: gemeinsamer Caddy mit stockbot, Galerie unter
+  `/hochzeit/*` an `127.0.0.1:8100` → **`https://<DOMAIN>/hochzeit/`**.
   Der Dienst lauscht nur auf localhost, Cookies sind `Secure`.
-* **Ohne `DOMAIN`**: der Dienst lauscht auf `0.0.0.0:8100` → **`http://<server-ip>:8100/`**
+* **Ohne beides**: der Dienst lauscht auf `0.0.0.0:8100` → **`http://<server-ip>:8100/`**
   (Port wird bei aktiver ufw freigegeben, Cookies ohne `Secure`).
 
 Der Unterpfad kommt über `WEDDING_ROOT_PATH` in die App; alle Links, Formulare und
