@@ -547,6 +547,39 @@ img {
     object-fit: cover;
 }
 
+/* --- Video-Kacheln ------------------------------------------------------- */
+.tile__open--video {
+    position: relative;
+}
+
+.tile__video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    background: #f7ecf0;
+}
+
+/* Play-Badge über der Video-Kachel. */
+.tile__play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 999px;
+    background: rgba(58, 40, 47, 0.55);
+    color: #fff;
+    font-size: 1.1rem;
+    padding-left: 0.18rem; /* das Dreieck optisch mittig */
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
 .tile__fallback {
     aspect-ratio: 1 / 1;
     display: flex;
@@ -671,6 +704,19 @@ img {
     border-radius: 10px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
     object-fit: contain;
+}
+
+.lightbox__video {
+    max-width: 92vw;
+    max-height: 78vh;
+    width: auto;
+    height: auto;
+    background: #000;
+}
+
+.lightbox__img[hidden],
+.lightbox__video[hidden] {
+    display: none;
 }
 
 .lightbox__caption {

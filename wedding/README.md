@@ -5,9 +5,11 @@ sehen die gemeinsame Galerie (Lightbox, Download, eigene Fotos löschen).
 
 Die App hat **nichts** mit dem stockbot zu tun — sie liegt nur im selben Repo, damit ein
 einziges `git pull` reicht. Auf dem Server läuft sie als **getrennter** systemd-Dienst
-`wedding` unter einem eigenen Systemuser mit eigenem Datenverzeichnis. Keine zusätzlichen
-Abhängigkeiten (fastapi, uvicorn, jinja2, python-multipart sind bereits in
-`requirements.lock`), kein CDN, keine Webfonts.
+`wedding` unter einem eigenen Systemuser mit eigenem Datenverzeichnis. Laufzeit-Abhängigkeiten
+sind fastapi, uvicorn, jinja2, python-multipart (bereits in `requirements.lock`) und —
+**nur für die Galerie** — Pillow für die Thumbnail-Erzeugung. Pillow ist **optional**: fehlt
+es, läuft die App weiter und liefert bei Vorschauen einfach das Original aus (siehe unten).
+Kein CDN, keine Webfonts.
 
 ## Deploy
 
@@ -111,9 +113,34 @@ Fetch-URLs werden damit präfixt.
 | `WEDDING_USERS_FILE` | `<DATA_DIR>/users.json` | Benutzerdatei |
 | `WEDDING_SECRET_FILE` | `<DATA_DIR>/secret` | Session-Secret (wird lokal erzeugt, falls es fehlt) |
 | `WEDDING_COOKIE_SECURE` | `false` | `Secure`-Flag am Session-Cookie |
-| `WEDDING_MAX_BYTES` | `31457280` (30 MB) | Maximale Größe **pro Datei** |
+| `WEDDING_MAX_BYTES` | `31457280` (30 MB) | Maximale Größe **pro Bild** |
+| `WEDDING_MAX_VIDEO_BYTES` | `209715200` (200 MB) | Maximale Größe **pro Video** |
 
 Lokal starten: `python wedding/run.py` → <http://127.0.0.1:8100/>.
+
+## Medien: Thumbnails & Video
+
+**Thumbnails.** Handys laden gern große Originale hoch (iPhone: 4032×3024, mehrere MB). Im
+Galerie-Raster würden diese v. a. auf mobilem Safari leere Kacheln erzeugen (Decode-Limit).
+Deshalb liefert die Route `GET /thumb/<name>` verkleinerte Vorschaubilder: **on-demand mit
+Cache** unter `<DATA_DIR>/thumbs/`. Beim ersten Aufruf wird mit **Pillow** ein Thumbnail
+erzeugt (EXIF-Orientierung angewandt, längste Kante max. 1000 px, JPEG q82) und atomar
+gecacht; jeder weitere Aufruf liefert die Cache-Datei. Das Vollbild in der Lightbox und der
+Download nutzen weiterhin das Original (`/photos/<name>`). Beim Löschen wird das gecachte
+Thumbnail mit entfernt.
+
+Pillow ist **optional**: fehlt es (oder ist ein Bild kaputt), gibt `/thumb` das Original
+zurück — die App startet und läuft in jedem Fall, ein fehlendes Pillow bringt den Dienst nie
+zum Absturz. Auf dem Server installiert `setup_wedding.sh` Pillow mit.
+
+**Video.** Neben Fotos sind auch Videos erlaubt: `.mp4`, `.m4v`, `.webm`, `.mov`. Videos
+haben ein eigenes, größeres Größenlimit (`WEDDING_MAX_VIDEO_BYTES`, Default 200 MB) getrennt
+vom Bild-Limit (`WEDDING_MAX_BYTES`, 30 MB). Inline abspielbare Formate (`.mp4`, `.m4v`,
+`.webm`) erscheinen als Video-Kachel mit Play-Badge und laufen in der Lightbox. `.mov` ist
+oft HEVC-kodiert und wird wie HEIC behandelt: keine Vorschau, sondern eine Download-Karte
+(die Lightbox versucht die Wiedergabe trotzdem). Es gibt **kein** serverseitiges
+Video-Thumbnail (kein ffmpeg); die Raster-Vorschau kommt aus dem ersten Frame, den der
+Browser über `preload="metadata"` zieht.
 
 ## Benutzer verwalten
 
@@ -212,7 +239,9 @@ gehört ebenfalls ins Backup, sonst müssen alle Passwörter neu gesetzt werden.
 * Passwörter: PBKDF2-HMAC-SHA256, 600 000 Runden, Vergleich in konstanter Zeit.
 * Session: HMAC-signiertes Cookie (`HttpOnly`, `SameSite=Lax`, 30 Tage), kein Server-State.
 * Login-Rate-Limit: max. 5 Fehlversuche pro Minute und IP, danach HTTP 429.
-* Uploads: Endungs-Whitelist, Größenlimit pro Datei, max. 30 Dateien pro Request; der
+* Uploads: Endungs-Whitelist, Größenlimit pro Datei (Bild/Video getrennt), max. 30 Dateien pro Request; der
   Server-Dateiname wird immer neu erzeugt (`uuid4`), der Originalname landet nur in den
-  Metadaten. Ausgeliefert wird nur, was dem Muster `^[a-f0-9]{32}\.[a-z]+$` entspricht.
+  Metadaten. Ausgeliefert wird nur, was dem Muster `^[a-f0-9]{32}\.[a-z0-9]+$` entspricht
+  (Ziffern in der Endung wegen Video-Formaten wie `mp4`/`m4v`) und dessen Endung auf der
+  Whitelist steht.
 * Ohne gültige Session ist außer `/login` und `/healthz` nichts erreichbar.

@@ -179,12 +179,24 @@
         return;
     }
     var lightboxImg = document.getElementById("lightbox-img");
+    var lightboxVideo = document.getElementById("lightbox-video");
     var caption = document.getElementById("lightbox-caption");
+    // Nur inline darstellbare Kacheln (Bilder + abspielbare Videos) landen in der Lightbox.
     var tiles = Array.prototype.filter.call(
         document.querySelectorAll(".tile"),
         function (tile) { return tile.getAttribute("data-renderable") === "true"; }
     );
     var current = -1;
+
+    function stopVideo() {
+        if (!lightboxVideo) {
+            return;
+        }
+        lightboxVideo.pause();
+        lightboxVideo.removeAttribute("src");
+        lightboxVideo.load();
+        lightboxVideo.hidden = true;
+    }
 
     function show(index) {
         if (!tiles.length) {
@@ -192,9 +204,26 @@
         }
         current = (index + tiles.length) % tiles.length;
         var tile = tiles[current];
-        lightboxImg.src = tile.getAttribute("data-src");
-        lightboxImg.alt = "Hochzeitsfoto von " + tile.getAttribute("data-uploader");
-        caption.textContent = tile.getAttribute("data-uploader") + " · " + tile.getAttribute("data-date");
+        var src = tile.getAttribute("data-src");
+        var who = tile.getAttribute("data-uploader");
+        caption.textContent = who + " · " + tile.getAttribute("data-date");
+        if (tile.getAttribute("data-kind") === "video" && lightboxVideo) {
+            lightboxImg.hidden = true;
+            lightboxImg.src = "";
+            lightboxVideo.hidden = false;
+            lightboxVideo.setAttribute("src", src);
+            lightboxVideo.setAttribute("type", tile.getAttribute("data-content-type") || "");
+            lightboxVideo.load();
+            var playing = lightboxVideo.play();
+            if (playing && typeof playing.catch === "function") {
+                playing.catch(function () { /* Autoplay evtl. blockiert — Controls bleiben */ });
+            }
+        } else {
+            stopVideo();
+            lightboxImg.hidden = false;
+            lightboxImg.src = src;
+            lightboxImg.alt = "Hochzeitsfoto von " + who;
+        }
         lightbox.hidden = false;
         document.body.style.overflow = "hidden";
     }
@@ -202,6 +231,7 @@
     function close() {
         lightbox.hidden = true;
         lightboxImg.src = "";
+        stopVideo();
         document.body.style.overflow = "";
     }
 

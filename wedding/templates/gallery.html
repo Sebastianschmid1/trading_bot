@@ -46,16 +46,30 @@
                 data-index="{{ loop.index0 }}"
                 data-name="{{ photo.name }}"
                 data-src="{{ base }}/photos/{{ photo.name }}"
+                data-kind="{{ photo.kind }}"
+                data-content-type="{{ photo.content_type }}"
                 data-uploader="{{ photo.display_name }}"
                 data-date="{{ photo.uploaded_label }}"
                 data-renderable="{{ 'true' if photo.renderable else 'false' }}"
                 data-own="{{ 'true' if photo.uploader == username else 'false' }}">
-                {% if photo.renderable %}
+                {% if photo.renderable and photo.is_video %}
+                <button class="tile__open tile__open--video" type="button"
+                        aria-label="Video von {{ photo.display_name }} abspielen">
+                    <video class="tile__video" src="{{ base }}/photos/{{ photo.name }}"
+                           preload="metadata" muted playsinline></video>
+                    <span class="tile__play" aria-hidden="true">&#9654;</span>
+                </button>
+                {% elif photo.renderable %}
                 <button class="tile__open" type="button"
                         aria-label="Foto von {{ photo.display_name }} groß anzeigen">
-                    <img class="tile__img" src="{{ base }}/photos/{{ photo.name }}"
+                    <img class="tile__img" src="{{ base }}/thumb/{{ photo.name }}"
                          alt="Hochzeitsfoto von {{ photo.display_name }}" loading="lazy" decoding="async">
                 </button>
+                {% elif photo.is_video %}
+                <div class="tile__fallback">
+                    <span class="tile__fallback-icon" aria-hidden="true">&#127902;</span>
+                    <span class="tile__fallback-text">Video &ndash; per Download</span>
+                </div>
                 {% else %}
                 <div class="tile__fallback">
                     <span class="tile__fallback-icon" aria-hidden="true">&#128247;</span>
@@ -94,12 +108,13 @@
     <div id="upload-shell" class="upload-shell">
         <section class="card card--upload">
             <div class="card__head">
-                <h2 class="card__title">Fotos hochladen</h2>
+                <h2 class="card__title">Fotos &amp; Videos hochladen</h2>
                 <button id="upload-close" class="card__close" type="button"
                         aria-label="Hochladen schließen" hidden>&times;</button>
             </div>
-            <p class="card__hint">Bis zu {{ max_files }} Fotos auf einmal, je max. {{ max_mb }} MB
-                ({{ allowed_extensions }}).</p>
+            <p class="card__hint">Bis zu {{ max_files }} Dateien auf einmal.
+                Fotos ({{ image_extensions }}) je max. {{ max_mb }} MB,
+                Videos ({{ video_extensions }}) je max. {{ max_video_mb }} MB.</p>
 
             <form id="upload-form" class="dropzone" method="post" action="{{ base }}/upload"
                   enctype="multipart/form-data">
@@ -113,10 +128,10 @@
                         <circle cx="24" cy="26" r="3" fill="#f3c9d6"/>
                     </svg>
                 </div>
-                <p class="dropzone__text">Fotos hierher ziehen &mdash; oder</p>
-                <label class="btn btn--primary" for="file-input">Fotos auswählen</label>
+                <p class="dropzone__text">Fotos &amp; Videos hierher ziehen &mdash; oder</p>
+                <label class="btn btn--primary" for="file-input">Dateien auswählen</label>
                 <input id="file-input" class="visually-hidden" type="file" name="files"
-                       accept="image/*" multiple>
+                       accept="image/*,video/*" multiple>
             </form>
 
             <div id="upload-progress" class="progress" hidden>
@@ -147,6 +162,7 @@
             aria-label="Vorheriges Foto">&#8249;</button>
     <figure class="lightbox__figure">
         <img id="lightbox-img" class="lightbox__img" src="" alt="">
+        <video id="lightbox-video" class="lightbox__img lightbox__video" controls playsinline hidden></video>
         <figcaption id="lightbox-caption" class="lightbox__caption"></figcaption>
     </figure>
     <button id="lightbox-next" class="lightbox__btn lightbox__nav lightbox__nav--next" type="button"

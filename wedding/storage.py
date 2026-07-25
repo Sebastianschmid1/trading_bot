@@ -24,16 +24,42 @@ from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
-#: Erlaubte Endungen (Handy-Kameras liefern häufig HEIC/HEIF).
-ALLOWED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif")
-#: Endungen, die Browser typischerweise *nicht* rendern können.
-UNRENDERABLE_EXTENSIONS = (".heic", ".heif")
+# Pillow ist nur für die Thumbnail-Erzeugung nötig und wird lazy/optional geladen:
+# fehlt es (oder schlägt der Import fehl), läuft die App weiter und liefert bei
+# Thumbnail-Anfragen einfach das Original aus. So kann ein fehlendes Pillow den
+# Dienst nie zum Absturz bringen.
+try:  # pragma: no cover - reines Import-Gate
+    from PIL import Image, ImageOps
+
+    PIL_AVAILABLE = True
+except Exception:  # pragma: no cover - Pillow fehlt/kaputt → graceful fallback
+    Image = None  # type: ignore[assignment]
+    ImageOps = None  # type: ignore[assignment]
+    PIL_AVAILABLE = False
+
+#: Erlaubte Bild-Endungen (Handy-Kameras liefern häufig HEIC/HEIF).
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif")
+#: Erlaubte Video-Endungen.
+VIDEO_EXTENSIONS = (".mp4", ".m4v", ".webm", ".mov")
+#: Alle erlaubten Endungen (Bilder + Videos).
+ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
+#: Bild-Endungen, die Browser typischerweise *nicht* rendern können.
+UNRENDERABLE_IMAGE_EXTENSIONS = (".heic", ".heif")
+#: Video-Endungen, die Browser zuverlässig inline abspielen.
+INLINE_VIDEO_EXTENSIONS = (".mp4", ".m4v", ".webm")
+#: Endungen, die inline *nicht* sicher darstellbar sind (Download-Karte).
+#: `.mov` ist oft HEVC-kodiert → wie HEIC behandeln.
+UNRENDERABLE_EXTENSIONS = UNRENDERABLE_IMAGE_EXTENSIONS + (".mov",)
 #: Maximale Anzahl Dateien pro Upload-Request.
 MAX_FILES_PER_REQUEST = 30
 #: Server-Dateinamen: 32 Hex-Zeichen + Kleinbuchstaben-Endung. Sonst nichts.
-PHOTO_NAME_RE = re.compile(r"^[a-f0-9]{32}\.[a-z]+$")
+PHOTO_NAME_RE = re.compile(r"^[a-f0-9]{32}\.[a-z0-9]+$")
 #: Chunk-Größe beim Streamen auf die Platte.
 CHUNK_SIZE = 1024 * 1024
+#: Längste Kante eines Thumbnails in Pixeln.
+THUMB_MAX_EDGE = 1000
+#: JPEG-Qualität der Thumbnails.
+THUMB_QUALITY = 82
 
 _CONTENT_TYPES = {
     ".jpg": "image/jpeg",
@@ -43,6 +69,10 @@ _CONTENT_TYPES = {
     ".webp": "image/webp",
     ".heic": "image/heic",
     ".heif": "image/heif",
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
 }
 
 
@@ -74,8 +104,26 @@ class Photo:
         return Path(self.name).suffix.lower()
 
     @property
+    def is_video(self) -> bool:
+        return self.extension in VIDEO_EXTENSIONS
+
+    @property
+    def kind(self) -> str:
+        """Medien-Art: ``"video"`` oder ``"image"`` (aus der Endung abgeleitet)."""
+        return "video" if self.is_video else "image"
+
+    @property
+    def content_type(self) -> str:
+        return content_type_for(self.name)
+
+    @property
     def renderable(self) -> bool:
-        """False für HEIC/HEIF — dafür zeigt die Galerie eine Download-Karte."""
+        """Ob der Browser das Medium inline anzeigen kann.
+
+        False für HEIC/HEIF (Bild) und ``.mov`` (oft HEVC-Video) — dafür zeigt die
+        Galerie eine Download-Karte. Inline-Videos (mp4/m4v/webm) und normale Bilder
+        sind ``True``.
+        """
         return self.extension not in UNRENDERABLE_EXTENSIONS
 
     @property
@@ -114,6 +162,8 @@ class PhotoStore:
     def __init__(self, data_dir: str | Path) -> None:
         self.data_dir = Path(data_dir)
         self.photos_dir = self.data_dir / "photos"
+        #: Cache für on-demand erzeugte Thumbnails.
+        self.thumbs_dir = self.data_dir / "thumbs"
 
     def ensure_dirs(self) -> None:
         self.photos_dir.mkdir(parents=True, exist_ok=True)
@@ -138,6 +188,56 @@ class PhotoStore:
 
     def _meta_path(self, name: str) -> Path:
         return self.photos_dir / (Path(name).stem + ".json")
+
+    # ----------------------------------------------------------- Thumbnails --
+    def _thumb_cache_path(self, name: str) -> Path:
+        return self.thumbs_dir / (Path(name).stem + ".jpg")
+
+    def thumbnail_path(self, name: str) -> Path | None:
+        """Pfad zu einem auslieferbaren Vorschaubild.
+
+        Ansatz: on-demand mit Cache unter ``thumbs/``. Existiert das gecachte
+        Thumbnail, wird es zurückgegeben; sonst wird es (mit Pillow) erzeugt und
+        gecacht. Nur Bilder bekommen Thumbnails.
+
+        Graceful Fallback: fehlt Pillow, ist es kein Bild oder scheitert die
+        Erzeugung (kaputtes Bild), wird das **Original** zurückgegeben — nie eine
+        Exception nach außen. ``None`` nur, wenn das Medium gar nicht existiert.
+        """
+        original = self.photo_path(name)
+        if original is None:
+            return None
+        if Path(name).suffix.lower() not in IMAGE_EXTENSIONS:
+            # Videos & Co. bekommen kein serverseitiges Thumbnail.
+            return original
+        cache = self._thumb_cache_path(name)
+        if cache.is_file():
+            return cache
+        created = self._make_thumbnail(original, cache)
+        return created if created is not None else original
+
+    def _make_thumbnail(self, source: Path, cache: Path) -> Path | None:
+        """Erzeugt ein Thumbnail atomar (tmp + os.replace). ``None`` bei Misserfolg."""
+        if not PIL_AVAILABLE:
+            return None
+        tmp = cache.with_suffix(".jpg.tmp")
+        try:
+            self.thumbs_dir.mkdir(parents=True, exist_ok=True)
+            with Image.open(source) as image:
+                # EXIF-Orientierung anwenden (behebt zugleich die iPhone-Rotationslage).
+                oriented = ImageOps.exif_transpose(image)
+                # Herunterskalieren auf max. THUMB_MAX_EDGE (kein Upscaling).
+                oriented.thumbnail((THUMB_MAX_EDGE, THUMB_MAX_EDGE))
+                oriented.convert("RGB").save(tmp, "JPEG", quality=THUMB_QUALITY)
+            os.replace(tmp, cache)
+            return cache
+        except Exception as exc:  # noqa: BLE001 - kaputtes Bild darf nie durchschlagen
+            log.warning("Thumbnail für %s fehlgeschlagen: %s", source.name, exc)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
 
     # ---------------------------------------------------------------- Lesen --
     def _read_meta(self, name: str) -> dict[str, Any]:
@@ -195,7 +295,10 @@ class PhotoStore:
         original_name = (upload.filename or "").strip() or "foto"
         extension = extension_of(original_name)
         if extension not in ALLOWED_EXTENSIONS:
-            raise PhotoRejected("Dateityp nicht erlaubt (nur Fotos: JPG, PNG, GIF, WEBP, HEIC).")
+            raise PhotoRejected(
+                "Dateityp nicht erlaubt (Fotos: JPG, PNG, GIF, WEBP, HEIC; "
+                "Videos: MP4, M4V, WEBM, MOV)."
+            )
 
         self.ensure_dirs()
         name = f"{uuid4().hex}{extension}"
@@ -258,3 +361,5 @@ class PhotoStore:
             raise PermissionError(name)
         path.unlink(missing_ok=True)
         self._meta_path(name).unlink(missing_ok=True)
+        # Gecachtes Thumbnail (falls vorhanden) mit entfernen.
+        self._thumb_cache_path(name).unlink(missing_ok=True)

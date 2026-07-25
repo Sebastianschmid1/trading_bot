@@ -7,6 +7,7 @@ selbst erzeugten Hashes (bewusst NICHT die echten Einträge aus
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import stat
@@ -100,6 +101,21 @@ def photos_dir(data_dir: Path) -> Path:
 
 def upload_png(test_client: TestClient, filename: str = "strauss.png", payload: bytes = PNG_BYTES):
     return test_client.post("/upload", files={"files": (filename, payload, "image/png")})
+
+
+def make_jpeg_bytes(size: tuple[int, int] = (24, 18), color: tuple[int, int, int] = (210, 120, 150)) -> bytes:
+    """Erzeugt ein echtes kleines JPEG (setzt Pillow voraus)."""
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", size, color).save(buffer, "JPEG")
+    return buffer.getvalue()
+
+
+# Minimaler MP4-Header (ftyp-Box) — reicht als „echte" Video-Bytes für den Upload.
+MP4_BYTES = bytes.fromhex("0000001c66747970"  # size + 'ftyp'
+                          "6d70343200000000") + b"mp42isom"
+MOV_BYTES = bytes.fromhex("0000001466747970") + b"qt  " + bytes(8)
 
 
 # --------------------------------------------------------------------------- #
@@ -503,6 +519,170 @@ def test_gast_seite_beruecksichtigt_den_root_path(app) -> None:
         assert page.status_code == 200
         assert 'action="/hochzeit/gast"' in page.text
         assert sub.post("/gast", data={"password": GAST_PW}).headers["location"] == "/hochzeit/"
+
+
+# --------------------------------------------------------------------------- #
+# Thumbnails (/thumb) — on-demand mit Cache, graceful ohne Pillow
+# --------------------------------------------------------------------------- #
+def test_thumb_wird_erzeugt_gecacht_und_beim_zweiten_aufruf_wiederverwendet(
+    client: TestClient, data_dir: Path
+) -> None:
+    pytest.importorskip("PIL")
+    login(client, "amelie", AMELIE_PW)
+    name = client.post(
+        "/upload", files={"files": ("foto.jpg", make_jpeg_bytes(), "image/jpeg")}
+    ).json()["results"][0]["name"]
+
+    response = client.get(f"/thumb/{name}")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/jpeg")
+
+    cache = data_dir / "thumbs" / (Path(name).stem + ".jpg")
+    assert cache.is_file()
+
+    # Cache manipulieren: ein zweiter Aufruf darf NICHT neu erzeugen, sondern muss
+    # exakt den (manipulierten) Cache-Inhalt ausliefern.
+    cache.write_bytes(b"AUS-DEM-CACHE")
+    zweite = client.get(f"/thumb/{name}")
+    assert zweite.status_code == 200
+    assert zweite.content == b"AUS-DEM-CACHE"
+
+
+def test_thumb_ist_auch_fuer_ein_bild_ohne_harten_fehler_200(client: TestClient) -> None:
+    # Auch für das winzige 1x1-PNG kommt ein 200 zurück (mit oder ohne Pillow).
+    login(client, "amelie", AMELIE_PW)
+    name = upload_png(client).json()["results"][0]["name"]
+    assert client.get(f"/thumb/{name}").status_code == 200
+
+
+def test_thumb_ohne_pillow_liefert_das_original(
+    client: TestClient, data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    login(client, "amelie", AMELIE_PW)
+    name = upload_png(client).json()["results"][0]["name"]
+    # Pillow „ausschalten" → graceful Fallback auf das Original, kein Crash, kein Cache.
+    monkeypatch.setattr("wedding.storage.PIL_AVAILABLE", False)
+    response = client.get(f"/thumb/{name}")
+    assert response.status_code == 200
+    assert response.content == PNG_BYTES
+    assert not (data_dir / "thumbs" / (Path(name).stem + ".jpg")).exists()
+
+
+def test_thumb_bei_kaputtem_bild_faellt_auf_das_original_zurueck(client: TestClient) -> None:
+    pytest.importorskip("PIL")
+    login(client, "amelie", AMELIE_PW)
+    kaputt = b"das ist kein gueltiges bild"
+    name = client.post(
+        "/upload", files={"files": ("kaputt.jpg", kaputt, "image/jpeg")}
+    ).json()["results"][0]["name"]
+    response = client.get(f"/thumb/{name}")
+    assert response.status_code == 200
+    assert response.content == kaputt
+
+
+def test_thumb_nur_fuer_eingeloggte(client: TestClient) -> None:
+    login(client, "amelie", AMELIE_PW)
+    name = upload_png(client).json()["results"][0]["name"]
+    client.post("/logout")
+    assert client.get(f"/thumb/{name}").status_code == 303
+
+
+def test_galerie_bilder_nutzen_die_thumb_route(client: TestClient) -> None:
+    login(client, "amelie", AMELIE_PW)
+    name = upload_png(client).json()["results"][0]["name"]
+    gallery = client.get("/")
+    # Das Raster-<img> zeigt auf /thumb, Download/Lightbox weiter auf /photos.
+    assert f"/thumb/{name}" in gallery.text
+    assert f'data-src="/photos/{name}"' in gallery.text
+
+
+def test_delete_entfernt_auch_das_gecachte_thumbnail(
+    client: TestClient, data_dir: Path
+) -> None:
+    pytest.importorskip("PIL")
+    login(client, "amelie", AMELIE_PW)
+    name = client.post(
+        "/upload", files={"files": ("foto.jpg", make_jpeg_bytes(), "image/jpeg")}
+    ).json()["results"][0]["name"]
+    assert client.get(f"/thumb/{name}").status_code == 200
+    cache = data_dir / "thumbs" / (Path(name).stem + ".jpg")
+    assert cache.is_file()
+
+    assert client.post(f"/photos/{name}/delete").status_code == 303
+    assert not cache.exists()
+
+
+# --------------------------------------------------------------------------- #
+# Video-Upload & -Wiedergabe
+# --------------------------------------------------------------------------- #
+def test_video_upload_wird_in_der_galerie_als_video_markiert(
+    client: TestClient, data_dir: Path
+) -> None:
+    login(client, "amelie", AMELIE_PW)
+    response = client.post("/upload", files={"files": ("tanz.mp4", MP4_BYTES, "video/mp4")})
+    assert response.status_code == 200
+    name = response.json()["results"][0]["name"]
+    assert name.endswith(".mp4")
+    assert (photos_dir(data_dir) / name).is_file()
+
+    gallery = client.get("/")
+    assert 'data-kind="video"' in gallery.text
+    assert "<video" in gallery.text
+    assert f'data-content-type="video/mp4"' in gallery.text
+
+
+def test_mov_wird_akzeptiert_aber_als_download_karte_gezeigt(client: TestClient) -> None:
+    login(client, "amelie", AMELIE_PW)
+    response = client.post("/upload", files={"files": ("omas_walzer.mov", MOV_BYTES, "video/quicktime")})
+    assert response.status_code == 200
+    name = response.json()["results"][0]["name"]
+    assert name.endswith(".mov")
+
+    gallery = client.get("/")
+    # .mov ist nicht sicher inline abspielbar → Fallback-Karte, keine Vorschau.
+    assert 'data-kind="video"' in gallery.text
+    assert 'data-renderable="false"' in gallery.text
+    assert "Video &ndash; per Download" in gallery.text
+
+
+def test_video_und_bild_limit_sind_unabhaengig(
+    data_dir: Path, users_file: Path, secret_file: Path
+) -> None:
+    # Bild-Limit 2048, Video-Limit 1024 (klein konfiguriert).
+    app = create_app(
+        data_dir=data_dir, users_file=users_file, secret_file=secret_file,
+        max_bytes=2048, max_video_bytes=1024, cookie_secure=False,
+    )
+    with TestClient(app, follow_redirects=False) as client:
+        login(client, "amelie", AMELIE_PW)
+
+        # 1500-Byte-Bild → erlaubt (unter dem Bild-Limit von 2048).
+        bild = client.post("/upload", files={"files": ("gross.jpg", b"x" * 1500, "image/jpeg")})
+        assert bild.status_code == 200
+
+        # Dasselbe Volumen als Video → abgelehnt (über dem Video-Limit von 1024).
+        zu_gross = client.post("/upload", files={"files": ("clip.mp4", b"x" * 1500, "video/mp4")})
+        assert zu_gross.status_code == 400
+        assert zu_gross.json()["results"][0]["ok"] is False
+
+        # Kleines Video unter dem Video-Limit → erlaubt.
+        klein = client.post("/upload", files={"files": ("kurz.mp4", b"x" * 200, "video/mp4")})
+        assert klein.status_code == 200
+
+
+def test_bild_ueber_max_bytes_bleibt_abgelehnt(
+    data_dir: Path, users_file: Path, secret_file: Path
+) -> None:
+    app = create_app(
+        data_dir=data_dir, users_file=users_file, secret_file=secret_file,
+        max_bytes=2048, max_video_bytes=1024, cookie_secure=False,
+    )
+    with TestClient(app, follow_redirects=False) as client:
+        login(client, "amelie", AMELIE_PW)
+        # 3000-Byte-Bild → über dem Bild-Limit → abgelehnt.
+        response = client.post("/upload", files={"files": ("riesig.jpg", b"x" * 3000, "image/jpeg")})
+        assert response.status_code == 400
+        assert list(photos_dir(data_dir).iterdir()) == []
 
 
 # --------------------------------------------------------------------------- #

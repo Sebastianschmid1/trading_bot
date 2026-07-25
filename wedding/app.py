@@ -35,11 +35,13 @@ from wedding.auth import (
     verify_password,
 )
 from wedding.storage import (
-    ALLOWED_EXTENSIONS,
+    IMAGE_EXTENSIONS,
     MAX_FILES_PER_REQUEST,
+    VIDEO_EXTENSIONS,
     PhotoRejected,
     PhotoStore,
     content_type_for,
+    extension_of,
 )
 
 log = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ log = logging.getLogger(__name__)
 _PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = "./data/wedding"
 DEFAULT_MAX_BYTES = 30 * 1024 * 1024
+DEFAULT_MAX_VIDEO_BYTES = 200 * 1024 * 1024
 #: Benutzername des Nur-Ansehen-Zugangs (Direktlink `/gast`).
 GUEST_USERNAME = "gast"
 
@@ -78,6 +81,7 @@ class Settings:
     users_file: Path
     secret_file: Path
     max_bytes: int
+    max_video_bytes: int
     cookie_secure: bool
 
 
@@ -87,6 +91,7 @@ def settings_from_env(
     users_file: str | Path | None = None,
     secret_file: str | Path | None = None,
     max_bytes: int | None = None,
+    max_video_bytes: int | None = None,
     cookie_secure: bool | None = None,
 ) -> Settings:
     """Baut die Settings aus Env-Vars; explizite Parameter haben Vorrang."""
@@ -102,6 +107,11 @@ def settings_from_env(
         users_file=resolved_users,
         secret_file=resolved_secret,
         max_bytes=max_bytes if max_bytes is not None else _env_int("WEDDING_MAX_BYTES", DEFAULT_MAX_BYTES),
+        max_video_bytes=(
+            max_video_bytes
+            if max_video_bytes is not None
+            else _env_int("WEDDING_MAX_VIDEO_BYTES", DEFAULT_MAX_VIDEO_BYTES)
+        ),
         cookie_secure=(
             cookie_secure if cookie_secure is not None else _env_flag("WEDDING_COOKIE_SECURE", False)
         ),
@@ -164,6 +174,7 @@ def create_app(
     users_file: str | Path | None = None,
     secret_file: str | Path | None = None,
     max_bytes: int | None = None,
+    max_video_bytes: int | None = None,
     cookie_secure: bool | None = None,
 ) -> FastAPI:
     """Erzeugt die Galerie-App. Parameter überschreiben die Env-Konfiguration."""
@@ -172,6 +183,7 @@ def create_app(
         users_file=users_file,
         secret_file=secret_file,
         max_bytes=max_bytes,
+        max_video_bytes=max_video_bytes,
         cookie_secure=cookie_secure,
     )
     store = PhotoStore(settings.data_dir)
@@ -314,9 +326,13 @@ def create_app(
                 "can_delete": can_delete(users, username),
                 "photos": photos,
                 "max_mb": max(1, request.app.state.settings.max_bytes // (1024 * 1024)),
+                "max_video_mb": max(1, request.app.state.settings.max_video_bytes // (1024 * 1024)),
                 "max_files": MAX_FILES_PER_REQUEST,
-                "allowed_extensions": ", ".join(
-                    ext.lstrip(".").upper() for ext in ALLOWED_EXTENSIONS
+                "image_extensions": ", ".join(
+                    ext.lstrip(".").upper() for ext in IMAGE_EXTENSIONS
+                ),
+                "video_extensions": ", ".join(
+                    ext.lstrip(".").upper() for ext in VIDEO_EXTENSIONS
                 ),
             },
         )
@@ -358,12 +374,15 @@ def create_app(
             original = (item.filename or "").strip()
             if not original:
                 continue
+            # Videos haben ein eigenes, größeres Limit als Bilder.
+            is_video = extension_of(original) in VIDEO_EXTENSIONS
+            limit = settings.max_video_bytes if is_video else settings.max_bytes
             try:
                 photo = await store.save_upload(
                     item,
                     uploader=username,
                     display_name=display,
-                    max_bytes=settings.max_bytes,
+                    max_bytes=limit,
                 )
             except PhotoRejected as exc:
                 results.append({"original_name": original, "ok": False, "error": str(exc)})
@@ -377,6 +396,24 @@ def create_app(
         return JSONResponse({"uploaded": accepted, "results": results}, status_code=status)
 
     # --------------------------------------------------------------- Fotos --
+    @application.get("/thumb/{name}")
+    async def thumb(request: Request, name: str):
+        # Gleiche Auth & Namensvalidierung wie /photos: nur eingeloggt.
+        if _current_user(request) is None:
+            return RedirectResponse(_url(request, "/login"), status_code=303)
+        store: PhotoStore = request.app.state.store
+        path = store.thumbnail_path(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Foto nicht gefunden.")
+        # Erzeugte Thumbnails sind immer JPEG; der graceful Fallback liefert das
+        # Original mit dessen eigenem Content-Type aus.
+        media_type = "image/jpeg" if path.parent == store.thumbs_dir else content_type_for(name)
+        return FileResponse(
+            path,
+            media_type=media_type,
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
     @application.get("/photos/{name}")
     async def photo(request: Request, name: str):
         if _current_user(request) is None:

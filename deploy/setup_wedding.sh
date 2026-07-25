@@ -51,7 +51,7 @@ else
     fi
     # Beim Re-Run ein schneller No-op; ein Fehlschlag darf das Setup nicht abbrechen.
     "$OPT_DIR/venv/bin/pip" install -q --disable-pip-version-check \
-        fastapi "uvicorn[standard]" jinja2 python-multipart \
+        fastapi "uvicorn[standard]" jinja2 python-multipart pillow \
         || echo "  WARN: pip install fehlgeschlagen (weiter mit vorhandenem venv)"
 
     CODE_DIR="$OPT_DIR/app"
