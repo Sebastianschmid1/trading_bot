@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Anmelden &middot; Amelie &amp; Tobi{% endblock %}
+{% block body_class %}page-login{% endblock %}
+
+{% block content %}
+<main class="login-shell">
+    <section class="card card--login">
+        <div class="crest" aria-hidden="true">
+            <svg viewBox="0 0 120 60" role="presentation">
+                <path d="M4 44 C 22 44, 30 20, 46 20 C 58 20, 60 32, 60 32 C 60 32, 62 20, 74 20 C 90 20, 98 44, 116 44"
+                      fill="none" stroke="#cfa8b8" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="24" cy="34" r="4" fill="#f3c9d6"/>
+                <circle cx="96" cy="34" r="4" fill="#f3c9d6"/>
+                <circle cx="40" cy="24" r="3" fill="#cfe4d8"/>
+                <circle cx="80" cy="24" r="3" fill="#cfe4d8"/>
+                <path d="M60 38 c -6 -8 -14 -2 -8 5 l 8 9 l 8 -9 c 6 -7 -2 -13 -8 -5 z" fill="#e08ba4"/>
+            </svg>
+        </div>
+
+        <h1 class="brand">Amelie &amp; Tobi <span class="brand__ring">&#128141;</span></h1>
+        <p class="brand__sub">Unsere Hochzeits&shy;galerie</p>
+        <p class="lede">Schön, dass ihr da wart! Meldet euch an, um eure Fotos hochzuladen
+            und alle Erinnerungen anzuschauen.</p>
+
+        {% if error %}
+        <p class="alert alert--error" role="alert">{{ error }}</p>
+        {% endif %}
+
+        <form class="form" method="post" action="{{ base }}/login">
+            <label class="field">
+                <span class="field__label">Name</span>
+                <input class="field__input" type="text" name="username" autocomplete="username"
+                       autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
+            </label>
+            <label class="field">
+                <span class="field__label">Passwort</span>
+                <input class="field__input" type="password" name="password"
+                       autocomplete="current-password" required>
+            </label>
+            <button class="btn btn--primary btn--block" type="submit">Anmelden</button>
+        </form>
+
+        <p class="footnote">Nur für geladene Gäste &middot; mit Liebe gemacht</p>
+    </section>
+</main>
+{% endblock %}

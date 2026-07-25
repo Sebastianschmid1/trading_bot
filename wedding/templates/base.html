@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex, nofollow">
+    <title>{% block title %}Amelie &amp; Tobi{% endblock %}</title>
+    <link rel="stylesheet" href="{{ base }}/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128141;</text></svg>">
+</head>
+<body class="{% block body_class %}{% endblock %}" data-base="{{ base }}">
+    <div class="petals" aria-hidden="true">
+        <span class="petal petal--1">&#10084;</span>
+        <span class="petal petal--2">&#10052;</span>
+        <span class="petal petal--3">&#10084;</span>
+        <span class="petal petal--4">&#9679;</span>
+        <span class="petal petal--5">&#10084;</span>
+        <span class="petal petal--6">&#9679;</span>
+    </div>
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

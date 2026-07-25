@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Galerie &middot; Amelie &amp; Tobi{% endblock %}
+{% block body_class %}page-gallery{% endblock %}
+
+{% block content %}
+<header class="topbar">
+    <div class="topbar__inner">
+        <div class="topbar__brand">
+            <h1 class="brand brand--small">Amelie &amp; Tobi <span class="brand__ring">&#128141;</span></h1>
+            <p class="brand__sub">Unsere Hochzeitsgalerie</p>
+        </div>
+        <form class="topbar__logout" method="post" action="{{ base }}/logout">
+            <span class="hello">Hallo, {{ display_name }}!</span>
+            <button class="btn btn--ghost" type="submit">Abmelden</button>
+        </form>
+    </div>
+    <div class="garland" aria-hidden="true">
+        <svg viewBox="0 0 400 16" preserveAspectRatio="none" role="presentation">
+            <path d="M0 8 Q 25 0 50 8 T 100 8 T 150 8 T 200 8 T 250 8 T 300 8 T 350 8 T 400 8"
+                  fill="none" stroke="#e9c3d1" stroke-width="2"/>
+        </svg>
+    </div>
+</header>
+
+<main class="wrap">
+    <section class="card card--upload">
+        <h2 class="card__title">Fotos hochladen</h2>
+        <p class="card__hint">Bis zu {{ max_files }} Fotos auf einmal, je max. {{ max_mb }} MB
+            ({{ allowed_extensions }}).</p>
+
+        <form id="upload-form" class="dropzone" method="post" action="{{ base }}/upload"
+              enctype="multipart/form-data">
+            <div class="dropzone__icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" role="presentation">
+                    <rect x="5" y="12" width="38" height="27" rx="5" fill="none"
+                          stroke="#cfa8b8" stroke-width="2.2"/>
+                    <path d="M17 12 l3 -4 h8 l3 4" fill="none" stroke="#cfa8b8"
+                          stroke-width="2.2" stroke-linejoin="round"/>
+                    <circle cx="24" cy="26" r="8" fill="none" stroke="#e08ba4" stroke-width="2.2"/>
+                    <circle cx="24" cy="26" r="3" fill="#f3c9d6"/>
+                </svg>
+            </div>
+            <p class="dropzone__text">Fotos hierher ziehen &mdash; oder</p>
+            <label class="btn btn--primary" for="file-input">Fotos auswählen</label>
+            <input id="file-input" class="visually-hidden" type="file" name="files"
+                   accept="image/*" multiple>
+        </form>
+
+        <div id="upload-progress" class="progress" hidden>
+            <div class="progress__bar"><span id="progress-fill" class="progress__fill"></span></div>
+            <p id="progress-label" class="progress__label">Lade hoch …</p>
+        </div>
+
+        <ul id="upload-results" class="results" hidden></ul>
+        <button id="refresh-gallery" class="btn btn--ghost btn--block" type="button" hidden>
+            Galerie aktualisieren
+        </button>
+    </section>
+
+    <section class="gallery-section">
+        <h2 class="section-title">
+            {{ photos|length }} {% if photos|length == 1 %}Foto{% else %}Fotos{% endif %}
+        </h2>
+
+        {% if photos %}
+        <ul id="gallery" class="grid">
+            {% for photo in photos %}
+            <li class="tile{% if not photo.renderable %} tile--nopreview{% endif %}"
+                data-index="{{ loop.index0 }}"
+                data-name="{{ photo.name }}"
+                data-src="{{ base }}/photos/{{ photo.name }}"
+                data-uploader="{{ photo.display_name }}"
+                data-date="{{ photo.uploaded_label }}"
+                data-renderable="{{ 'true' if photo.renderable else 'false' }}"
+                data-own="{{ 'true' if photo.uploader == username else 'false' }}">
+                {% if photo.renderable %}
+                <button class="tile__open" type="button"
+                        aria-label="Foto von {{ photo.display_name }} groß anzeigen">
+                    <img class="tile__img" src="{{ base }}/photos/{{ photo.name }}"
+                         alt="Hochzeitsfoto von {{ photo.display_name }}" loading="lazy" decoding="async">
+                </button>
+                {% else %}
+                <div class="tile__fallback">
+                    <span class="tile__fallback-icon" aria-hidden="true">&#128247;</span>
+                    <span class="tile__fallback-text">Nur per Download ansehbar</span>
+                </div>
+                {% endif %}
+                <div class="tile__meta">
+                    <span class="tile__uploader">{{ photo.display_name }}</span>
+                    <span class="tile__date">{{ photo.uploaded_label }}</span>
+                </div>
+                <div class="tile__actions">
+                    <a class="tile__action" href="{{ base }}/photos/{{ photo.name }}"
+                       download="{{ photo.original_name }}">Download</a>
+                    {% if photo.uploader == username %}
+                    <form class="tile__delete" method="post"
+                          action="{{ base }}/photos/{{ photo.name }}/delete"
+                          data-confirm="Dieses Foto wirklich löschen?">
+                        <button class="tile__action tile__action--danger" type="submit">Löschen</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">
+            <span class="empty__icon" aria-hidden="true">&#127881;</span>
+            Noch keine Fotos da &mdash; macht den Anfang!
+        </p>
+        {% endif %}
+    </section>
+
+    <footer class="page-footer">Danke, dass ihr mit uns gefeiert habt &#10084;</footer>
+</main>
+
+<div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Foto groß">
+    <button id="lightbox-close" class="lightbox__btn lightbox__close" type="button"
+            aria-label="Schließen">&times;</button>
+    <button id="lightbox-prev" class="lightbox__btn lightbox__nav lightbox__nav--prev" type="button"
+            aria-label="Vorheriges Foto">&#8249;</button>
+    <figure class="lightbox__figure">
+        <img id="lightbox-img" class="lightbox__img" src="" alt="">
+        <figcaption id="lightbox-caption" class="lightbox__caption"></figcaption>
+    </figure>
+    <button id="lightbox-next" class="lightbox__btn lightbox__nav lightbox__nav--next" type="button"
+            aria-label="Nächstes Foto">&#8250;</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ base }}/static/gallery.js" defer></script>
+{% endblock %}
