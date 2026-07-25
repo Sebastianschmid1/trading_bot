@@ -19,6 +19,7 @@ from wedding.auth import SESSION_COOKIE, hash_password, make_session_cookie
 # Kleine Rundenzahl: die Tests loggen sich oft ein, 600k Runden wären reine Wartezeit.
 TEST_ITERATIONS = 1_000
 
+# Frei erfundene Test-Passwörter — sie haben nichts mit den echten Zugängen zu tun.
 AMELIE_PW = "brautstrauss"
 TOBI_PW = "trauzeuge"
 
