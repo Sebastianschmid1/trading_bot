@@ -382,6 +382,25 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
 CREATE INDEX IF NOT EXISTS idx_strategy_versions_key
     ON strategy_versions (strategy_key);
 
+CREATE TABLE IF NOT EXISTS risk_profiles (
+    user_id                        INTEGER PRIMARY KEY REFERENCES users(user_id),
+    account_risk_per_trade_pct     REAL    NOT NULL DEFAULT 0.25,
+    daily_loss_limit_pct           REAL    NOT NULL DEFAULT 1.00,
+    max_open_positions             INTEGER NOT NULL DEFAULT 5,
+    max_position_pct               REAL    NOT NULL DEFAULT 100.0,
+    max_sector_exposure_pct        REAL    NOT NULL DEFAULT 100.0,
+    max_correlated_exposure_pct    REAL    NOT NULL DEFAULT 100.0,
+    max_daily_new_exposure_pct     REAL    NOT NULL DEFAULT 100.0,
+    max_spread_bps                 REAL    NOT NULL DEFAULT 50.0,
+    max_quote_age_seconds          INTEGER NOT NULL DEFAULT 60,
+    min_average_dollar_volume      REAL    NOT NULL DEFAULT 0.0,
+    earnings_blackout_days         INTEGER NOT NULL DEFAULT 0,
+    allow_overnight                INTEGER NOT NULL DEFAULT 1,
+    allowed_strategies_json        TEXT    NOT NULL DEFAULT '[]',
+    created_at                     TEXT    NOT NULL,
+    updated_at                     TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS raw_data_archive (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol        TEXT    NOT NULL,
@@ -2774,6 +2793,111 @@ def get_closed_trades(user_id: int) -> list[dict]:
                ORDER BY trade_date ASC, id ASC""", {"user_id": user_id}
         )
     return [_trade_to_dict(r) for r in rows]
+
+
+def get_realized_pnl_today(user_id: int) -> float:
+    """Summe des heute REALISIERTEN P&L eines Nutzers (geschlossene Trades des UTC-Handelstags).
+
+    Grundlage für das Tagesverlustlimit (RISK-004, ``pretrade_check`` Schritt 10): nur
+    ``status = 'closed'``-Trades des heutigen ``trade_date`` (UTC, `today_utc()`) mit
+    gesetztem ``pnl_eur`` zählen. Ohne solche Trades ist der realisierte Tages-P&L 0.0.
+    Unrealisierte P&L offener Positionen fließen bewusst NICHT ein.
+    """
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT COALESCE(SUM(pnl_eur), 0.0) AS realized FROM trades "
+            "WHERE user_id = :user_id AND status = 'closed' AND trade_date = :trade_date "
+            "AND pnl_eur IS NOT NULL",
+            {"user_id": user_id, "trade_date": today_utc()},
+        )
+    return float(row["realized"]) if row and row["realized"] is not None else 0.0
+
+
+def get_risk_profile(user_id: int) -> "RiskProfile | None":
+    """Lädt das persistierte Risikoprofil eines Nutzers oder ``None``, wenn keines existiert.
+
+    ``None`` ist bewusst das Signal für „Nutzer hat kein eigenes Profil gespeichert": der
+    Aufrufer fällt dann auf das permissive Default-`RiskProfile` zurück (unverändertes
+    heutiges Verhalten). Es wird KEIN Default-Profil implizit angelegt.
+    """
+    from stockbot.core.domain import RiskProfile
+    with _database().transaction() as transaction:
+        row = transaction.one(
+            "SELECT * FROM risk_profiles WHERE user_id = :user_id", {"user_id": user_id})
+    if not row:
+        return None
+    return RiskProfile(
+        user_id=int(row["user_id"]),
+        account_risk_per_trade_pct=float(row["account_risk_per_trade_pct"]),
+        daily_loss_limit_pct=float(row["daily_loss_limit_pct"]),
+        max_open_positions=int(row["max_open_positions"]),
+        max_position_pct=float(row["max_position_pct"]),
+        max_sector_exposure_pct=float(row["max_sector_exposure_pct"]),
+        max_correlated_exposure_pct=float(row["max_correlated_exposure_pct"]),
+        max_daily_new_exposure_pct=float(row["max_daily_new_exposure_pct"]),
+        max_spread_bps=float(row["max_spread_bps"]),
+        max_quote_age_seconds=int(row["max_quote_age_seconds"]),
+        min_average_dollar_volume=float(row["min_average_dollar_volume"]),
+        earnings_blackout_days=int(row["earnings_blackout_days"]),
+        allow_overnight=bool(row["allow_overnight"]),
+        allowed_strategies=tuple(json.loads(row["allowed_strategies_json"])),
+    )
+
+
+def save_risk_profile(profile: "RiskProfile") -> None:
+    """Persistiert (upsert) das Risikoprofil eines Nutzers unter seiner ``user_id``.
+
+    Zeitspalten folgen dem naiven UTC-Vertrag (`_utc_timestamp()`); ``created_at`` bleibt
+    beim Update erhalten, nur ``updated_at`` wird fortgeschrieben.
+    """
+    now = _utc_timestamp()
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """INSERT INTO risk_profiles (
+                   user_id, account_risk_per_trade_pct, daily_loss_limit_pct,
+                   max_open_positions, max_position_pct, max_sector_exposure_pct,
+                   max_correlated_exposure_pct, max_daily_new_exposure_pct, max_spread_bps,
+                   max_quote_age_seconds, min_average_dollar_volume, earnings_blackout_days,
+                   allow_overnight, allowed_strategies_json, created_at, updated_at)
+               VALUES (
+                   :user_id, :account_risk_per_trade_pct, :daily_loss_limit_pct,
+                   :max_open_positions, :max_position_pct, :max_sector_exposure_pct,
+                   :max_correlated_exposure_pct, :max_daily_new_exposure_pct, :max_spread_bps,
+                   :max_quote_age_seconds, :min_average_dollar_volume, :earnings_blackout_days,
+                   :allow_overnight, :allowed_strategies_json, :created_at, :updated_at)
+               ON CONFLICT (user_id) DO UPDATE SET
+                   account_risk_per_trade_pct = excluded.account_risk_per_trade_pct,
+                   daily_loss_limit_pct = excluded.daily_loss_limit_pct,
+                   max_open_positions = excluded.max_open_positions,
+                   max_position_pct = excluded.max_position_pct,
+                   max_sector_exposure_pct = excluded.max_sector_exposure_pct,
+                   max_correlated_exposure_pct = excluded.max_correlated_exposure_pct,
+                   max_daily_new_exposure_pct = excluded.max_daily_new_exposure_pct,
+                   max_spread_bps = excluded.max_spread_bps,
+                   max_quote_age_seconds = excluded.max_quote_age_seconds,
+                   min_average_dollar_volume = excluded.min_average_dollar_volume,
+                   earnings_blackout_days = excluded.earnings_blackout_days,
+                   allow_overnight = excluded.allow_overnight,
+                   allowed_strategies_json = excluded.allowed_strategies_json,
+                   updated_at = excluded.updated_at""",
+            {
+                "user_id": int(profile.user_id),
+                "account_risk_per_trade_pct": float(profile.account_risk_per_trade_pct),
+                "daily_loss_limit_pct": float(profile.daily_loss_limit_pct),
+                "max_open_positions": int(profile.max_open_positions),
+                "max_position_pct": float(profile.max_position_pct),
+                "max_sector_exposure_pct": float(profile.max_sector_exposure_pct),
+                "max_correlated_exposure_pct": float(profile.max_correlated_exposure_pct),
+                "max_daily_new_exposure_pct": float(profile.max_daily_new_exposure_pct),
+                "max_spread_bps": float(profile.max_spread_bps),
+                "max_quote_age_seconds": int(profile.max_quote_age_seconds),
+                "min_average_dollar_volume": float(profile.min_average_dollar_volume),
+                "earnings_blackout_days": int(profile.earnings_blackout_days),
+                "allow_overnight": 1 if profile.allow_overnight else 0,
+                "allowed_strategies_json": json.dumps(list(profile.allowed_strategies)),
+                "created_at": now, "updated_at": now,
+            },
+        )
 
 
 def get_all_trades(user_id: int) -> list[dict]:

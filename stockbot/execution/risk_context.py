@@ -1,10 +1,16 @@
 """IO-Adapter fuer optionale Eingaben der zentralen Pre-Trade-Pruefung.
 
-Ein eigenes Risikoprofil wird noch nicht persistiert. Bis eine Profiltabelle existiert,
-verwendet der Loader deshalb die konservativen Defaults von :class:`RiskProfile`.
-Nicht sauber ableitbare Werte werden weggelassen, damit ``pretrade_check`` den jeweiligen
-optionalen Check ueberspringt. Insbesondere liefert Alpacas Konto-Snapshot derzeit keinen
-realisierten Tages-P&L; ``realized_pnl_today`` wird daher bewusst nicht gesetzt.
+Ein eigenes Risikoprofil kann pro Nutzer persistiert werden (`db.get_risk_profile`). Solange
+ein Nutzer KEIN Profil gespeichert hat, liefert der Loader das permissive Default-
+:class:`RiskProfile` und verhaelt sich exakt wie zuvor (inert-by-default). Nicht sauber
+ableitbare Werte werden weggelassen, damit ``pretrade_check`` den jeweiligen optionalen Check
+ueberspringt.
+
+``realized_pnl_today`` (fuer das Tagesverlustlimit RISK-004) wird bewusst NUR fuer Nutzer mit
+einem gespeicherten Profil gesetzt: erst mit dem Opt-in ins Risiko-Framework darf das
+Tagesverlustlimit greifen. Ohne gespeichertes Profil bleibt ``realized_pnl_today`` weg → der
+Check wird uebersprungen (unveraendertes heutiges Verhalten). Die Ermittlung ist fail-open:
+ist der Wert nicht lesbar, wird er weggelassen statt haerter zu blocken.
 """
 
 from __future__ import annotations
@@ -23,7 +29,12 @@ log = logging.getLogger(__name__)
 def quote_context(
     ticker: str, *, provider: Any = None, risk_profile: RiskProfile | None = None,
 ) -> dict[str, Any]:
-    """Lade optionale Quote-Risk-Eingaben; Providerfehler bleiben lokal und fail-open."""
+    """Lade optionale Quote-Risk-Eingaben; Providerfehler bleiben lokal und fail-open.
+
+    ``quote_context`` kennt keine ``user_id`` (Aufruf nur mit ``ticker``); ein persistiertes
+    Profil laedt daher ``signal_context``. Ruft ein Aufrufer mit einem bereits geladenen
+    ``risk_profile`` auf, wird dieses genutzt, sonst das permissive Default.
+    """
     profile = risk_profile or RiskProfile(user_id=0)
     try:
         quote_provider = provider or AlpacaPaperMarketDataProvider()
@@ -44,7 +55,30 @@ def quote_context(
 
 def signal_context(intent: TradeIntent, signal: Signal) -> dict[str, Any]:
     """Lade die aus Intent, Signal und Persistenz ableitbaren Risk-Eingaben."""
-    context: dict[str, Any] = {"risk_profile": RiskProfile(user_id=int(intent.user_id))}
+    user_id = int(intent.user_id)
+    has_stored_profile = False
+    try:
+        stored_profile = db.get_risk_profile(user_id)
+    except Exception as exc:
+        log.warning("Risk-Kontext: Risikoprofil fuer user_id=%s nicht lesbar: %s",
+                    user_id, type(exc).__name__)
+        stored_profile = None
+    else:
+        has_stored_profile = stored_profile is not None
+    context: dict[str, Any] = {
+        "risk_profile": stored_profile if stored_profile is not None else RiskProfile(user_id=user_id)
+    }
+
+    # `realized_pnl_today` (Tagesverlustlimit RISK-004) wird NUR fuer Nutzer mit einem
+    # gespeicherten Profil gesetzt. Ohne Opt-in bleibt der Wert weg → `pretrade_check`
+    # ueberspringt den Check (unveraendertes heutiges Verhalten, inert-by-default). Die
+    # Ermittlung ist fail-open: bei Lesefehler wird der Wert weggelassen, nicht haerter geblockt.
+    if has_stored_profile:
+        try:
+            context["realized_pnl_today"] = db.get_realized_pnl_today(user_id)
+        except Exception as exc:
+            log.warning("Risk-Kontext: realisierter Tages-P&L fuer user_id=%s nicht lesbar: %s",
+                        user_id, type(exc).__name__)
 
     try:
         active_trades = db.get_active_trades(intent.user_id)

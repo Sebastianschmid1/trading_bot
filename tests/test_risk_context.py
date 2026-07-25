@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from stockbot.core.domain import Mode, Signal, SignalStatus, TradeIntent
+from stockbot.core.domain import Mode, RiskProfile, Signal, SignalStatus, TradeIntent
 from stockbot.execution import risk_context
 from stockbot.execution.oms import OrderManagementSystem
 
@@ -45,6 +45,76 @@ def test_signal_context_omits_missing_stop(monkeypatch):
     monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
 
     assert "stop_price" not in risk_context.signal_context(_intent(), _signal())
+
+
+def _stub_signal_context_db(monkeypatch, *, stored_profile, realized_pnl):
+    """Minimal-Stubs für signal_context, damit nur das Profil-/P&L-Verhalten geprüft wird."""
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored_profile)
+
+    def _realized(user_id):
+        _realized.calls += 1
+        return realized_pnl
+
+    _realized.calls = 0
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", _realized)
+    return _realized
+
+
+def test_signal_context_without_stored_profile_is_inert(monkeypatch):
+    # Kein gespeichertes Profil → exakt das Default-RiskProfile UND kein realized_pnl_today
+    # (der Tagesverlust-Check bleibt so übersprungen; unverändertes heutiges Verhalten).
+    realized = _stub_signal_context_db(monkeypatch, stored_profile=None, realized_pnl=-999.0)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["risk_profile"] == RiskProfile(user_id=42)
+    assert "realized_pnl_today" not in context
+    assert realized.calls == 0   # ohne Profil wird der P&L gar nicht erst ermittelt
+
+
+def test_signal_context_with_stored_profile_loads_it_and_daily_pnl(monkeypatch):
+    stored = RiskProfile(user_id=42, daily_loss_limit_pct=2.0, max_open_positions=3)
+    realized = _stub_signal_context_db(monkeypatch, stored_profile=stored, realized_pnl=-150.0)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["risk_profile"] is stored
+    assert context["realized_pnl_today"] == -150.0
+    assert realized.calls == 1
+
+
+def test_signal_context_realized_pnl_failure_is_fail_open(monkeypatch):
+    stored = RiskProfile(user_id=42)
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+
+    def _boom(user_id):
+        raise RuntimeError("db offline")
+
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", _boom)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["risk_profile"] is stored
+    assert "realized_pnl_today" not in context   # fail-open: weglassen, nicht härter blocken
+
+
+def test_signal_context_profile_read_failure_falls_back_to_default(monkeypatch):
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+
+    def _boom(user_id):
+        raise RuntimeError("db offline")
+
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", _boom)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["risk_profile"] == RiskProfile(user_id=42)
+    assert "realized_pnl_today" not in context
 
 
 def test_account_context_loads_available_account_fields():
@@ -118,3 +188,42 @@ def test_real_oms_applies_loaded_position_limit_and_allows_clean_case(monkeypatc
         risk_context=callsite_context,
     )
     assert accepted.ok is True
+
+
+def _oms_service():
+    return OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+
+def test_real_oms_daily_loss_limit_inert_without_stored_profile(monkeypatch):
+    # Kern der Inert-by-default-Garantie: ein Nutzer OHNE gespeichertes Profil bekommt trotz
+    # eines heftigen realisierten Tagesverlusts dieselbe (erlaubende) Gate-Entscheidung wie
+    # vor dem Change — realized_pnl_today wird gar nicht durchgereicht.
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", lambda user_id: -9999.0)
+
+    accepted = _oms_service().submit_intent(
+        _intent("risk:42:19"), price=100.0, trade_size=100.0,
+        risk_context={"account_value": 10000.0, "candidate_notional": 100.0},
+    )
+    assert accepted.ok is True
+
+
+def test_real_oms_daily_loss_limit_bites_with_stored_profile(monkeypatch):
+    # Mit gespeichertem Profil (Opt-in) greift das Tagesverlustlimit: -500 realisiert bei
+    # 10.000 Kontowert und 1% Limit (=100) blockt neue Positionen.
+    stored = RiskProfile(user_id=42, daily_loss_limit_pct=1.0)
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", lambda user_id: -500.0)
+
+    rejected = _oms_service().submit_intent(
+        _intent("risk:42:20"), price=100.0, trade_size=100.0,
+        risk_context={"account_value": 10000.0, "candidate_notional": 100.0},
+    )
+    assert rejected.ok is False and rejected.code == "daily_loss_limit_reached"
