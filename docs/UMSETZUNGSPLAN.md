@@ -38,6 +38,16 @@
   §32.3 + §32.4) → **2026-07-25 `af9e546` DEPLOYT: §32.5 + Testsuite-Hygiene/erste CI + UTC-Bugfix +
   6-Task-Audit-Abarbeitung (Charts/Glossar/Risiko-Wiring/Backtest/fail-closed) + PS-Lock. Maßgeblich
   ist immer der letzte deployte Eintrag = `af9e546`.**
+- **Zuletzt (2026-07-27, GitHub `main`, NICHT deployt):** `5acf6cf` UI-Abstand
+  „Position schließen"-Button (visuelle Abnahme) + `c1887c0` **Labor-Regressionsfix**: der
+  `YFinanceResearchProvider` lieferte seit W5.1 (`0c877e8`, Umstellung von `yf.download` auf
+  `yf.Ticker.history`) einen **tz-aware** Tages-Index → das Strategie-Labor crashte bei jedem Lauf mit
+  `Cannot compare tz-naive and tz-aware timestamps` (der `daily_lab_optimization`-Cronjob war seit dem
+  16.07. tot). Fix am Provider-Seam: neue Helferfunktion `_strip_tz_naive` (bewusst `tz_localize(None)`,
+  erhält den lokalen Handelstag) in `get_bars`/`get_bars_batch` — analog zum Alpaca-Pfad
+  (`_normalize_alpaca_bars`), damit beide demselben naiven Zeitvertrag folgen. `optimize/lab.py` selbst
+  unangetastet. 5 neue Provider-/Regressionstests, gezielte Suites 80 passed. **Beide warten auf den
+  nächsten Deploy.**
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
