@@ -57,6 +57,28 @@ def _normalize_alpaca_bars(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _strip_tz_naive(df: pd.DataFrame) -> pd.DataFrame:
+    """Zieht einen tz-AWAREN DatetimeIndex auf tz-naiv, damit die yfinance-Frames dem gleichen
+    Zeitvertrag folgen wie der Alpaca-Pfad (durchgehend naive Zeitstempel; sonst knallt jeder
+    Vergleich mit einer naiven Zeit — tz-naive vs tz-aware, so crasht das Labor seit W5.1).
+
+    Bewusst `tz_localize(None)` (tz fallen lassen, Wanduhr behalten) statt
+    `tz_convert("UTC").tz_localize(None)` wie im Alpaca-Zweig: yfinance-**Tages**-Bars sind auf
+    die BÖRSEN-Lokalzeit lokalisiert (z. B. 00:00 America/New_York). Downstream (optimize/lab.py)
+    nutzt für Daily nur `df.index[i].date()` — der lokale Handelstag darf sich durch die
+    Normalisierung NICHT verschieben. `tz_localize(None)` erhält den Kalender-Handelstag garantiert
+    für JEDE Börse; `tz_convert("UTC")` würde Bars östlich von UTC (00:00 lokal → Vortag) auf den
+    falschen Kalendertag ziehen. Bereits naive Indizes bleiben unverändert; leere/None-Frames robust.
+    """
+    if df is None or len(df) == 0:
+        return df
+    idx = df.index
+    if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
+        df = df.copy()
+        df.index = idx.tz_localize(None)
+    return df
+
+
 def _extract_yf_ticker(data, ticker: str):
     """Holt das OHLCV-Sub-DataFrame eines Tickers aus einem (ggf. gruppierten) yfinance-Batch."""
     if data is None:
@@ -85,8 +107,8 @@ class YFinanceResearchProvider(MarketDataProvider):
                  start: datetime | None = None, end: datetime | None = None) -> pd.DataFrame:
         t = yf.Ticker(ticker)
         if period is not None:
-            return t.history(period=period, interval=interval)
-        return t.history(start=start, end=end, interval=interval)
+            return _strip_tz_naive(t.history(period=period, interval=interval))
+        return _strip_tz_naive(t.history(start=start, end=end, interval=interval))
 
     def get_bars_batch(self, tickers: list[str], *, interval: str, period: str | None = None,
                        prepost: bool = True) -> dict[str, pd.DataFrame]:
@@ -106,7 +128,7 @@ class YFinanceResearchProvider(MarketDataProvider):
             if "Close" in sub.columns:
                 sub = sub.dropna(subset=["Close"])
             if len(sub):
-                out[ticker] = sub
+                out[ticker] = _strip_tz_naive(sub)
         return out
 
     def get_quote(self, ticker: str) -> Quote:

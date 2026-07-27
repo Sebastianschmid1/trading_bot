@@ -81,6 +81,98 @@ def test_get_bars_uses_start_end_when_no_period():
     assert ticker.history_kwargs == {"start": start, "end": end, "interval": "1h"}
 
 
+def _aware_daily_bars(periods=3, tz="America/New_York"):
+    """Synthetischer tz-AWARER Daily-Frame, wie ihn yf.Ticker.history()/yf.download() liefern
+    (Tages-Index auf Börsen-Lokalzeit lokalisiert)."""
+    idx = pd.date_range("2022-01-03", periods=periods, freq="B", tz=tz)
+    return pd.DataFrame(
+        {"Open": 1.0, "High": 1.1, "Low": 0.9, "Close": 1.05, "Volume": 1000}, index=idx)
+
+
+def test_get_bars_returns_tz_naive_index_even_when_history_is_aware():
+    aware = _aware_daily_bars()
+    assert aware.index.tz is not None  # Vorbedingung: yfinance liefert tz-aware
+    ticker = _FakeTicker(bars=aware)
+    orig = dp.yf
+    dp.yf = _FakeYF(ticker)
+    try:
+        provider = dp.YFinanceResearchProvider()
+        bars = provider.get_bars("AAPL", interval="1d", period="1y")
+    finally:
+        dp.yf = orig
+    assert isinstance(bars.index, pd.DatetimeIndex)
+    assert bars.index.tz is None
+    # Handelstag-Datum darf sich durch die Normalisierung NICHT verschieben
+    assert [t.date() for t in bars.index] == [t.date() for t in aware.index]
+
+
+def test_get_bars_leaves_already_naive_index_unchanged():
+    naive = pd.DataFrame(
+        {"Open": 1.0, "High": 1.1, "Low": 0.9, "Close": 1.05, "Volume": 1000},
+        index=pd.date_range("2022-01-03", periods=3, freq="B"))
+    ticker = _FakeTicker(bars=naive)
+    orig = dp.yf
+    dp.yf = _FakeYF(ticker)
+    try:
+        provider = dp.YFinanceResearchProvider()
+        bars = provider.get_bars("AAPL", interval="1d", period="1y")
+    finally:
+        dp.yf = orig
+    assert bars.index.tz is None
+    assert list(bars.index) == list(naive.index)
+
+
+def test_get_bars_batch_returns_tz_naive_index_even_when_download_is_aware():
+    # yf.download kann (je nach Version/Multi-Ticker) einen tz-aware Index liefern.
+    cols = pd.MultiIndex.from_product(
+        [["AAPL", "MSFT"], ["Open", "High", "Low", "Close", "Volume"]])
+    idx = pd.date_range("2022-01-03", periods=3, freq="B", tz="America/New_York")
+    frame = pd.DataFrame(1.0, index=idx, columns=cols)
+
+    class _FakeYFDownload:
+        @staticmethod
+        def download(tickers, **kwargs):
+            return frame
+
+    orig = dp.yf
+    dp.yf = _FakeYFDownload
+    try:
+        provider = dp.YFinanceResearchProvider()
+        bars = provider.get_bars_batch(["AAPL", "MSFT"], interval="1d", period="1y")
+    finally:
+        dp.yf = orig
+    for ticker in ("AAPL", "MSFT"):
+        assert bars[ticker].index.tz is None
+        assert [t.date() for t in bars[ticker].index] == [t.date() for t in idx]
+
+
+def test_strip_tz_naive_preserves_trading_day_and_handles_edge_cases():
+    aware = _aware_daily_bars(periods=5)
+    out = dp._strip_tz_naive(aware)
+    assert out.index.tz is None
+    # .date() der naiven == .date() der aware Bars (Kern-Nuance)
+    assert [t.date() for t in out.index] == [t.date() for t in aware.index]
+    # None / leerer Frame robust
+    assert dp._strip_tz_naive(None) is None
+    empty = pd.DataFrame(columns=["Open", "Close"])
+    assert dp._strip_tz_naive(empty) is empty
+
+
+def test_normalized_yf_bars_do_not_crash_lab_split():
+    # Regression W5.1: tz-aware Daily-Bars ließen lab._split() gegen naive pd.Timestamp crashen
+    # (TypeError: Cannot compare tz-naive and tz-aware timestamps).
+    from stockbot.optimize import lab
+    idx = pd.date_range("2022-01-03", periods=600, freq="B", tz="America/New_York")
+    df = pd.DataFrame(
+        {"Open": 1.0, "High": 1.1, "Low": 0.9, "Close": 1.05, "Volume": 1000}, index=idx)
+    normalized = dp._strip_tz_naive(df)
+    data = {"AAA": normalized}
+    first, split, last, is_years, oos_years = lab._split(data)  # darf nicht werfen
+    assert split.tz is None
+    # der ursprüngliche crashende Vergleich läuft jetzt sauber
+    assert (pd.Timestamp("2022-06-01") < split) in (True, False)
+
+
 def test_get_quote_maps_fast_info_to_quote():
     ticker = _FakeTicker(price=189.5)
     orig = dp.yf
