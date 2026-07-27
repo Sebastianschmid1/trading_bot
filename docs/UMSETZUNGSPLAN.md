@@ -38,7 +38,7 @@
   §32.3 + §32.4) → **2026-07-25 `af9e546` DEPLOYT: §32.5 + Testsuite-Hygiene/erste CI + UTC-Bugfix +
   6-Task-Audit-Abarbeitung (Charts/Glossar/Risiko-Wiring/Backtest/fail-closed) + PS-Lock. Maßgeblich
   ist immer der letzte deployte Eintrag = `af9e546`.**
-- **Zuletzt (2026-07-27, GitHub `main`, NICHT deployt):** `5acf6cf` UI-Abstand
+- **Zuletzt (2026-07-27, DEPLOYT, VPS-main `324f52c`):** `5acf6cf` UI-Abstand
   „Position schließen"-Button (visuelle Abnahme) + `c1887c0` **Labor-Regressionsfix**: der
   `YFinanceResearchProvider` lieferte seit W5.1 (`0c877e8`, Umstellung von `yf.download` auf
   `yf.Ticker.history`) einen **tz-aware** Tages-Index → das Strategie-Labor crashte bei jedem Lauf mit
@@ -46,8 +46,19 @@
   16.07. tot). Fix am Provider-Seam: neue Helferfunktion `_strip_tz_naive` (bewusst `tz_localize(None)`,
   erhält den lokalen Handelstag) in `get_bars`/`get_bars_batch` — analog zum Alpaca-Pfad
   (`_normalize_alpaca_bars`), damit beide demselben naiven Zeitvertrag folgen. `optimize/lab.py` selbst
-  unangetastet. 5 neue Provider-/Regressionstests, gezielte Suites 80 passed. **Beide warten auf den
-  nächsten Deploy.**
+  unangetastet. 5 neue Provider-/Regressionstests, gezielte Suites 80 passed. GitHub-`main` `3c4399d`.
+  Deploy: kein Migration-/Dependency-Bedarf (Alembic-Head bleibt `d0e1f2a3b4c5`), Backup
+  `stockbot_pre_labortzfix_20260727_1852.dump`, Smoke grün (Import-strip liefert naiv, Dashboard 200,
+  Journal fehlerfrei).
+- **⚠️ INFRA-BEFUND 2026-07-27 — VPS-`main` ≠ GitHub-`main` (divergiert an `af9e546`):** Der VPS
+  `/root/stockbot` main trägt **15 zusätzliche „wedding"-Commits** (eine komplette Hochzeits-Foto-/
+  Video-Galerie: `wedding.service`, eigene TLS-Domain/Caddy-Route, Gast-Zugang; HEAD vor diesem Deploy
+  `30d8296`), die **nicht** auf GitHub-`main` liegen (nur als Branch `origin/claude/wedding-photo-gallery-upload-wokhvn`).
+  Der VPS **kann nicht von GitHub fetchen** (`git@github.com: Permission denied (publickey)`), Deploy geht
+  daher ausschließlich über „Branch von hier zum VPS-Repo pushen + `ssh` lokal mergen". **Folge für jeden
+  künftigen Deploy: KEIN ff-merge — immer `git merge --no-ff` des gepushten Deploy-Branches in den VPS-main.**
+  Trading- und Wedding-Dateien überschneiden sich nicht → Merge konfliktfrei; `systemctl restart stockbot`
+  betrifft nur `run_bot.py`, nicht `wedding.service`. Postgres-Container heißt `stockbot-postgres-postgres-1`.
 - **Prod-Befund 2026-07-20 „keine Marktdaten" — BEHOBEN am selben Abend.** Auf dem VPS fehlten
   `ALPACA_API_KEY`/`ALPACA_API_SECRET`; seit W3.2 ist der Signalpfad Alpaca-only, also lief
   jede Minute „Bars … nicht abrufbar" und es entstanden **0 Orders seit dem 19.07-Deploy**
