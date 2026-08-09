@@ -417,6 +417,16 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**.
    **Punkt 1b ist damit vollständig abgearbeitet — „Gate Style"-Rest geschlossen.**
 
+**Worktree-Aufräumung 2026-08-09.** Die 13 alten Agent-Worktrees unter
+`.claude/worktrees/` (172 MB) wurden entfernt und ihre gemergten `agent/*`-Branches
+gelöscht. Zwei Befunde dabei: (1) im Worktree `agent-obs-001` lag **uncommittete**
+Arbeit (149 Zeilen + `tests/test_obs_rejection.py`) — als Patch gesichert unter
+`~/backups/trading_bot-worktree-obs-001-20260809/`, falls sie noch gebraucht wird.
+(2) `agent/fix-yf-tz-naive` galt als ungemergt, war es inhaltlich aber nicht: der
+tz-Fix kam über `c1887c0` (2026-07-27) in `main`, `git diff main <branch>` zeigt für
+`stockbot/market/data_providers.py` **keinen** Unterschied. Der Branch trug nur einen
+älteren Stand von `app.html` und wurde deshalb gelöscht — keine verlorene Arbeit.
+
 **Style-Audit (d)–(g) erledigt (Stand 2026-08-09, NICHT deployt).** (e)/(f) `394ff30`
 (`--cat-1…6` in `stockbot/web/static/tokens.css`, gemeinsame Quelle
 `stockbot/core/chart_palette.py` für Web und matplotlib), (g) `5a98bdb`
