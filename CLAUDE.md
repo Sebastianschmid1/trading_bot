@@ -11,34 +11,33 @@ gesperrt** (Kill-Switch TSAFE-001). Läuft in Produktion auf `DB_BACKEND=postgre
 > `main_projekt/agent-control/` (aktiv über `~/.claude/CLAUDE.md`). Hier stehen nur
 > die Abweichungen und Fakten dieses Projekts.
 
-## Worker-Besetzung (Override)
+Kommandos, DB-Konventionen und die Implementierer-Regeln stehen in `AGENTS.md`
+(dieselbe Datei liest Codex) und werden hier eingebunden:
 
-Implementierer ist hier **kein Codex**, sondern ein **Claude-Subagent** über das
-Agent-Tool: `subagent_type: "general-purpose"` mit `isolation: "worktree"` — der
-Worktree erbt das installierte Environment des Repos (keine `codex`-Auth, keine
-Wegwerf-`.env`). Ein Subagent pro abgegrenztem Task; unabhängige Tasks als mehrere
-Agent-Calls in **einer** Nachricht.
+@AGENTS.md
 
-Der Subagent arbeitet nur in seinem Worktree, committet auf `agent/<ticket>`, pusht
-und merged nie selbst und fasst `docs/PLAN_CHECKLIST.md` / `docs/UMSETZUNGSPLAN.md`
-nie an — die gehören dem Lead. Nächste Runde am selben Task per `SendMessage` an die
-Agent-ID (Kontext bleibt), nicht als neuer Agent-Call.
+## Worker-Besetzung
+
+**Codex** ist hier der Implementierer — der zentrale Default gilt unverändert.
+Aufruf pro Task mit dem Handoff-Block aus `planner.md`:
+
+```bash
+codex exec "<Goal · Context · Scope · Acceptance Criteria · Validation>"
+```
+
+Ein Task = ein Branch `agent/<ticket>`. Codex pusht und merged nie selbst; Merge,
+Push und Deploy macht der Lead nach dem Diff-Review.
+
+**Claude-Fallback** nach der zentralen Regel (`routing.md` → „Worker-Besetzung und
+Claude-Fallback"): ist Codex nicht verfügbar oder scheitern zwei Fix-Runden, springt
+ein Claude-Subagent ein — `subagent_type: "general-purpose"` mit
+`isolation: "worktree"`, weil der Worktree das installierte Environment des Repos
+erbt (kein Neuaufsetzen, keine Wegwerf-`.env`). Der Grund wird im Ergebnis genannt.
 
 **Verschärfung gegenüber der zentralen Policy:** In diesem Repo wird
 Implementierungsarbeit grundsätzlich delegiert, auch wenn sie klein wirkt. Selbst
 erledigen darfst du nur Glue/Config/Docs und Ein-Zeilen-Fixes im Reviewfluss.
 Grund: sicherheitskritisches Live-Trading — jeder Diff soll durch das Review-Gate.
-
-## Kommandos
-
-<!-- Ein falsches Kommando hier ist schlimmer als keins. Halte es aktuell. -->
-- Install: `pip install -e . && pip install -r requirements-dev.txt`
-- Tests: `python -m pytest` (pyproject setzt `testpaths=tests`, ignoriert `tests/test_bot.py`)
-- Einzelne Suite: `python -m pytest tests/test_<x>.py -q`
-- **Kein** konfigurierter Linter/Typechecker — verlasse dich auf Tests + Review.
-- Deploy (Produktion, VPS `217.160.103.25`): git push auf einen frischen Branch →
-  ssh ff-merge in `main` → `systemctl restart stockbot`. **Nur auf ausdrückliche
-  Anweisung** (siehe Sicherheits-Leitplanken).
 
 ## Plan-Dokumente & Merge-Gate
 
@@ -56,31 +55,20 @@ Grund: sicherheitskritisches Live-Trading — jeder Diff soll durch das Review-G
 - Beim Review zusätzlich zur zentralen Checkliste: Postgres-Contract-Tests, die ohne
   echtes Postgres sauber skippen, am VPS gegenverifizieren — ein Skip ist kein Grün.
 
-## Sicherheits-Leitplanken (dieses Projekt, nicht verhandelbar)
+## Sicherheits-Leitplanken für den Lead (nicht verhandelbar)
 
-- **Paper bleibt Standard, Live bleibt hart gesperrt.** TSAFE-Pfade (Live-Kill-Switch,
-  Leverage-/Options-Blockade, direkte Broker-Calls) nie schwächen. Änderungen am
-  Live-Trade-**Verhalten** (Exit-Policies, Sizing, Order-Routing) explizit ankündigen und
-  **vor** dem Deploy freigeben lassen — nie stillschweigend annehmen.
-- **DB-Zeitvertrag:** immer naive UTC-Strings `'YYYY-MM-DD HH:MM:SS'` binden
-  (`_utc_timestamp()`), **nie** auf Server-Default `CURRENT_TIMESTAMP` verlassen (Postgres
-  liefert tz-aware `'+00'` → naiv/aware-Bugs).
-- **DB-Zugriff über den Seam** (`_database().transaction()`), **nicht** rohes `_connect()`
-  (das öffnet immer SQLite, ignoriert `DB_BACKEND`).
-- **Produktions-Deploy ist ein Gate:** Push/ff-merge/restart auf dem Live-VPS nur, wenn der
-  User das Ziel ausdrücklich benennt ("deploy to the VPS"). Die Safety-Klassifizierung
-  blockt sonst zurecht — nicht umgehen.
+Die Implementierer-Verbote (TSAFE-Pfade, Plan-Dateien, Deploy, Secrets) stehen in
+`AGENTS.md`. Zusätzlich gilt für dich als Lead:
 
-## Projekt-Konventionen
-
-- **DB-Zugriff über den Seam:** `with _database().transaction() as transaction:` mit
-  **benannten** Parametern (`:name`, nicht `?`), dann `transaction.one/all/execute`.
-- **SQLite bitgleich halten:** wer den Seam-Pfad anfasst, muss auf beiden Backends
-  identische Ergebnisse liefern.
-- Deutsche Kommentare/Docstrings, Namens- und Strukturmuster des umgebenden Codes
-  spiegeln. Neue Tests neben die bestehenden in `tests/`.
-- Commit-Messages deutsch im Repo-Stil: `<typ>(<scope>): <was & warum>`
-  (z. B. `fix(dbport): ts explizit binden`).
+- **Paper bleibt Standard, Live bleibt hart gesperrt.** Änderungen am
+  Live-Trade-**Verhalten** (Exit-Policies, Sizing, Order-Routing) explizit ankündigen
+  und **vor** dem Deploy freigeben lassen — nie stillschweigend annehmen.
+- **Produktions-Deploy ist ein Gate:** Push/ff-merge/restart auf dem Live-VPS
+  (`217.160.103.25`, `systemctl restart stockbot`) nur, wenn der User das Ziel
+  ausdrücklich benennt („deploy to the VPS"). Die Safety-Klassifizierung blockt sonst
+  zurecht — nicht umgehen.
+- Jeder Codex-Diff, der einen TSAFE-Pfad oder den DB-Seam berührt, wird vollständig
+  gelesen — keine Stichprobe.
 
 ## Memory
 
