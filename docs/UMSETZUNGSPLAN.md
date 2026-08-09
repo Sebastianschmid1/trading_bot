@@ -408,13 +408,23 @@ Was noch offen ist (Stand 2026-07-21 abends, VPS auf `d107f97`):
    zulässig durch), der Locale-Widerspruch in §6.3 (Punkt/Komma gemischt) ist im Konzept gefixt. Als
    **normative Präzisierungen** neu bzw. offen (kleine, gut abgrenzbare Subagent-Tasks, „Gate Style"-Rest):
    **(a) §32.3 ✅ ERLEDIGT** (`eefa106`+`b0db2c1`, s. u.); **(b) §32.4 ✅ ERLEDIGT** (`6982f0c`, s. u.);
-   **(c) §32.5 ✅ ERLEDIGT** (`ad87da8`, s. u.); (d) §32.6 §9.1-Navigation auf
-   die echten Routen mappen (`watchlist`/`history`/`backtest`/`lab` etc. dürfen nicht ungestylt
-   bleiben); (e) §32.7 kategoriale, farbenblind-sichere Chart-Palette `--cat-1…6` (getrennt von
-   Grün/Rot); (f) §32.8 gemeinsames matplotlib-Style-Mapping der Tokens, damit Backtest-/Report-PNGs
-   nicht von den Web-Charts abweichen; (g) §32.9 ein Web↔Telegram-Glossar (DoD §30 verlangt
-   Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**. Reihenfolge:
-   Rest nach Bedarf.
+   **(c) §32.5 ✅ ERLEDIGT** (`ad87da8`, s. u.); **(d) §32.6 ✅ ERLEDIGT** (`6004063`, 2026-08-09,
+   s. u.) — §9.1-Navigation auf
+   die echten Routen gemappt (`watchlist`/`history`/`backtest`/`lab` etc. dürfen nicht ungestylt
+   bleiben); **(e) §32.7 ✅ ERLEDIGT** (`394ff30`) kategoriale, farbenblind-sichere Chart-Palette `--cat-1…6` (getrennt von
+   Grün/Rot); **(f) §32.8 ✅ ERLEDIGT** (`394ff30`) gemeinsames matplotlib-Style-Mapping der Tokens, damit Backtest-/Report-PNGs
+   nicht von den Web-Charts abweichen; **(g) §32.9 ✅ ERLEDIGT** (`5a98bdb`) ein Web↔Telegram-Glossar (DoD §30 verlangt
+   Begriffs-Parität, Quelle fehlte). Kein Live-Trade-Verhalten außer (a)/(b), die **härten**.
+   **Punkt 1b ist damit vollständig abgearbeitet — „Gate Style"-Rest geschlossen.**
+
+**Style-Audit (d)–(g) erledigt (Stand 2026-08-09, NICHT deployt).** (e)/(f) `394ff30`
+(`--cat-1…6` in `stockbot/web/static/tokens.css`, gemeinsame Quelle
+`stockbot/core/chart_palette.py` für Web und matplotlib), (g) `5a98bdb`
+(`stockbot/core/glossary.py`) — beide waren bereits in `main`, im Plan aber noch als
+offen geführt; hier nachgetragen. (d) `6004063`: §9.1 auf die neun echten Seitenrouten
+gemappt, reiner Doku-Task ohne Codeänderung. **Erster Task, der über `codex exec`
+statt über einen Claude-Subagenten lief** (Handoff nach `agent-control/planner.md`,
+Diff vom Lead reviewt, Suite gegengefahren: 1287 passed, 29 skipped).
 
 **Style-Audit (a)+(b) erledigt (2026-07-23, `6982f0c`+`eefa106`+`b0db2c1`, DEPLOYT auf VPS `d4fc73e`).**
 Deploy: Backup `/var/backups/stockbot/stockbot-20260723-215229.dump.age`, push→VPS+ff-merge, Restart.
