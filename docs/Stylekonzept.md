@@ -435,23 +435,21 @@ Karten im normalen Layout benötigen meist keinen Schatten. Dialoge und Popover 
 
 ## 9.1 Desktop-Sidebar
 
-Reihenfolge:
+Hauptnavigation:
 
-1. Übersicht
-2. Signale
-3. Positionen
-4. Orders
-5. Strategien
-6. Performance
-7. Research
-8. Einstellungen
+1. Signale und aktive Positionen (`/app`)
+2. Watchlist (`/app/watchlist`)
+3. Verlauf (`/app/history`)
+4. Dashboard (`/app/dashboard`)
+5. Einstellungen (`/app/settings`)
 
-Admin-Bereich getrennt:
+Research-/Admin-Bereich abgesetzt:
 
-- Strategie-Labor
-- Systemstatus
-- Audit
-- Nutzerverwaltung
+- Reports (`/app/reports`)
+- Backtest (`/app/backtest`)
+- Strategie-Labor (`/app/lab`)
+
+Die Anmeldung (`/login`) ist eine eigenständige Seite außerhalb der Sidebar.
 
 ### Sidebar-Stil
 
