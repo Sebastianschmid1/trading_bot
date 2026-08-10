@@ -14,6 +14,25 @@ colors:
   ink: "#241F35"
   ink-muted: "#4E4763"
   ink-on-iris: "#1B2340"
+  # CVD-safe categorical chart palette (--cat-1..6, coupled to chart_palette.py) —
+  # a data-encoding contract preserved for multi-series charts, deliberately NOT
+  # restyled into the accent violet/teal. Literal in Chart.js JS (canvas can't read CSS vars).
+  cat-1: "#3987e5"
+  cat-2: "#d95926"
+  cat-3: "#199e70"
+  cat-4: "#c98500"
+  cat-5: "#d55181"
+  cat-6: "#9085e9"
+  # Chart chrome + mode-chip literals: mirror the --lg-* tokens / derived faint lines,
+  # written literally because Chart.js / the canvas gauge cannot resolve CSS variables.
+  chart-grid: "rgb(38 28 60 / .08)"
+  mode-paper: "#8A5A0F"
+  mode-shadow: "#3358B5"
+  # Live-status pulse glow (connection heartbeat on the .pill dot) — --lg-success (#3E9E6E) at alpha.
+  pulse-glow: "rgb(62 158 110 / .6)"
+  pulse-glow-soft: "rgb(62 158 110 / .45)"
+  # Glass edge highlight, sibling of --lg-edge (white at .5).
+  glass-edge-half: "rgb(255 255 255 / .5)"
 components:
   # Project-specific compositions built ON the vendored primitives.
   kpi-hero-iris:
