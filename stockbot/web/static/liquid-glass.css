@@ -1,0 +1,706 @@
+/* ============================================================================
+   Liquid Glass — Design-System, nachgebaut aus liquid-glass-1.jpg
+   ----------------------------------------------------------------------------
+   Alle Werte sind am Bild gemessen. Die Beschriftungen der Vorlage sind
+   KI-Kauderwelsch ("decordary", "Upoctle plan"), also zaehlen nur die Formen.
+
+   DAS MATERIAL — die eine Regel, aus der alles folgt:
+   Bauteile sind KOERPER AUS GEL, durch die Licht hindurchgeht.
+     oben   -> Specular: ein weiches weisses Band im oberen Drittel
+     unten  -> Kaustik: das Licht buendelt sich an der Unterkante
+     darunter -> ein Schatten IN DER FARBE DES KOERPERS, nicht in Grau
+   Der farbige Schatten ist der Kern. Ein grauer Schatten macht aus Gel Plastik.
+
+   Flaechen sind MATTGLAS: halbtransparent, mit backdrop-filter, und einer
+   duennen hellen Kontur, weil sich Licht in der Glaskante faengt.
+
+   Deshalb braucht dieses System einen Grund. Glas ueber Weiss ist unsichtbar;
+   body.lg-body bringt einen mit, den ein Projekt ersetzen darf.
+
+   Alle Klassen tragen das Praefix lg-. Zustaende laufen ueber ARIA-Attribute.
+   ========================================================================= */
+
+
+/* ---------------------------------------------------------------------------
+   1 — TOKENS (hell)
+   ------------------------------------------------------------------------ */
+
+:root {
+  /* --- Der Grund ---------------------------------------------------------
+     Gemessen: warmer Beige-Verlauf, oben links #EEDED1, unten rechts #BCAFA9.
+     Als CSS-Mesh nachgebaut, damit die Datei ohne Bild-Asset auskommt.       */
+  --lg-bg-1: #F3E6DA;
+  --lg-bg-2: #DDCBC4;
+  --lg-bg-3: #A99C9C;
+  --lg-bg-4: #C8B8B2;
+
+  /* --- Glas --------------------------------------------------------------
+     Die Fuellung ist Weiss mit niedriger Deckkraft; die Farbe darunter kommt
+     vom Grund. Deshalb sind das Alpha-Werte, keine Hexwerte.                */
+  --lg-glass-hi:  rgb(255 255 255 / .38);   /* obere Kante der Flaeche       */
+  --lg-glass:     rgb(255 255 255 / .16);   /* Flaechenmitte                 */
+  --lg-glass-lo:  rgb(255 255 255 / .10);
+  --lg-glass-solid: rgb(255 255 255 / .82); /* Flaechen, die Text tragen     */
+  --lg-edge:      rgb(255 255 255 / .55);   /* die Lichtkante des Glases     */
+  --lg-edge-soft: rgb(255 255 255 / .28);
+  --lg-blur: 24px;
+  --lg-saturate: 1.5;
+
+  /* --- Akzente -----------------------------------------------------------
+     Die Flaechenwerte sind die der Vorlage, gemessen an einer textfreien
+     Spalte in der Mitte des Buttons. Der Koerper ist NICHT verlaufend, sondern
+     flach — die Helligkeit entsteht durch Specular oben und Kaustik unten.
+     Gemessenes Profil violett: 174 oben, 136 Koerper, 194 unten.
+     Weisse Schrift erreicht darauf nur 3,3:1 (violett) und 2,1:1 (tuerkis),
+     beides unter AA. Die Farbe bleibt, die Tinte wird dunkel.               */
+  --lg-violet:     #997CE6;   /* Koerperfarbe, gemessen (Mitte des Buttons) */
+  --lg-violet-rgb: 153 124 230;
+
+  --lg-teal:     #6EC4B9;     /* dito                                        */
+  --lg-teal-rgb: 110 196 185;
+
+  --lg-pink:     #E58FD6;
+  --lg-pink-rgb: 229 143 214;
+
+  /* Die Verlaufskarte — die einzige Flaeche, die selbst Farbe traegt */
+  --lg-iris-1: #9C8BE8;
+  --lg-iris-2: #8FA6E8;
+  --lg-knob:   #E8E4F2;   /* Auslauf des Schalterknopfs */
+
+  /* Irisierend — die Reihenfolge der Vorlage: Violett, Rosa, Tuerkis */
+  --lg-iris: conic-gradient(from 210deg,
+    var(--lg-violet), var(--lg-pink), var(--lg-teal), var(--lg-violet));
+
+  /* --- Tinte ------------------------------------------------------------- */
+  --lg-ink:        #241F35;   /* auf hellem Glas — 11,7:1                    */
+  --lg-ink-muted:  #4E4763;   /* sekundaer                                    */
+  --lg-ink-on-violet: #1C1233;   /* 5,4:1 auf der Originalfarbe            */
+  --lg-ink-on-teal:   #0E332E;   /* 6,7:1                                    */
+  --lg-ink-on-glass:  #241F35;
+  --lg-ink-on-iris:       #1B2340;
+  --lg-ink-on-iris-muted: #2E3557;
+
+  /* --- Semantik ---------------------------------------------------------- */
+  --lg-success: #3E9E6E;
+  --lg-warning: #B87A18;
+  --lg-error:   #C6455C;
+
+  /* --- Fokus -------------------------------------------------------------
+     Auf Glas ist ein heller Ring unsichtbar. Deshalb zweifarbig: dunkler Kern
+     traegt die Sichtbarkeit, heller Halo traegt die Optik.                  */
+  --lg-focus: #2B1E63;
+  --lg-focus-halo: rgb(255 255 255 / .85);
+
+  /* --- Schatten ----------------------------------------------------------
+     Zwei Sorten. Der neutrale traegt die Hoehe, der farbige das Licht, das
+     durch den Koerper faellt. Nur Koerper aus Gel bekommen den farbigen.    */
+  --lg-cast-1: 0 2px 6px -2px rgb(38 28 60 / .28),
+               0 8px 18px -8px rgb(38 28 60 / .30);
+  --lg-cast-2: 0 3px 8px -3px rgb(38 28 60 / .30),
+               0 16px 32px -12px rgb(38 28 60 / .34);
+  --lg-cast-3: 0 4px 10px -4px rgb(38 28 60 / .32),
+               0 28px 56px -18px rgb(38 28 60 / .38);
+
+  /* Die Innenkanten eines Glaskoerpers: Lichtkante oben, Reflex unten. */
+  --lg-facet:
+    inset 0  1px 0 rgb(255 255 255 / .55),
+    inset 0 -1px 0 rgb(255 255 255 / .30);
+
+  /* Das Gegenstueck: eine Rinne, in die etwas eingelassen ist */
+  --lg-trough: inset 0 1px 2px rgb(38 28 60 / .18);
+
+  /* --- Geometrie --------------------------------------------------------- */
+  --lg-r-xs:    8px;   /* nur Checkbox — kleiner als jede Flaeche */
+  --lg-r-sm:   12px;
+  --lg-r-md:   18px;
+  --lg-r-lg:   26px;
+  --lg-r-xl:   34px;
+  --lg-r-pill: 999px;
+
+  --lg-space-1:  4px;
+  --lg-space-2:  8px;
+  --lg-space-3: 12px;
+  --lg-space-4: 16px;
+  --lg-space-5: 20px;
+  --lg-space-6: 24px;
+  --lg-space-7: 32px;
+  --lg-space-8: 40px;
+
+  /* --- Typografie --------------------------------------------------------
+     Die Vorlage ist in einer humanistischen Grotesk gesetzt. Der System-Stack
+     trifft das und braucht kein Webfont.                                    */
+  --lg-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+             "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --lg-size-display: 34px;
+  --lg-size-title:   22px;
+  --lg-size-body:    16px;
+  --lg-size-small:   14px;
+  --lg-size-micro:   12px;
+}
+
+
+/* ---------------------------------------------------------------------------
+   2 — TOKENS (dunkel)
+   Glas im Dunkeln kehrt sich um: die Fuellung wird schwarz statt weiss, die
+   Lichtkante bleibt hell, aber schwach. Der Grund darf nicht schwarz sein,
+   sonst hat das Glas nichts zu brechen.
+   ------------------------------------------------------------------------ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --lg-bg-1: #3B3350;
+    --lg-bg-2: #262036;
+    --lg-bg-3: #14111F;
+    --lg-bg-4: #2A2340;
+
+    --lg-glass-hi:  rgb(255 255 255 / .16);
+    --lg-glass:     rgb(255 255 255 / .07);
+    --lg-glass-lo:  rgb(255 255 255 / .04);
+    --lg-glass-solid: rgb(28 24 42 / .82);
+    --lg-edge:      rgb(255 255 255 / .28);
+    --lg-edge-soft: rgb(255 255 255 / .14);
+
+    --lg-violet:     #A98EF2;
+    --lg-violet-rgb: 169 142 242;
+    --lg-teal:       #7FD2C6;
+    --lg-teal-rgb:   127 210 198;
+
+    --lg-ink:           #F2EEFF;
+    --lg-ink-muted:     #B8B0D0;
+    --lg-ink-on-violet: #1C1233;
+    --lg-ink-on-teal:   #0E2F2A;
+    --lg-ink-on-glass:  #F2EEFF;
+  --lg-ink-on-iris:       #1B2340;
+  --lg-ink-on-iris-muted: #2E3557;
+    --lg-ink-on-iris:       #1B2340;
+    --lg-ink-on-iris-muted: #2E3557;
+
+    --lg-success: #6FD3A0;
+    --lg-warning: #E5B55A;
+    --lg-error:   #F0899C;
+
+    --lg-focus: #EDE7FF;
+    --lg-focus-halo: rgb(30 20 60 / .85);
+
+    --lg-cast-1: 0 2px 6px -2px rgb(0 0 0 / .55), 0 8px 18px -8px rgb(0 0 0 / .55);
+    --lg-cast-2: 0 3px 8px -3px rgb(0 0 0 / .60), 0 16px 32px -12px rgb(0 0 0 / .60);
+    --lg-cast-3: 0 4px 10px -4px rgb(0 0 0 / .62), 0 28px 56px -18px rgb(0 0 0 / .66);
+  --lg-trough: inset 0 1px 2px rgb(0 0 0 / .45);
+    --lg-trough: inset 0 1px 2px rgb(0 0 0 / .45);
+
+    --lg-facet:
+      inset 0  1px 0 rgb(255 255 255 / .26),
+      inset 0 -1px 0 rgb(255 255 255 / .12);
+  }
+}
+
+:root[data-theme="dark"] {
+  --lg-bg-1: #3B3350;
+  --lg-bg-2: #262036;
+  --lg-bg-3: #14111F;
+  --lg-bg-4: #2A2340;
+
+  --lg-glass-hi:  rgb(255 255 255 / .16);
+  --lg-glass:     rgb(255 255 255 / .07);
+  --lg-glass-lo:  rgb(255 255 255 / .04);
+  --lg-glass-solid: rgb(28 24 42 / .82);
+  --lg-edge:      rgb(255 255 255 / .28);
+  --lg-edge-soft: rgb(255 255 255 / .14);
+
+  --lg-violet:     #A98EF2;
+  --lg-violet-rgb: 169 142 242;
+  --lg-teal:       #7FD2C6;
+  --lg-teal-rgb:   127 210 198;
+
+  --lg-ink:           #F2EEFF;
+  --lg-ink-muted:     #B8B0D0;
+  --lg-ink-on-violet: #1C1233;
+  --lg-ink-on-teal:   #0E2F2A;
+  --lg-ink-on-glass:  #F2EEFF;
+  --lg-ink-on-iris:       #1B2340;
+  --lg-ink-on-iris-muted: #2E3557;
+
+  --lg-success: #6FD3A0;
+  --lg-warning: #E5B55A;
+  --lg-error:   #F0899C;
+
+  --lg-focus: #EDE7FF;
+  --lg-focus-halo: rgb(30 20 60 / .85);
+
+  --lg-cast-1: 0 2px 6px -2px rgb(0 0 0 / .55), 0 8px 18px -8px rgb(0 0 0 / .55);
+  --lg-cast-2: 0 3px 8px -3px rgb(0 0 0 / .60), 0 16px 32px -12px rgb(0 0 0 / .60);
+  --lg-cast-3: 0 4px 10px -4px rgb(0 0 0 / .62), 0 28px 56px -18px rgb(0 0 0 / .66);
+  --lg-trough: inset 0 1px 2px rgb(0 0 0 / .45);
+
+  --lg-facet:
+    inset 0  1px 0 rgb(255 255 255 / .26),
+    inset 0 -1px 0 rgb(255 255 255 / .12);
+}
+
+
+/* ---------------------------------------------------------------------------
+   3 — BASIS UND GRUND
+   ------------------------------------------------------------------------ */
+
+body.lg-body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(62% 50% at 12%  8%, var(--lg-bg-1), transparent 70%),
+    radial-gradient(55% 45% at 88% 18%, var(--lg-bg-2), transparent 70%),
+    radial-gradient(70% 62% at 72% 92%, var(--lg-bg-3), transparent 72%),
+    linear-gradient(152deg, var(--lg-bg-2), var(--lg-bg-4));
+  background-attachment: fixed;
+  color: var(--lg-ink);
+  font-family: var(--lg-font);
+  font-size: var(--lg-size-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lg-body *,
+.lg-body *::before,
+.lg-body *::after { box-sizing: border-box; }
+
+.lg-body ::selection { background: var(--lg-violet); color: #fff; }
+.lg-body input, .lg-body textarea { caret-color: var(--lg-violet); }
+
+
+/* ---------------------------------------------------------------------------
+   4 — TYPOGRAFIE
+   ------------------------------------------------------------------------ */
+
+.lg-display, .lg-title { margin: 0; color: var(--lg-ink); }
+.lg-display { font-size: var(--lg-size-display); line-height: 1.15; font-weight: 700; letter-spacing: -.02em; }
+.lg-title   { font-size: var(--lg-size-title);   line-height: 1.25; font-weight: 600; letter-spacing: -.01em; }
+.lg-text    { margin: 0; font-size: var(--lg-size-body); line-height: 1.55; }
+.lg-caption { margin: 0; font-size: var(--lg-size-small); line-height: 1.45; color: var(--lg-ink-muted); }
+.lg-num     { font-variant-numeric: tabular-nums; }
+
+
+/* ---------------------------------------------------------------------------
+   5 — GLASFLAECHEN
+   Jede Glasflaeche braucht drei Dinge: halbtransparente Fuellung,
+   backdrop-filter und die helle Kante. Fehlt der Filter, ist es nur eine
+   milchige Flaeche; fehlt die Kante, schwimmt sie ohne Rand im Grund.
+   ------------------------------------------------------------------------ */
+
+.lg-glass,
+.lg-panel,
+.lg-card {
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass) 46%, var(--lg-glass-lo));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  border: 1px solid var(--lg-edge);
+  color: var(--lg-ink-on-glass);
+}
+
+.lg-glass { border-radius: var(--lg-r-lg); box-shadow: var(--lg-cast-1), var(--lg-facet); }
+.lg-panel { padding: var(--lg-space-6); border-radius: var(--lg-r-xl); box-shadow: var(--lg-cast-3), var(--lg-facet); }
+.lg-card  { padding: var(--lg-space-5); border-radius: var(--lg-r-lg); box-shadow: var(--lg-cast-2), var(--lg-facet); }
+
+/* Flaechen, die Fliesstext tragen, sind deutlich dichter — sonst laeuft der
+   Grund durch die Schrift und der Kontrast ist nicht mehr vorhersagbar. */
+.lg-card--solid,
+.lg-glass--solid {
+  background: var(--lg-glass-solid);
+  border-color: var(--lg-edge-soft);
+}
+
+/* Verlaufskarte der Vorlage: Rosa nach Periwinkle nach Cyan. */
+.lg-card--iris {
+  background:
+    radial-gradient(90% 120% at 8% 0%,  rgb(var(--lg-pink-rgb) / .85), transparent 60%),
+    radial-gradient(90% 120% at 95% 90%, rgb(var(--lg-teal-rgb) / .85), transparent 62%),
+    linear-gradient(140deg, var(--lg-iris-1), var(--lg-iris-2));
+  border-color: rgb(255 255 255 / .5);
+  color: var(--lg-ink-on-iris);
+}
+.lg-card--iris .lg-caption { color: var(--lg-ink-on-iris-muted); }
+
+
+/* ---------------------------------------------------------------------------
+   6 — FOKUS
+   ------------------------------------------------------------------------ */
+
+.lg-body :focus-visible {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: 3px;
+}
+.lg-btn:focus-visible,
+.lg-icon-btn:focus-visible,
+.lg-tab:focus-visible {
+  --lg-ring: 0 0 0 5px var(--lg-focus-halo);
+}
+
+
+/* ---------------------------------------------------------------------------
+   7 — GEL-BUTTONS
+   Der Aufbau von unten nach oben:
+     1. Koerperfarbe als senkrechter Verlauf
+     2. Specular: weiches weisses Band im oberen Drittel
+     3. Kaustik: das Licht buendelt sich als Bogen an der Unterkante
+   Dazu der farbige Schatten — das Licht, das durch den Koerper faellt.
+   ------------------------------------------------------------------------ */
+
+.lg-btn {
+  --lg-face:     var(--lg-violet);
+  --lg-face-rgb: var(--lg-violet-rgb);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lg-space-2);
+  min-height: 48px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: var(--lg-r-pill);
+  background:
+    radial-gradient(122% 100% at 50% 126%, rgb(255 255 255 / .88) 0%, rgb(255 255 255 / .28) 36%, rgb(255 255 255 / 0) 66%),
+    linear-gradient(180deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / 0) 44%),
+    var(--lg-face);
+  color: var(--lg-ink-on-violet);
+  font: inherit;
+  font-size: var(--lg-size-body);
+  font-weight: 600;
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    var(--lg-ring, 0 0 #0000),
+    0 16px 30px -8px rgb(var(--lg-face-rgb) / .75),
+    var(--lg-cast-1),
+    var(--lg-facet);
+  transition: box-shadow .16s ease, transform .16s ease, filter .16s ease;
+}
+
+.lg-btn:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.06);
+  box-shadow:
+    var(--lg-ring, 0 0 #0000),
+    0 24px 40px -8px rgb(var(--lg-face-rgb) / .80),
+    var(--lg-cast-2),
+    var(--lg-facet);
+}
+
+.lg-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    var(--lg-ring, 0 0 #0000),
+    0 8px 16px -8px rgb(var(--lg-face-rgb) / .55),
+    inset 0 2px 6px rgb(30 20 60 / .28);
+}
+
+.lg-btn--teal {
+  --lg-face:     var(--lg-teal);
+  --lg-face-rgb: var(--lg-teal-rgb);
+  color: var(--lg-ink-on-teal);
+}
+
+/* Glasknopf: kein eigener Koerper, nur die Scheibe */
+.lg-btn--glass {
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  border: 1px solid var(--lg-edge);
+  color: var(--lg-ink-on-glass);
+  box-shadow: var(--lg-ring, 0 0 #0000), var(--lg-cast-1), var(--lg-facet);
+}
+.lg-btn--glass:hover {
+  filter: none;
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass-hi));
+  box-shadow: var(--lg-ring, 0 0 #0000), var(--lg-cast-2), var(--lg-facet);
+}
+
+.lg-btn[disabled] {
+  cursor: not-allowed;
+  transform: none;
+  filter: grayscale(.5);
+  opacity: .55;
+  box-shadow: var(--lg-cast-1), var(--lg-facet);
+}
+
+.lg-btn--sm { min-height: 40px; padding: 0 20px; font-size: var(--lg-size-small); }
+.lg-btn svg { flex: none; }
+
+/* Runder Icon-Knopf, wie das Plus der Vorlage */
+.lg-icon-btn {
+  --lg-face:     var(--lg-violet);
+  --lg-face-rgb: var(--lg-violet-rgb);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(115% 95% at 50% 122%, rgb(255 255 255 / .70) 0%, rgb(255 255 255 / .20) 38%, rgb(255 255 255 / 0) 64%),
+    linear-gradient(180deg, rgb(255 255 255 / .32) 0%, rgb(255 255 255 / 0) 48%),
+    var(--lg-face);
+  color: #fff;
+  cursor: pointer;
+  box-shadow:
+    var(--lg-ring, 0 0 #0000),
+    0 12px 22px -8px rgb(var(--lg-face-rgb) / .60),
+    var(--lg-cast-1),
+    var(--lg-facet);
+  transition: box-shadow .16s ease, transform .16s ease;
+}
+.lg-icon-btn:hover { transform: translateY(-2px); }
+.lg-icon-btn:active { transform: translateY(1px); }
+
+.lg-icon-btn--glass {
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  border: 1px solid var(--lg-edge);
+  color: var(--lg-ink-on-glass);
+  box-shadow: var(--lg-ring, 0 0 #0000), var(--lg-cast-1), var(--lg-facet);
+}
+
+
+/* ---------------------------------------------------------------------------
+   8 — FELDER
+   Die Vorlage zeigt ein fast deckendes weisses Feld auf dem Glas. Das ist
+   richtig so: ein transparentes Eingabefeld macht Text unlesbar.
+   ------------------------------------------------------------------------ */
+
+.lg-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.lg-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid var(--lg-edge-soft);
+  border-radius: var(--lg-r-pill);
+  background: var(--lg-glass-solid);
+  -webkit-backdrop-filter: blur(var(--lg-blur));
+  backdrop-filter: blur(var(--lg-blur));
+  color: var(--lg-ink);
+  font: inherit;
+  box-shadow: var(--lg-cast-1);
+}
+.lg-input::placeholder { color: var(--lg-ink-muted); }
+.lg-input:focus-visible { outline: 2px solid var(--lg-focus); outline-offset: 2px; }
+
+.lg-field__icon {
+  position: absolute;
+  right: 20px;
+  display: flex;
+  color: var(--lg-ink-muted);
+  pointer-events: none;
+}
+.lg-field:has(.lg-field__icon) .lg-input { padding-right: 52px; }
+
+
+/* ---------------------------------------------------------------------------
+   9 — AUSWAHL: CHECKBOX, SCHALTER, RING
+   ------------------------------------------------------------------------ */
+
+.lg-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lg-space-3);
+  min-height: 44px;
+  cursor: pointer;
+}
+.lg-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.lg-check__box {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1.5px solid var(--lg-violet);
+  border-radius: var(--lg-r-xs);
+  background: rgb(255 255 255 / .55);
+  color: transparent;
+  transition: background .14s ease, color .14s ease;
+}
+.lg-check input:checked + .lg-check__box {
+  background: var(--lg-violet);
+  color: #fff;
+  box-shadow: 0 6px 14px -6px rgb(var(--lg-violet-rgb) / .70);
+}
+.lg-check input:focus-visible + .lg-check__box {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: 3px;
+}
+
+/* Schalter — die Kapsel der Vorlage mit dem Glasknopf */
+.lg-switch {
+  display: inline-flex;
+  align-items: center;
+  width: 76px;
+  height: 44px;
+  padding: 4px;
+  border: 1px solid var(--lg-edge);
+  border-radius: var(--lg-r-pill);
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+  -webkit-backdrop-filter: blur(var(--lg-blur));
+  backdrop-filter: blur(var(--lg-blur));
+  cursor: pointer;
+  box-shadow: var(--lg-facet);
+  transition: background .16s ease;
+}
+.lg-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.lg-switch__knob {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff, var(--lg-knob));
+  box-shadow: var(--lg-cast-1);
+  transition: transform .18s cubic-bezier(.32,.72,0,1);
+}
+.lg-switch input:checked ~ .lg-switch__knob { transform: translateX(32px); }
+.lg-switch:has(input:checked) {
+  background: var(--lg-violet);
+  border-color: rgb(255 255 255 / .5);
+}
+.lg-switch:has(input:focus-visible) { outline: 2px solid var(--lg-focus); outline-offset: 3px; }
+
+/* Irisierender Ring — Vorlage: Violett, Rosa, Tuerkis im Kreis */
+.lg-ring {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--lg-iris);
+  box-shadow: 0 8px 20px -8px rgb(var(--lg-violet-rgb) / .55);
+}
+.lg-ring::after {
+  content: "";
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+  -webkit-backdrop-filter: blur(var(--lg-blur));
+  backdrop-filter: blur(var(--lg-blur));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .5);
+}
+
+
+/* ---------------------------------------------------------------------------
+   10 — TABS
+   ------------------------------------------------------------------------ */
+
+.lg-tabs {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid var(--lg-edge);
+  border-radius: var(--lg-r-pill);
+  background: linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  box-shadow: var(--lg-cast-1), var(--lg-facet);
+}
+
+.lg-tab {
+  position: relative;
+  min-height: 40px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--lg-r-pill);
+  background: none;
+  color: var(--lg-ink-muted);
+  font: inherit;
+  font-size: var(--lg-size-body);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--lg-ring, 0 0 #0000);
+  transition: color .14s ease, background .14s ease;
+}
+.lg-tab[aria-selected="true"] {
+  background: var(--lg-glass-solid);
+  color: var(--lg-ink);
+  font-weight: 600;
+  box-shadow: var(--lg-ring, 0 0 #0000), var(--lg-cast-1);
+}
+.lg-tab:hover { color: var(--lg-ink); }
+
+/* Unterstrich-Variante mit dem violetten Indikator der Vorlage */
+.lg-tabs--underline {
+  display: flex;
+  gap: var(--lg-space-6);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.lg-tabs--underline .lg-tab {
+  padding: 0 0 12px;
+  border-radius: 0;
+  background: none;
+}
+.lg-tabs--underline .lg-tab[aria-selected="true"] {
+  background: none;
+  box-shadow: none;
+}
+.lg-tabs--underline .lg-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 4px;
+  border-radius: var(--lg-r-pill);
+  background: linear-gradient(90deg, var(--lg-violet), var(--lg-pink));
+}
+
+
+/* ---------------------------------------------------------------------------
+   11 — TOAST
+   ------------------------------------------------------------------------ */
+
+.lg-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--lg-space-3);
+  min-height: 52px;
+  padding: var(--lg-space-3) var(--lg-space-5);
+  border: 1px solid var(--lg-edge);
+  border-radius: var(--lg-r-lg);
+  background: var(--lg-glass-solid);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  color: var(--lg-ink);
+  font-size: var(--lg-size-small);
+  box-shadow: var(--lg-cast-2), var(--lg-facet);
+}
+.lg-toast svg { flex: none; }
+.lg-toast--success svg { color: var(--lg-success); }
+.lg-toast--warning svg { color: var(--lg-warning); }
+.lg-toast--error   svg { color: var(--lg-error); }
+
+
+/* ---------------------------------------------------------------------------
+   12 — RUECKFALL UND REDUZIERTE BEWEGUNG
+   Ohne backdrop-filter waere jede Flaeche fast durchsichtig und der Text
+   unlesbar. Dann werden alle Glasflaechen deckend.
+   ------------------------------------------------------------------------ */
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lg-glass, .lg-panel, .lg-card, .lg-tabs, .lg-toast,
+  .lg-btn--glass, .lg-icon-btn--glass, .lg-switch {
+    background: var(--lg-glass-solid);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-body *,
+  .lg-body *::before,
+  .lg-body *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+  .lg-btn:hover, .lg-icon-btn:hover { transform: none; }
+}
