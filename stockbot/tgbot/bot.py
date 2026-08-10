@@ -631,7 +631,14 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     }
 
     if not res["ok"]:
-        db.mark_broker_failed(chat_id, ticker, broker_status="submit_failed")
+        # OBS-001: den echten Ablehngrund (OMS-/Risk-Gate-Code) persistieren statt des
+        # generischen „submit_failed" — sonst ist im Dashboard/Report nicht erkennbar, WARUM
+        # nicht gekauft wurde (z. B. Positionslimit erreicht). Und IMMER loggen: bei Auto-Accept
+        # unterdrückt `_tg_status` die Telegram-Meldung, der Journal-Eintrag darf nicht fehlen.
+        reject_code = oms_result.code or "submit_failed"
+        db.mark_broker_failed(chat_id, ticker, broker_status=reject_code)
+        log.warning("[%s] Kauf %s abgelehnt: %s (%s)",
+                    chat_id, ticker, oms_result.reason or "—", reject_code)
         await _tg_status(bot, user, f"⚠️ Alpaca-Order nicht angenommen: {res['detail']}")
         return
 
@@ -1124,8 +1131,12 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
     sold += [(r["ticker"], r.get("entry") or 0.0, r.get("exit") or 0.0, r.get("pnl_eur") or 0.0, r.get("pnl_pct") or 0.0)
              for r in eod_results]
     failed = [e for e in events if e.get("note") == "close_failed"]
+    # OBS-001: heute abgelehnte Käufe sichtbar machen. Ein abgelehnter Kauf ist ein heutiger
+    # Trade in Status 'broker_failed' ohne `entry` (nie gefüllt); der `broker_status` trägt den
+    # echten Ablehngrund. `entry` gesetzt = fehlgeschlagener VERKAUF → gehört nicht hierher.
+    rejected = [t for t in today_trades if t.get("status") == "broker_failed" and not t.get("entry")]
 
-    if not bought and not sold and not failed:
+    if not bought and not sold and not failed and not rejected:
         await bot.send_message(chat_id=uid, text="📭 *Tagesreport* — heute keine Auto-Accept-Aktivität.",
                                parse_mode="Markdown")
         return
@@ -1147,6 +1158,11 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
     if not sold:
         lines.append("  — keine")
 
+    if rejected:
+        lines.append(f"🚫 *Nicht gekauft ({len(rejected)})*")
+        for t in rejected:
+            lines.append(f"  • {t['ticker']} — {broker_status_label(t.get('broker_status'))}")
+
     if failed:
         lines.append(f"⚠️ *Verkäufe fehlgeschlagen ({len(failed)})*")
         for e in failed:
@@ -1155,10 +1171,11 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
     await bot.send_message(chat_id=uid, text="\n".join(lines), parse_mode="Markdown")
     notify_svc.notify(
         uid, "📋 Tagesreport",
-        f"{len(bought)} gekauft, {len(sold)} verkauft, {len(failed)} fehlgeschlagen",
+        f"{len(bought)} gekauft, {len(sold)} verkauft, {len(rejected)} abgelehnt, "
+        f"{len(failed)} fehlgeschlagen",
         type="evaluation", user=user)
     log.info(f"[{uid}] Auto-Accept Tagesreport gesendet: {len(bought)} gekauft, {len(sold)} verkauft, "
-             f"{len(failed)} fehlgeschlagen.")
+             f"{len(rejected)} nicht gekauft, {len(failed)} fehlgeschlagen.")
 
 
 # ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────

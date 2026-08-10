@@ -59,6 +59,26 @@ BROKER_STATUS_LABELS = {
     "submit_failed": "Order konnte nicht gesendet werden",
     "missing_order_id": "Order ohne Broker-Bestätigung",
     "requested": "Verkauf angefragt",
+    # Risk-Gate-Ablehnungen (OBS-001): der echte Ablehngrund aus dem OMS wird als
+    # broker_status persistiert statt des generischen „submit_failed" — damit Dashboard,
+    # Tagesreport und Journal denselben sachlichen Grund zeigen (§25.2).
+    "kill_switch_active": f"{RISK_BLOCKED} (Kill-Switch aktiv)",
+    "max_positions_reached": f"{RISK_BLOCKED} (Positionslimit erreicht)",
+    "ticker_position_exists": f"{RISK_BLOCKED} (Position bereits offen)",
+    "daily_loss_limit_reached": f"{RISK_BLOCKED} (Tagesverlust-Limit erreicht)",
+    "exposure_cap": f"{RISK_BLOCKED} (Exposure-Limit erreicht)",
+    "daily_new_exposure": f"{RISK_BLOCKED} (Tages-Exposure-Limit erreicht)",
+    "budget_exhausted": f"{RISK_BLOCKED} (Budget erschöpft)",
+    "buying_power": f"{RISK_BLOCKED} (Buying Power zu gering)",
+    "zero_quantity": f"{RISK_BLOCKED} (Menge zu klein)",
+    "market_closed": f"{RISK_BLOCKED} (Markt geschlossen)",
+    "quote_required": f"{RISK_BLOCKED} (Kurs fehlt)",
+    "quote_stale": f"{RISK_BLOCKED} (Kurs veraltet)",
+    "quote_unavailable": f"{RISK_BLOCKED} (Kurs nicht verfügbar)",
+    "spread_wide": f"{RISK_BLOCKED} (Spread zu weit)",
+    "liquidity_low": f"{RISK_BLOCKED} (Liquidität zu gering)",
+    "signal_expired": f"{RISK_BLOCKED} (Signal abgelaufen)",
+    "signal_invalid": f"{RISK_BLOCKED} (Signal ungültig)",
 }
 
 

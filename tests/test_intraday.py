@@ -365,6 +365,77 @@ def test_bot_paper_broker_order_runs_through_oms(monkeypatch):
     assert intent["idempotency_key"] == f"telegram:{CHAT}:{trade['id']}:accept"
 
 
+def test_bot_broker_order_persists_real_reject_code_and_logs(monkeypatch, caplog):
+    """OBS-001: lehnt das OMS/Risk-Gate den Kauf ab, wird der ECHTE Ablehngrund als
+    broker_status gespeichert (nicht das generische 'submit_failed') UND immer geloggt —
+    auch bei Auto-Accept, wo die Telegram-Einzelmeldung unterdrückt ist."""
+    import asyncio
+    import logging
+    from unittest.mock import AsyncMock
+    from stockbot.execution.oms import OMSResult
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    db.get_or_create_user(CHAT, "brokerreject")
+    db.save_profile(CHAT, trade_size_eur=1000.0)
+    db.set_broker_exec(CHAT, True)
+    db.set_auto_accept(CHAT, True)  # Auto-Accept: _tg_status unterdrückt die Einzelmeldung
+    db.add_pending(CHAT, {"ticker": "AAPL", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    trade = db.activate_trade(CHAT, "AAPL", status="broker_pending")
+
+    class PaperClient:
+        _paper = True
+
+    class RejectingOMS:
+        def submit_intent(self, intent, **kwargs):
+            return OMSResult(False, reason="Positionslimit erreicht.", code="max_positions_reached")
+
+    monkeypatch.setattr(bot, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(bot, "_alpaca_client", lambda user: PaperClient())
+    monkeypatch.setattr(bot, "_us_market_open", lambda extended=False: True)
+    monkeypatch.setattr(bot.sizing, "plan_order",
+                        lambda entry, budget, leverage, option_selector=None, extended=False, **kwargs:
+                        {"kind": "shares", "qty": 1, "notional": None})
+    monkeypatch.setattr(bot, "_ensure_buying_power_for_bot", AsyncMock(return_value=True))
+    monkeypatch.setattr(bot.risk_context, "account_context", lambda client, uid: {})
+    monkeypatch.setattr(bot.risk_context, "quote_context", lambda ticker: {})
+    monkeypatch.setattr(bot, "_oms", RejectingOMS())
+
+    with caplog.at_level(logging.WARNING, logger="stockbot.tgbot.bot"):
+        asyncio.run(bot._maybe_broker_order(AsyncMock(), CHAT, trade))
+
+    updated = db.get_trade(CHAT, "AAPL")
+    assert updated["status"] == "broker_failed"
+    # Kern des Fixes: der echte Grund, nicht 'submit_failed'.
+    assert updated["broker_status"] == "max_positions_reached"
+    # Immer geloggt (Journal), unabhängig von der Auto-Accept-Unterdrückung.
+    assert any("abgelehnt" in r.message and "max_positions_reached" in r.message
+               for r in caplog.records)
+
+
+def test_autoaccept_daily_report_lists_rejected_buys(monkeypatch):
+    """OBS-001: der gebündelte Tagesreport nennt heute abgelehnte Käufe mit sachlichem Grund
+    (heutige 'broker_failed'-Trades ohne entry), damit stille Ablehnungen sichtbar werden."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    user = {"user_id": CHAT, "auto_accept": True}
+    rejected_trade = {"ticker": "AAPL", "status": "broker_failed", "entry": None,
+                      "broker_status": "max_positions_reached", "signal": {}}
+    monkeypatch.setattr(bot.db, "today_utc", lambda: "2026-08-10")
+    monkeypatch.setattr(bot.db, "get_all_trades_between", lambda uid, a, b: [rejected_trade])
+    monkeypatch.setattr(bot.db, "get_trade_events_between", lambda uid, a, b: [])
+    monkeypatch.setattr(bot.notify_svc, "notify", lambda *a, **k: None)
+    fake_bot = AsyncMock()
+
+    asyncio.run(bot._send_autoaccept_daily_report(fake_bot, user, []))
+
+    text = fake_bot.send_message.await_args.kwargs["text"]
+    assert "Nicht gekauft (1)" in text
+    assert "AAPL" in text
+    # Sachlicher deutscher Grund aus dem Glossar, nicht der rohe Code.
+    assert "Positionslimit erreicht" in text
+
+
 def test_bot_broker_order_rejects_stale_leverage_above_one():
     """TSAFE-002: ein gespeicherter Hebel > MAX_LEVERAGE (Altwert) darf über Telegram nie zu einer
     echten Broker-Order (erst recht keiner Optionsorder) führen — explizite Ablehnung statt

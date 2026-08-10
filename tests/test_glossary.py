@@ -35,6 +35,11 @@ def test_telegram_reuses_glossary_broker_label():
     ("canceled", "Abgebrochen"),
     ("expired", "Abgelaufen"),
     ("leverage_blocked", "Durch Risikoregel blockiert (Hebel über Maximum)"),
+    # OBS-001: echte Risk-Gate-Ablehngründe werden als broker_status persistiert und
+    # müssen sachliches Deutsch zeigen, nicht den rohen OMS-Code.
+    ("max_positions_reached", "Durch Risikoregel blockiert (Positionslimit erreicht)"),
+    ("daily_loss_limit_reached", "Durch Risikoregel blockiert (Tagesverlust-Limit erreicht)"),
+    ("quote_stale", "Durch Risikoregel blockiert (Kurs veraltet)"),
 ])
 def test_broker_status_labels_are_german_not_raw_codes(code, label):
     """Beide Kanäle zeigen sachliches Deutsch (§25.2), nie den rohen Broker-Code."""
