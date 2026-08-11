@@ -4,29 +4,30 @@
 <style>
   main { max-width: 1100px !important; }
   .hstat { display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0 1.1rem; }
-  .hstat .cell { background:var(--bezel); border:1px solid var(--edge); border-radius:11px; padding:.6rem .95rem; min-width:130px;
-                 box-shadow:inset 0 1px 0 rgba(255,255,255,.03); }
-  .hstat .v { font-family:var(--font-mono); font-size:1.35rem; font-weight:700; margin-top:.18rem; font-variant-numeric:tabular-nums; }
+  .hstat .cell { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-md); padding:.6rem .95rem; min-width:130px;
+                 box-shadow:var(--lg-cast-1), var(--lg-facet); }
+  .hstat .v { font-family:var(--font-mono); font-size:1.35rem; font-weight:700; margin-top:.18rem; font-variant-numeric:tabular-nums; color:var(--lg-ink); }
 
   .toolbar { display:flex; gap:.6rem; align-items:center; margin-bottom:.6rem; flex-wrap:wrap; }
-  .searchbox { background:var(--inset); color:var(--marking); border:1px solid var(--edge); border-radius:8px;
-               padding:.45rem .7rem; font-size:.9rem; min-width:200px; }
-  .searchbox:focus { outline:none; border-color:var(--trace); }
+  .searchbox { background:var(--lg-glass-solid); color:var(--lg-ink); border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-pill);
+               padding:.5rem .9rem; font-size:.9rem; min-width:200px; box-shadow:var(--lg-trough); }
+  .searchbox::placeholder { color:var(--lg-ink-muted); }
+  .searchbox:focus { outline:none; border-color:var(--lg-violet); }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
   table.hist { width:100%; border-collapse:collapse; font-size:.9rem; }
-  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid var(--edge); text-align:left; white-space:nowrap; }
-  table.hist th { cursor:pointer; user-select:none; color:var(--dim); font-size:.68rem;
+  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:left; white-space:nowrap; color:var(--lg-ink); }
+  table.hist th { cursor:pointer; user-select:none; color:var(--lg-ink-muted); font-size:.68rem;
                   text-transform:uppercase; letter-spacing:.06em; font-family:var(--font-display); }
-  table.hist th:hover { color:var(--marking); }
+  table.hist th:hover { color:var(--lg-ink); }
   table.hist th.r, table.hist td.r { text-align:right; }
   table.hist td.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  table.hist tbody tr:hover { background:var(--bezel); }
-  .arrow { color:var(--trace); }
-  .dir { font-size:.7rem; font-weight:700; padding:.1rem .4rem; border-radius:.35rem; letter-spacing:.03em; }
-  .dir.long { background:rgba(62,207,142,.16); color:var(--go); }
-  .dir.short { background:rgba(232,92,74,.16); color:var(--warn); }
-  .empty { color:var(--dim); text-align:center; padding:2.2rem; border:1px dashed var(--edge); border-radius:12px; }
+  table.hist tbody tr:hover { background:rgb(153 124 230 / .10); }
+  .arrow { color:var(--lg-violet); }
+  .dir { display:inline-flex; align-items:center; font-size:.7rem; font-weight:700; padding:.12rem .5rem; border-radius:var(--lg-r-pill); letter-spacing:.03em; }
+  .dir.long { background:rgb(110 196 185 / .22); color:var(--lg-ink-on-teal); }
+  .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:#A5122B; }
+  .empty { color:var(--lg-ink-muted); text-align:center; padding:2.2rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
 </style>
 
 <h1>Verlauf <small class="marklabel" style="margin-left:.5rem">{{ summary.n }} abgeschlossene Trades</small></h1>

@@ -1,122 +1,257 @@
 <!doctype html>
 {% from "components.html" import mode_badge %}
-<html lang="de"{% if active=='dashboard' %} data-theme="light"{% endif %}>
+<html lang="de" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Stock Signal Bot{% endblock %}</title>
-<style>
-  /* „Instrument Cockpit"-Identität — global für alle Reiter (Avionik-Look:
-     warmes Creme auf Gunmetal, Go/Caution/Warn-Anzeigen, Phosphor-Trace). */
-  :root {
-    --instrument:#0F141A; --bezel:#1A2028; --inset:#12181F; --edge:#2A333D;
-    --marking:#E9E6DD; --dim:#808C97; --go:#3ECF8E; --caution:#E7B24C; --warn:#E85C4A;
-    --trace:#74C7FF; --on:#05131C; --grid:#232C36;
-    --font-display:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    --font-mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
-    /* Aliase, damit bestehende Seiten/Klassen unverändert weiterlaufen */
-    --bg:#0F141A; --panel:#1A2028; --panel2:#12181F; --fg:#E9E6DD; --muted:#808C97;
-    --green:#3ECF8E; --red:#E85C4A; --blue:#74C7FF; --line:#2A333D;
-    --card:#1A2028; --card2:#12181F; --border:#2A333D; --text:#E9E6DD; --accent:#74C7FF; --amber:#E7B24C;
-  }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family:var(--font-display); letter-spacing:.01em;
-         background:var(--instrument); color:var(--marking); }
-  a { color:var(--trace); }
-  h1, h2, h3 { font-family:var(--font-display); letter-spacing:.005em; }
-  header { background:var(--inset); border-bottom:1px solid var(--edge); padding:.6rem 1rem;
-           display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; position:sticky; top:0; z-index:30; }
-  header .brand { font-weight:700; margin-right:.6rem; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem; }
-  nav a { color:var(--dim); text-decoration:none; padding:.35rem .6rem; border-radius:.5rem; font-size:.92rem; }
-  nav a:hover, nav a.active { background:var(--bezel); color:var(--marking); }
-  .badge { background:var(--warn); color:#fff; border-radius:1rem; padding:0 .4rem; font-size:.72rem; margin-left:.2rem; }
-  .modepill { display:inline-flex; align-items:center; gap:.4rem; font-weight:700; font-size:.78rem;
-              letter-spacing:.05em; padding:.34rem .8rem; border-radius:.55rem; border:1px solid;
-              box-shadow: inset 0 2px 6px rgba(0,0,0,.5); font-family:var(--font-mono); }
-  .modepill .dot { width:.5rem; height:.5rem; border-radius:50%; background:currentColor; box-shadow:0 0 7px currentColor; }
-  .modepill.demo  { background:#3a2a08; color:#ffc24d; border-color:#7a5a16; }
-  .modepill.paper { background:#0c2236; color:#5cc0ff; border-color:#1c4a6b; }
-  .modepill.live  { background:#3a0c0c; color:#ff6b6b; border-color:#7a1c1c; }
-  .dir { font-size:.72rem; font-weight:700; padding:.12rem .45rem; border-radius:.4rem; letter-spacing:.03em; }
-  .dir.long { background:rgba(62,207,142,.16); color:var(--green); }
-  .dir.short { background:rgba(232,92,74,.16); color:var(--red); }
-  main { max-width:880px; margin:0 auto; padding:1rem; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:.8rem; padding:1rem; margin:.7rem 0; }
-  .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-  .spacer { flex:1; }
-  .muted { color:var(--muted); font-size:.86rem; }
-  .pos { color:var(--green); } .neg { color:var(--red); }
-  button, .btn { cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--fg);
-                 border-radius:.5rem; padding:.45rem .7rem; font-size:.9rem; font-family:inherit; text-decoration:none; }
-  button.green { background:var(--green); border-color:var(--green); color:#06231a; font-weight:600; }
-  button.red { background:transparent; border-color:var(--red); color:var(--red); }
-  button.on { background:var(--blue); border-color:var(--blue); color:var(--on); font-weight:600; }
-  select, input[type=text], input[type=number], input[type=date], textarea { background:var(--panel2); color:var(--fg);
-                 border:1px solid var(--line); border-radius:.5rem; padding:.4rem; font-family:inherit; }
-  textarea { width:100%; min-height:7rem; font-family:var(--font-mono); }
-  form.inline { display:inline; }
-  .flash { background:var(--panel2); border-left:3px solid var(--blue); padding:.6rem .8rem; border-radius:.4rem; margin:.6rem 0; }
-  h1 { font-size:1.3rem; } h2 { font-size:1.05rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
-  table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  td, th { padding:.4rem .3rem; border-bottom:1px solid var(--line); text-align:left; }
-  td.r, th.r { text-align:right; }
-  /* Digitale Readouts: rechtsbündige/numerische Zellen tabellarisch in JetBrains Mono */
-  td.r, td.num, .mono, .readout, .card .value { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  /* „Eingravierte" Kleinlabels (Instrumenten-Beschriftung) */
-  .marklabel { text-transform:uppercase; letter-spacing:.12em; font-size:.66rem; color:var(--dim);
-               font-family:var(--font-display); font-weight:600; }
-  /* Annunciator-Punkt (Zustandsleuchte) — Farbe nur für Zustand, nie als Deko */
-  .ann { width:.5rem; height:.5rem; border-radius:50%; display:inline-block; background:var(--dim); }
-  .ann.go { background:var(--go); box-shadow:0 0 7px var(--go); }
-  .ann.caution { background:var(--caution); box-shadow:0 0 7px var(--caution); }
-  .ann.warn { background:var(--warn); box-shadow:0 0 7px var(--warn); }
-  /* Signatur: strategiespezifisches Rohscore-Rundinstrument (Dashboard-Hero) */
-  .gauge-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center;
-                background:radial-gradient(120% 120% at 50% 15%, #1E262F 0%, var(--bezel) 60%);
-                border:1px solid var(--edge); border-radius:14px; padding:.6rem .9rem .7rem;
-                box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 2px 10px rgba(0,0,0,.35); }
-  .gauge-wrap canvas { display:block; }
-  .gauge-cap { margin-top:.1rem; text-align:center; }
-  .gauge-cap .v { font-family:var(--font-mono); font-weight:700; font-size:1rem; color:var(--marking); }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto; animation-duration:.01ms !important; transition-duration:.01ms !important; } }
-  /* ── Style-Phase 5: Accessibility & Mobile ── */
-  .skip-link { position:absolute; left:-999px; top:0; z-index:100; background:var(--panel);
-               color:var(--fg); padding:.6rem 1rem; border-radius:0 0 .5rem 0; }
-  .skip-link:focus { left:0; }
-  a:focus-visible, button:focus-visible, [tabindex]:focus-visible, select:focus-visible,
-  input:focus-visible, textarea:focus-visible { outline:2px solid var(--trace); outline-offset:2px; }
-  @media (max-width: 640px) {
-    /* Touch-Ziele ≥ 44×44 px (§23) */
-    button, .btn, .btn2, nav a { min-height:44px; display:inline-flex; align-items:center; }
-    /* Bottom-Navigation (§23.4): Hauptnavigation ans Daumenende, kein Horizontal-Scroll */
-    header nav { position:fixed; bottom:0; left:0; right:0; z-index:40; background:var(--inset);
-                 border-top:1px solid var(--edge); display:flex; overflow-x:auto;
-                 -webkit-overflow-scrolling:touch; padding:.15rem .3rem; margin:0; }
-    header nav a { flex:1 0 auto; text-align:center; font-size:.8rem; padding:.5rem .55rem; }
-    main { padding-bottom:4.2rem; }  /* Platz für die Bottom-Nav */
-  }
-</style>
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="/static/liquid-glass.css">
+<style>
+  /* „Liquid Glass" (hell) — global für ALLE Reiter. Früher war das die dunkle
+     „Instrument Cockpit"-Avionik; jetzt lebt die ganze App in der hellen Glaswelt.
+     Alle Materialien kommen aus liquid-glass.css (--lg-*). Diese Datei bildet nur
+     die Alt-Klassen (.card, .btn, table …) und die Alt-Token-Namen auf die Glaswelt
+     ab, damit jede Seite ohne Einzelumbau hell rendert. Dieses <style> steht bewusst
+     NACH den Links, damit die Token-Neubelegung im Kaskaden-Wettstreit gewinnt. */
+
+  html[data-theme="light"] { color-scheme: light; }
+
+  :root {
+    --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+
+  /* ── Token-Umzug in die Glaswelt (scoped auf .lg-body = jede Seite) ──────────
+     Zwei Alias-Familien landen hier: die alten Avionik-Namen (--muted, --line …)
+     und die tokens.css-Komponenten-Tokens (--primary, --bg-surface-* … für
+     btn2/alert2/dialog2/chip/mode-badge). Die CVD-Chartpalette --cat-* bleibt
+     bewusst unangetastet. Trennlinien/Ränder sind auf hellem Glas dunkle
+     Haarlinien (weiße --lg-edge wäre unsichtbar). */
+  .lg-body {
+    color-scheme: light;
+    /* Alt-Avionik-Aliase */
+    --bg: var(--lg-bg-2); --instrument: var(--lg-bg-2);
+    --panel: var(--lg-glass-solid); --card: var(--lg-glass-solid); --bezel: var(--lg-glass-solid);
+    --panel2: var(--lg-glass-solid); --card2: var(--lg-glass-solid); --inset: var(--lg-glass-solid);
+    --border: rgb(38 28 60 / .14); --line: rgb(38 28 60 / .12); --edge: rgb(38 28 60 / .12);
+    --text: var(--lg-ink); --fg: var(--lg-ink); --marking: var(--lg-ink);
+    --muted: var(--lg-ink-muted); --dim: var(--lg-ink-muted);
+    --trace: var(--lg-violet); --blue: var(--lg-violet); --accent: var(--lg-violet);
+    --on: var(--lg-ink-on-violet);
+    --green: #0A6B3C; --red: #A5122B;                 /* Geld: ≥4.5:1 auf Glas */
+    --go: var(--lg-success); --caution: var(--lg-warning); --warn: var(--lg-error);
+    --amber: var(--lg-warning); --grid: rgb(38 28 60 / .08);
+    --sep: rgb(38 28 60 / .10);                        /* Tabellen-/Zeilenlinien */
+
+    /* tokens.css-Komponenten-Tokens (Style-Phase-2) → Glaswelt */
+    --bg-base: var(--lg-bg-2);
+    --bg-surface-1: var(--lg-glass-solid);
+    --bg-surface-2: var(--lg-glass-solid);
+    --bg-surface-3: var(--lg-glass-solid);
+    --bg-elevated: var(--lg-glass-solid);
+    --bg-hover: rgb(153 124 230 / .10);
+    --bg-selected: rgb(153 124 230 / .16);
+    --text-primary: var(--lg-ink);
+    --text-secondary: var(--lg-ink);
+    --text-muted: var(--lg-ink-muted);
+    --text-disabled: var(--lg-ink-muted);
+    --text-inverse: var(--lg-ink-on-violet);
+    --primary: var(--lg-violet);
+    --primary-hover: #A98EF2;
+    --primary-active: #8266d8;
+    --primary-soft: rgb(153 124 230 / .16);
+    --primary-border: rgb(153 124 230 / .50);
+    --success: var(--lg-success);
+    --success-soft: rgb(62 158 110 / .14);
+    --success-border: rgb(62 158 110 / .45);
+    --warning: var(--lg-warning);
+    --warning-soft: rgb(184 122 24 / .14);
+    --warning-border: rgb(184 122 24 / .45);
+    --danger: #A5122B;                                 /* ernster, kontraststarker Rot-Ton */
+    --danger-hover: #8d0f24;
+    --danger-soft: rgb(165 18 43 / .12);
+    --danger-border: rgb(165 18 43 / .45);
+    --info: var(--lg-violet);
+    --info-soft: rgb(153 124 230 / .13);
+    --border-subtle: rgb(38 28 60 / .10);
+    --border-default: rgb(38 28 60 / .16);
+    --border-strong: rgb(38 28 60 / .26);
+    --focus-ring: var(--lg-focus);
+    --shadow-sm: var(--lg-cast-1);
+    --shadow-md: var(--lg-cast-2);
+    --shadow-dialog: var(--lg-cast-3);
+  }
+
+  * { box-sizing:border-box; }
+  a { color:var(--lg-violet); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  h1, h2, h3 { color:var(--lg-ink); letter-spacing:-.01em; }
+  h1 { font-size:1.5rem; margin:.2rem 0 .8rem; }
+  h2 { font-size:1.15rem; border-bottom:1px solid var(--sep); padding-bottom:.3rem; }
+  main { max-width:880px; margin:0 auto; padding:1rem; }
+
+  /* ── Kommando-Glasleiste (Nicht-Dashboard-Seiten) ──────────────────────────
+     Eigene .appbar-Grammatik, damit nichts mit der reicheren .ck-bar des
+     Dashboards kollidiert. Materialien aus lg-glass. */
+  .appbar {
+    position:sticky; top:0; z-index:30;
+    display:flex; align-items:center; gap:var(--lg-space-3); flex-wrap:wrap;
+    padding:10px 20px; border-radius:0; border-top:0; border-left:0; border-right:0;
+    box-shadow:var(--lg-cast-1);
+  }
+  .appbar__brand { display:inline-flex; align-items:center; gap:8px; font-weight:700;
+                   font-size:1rem; letter-spacing:-.01em; color:var(--lg-ink); white-space:nowrap; }
+  .appbar__brand svg { color:var(--lg-violet); }
+  .appbar__nav { display:flex; gap:2px; flex-wrap:wrap; }
+  .appbar__nav a { display:inline-flex; align-items:center; min-height:40px; padding:0 12px;
+                   border-radius:var(--lg-r-pill); color:var(--lg-ink-muted); text-decoration:none;
+                   font-size:var(--lg-size-small); font-weight:500; transition:color .14s, background .14s; }
+  .appbar__nav a:hover { color:var(--lg-ink); text-decoration:none; }
+  .appbar__nav a[aria-current="page"] { background:var(--lg-glass-solid); color:var(--lg-ink);
+                   font-weight:600; box-shadow:var(--lg-cast-1); }
+  .appbar__spacer { flex:1 1 auto; }
+  .appbar__user { font-size:.85rem; color:var(--lg-ink-muted); white-space:nowrap; }
+  .appbar__logout { display:inline; }
+  .appbar__logout button { min-height:36px; }
+
+  /* ── Layout-Helfer ─────────────────────────────────────────────────────── */
+  .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+  .spacer { flex:1; }
+  .muted { color:var(--lg-ink-muted); font-size:.86rem; }
+  .pos, .green { color:#0A6B3C; } .neg, .red { color:#A5122B; }
+  form.inline { display:inline; }
+
+  /* ── Glaskarte ─────────────────────────────────────────────────────────── */
+  .card { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
+          border-radius:var(--lg-r-md); padding:16px 18px; margin:.7rem 0;
+          box-shadow:var(--lg-cast-1), var(--lg-facet); color:var(--lg-ink); }
+  .card .value { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* ── Buttons: Glasscheibe (Default), Gel (.on/.green), Glas-Fehler (.red) ── */
+  button, .btn {
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+    min-height:40px; padding:0 16px; border-radius:var(--lg-r-pill);
+    border:1px solid var(--lg-edge);
+    background:linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
+    -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
+    backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
+    color:var(--lg-ink); font:inherit; font-size:.9rem; font-weight:600; text-decoration:none;
+    box-shadow:var(--lg-cast-1), var(--lg-facet); transition:transform .14s, box-shadow .14s, filter .14s;
+  }
+  button:hover, .btn:hover { transform:translateY(-1px); text-decoration:none; }
+  button[disabled], .btn[disabled] { cursor:not-allowed; opacity:.55; filter:grayscale(.4); transform:none; }
+  /* Gel: violettes „on", türkises „green" — dunkle Tinte, farbiger Schatten */
+  button.on, .btn.on {
+    border:0; color:var(--lg-ink-on-violet);
+    background:
+      radial-gradient(122% 100% at 50% 126%, rgb(255 255 255 / .88) 0%, rgb(255 255 255 / .28) 36%, rgb(255 255 255 / 0) 66%),
+      linear-gradient(180deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / 0) 44%),
+      var(--lg-violet);
+    box-shadow:0 14px 26px -10px rgb(153 124 230 / .70), var(--lg-cast-1), var(--lg-facet);
+  }
+  button.green, .btn.green {
+    border:0; color:var(--lg-ink-on-teal);
+    background:
+      radial-gradient(122% 100% at 50% 126%, rgb(255 255 255 / .88) 0%, rgb(255 255 255 / .28) 36%, rgb(255 255 255 / 0) 66%),
+      linear-gradient(180deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / 0) 44%),
+      var(--lg-teal);
+    box-shadow:0 14px 26px -10px rgb(110 196 185 / .70), var(--lg-cast-1), var(--lg-facet);
+  }
+  button.red, .btn.red { background:var(--lg-glass-solid); border:1px solid var(--lg-error);
+                         color:var(--lg-error); box-shadow:var(--lg-cast-1); }
+
+  /* ── Felder ───────────────────────────────────────────────────────────── */
+  select, input[type=text], input[type=number], input[type=date], input[type=password], textarea {
+    background:var(--lg-glass-solid); color:var(--lg-ink);
+    border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-pill);
+    padding:.55rem .9rem; font-family:inherit; font-size:.9rem; box-shadow:var(--lg-trough); }
+  textarea { width:100%; min-height:7rem; border-radius:var(--lg-r-md); font-family:var(--font-mono); }
+  select:focus, input:focus, textarea:focus { outline:none; border-color:var(--lg-violet); }
+  input::placeholder, textarea::placeholder { color:var(--lg-ink-muted); }
+
+  /* ── Flash: Solid-Glaskarte mit 1px-Rand (kein fetter Seitenbalken) ─────── */
+  .flash { background:var(--lg-glass-solid); border:1px solid var(--lg-violet);
+           color:var(--lg-ink); padding:.7rem 1rem; border-radius:var(--lg-r-md);
+           margin:.7rem 0; box-shadow:var(--lg-cast-1); }
+
+  /* ── Tabellen: Tinte auf Solid-Glas, dunkle Haarlinien ─────────────────── */
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { padding:.5rem .4rem; border-bottom:1px solid var(--sep); text-align:left; color:var(--lg-ink); }
+  th { color:var(--lg-ink-muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+  td.r, th.r { text-align:right; }
+  td.r, td.num, .mono, .readout, .card .value { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* ── Eingravierte Kleinlabels ──────────────────────────────────────────── */
+  .marklabel { text-transform:uppercase; letter-spacing:.1em; font-size:.66rem; color:var(--lg-ink-muted);
+               font-family:var(--font-display); font-weight:600; }
+
+  /* ── Richtungs-Pill: getönt, dunkle Tinte (long=türkis, short=fehler) ───── */
+  .dir { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
+         padding:.15rem .5rem; border-radius:var(--lg-r-pill); letter-spacing:.03em; }
+  .dir.long { background:rgb(110 196 185 / .22); color:var(--lg-ink-on-teal); }
+  .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:#A5122B; }
+
+  /* ── Badge: getönte Glas-Pill ──────────────────────────────────────────── */
+  .badge { display:inline-flex; align-items:center; background:rgb(110 196 185 / .22);
+           color:var(--lg-ink-on-teal); border-radius:var(--lg-r-pill); padding:.05rem .5rem;
+           font-size:.72rem; font-weight:700; margin-left:.2rem; }
+
+  /* ── Annunciator-Punkt: Farbe nur für Zustand, KEIN Leucht-Halo ────────── */
+  .ann { width:.5rem; height:.5rem; border-radius:50%; display:inline-block; background:var(--lg-ink-muted); }
+  .ann.go { background:var(--lg-success); }
+  .ann.caution { background:var(--lg-warning); }
+  .ann.warn { background:var(--lg-error); }
+
+  /* ── Gauge-Rahmen: helle Glaskarte ─────────────────────────────────────── */
+  .gauge-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
+                border-radius:var(--lg-r-md); padding:.6rem .9rem;
+                box-shadow:var(--lg-cast-1), var(--lg-facet); }
+  .gauge-wrap canvas { display:block; }
+  .gauge-cap { margin-top:.1rem; text-align:center; }
+  .gauge-cap .v { font-family:var(--font-mono); font-weight:700; font-size:1rem; color:var(--lg-ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto; animation-duration:.01ms !important; transition-duration:.01ms !important; } }
+
+  /* ── Zugänglichkeit & Mobile ───────────────────────────────────────────── */
+  .skip-link { position:absolute; left:-999px; top:0; z-index:100; background:var(--lg-glass-solid);
+               color:var(--lg-ink); padding:.6rem 1rem; border-radius:0 0 .5rem 0; box-shadow:var(--lg-cast-1); }
+  .skip-link:focus { left:0; }
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible, select:focus-visible,
+  input:focus-visible, textarea:focus-visible { outline:2px solid var(--lg-focus); outline-offset:2px; }
+  @media (max-width: 640px) {
+    /* Touch-Ziele ≥ 44×44 px (§23) */
+    button, .btn, nav a, .appbar__nav a { min-height:44px; }
+    .appbar { padding:8px 12px; }
+    /* Bottom-Navigation (§23.4): Hauptnavigation ans Daumenende, kein Horizontal-Scroll */
+    .appbar__nav { position:fixed; bottom:0; left:0; right:0; z-index:40; background:var(--lg-glass-solid);
+                   -webkit-backdrop-filter:blur(var(--lg-blur)); backdrop-filter:blur(var(--lg-blur));
+                   border-top:1px solid var(--lg-edge); display:flex; overflow-x:auto;
+                   -webkit-overflow-scrolling:touch; padding:.15rem .3rem; margin:0; }
+    .appbar__nav a { flex:1 0 auto; text-align:center; justify-content:center; font-size:.8rem; padding:.5rem .55rem; }
+    main { padding-bottom:4.6rem; }  /* Platz für die Bottom-Nav */
+  }
+</style>
 </head>
-<body{% if active=='dashboard' %} class="lg-body"{% endif %}>
+<body class="lg-body">
 <a class="skip-link" href="#main">Zum Inhalt springen</a>
 {% if user %}
 {% if active != 'dashboard' %}
-<header>
-  <span class="brand"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 16.5h16M3.5 14l4-4 3 2 5-6M13 6h2.5v2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Signal Bot</span>
-  <nav class="row" aria-label="Hauptnavigation">
-    <a href="/app" class="{{ 'active' if active=='home' }}">Signale</a>
-    <a href="/app/watchlist" class="{{ 'active' if active=='watchlist' }}">Watchlist</a>
-    <a href="/app/settings" class="{{ 'active' if active=='settings' }}">Einstellungen</a>
-    <a href="/app/reports" class="{{ 'active' if active=='reports' }}">Reports</a>
-    <a href="/app/backtest" class="{{ 'active' if active=='backtest' }}">Backtest</a>
-    <a href="/app/lab" class="{{ 'active' if active=='lab' }}">Labor</a>
-    <a href="/app/dashboard" class="{{ 'active' if active=='dashboard' }}">Dashboard</a>
-    <a href="/app/history" class="{{ 'active' if active=='history' }}">Verlauf</a>
+<header class="appbar lg-glass">
+  <span class="appbar__brand"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 16.5h16M3.5 14l4-4 3 2 5-6M13 6h2.5v2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Signal Bot</span>
+  <nav class="appbar__nav" aria-label="Hauptnavigation">
+    <a href="/app"{% if active=='home' %} aria-current="page"{% endif %}>Signale</a>
+    <a href="/app/watchlist"{% if active=='watchlist' %} aria-current="page"{% endif %}>Watchlist</a>
+    <a href="/app/settings"{% if active=='settings' %} aria-current="page"{% endif %}>Einstellungen</a>
+    <a href="/app/reports"{% if active=='reports' %} aria-current="page"{% endif %}>Reports</a>
+    <a href="/app/backtest"{% if active=='backtest' %} aria-current="page"{% endif %}>Backtest</a>
+    <a href="/app/lab"{% if active=='lab' %} aria-current="page"{% endif %}>Labor</a>
+    <a href="/app/dashboard"{% if active=='dashboard' %} aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/app/history"{% if active=='history' %} aria-current="page"{% endif %}>Verlauf</a>
   </nav>
-  <span class="spacer"></span>
+  <span class="appbar__spacer"></span>
   {% if trade_mode == 'live' %}
   {{ mode_badge('live', title='Echtgeld — Orders werden mit echtem Kapital an Alpaca übermittelt') }}
   {% elif trade_mode == 'paper' %}
@@ -124,8 +259,8 @@
   {% else %}
   {{ mode_badge('shadow', title='Shadow-Modus — Live-Daten ohne Broker-Order') }}
   {% endif %}
-  <span class="muted">{{ user.username or user.user_id }}</span>
-  <form class="inline" method="post" action="/logout"><button>Logout</button></form>
+  <span class="appbar__user">{{ user.username or user.user_id }}</span>
+  <form class="appbar__logout" method="post" action="/logout"><button class="lg-btn lg-btn--glass lg-btn--sm">Logout</button></form>
 </header>
 {% endif %}
 {% endif %}

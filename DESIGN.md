@@ -1,6 +1,6 @@
 ---
 name: Stockbot Dashboard (Liquid Glass, Light)
-description: The /app/dashboard surface, dressed in the adopted Liquid Glass light world over the incumbent cockpit.
+description: The stockbot web app, dressed in the adopted Liquid Glass light world (whole-app migration, dashboard-led).
 # This project ADOPTS an external system. The exhaustive token/component grammar
 # lives upstream — see /static/liquid-glass.css (vendored) and the source below.
 # Only project-specific application decisions are recorded here.
@@ -55,8 +55,8 @@ components:
 **Creative North Star: „Ruhige Glasinstrumente über warmem Licht"**
 
 This is not a from-scratch world. The project **adopted** the external **Liquid Glass**
-system in its **LIGHT variant, pinned** (no roll), and applied it to a single surface:
-the `/app/dashboard`. The material truth is the vendored stylesheet at
+system in its **LIGHT variant, pinned** (no roll). It was landed on the `/app/dashboard`
+first, then rolled out **app-wide** via base.html. The material truth is the vendored stylesheet at
 `/static/liquid-glass.css`; the full token grammar, component library, and named rules
 live upstream at `/home/jms/main_projekt/styles/liquid-glass/` (its own `DESIGN.md`).
 **This file does not restate that grammar** — it records only the decisions this project
@@ -71,7 +71,7 @@ colored surface for the one number that matters.
 **Key Characteristics:**
 
 - Adopted, pinned world — Liquid Glass light; the vendored CSS is the source of truth.
-- Applied to `/app/dashboard` only; every other route stays on the incumbent dark cockpit.
+- Applied app-wide via base.html (global `lg-body` + `data-theme="light"`); the incumbent dark cockpit is fully replaced.
 - One iris (colored) surface per view: the Gesamt-P&L tile. Everything else is glass.
 - Semantic green/red for money only, darkened for legibility on light surfaces.
 - German UI, orthographically correct; tabular numerals throughout.
@@ -197,10 +197,10 @@ the accessibility contract for distinguishing series and stays authoritative.
 
 - **Don't** roll or restyle the adopted world — it is pinned. Extend via named local tokens,
   never by re-tinting `--lg-*`.
-- **Don't** apply the light glass world to other routes yet. base.html gates it on
-  `active=='dashboard'` (adds `data-theme="light"`, `lg-body`, the glass command bar);
-  every other page stays on the incumbent dark "Instrument Cockpit". The split is
-  intentional — full migration is pending, not a defect to paper over.
+- **Don't** re-introduce the incumbent dark cockpit. The light world is global in
+  base.html (`data-theme="light"` + `lg-body` on every page). Only the shared header is
+  gated `active != 'dashboard'`, because the dashboard renders its own richer command bar
+  (`.ck-*`); every other page uses the base glass command bar (`.appbar`).
 - **Don't** color a glass fill for status; the color belongs in the chip's dot.
 - **Don't** lay out many small glass tiles; hold dense data on one solid-glass surface.
 - **Don't** re-introduce a static "Kill-Switch" status chip on the dashboard. The comp

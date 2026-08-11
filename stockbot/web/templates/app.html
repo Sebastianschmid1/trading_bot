@@ -16,7 +16,8 @@
 </form>
 
 <div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:50;
-     background:rgba(8,11,18,.82); align-items:center; justify-content:center; text-align:center; padding:1rem">
+     background:rgb(38 28 60 / .45); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+     align-items:center; justify-content:center; text-align:center; padding:1rem">
   <div class="card" style="max-width:340px">
     <div style="font-size:1.6rem; margin-bottom:.4rem">⏳</div>
     <strong>Signale werden berechnet …</strong>
@@ -67,7 +68,7 @@
   </div>
   {% if s.spark %}
   <svg viewBox="0 0 120 32" width="120" height="32" preserveAspectRatio="none" style="margin:.4rem 0">
-    <polyline fill="none" stroke="{{ '#2ecc71' if s.spark.up else '#e74c3c' }}" stroke-width="1.5"
+    <polyline fill="none" stroke="{{ '#0A6B3C' if s.spark.up else '#A5122B' }}" stroke-width="1.5"
               points="{{ s.spark.points }}"></polyline>
   </svg>
   <span class="muted" style="font-size:.75rem">7-Tage-Verlauf</span>
@@ -149,7 +150,7 @@
 <div class="card" style="overflow-x:auto">
   <table style="width:100%; border-collapse:collapse">
     <thead>
-      <tr style="text-align:left; border-bottom:1px solid #2a3342">
+      <tr style="text-align:left; border-bottom:1px solid rgb(38 28 60 / .16)">
         <th style="padding:.35rem .5rem">Status</th>
         <th style="padding:.35rem .5rem">Ticker</th>
         <th style="padding:.35rem .5rem">Einstieg</th>
@@ -160,7 +161,7 @@
     </thead>
     <tbody>
       {% for t in broker_closing %}
-      <tr style="border-bottom:1px solid #202634">
+      <tr style="border-bottom:1px solid rgb(38 28 60 / .10)">
         <td style="padding:.35rem .5rem">{{ t.status_text or t.status }}</td>
         <td style="padding:.35rem .5rem"><strong>{{ t.ticker }}</strong></td>
         <td style="padding:.35rem .5rem">${{ '%.2f'|format(t.entry) }}</td>
@@ -251,7 +252,7 @@
 </dialog>
 <style>
   .tc-grid { display:grid; grid-template-columns:auto 1fr; gap:.35rem .9rem; margin:.8rem 0 0; }
-  .tc-grid dt { color:var(--muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; align-self:center; }
+  .tc-grid dt { color:var(--lg-ink-muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; align-self:center; }
   .tc-grid dd { margin:0; }
 </style>
 

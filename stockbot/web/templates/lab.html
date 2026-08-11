@@ -8,40 +8,42 @@
   .lab-head h1 { margin:0 0 .25rem; }
   .statuspill { display:inline-flex; align-items:center; gap:.45rem; font-family:var(--font-mono);
                 font-size:.74rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
-                padding:.32rem .7rem; border-radius:.55rem; border:1px solid var(--edge); background:var(--inset); }
+                padding:.34rem .75rem; border-radius:var(--lg-r-pill); border:1px solid var(--lg-edge-soft);
+                background:var(--lg-glass-solid); box-shadow:var(--lg-cast-1); color:var(--lg-ink); }
   .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:.7rem; }
-  .cell { background:var(--bezel); border:1px solid var(--edge); border-radius:12px; padding:.7rem .9rem;
-          box-shadow:inset 0 1px 0 rgba(255,255,255,.03); }
+  .cell { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-md);
+          padding:.7rem .9rem; box-shadow:var(--lg-cast-1), var(--lg-facet); }
   .cell .v { font-family:var(--font-mono); font-size:1.5rem; font-weight:700; margin-top:.15rem;
-             font-variant-numeric:tabular-nums; }
-  .cell .sub { color:var(--dim); font-size:.78rem; margin-top:.15rem; }
+             font-variant-numeric:tabular-nums; color:var(--lg-ink); }
+  .cell .sub { color:var(--lg-ink-muted); font-size:.78rem; margin-top:.15rem; }
   .chips { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.3rem; }
-  .chip { font-family:var(--font-mono); font-size:.8rem; background:var(--inset); border:1px solid var(--edge);
-          border-radius:.5rem; padding:.22rem .5rem; }
-  .chip b { color:var(--trace); font-weight:700; }
-  .chip.changed { border-color:var(--go); background:rgba(62,207,142,.10); }
-  .proposal { border-left:3px solid var(--caution); }
-  .proposal.none { border-left-color:var(--edge); }
-  .bigchange { font-family:var(--font-mono); font-size:1.15rem; font-weight:700; }
-  .bigchange .arr { color:var(--caution); margin:0 .3rem; }
+  .chip { font-family:var(--font-mono); font-size:.8rem; background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
+          border-radius:var(--lg-r-pill); padding:.24rem .6rem; color:var(--lg-ink); box-shadow:var(--lg-cast-1); }
+  .chip b { color:var(--lg-violet); font-weight:700; }
+  .chip.changed { border-color:var(--lg-success); background:rgb(62 158 110 / .12); }
+  .proposal { border:1px solid var(--lg-warning); }
+  .proposal.none { border:1px solid var(--lg-edge-soft); }
+  .bigchange { font-family:var(--font-mono); font-size:1.15rem; font-weight:700; color:var(--lg-ink); }
+  .bigchange .arr { color:var(--lg-warning); margin:0 .3rem; }
   .cmp { width:100%; border-collapse:collapse; font-size:.88rem; margin-top:.5rem; }
-  .cmp th, .cmp td { padding:.35rem .5rem; border-bottom:1px solid var(--edge); text-align:right; white-space:nowrap; }
-  .cmp th:first-child, .cmp td:first-child { text-align:left; color:var(--dim); }
-  .cmp td { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  .win { color:var(--go); } .lose { color:var(--warn); }
+  .cmp th, .cmp td { padding:.35rem .5rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:right; white-space:nowrap; }
+  .cmp th { color:var(--lg-ink-muted); }
+  .cmp th:first-child, .cmp td:first-child { text-align:left; color:var(--lg-ink-muted); }
+  .cmp td { font-family:var(--font-mono); font-variant-numeric:tabular-nums; color:var(--lg-ink); }
+  .win { color:var(--lg-success); } .lose { color:var(--lg-error); }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   table.hyp { width:100%; border-collapse:collapse; font-size:.86rem; }
-  table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid var(--edge); text-align:left; white-space:nowrap; }
-  table.hyp th { color:var(--dim); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; }
+  table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:left; white-space:nowrap; color:var(--lg-ink); }
+  table.hyp th { color:var(--lg-ink-muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; }
   table.hyp td.m { font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right; }
-  .kind { font-size:.66rem; font-weight:700; padding:.1rem .4rem; border-radius:.35rem; letter-spacing:.03em;
-          text-transform:uppercase; font-family:var(--font-mono); background:var(--inset); border:1px solid var(--edge); color:var(--dim); }
-  .kind.applied { color:var(--go); border-color:var(--go); }
-  .kind.rejected { color:var(--warn); border-color:var(--warn); }
-  .kind.decision { color:var(--trace); border-color:var(--trace); }
-  .ok { color:var(--go); } .bad { color:var(--dim); }
-  .empty { color:var(--dim); text-align:center; padding:1.6rem; border:1px dashed var(--edge); border-radius:12px; }
-  .note { color:var(--dim); font-size:.82rem; line-height:1.5; }
+  .kind { font-size:.66rem; font-weight:700; padding:.1rem .45rem; border-radius:var(--lg-r-pill); letter-spacing:.03em;
+          text-transform:uppercase; font-family:var(--font-mono); background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); color:var(--lg-ink-muted); }
+  .kind.applied { color:var(--lg-success); border-color:var(--lg-success); }
+  .kind.rejected { color:var(--lg-error); border-color:var(--lg-error); }
+  .kind.decision { color:var(--lg-violet); border-color:var(--lg-violet); }
+  .ok { color:var(--lg-success); } .bad { color:var(--lg-ink-muted); }
+  .empty { color:var(--lg-ink-muted); text-align:center; padding:1.6rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
+  .note { color:var(--lg-ink-muted); font-size:.82rem; line-height:1.5; }
 </style>
 
 {% set st = state %}
@@ -71,7 +73,7 @@
   </div>
 </div>
 
-<div class="card" style="border-left:3px solid var(--trace)">
+<div class="card">
   <h2>Automatische KI-Prüfung</h2>
   <div class="muted">
     {% if lab_schedule.enabled %}
@@ -84,7 +86,7 @@
 </div>
 
 {% if st.status == 'error' and st.error %}
-  <div class="flash" style="border-left-color:var(--warn)">Letzter Lauf-Fehler: {{ st.error }}</div>
+  <div class="flash" style="border-color:var(--lg-error)">Letzter Lauf-Fehler: {{ st.error }}</div>
 {% endif %}
 
 <!-- ── Champion (aktueller Live-Stand) ─────────────────────────────────────── -->
