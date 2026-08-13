@@ -22,3 +22,5 @@ data/raw_archive/
 data/polymarket_archive/
 # Build-Artefakt von `pip install -e .`
 *.egg-info/
+# Temporaere Git-Worktrees fuer isolierte Subagenten
+.claude/worktrees/
