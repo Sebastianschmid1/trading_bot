@@ -18,3 +18,7 @@ _imported_transcripts/
 data/lab/
 # Rohdatenarchiv (Parquet-Snapshots, Laufzeit-Cache) nicht versionieren
 data/raw_archive/
+# Polymarket-Rohdatenarchiv (JSON-Snapshots, Laufzeit-Cache) nicht versionieren (PM-0)
+data/polymarket_archive/
+# Build-Artefakt von `pip install -e .`
+*.egg-info/
