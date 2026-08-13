@@ -426,6 +426,43 @@ CREATE TABLE IF NOT EXISTS shadow_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_shadow_snapshots_captured
     ON shadow_snapshots (captured_at);
+
+CREATE TABLE IF NOT EXISTS polymarket_markets (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    condition_id        TEXT    NOT NULL UNIQUE,
+    token_id            TEXT    NOT NULL DEFAULT '',
+    slug                TEXT    NOT NULL DEFAULT '',
+    question            TEXT    NOT NULL DEFAULT '',
+    resolution_source   TEXT    NOT NULL DEFAULT '',
+    resolution_rules    TEXT    NOT NULL DEFAULT '',
+    end_date            TEXT,
+    category            TEXT,
+    first_seen_at       TEXT    NOT NULL,
+    last_seen_at        TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS polymarket_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    condition_id        TEXT    NOT NULL,
+    fetched_at          TEXT    NOT NULL,
+    bid                 REAL,
+    ask                 REAL,
+    mid                 REAL,
+    spread_bps          REAL,
+    depth_bid_usd       REAL,
+    depth_ask_usd       REAL,
+    volume_24h_usd      REAL,
+    open_interest_usd   REAL,
+    trade_count_24h     INTEGER,
+    last_trade_at       TEXT,
+    usable              INTEGER NOT NULL DEFAULT 0,
+    reject_code         TEXT    NOT NULL DEFAULT '',
+    raw_file_path       TEXT    NOT NULL DEFAULT '',
+    created_at          TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_polymarket_snapshots_condition
+    ON polymarket_snapshots (condition_id, fetched_at);
 """
 
 
@@ -2268,6 +2305,129 @@ def get_shadow_snapshots(limit: int = 500) -> list:
         id=int(row["id"]), strategy_version_id=int(row["strategy_version_id"]),
         mode=Mode.SHADOW, captured_at=row["captured_at"],
         net_pnl=row["net_pnl"], open_risk=row["open_risk"]) for row in rows]
+
+
+# ── Polymarket-Datenschicht (PM-0, read-only Ereignissensor) ─────────────────
+#
+# Reine Persistenz — Bewertung (usable/reject_code/mid) kommt von außen
+# (``research/polymarket_quality.py::evaluate_snapshot``), dieses Modul rechnet nichts nach.
+
+def _polymarket_timestamp(moment: datetime | str) -> str:
+    """Zwingt einen Polymarket-Zeitwert auf den DB-Zeitvertrag: naiver UTC-String.
+    Nimmt ``datetime`` (aware oder naiv) oder einen bereits ISO-formatierten String entgegen
+    — Aufrufer müssen sich nicht um Backend-Unterschiede kümmern (analog
+    ``burn_in._as_utc_text``/``_audit_timestamp``: PostgreSQL liefert für aware Werte sonst
+    ``timestamptz`` und der Vergleich mit dem naiven TEXT-Schema scheitert hart)."""
+    if isinstance(moment, datetime):
+        if moment.tzinfo is not None:
+            moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
+        return _utc_timestamp(moment)
+    value = str(moment)
+    if not value:
+        return value
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return _utc_timestamp(parsed)
+
+
+def upsert_polymarket_market(info) -> int:
+    """Legt einen Polymarket-Markt an oder aktualisiert seine Stammdaten (idempotent je
+    ``condition_id``). ``first_seen_at`` bleibt beim ersten Insert stehen, ``last_seen_at``
+    wird bei jedem Aufruf aktualisiert — Frage/Regeln können sich bei Polymarket ändern
+    (das Rohdatenarchiv macht das nachweisbar), Stammdaten sonst kaum."""
+    now = _utc_timestamp()
+    with _database().transaction() as transaction:
+        existing = transaction.one(
+            "SELECT id FROM polymarket_markets WHERE condition_id = :cid",
+            {"cid": info.condition_id})
+        if existing:
+            transaction.execute(
+                """UPDATE polymarket_markets SET token_id = :tid, slug = :slug,
+                        question = :q, resolution_source = :rs, resolution_rules = :rr,
+                        end_date = :ed, category = :cat, last_seen_at = :now
+                   WHERE id = :id""",
+                {"tid": info.token_id, "slug": info.slug, "q": info.question,
+                 "rs": info.resolution_source, "rr": info.resolution_rules,
+                 "ed": info.end_date, "cat": info.category, "now": now,
+                 "id": existing["id"]})
+            return int(existing["id"])
+        return int(transaction.insert_id(
+            """INSERT INTO polymarket_markets (condition_id, token_id, slug, question,
+                    resolution_source, resolution_rules, end_date, category,
+                    first_seen_at, last_seen_at)
+               VALUES (:cid, :tid, :slug, :q, :rs, :rr, :ed, :cat, :now, :now)""",
+            {"cid": info.condition_id, "tid": info.token_id, "slug": info.slug,
+             "q": info.question, "rs": info.resolution_source, "rr": info.resolution_rules,
+             "ed": info.end_date, "cat": info.category, "now": now}))
+
+
+def record_polymarket_snapshot(
+    snapshot, *, mid: float | None, spread_bps: float | None, usable: bool,
+    reject_code: str, raw_file_path: str = "",
+) -> int:
+    """Persistiert einen bewerteten Polymarket-Snapshot. ``mid``/``spread_bps``/``usable``/
+    ``reject_code`` kommen bewusst vom Aufrufer (Ergebnis von
+    ``polymarket_quality.evaluate_snapshot``) — dieses Modul ist reine Persistenz."""
+    fetched_at = _polymarket_timestamp(snapshot.fetched_at)
+    last_trade_at = (_polymarket_timestamp(snapshot.last_trade_at)
+                     if snapshot.last_trade_at is not None else None)
+    with _database().transaction() as transaction:
+        return int(transaction.insert_id(
+            """INSERT INTO polymarket_snapshots (condition_id, fetched_at, bid, ask, mid,
+                    spread_bps, depth_bid_usd, depth_ask_usd, volume_24h_usd,
+                    open_interest_usd, trade_count_24h, last_trade_at, usable, reject_code,
+                    raw_file_path, created_at)
+               VALUES (:cid, :fa, :bid, :ask, :mid, :spread, :dbid, :dask, :vol24, :oi,
+                    :tc, :lta, :usable, :code, :path, :created_at)""",
+            {"cid": snapshot.condition_id, "fa": fetched_at,
+             "bid": snapshot.bid, "ask": snapshot.ask, "mid": mid, "spread": spread_bps,
+             "dbid": snapshot.depth_bid_usd, "dask": snapshot.depth_ask_usd,
+             "vol24": snapshot.volume_24h_usd, "oi": snapshot.open_interest_usd,
+             "tc": snapshot.trade_count_24h, "lta": last_trade_at,
+             "usable": 1 if usable else 0, "code": reject_code or "",
+             "path": raw_file_path or "", "created_at": _utc_timestamp()}))
+
+
+def polymarket_snapshot_history(condition_id: str, *, since: datetime) -> list[dict]:
+    """Snapshot-Historie eines Markts seit ``since`` (älteste zuerst) — Eingabe für
+    ``polymarket_quality.evaluate_snapshot``'s Δp-Berechnung. Zeitvertrag beim Lesen:
+    ``fetched_at`` kommt aware (UTC) zurück, unabhängig davon, ob das Backend es naiv
+    (SQLite) oder tz-aware (PostgreSQL-Treiber) liefert."""
+    since_text = _polymarket_timestamp(since)
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            """SELECT fetched_at, mid FROM polymarket_snapshots
+               WHERE condition_id = :cid AND fetched_at >= :since
+               ORDER BY fetched_at ASC""",
+            {"cid": condition_id, "since": since_text})
+    history = []
+    for row in rows:
+        fetched_at = row["fetched_at"]
+        if isinstance(fetched_at, str):
+            fetched_at = datetime.fromisoformat(fetched_at)
+        if fetched_at.tzinfo is not None:
+            fetched_at = fetched_at.astimezone(timezone.utc).replace(tzinfo=None)
+        history.append({"fetched_at": fetched_at.replace(tzinfo=timezone.utc),
+                        "mid": row["mid"]})
+    return history
+
+
+def list_polymarket_markets() -> list[dict]:
+    """Alle bekannten Polymarket-Märkte (Stammdaten), zuletzt gesehen zuerst."""
+    with _database().transaction() as transaction:
+        rows = transaction.all("SELECT * FROM polymarket_markets ORDER BY last_seen_at DESC")
+    return [dict(row) for row in rows]
+
+
+def list_polymarket_snapshots(condition_id: str, *, limit: int = 500) -> list[dict]:
+    """Snapshot-Historie eines Markts (jüngste zuerst) für Reports/Debug."""
+    with _database().transaction() as transaction:
+        rows = transaction.all(
+            """SELECT * FROM polymarket_snapshots WHERE condition_id = :cid
+               ORDER BY fetched_at DESC, id DESC LIMIT :lim""",
+            {"cid": condition_id, "lim": limit})
+    return [dict(row) for row in rows]
 
 
 def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
