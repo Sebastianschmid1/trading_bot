@@ -96,7 +96,7 @@ class MarketSnapshot:
     depth_bid_usd: float | None
     depth_ask_usd: float | None
     volume_24h_usd: float | None
-    open_interest_usd: float | None
+    liquidity_usd: float | None
     trade_count_24h: int | None
     last_trade_at: datetime | None
     raw: dict[str, Any]
@@ -384,7 +384,7 @@ def fetch_market_snapshot(
         bid=bid, ask=ask,
         depth_bid_usd=depth_bid, depth_ask_usd=depth_ask,
         volume_24h_usd=volume_24h_usd,
-        open_interest_usd=_to_float(market.get("liquidity")),
+        liquidity_usd=_to_float(market.get("liquidity")),
         trade_count_24h=_trade_count_24h(trades, now=fetched_at),
         last_trade_at=_last_trade_at(trades),
         raw={"market": market, "book": book, "trades": trades},

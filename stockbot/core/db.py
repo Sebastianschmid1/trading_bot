@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS polymarket_snapshots (
     depth_bid_usd       REAL,
     depth_ask_usd       REAL,
     volume_24h_usd      REAL,
-    open_interest_usd   REAL,
+    liquidity_usd       REAL,
     trade_count_24h     INTEGER,
     last_trade_at       TEXT,
     usable              INTEGER NOT NULL DEFAULT 0,
@@ -2376,14 +2376,14 @@ def record_polymarket_snapshot(
         return int(transaction.insert_id(
             """INSERT INTO polymarket_snapshots (condition_id, fetched_at, bid, ask, mid,
                     spread_bps, depth_bid_usd, depth_ask_usd, volume_24h_usd,
-                    open_interest_usd, trade_count_24h, last_trade_at, usable, reject_code,
+                    liquidity_usd, trade_count_24h, last_trade_at, usable, reject_code,
                     raw_file_path, created_at)
-               VALUES (:cid, :fa, :bid, :ask, :mid, :spread, :dbid, :dask, :vol24, :oi,
+               VALUES (:cid, :fa, :bid, :ask, :mid, :spread, :dbid, :dask, :vol24, :liq,
                     :tc, :lta, :usable, :code, :path, :created_at)""",
             {"cid": snapshot.condition_id, "fa": fetched_at,
              "bid": snapshot.bid, "ask": snapshot.ask, "mid": mid, "spread": spread_bps,
              "dbid": snapshot.depth_bid_usd, "dask": snapshot.depth_ask_usd,
-             "vol24": snapshot.volume_24h_usd, "oi": snapshot.open_interest_usd,
+             "vol24": snapshot.volume_24h_usd, "liq": snapshot.liquidity_usd,
              "tc": snapshot.trade_count_24h, "lta": last_trade_at,
              "usable": 1 if usable else 0, "code": reject_code or "",
              "path": raw_file_path or "", "created_at": _utc_timestamp()}))

@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column("depth_bid_usd", sa.Float(), nullable=True),
         sa.Column("depth_ask_usd", sa.Float(), nullable=True),
         sa.Column("volume_24h_usd", sa.Float(), nullable=True),
-        sa.Column("open_interest_usd", sa.Float(), nullable=True),
+        sa.Column("liquidity_usd", sa.Float(), nullable=True),
         sa.Column("trade_count_24h", sa.BigInteger(), nullable=True),
         sa.Column("last_trade_at", sa.Text(), nullable=True),
         sa.Column("usable", sa.BigInteger(), nullable=False, server_default="0"),
