@@ -370,14 +370,14 @@ def fetch_market_snapshot(
         try:
             book = fetch_book(info.token_id)
         except PolymarketAPIError as exc:
-            log.warning(f"Polymarket-Buch für {info.condition_id} nicht abrufbar: {exc}")
+            log.warning("Polymarket-Buch für %s nicht abrufbar: %s", info.condition_id, exc)
 
     trades: list[dict] = []
     if info.condition_id:
         try:
             trades = fetch_trades(info.condition_id, limit=trades_limit)
         except PolymarketAPIError as exc:
-            log.warning(f"Polymarket-Trades für {info.condition_id} nicht abrufbar: {exc}")
+            log.warning("Polymarket-Trades für %s nicht abrufbar: %s", info.condition_id, exc)
 
     bid_levels = _parse_book_levels(book.get("bids") if isinstance(book, dict) else None)
     ask_levels = _parse_book_levels(book.get("asks") if isinstance(book, dict) else None)

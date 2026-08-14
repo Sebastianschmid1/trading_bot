@@ -87,7 +87,7 @@ def run_polymarket_cycle(
         try:
             market_list = polymarket.fetch_markets()
         except polymarket.PolymarketAPIError as exc:
-            log.warning(f"Polymarket-Zyklus: Marktdiscovery fehlgeschlagen ({exc}) — 0 Snapshots.")
+            log.warning("Polymarket-Zyklus: Marktdiscovery fehlgeschlagen (%s) — 0 Snapshots.", exc)
             return 0
 
     stored = 0
@@ -95,5 +95,5 @@ def run_polymarket_cycle(
         try:
             stored += _process_market(market, thresholds=thresholds)
         except Exception as exc:   # ein einzelner Markt darf den Zyklus nie kippen
-            log.warning(f"Polymarket-Zyklus: Markt übersprungen ({exc}).")
+            log.warning("Polymarket-Zyklus: Markt übersprungen (%s).", exc)
     return stored
