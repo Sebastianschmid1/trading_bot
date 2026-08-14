@@ -37,7 +37,7 @@ def _snapshot(condition_id="0xabc123", fetched_at=None, **overrides):
         condition_id=condition_id,
         fetched_at=fetched_at or datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc),
         bid=0.40, ask=0.42, depth_bid_usd=1000.0, depth_ask_usd=900.0,
-        volume_24h_usd=5000.0, open_interest_usd=20000.0, trade_count_24h=15,
+        volume_24h_usd=5000.0, liquidity_usd=20000.0, trade_count_24h=15,
         last_trade_at=datetime(2026, 8, 13, 11, 55, 0, tzinfo=timezone.utc),
         raw={"market": {"question": "Will X happen?"}, "book": {}, "trades": []},
     )

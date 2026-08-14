@@ -42,7 +42,7 @@ def _good_snapshot(condition_id="0xabc123"):
     return polymarket.MarketSnapshot(
         condition_id=condition_id, fetched_at=datetime.now(timezone.utc),
         bid=0.40, ask=0.41, depth_bid_usd=1000.0, depth_ask_usd=1000.0,
-        volume_24h_usd=5000.0, open_interest_usd=20000.0, trade_count_24h=20,
+        volume_24h_usd=5000.0, liquidity_usd=20000.0, trade_count_24h=20,
         last_trade_at=datetime.now(timezone.utc),
         raw={"market": {"question": "Will X happen?"}, "book": {}, "trades": []})
 
@@ -74,7 +74,7 @@ def test_run_polymarket_cycle_rejects_thin_market_but_still_persists_snapshot(mo
     thin = polymarket.MarketSnapshot(
         condition_id="0xabc123", fetched_at=datetime.now(timezone.utc),
         bid=0.40, ask=0.41, depth_bid_usd=1.0, depth_ask_usd=1.0,   # zu duenn
-        volume_24h_usd=5000.0, open_interest_usd=20000.0, trade_count_24h=20,
+        volume_24h_usd=5000.0, liquidity_usd=20000.0, trade_count_24h=20,
         last_trade_at=datetime.now(timezone.utc), raw={"market": {}, "book": {}, "trades": []})
     monkeypatch.setattr(polymarket, "fetch_market_snapshot", lambda market, **k: thin)
     monkeypatch.setattr(
