@@ -79,8 +79,9 @@ class MarketInfo:
 @dataclass(frozen=True)
 class MarketSnapshot:
     """Ein Abrufzeitpunkt, noch unbewertet — Eingabe für ``polymarket_quality.py``. ``raw``
-    ist der unveränderte, kombinierte JSON-Response (Markt + Buch + Trades) fürs
-    Rohdatenarchiv, inkl. ``question``/``resolution_rules``.
+    ist der kombinierte JSON-Response (Markt + Buch + Trades) fürs Rohdatenarchiv, inkl.
+    ``question``/``resolution_rules`` unverändert; die Trades darin sind auf die fachlich
+    nötigen Felder reduziert (IMPORTANT 5, siehe ``_sanitize_trade_for_archive``).
 
     ``volume_24h_usd`` kommt primär aus Gammas ``volume24hr`` (belegtes Feld, siehe
     Review-Befund BLOCKING 2); nur wenn Gamma es nicht liefert, wird ersatzweise über die
@@ -332,12 +333,27 @@ def _last_trade_at(trades: list[dict]) -> datetime | None:
     return max(timestamps) if timestamps else None
 
 
+_TRADE_ARCHIVE_FIELDS = ("conditionId", "asset", "side", "outcome", "outcomeIndex", "price",
+                        "size", "timestamp", "transactionHash")
+
+
+def _sanitize_trade_for_archive(trade: dict) -> dict:
+    """Behält je Trade nur die fachlich nötigen Felder fürs Rohdatenarchiv (Review-Befund
+    IMPORTANT 5). Die Data API liefert je Trade auch ``proxyWallet``/``pseudonym``/``name``/
+    ``bio``/``profileImage``/``profileImageOptimized``/``icon`` — personenbezogene Angaben über
+    fremde Nutzer, die dieser Sensor nirgends braucht. Markt- und Buch-Rohdaten bleiben
+    unverändert vollständig; dort steht mit ``question``/``description`` genau das, was das
+    Archiv später beweisen soll."""
+    return {key: trade[key] for key in _TRADE_ARCHIVE_FIELDS if key in trade}
+
+
 def fetch_market_snapshot(
     market: dict, *, trades_limit: int = 100,
     depth_window_pct: float = DEFAULT_DEPTH_WINDOW_PCT,
 ) -> MarketSnapshot:
     """Voller Abrufzyklus für EINEN Markt: Buch + Trades holen und zu einem unbewerteten
-    Snapshot samt unverändertem Rohdaten-Bundle bündeln. Ein fehlgeschlagener Teil-Abruf
+    Snapshot samt Rohdaten-Bundle fürs Archiv bündeln (Trades darin bereits auf die nötigen
+    Felder reduziert, siehe ``_sanitize_trade_for_archive``). Ein fehlgeschlagener Teil-Abruf
     (Buch ODER Trades) bricht den Snapshot nicht ab — die betroffenen Felder bleiben ``None``/
     leer und der Qualitätsfilter lehnt den Snapshot dann folgerichtig ab (dünnes Buch /
     kein Volumen), statt dass der ganze Zyklus abbricht.
@@ -387,7 +403,8 @@ def fetch_market_snapshot(
         liquidity_usd=_to_float(market.get("liquidity")),
         trade_count_24h=_trade_count_24h(trades, now=fetched_at),
         last_trade_at=_last_trade_at(trades),
-        raw={"market": market, "book": book, "trades": trades},
+        raw={"market": market, "book": book,
+             "trades": [_sanitize_trade_for_archive(t) for t in trades]},
     )
 
 
@@ -409,11 +426,12 @@ def write_raw_snapshot(
     condition_id: str, fetched_at: datetime, payload: dict, *,
     base_dir: Path = POLYMARKET_ARCHIVE_DIR,
 ) -> str:
-    """Schreibt den unveränderten kombinierten JSON-Response (Markt inkl. ``question``/
-    ``resolution_rules``, Buch, Trades) verlustfrei weg. Gibt den Dateipfad zurück — er wird
-    als ``raw_file_path`` in die Snapshot-Zeile aufgenommen (die Metadatenzeile über den
-    DB-Seam aus Plan §3; ein eigenes Metadaten-Tabellenpaar wie bei
-    ``core/raw_data_archive`` entfällt, weil 1 Snapshot == 1 archivierte Datei ist)."""
+    """Schreibt das kombinierte JSON-Bundle (Markt inkl. ``question``/``resolution_rules``,
+    Buch, auf die nötigen Felder reduzierte Trades — siehe ``_sanitize_trade_for_archive``)
+    verlustfrei weg. Gibt den Dateipfad zurück — er wird als ``raw_file_path`` in die
+    Snapshot-Zeile aufgenommen (die Metadatenzeile über den DB-Seam aus Plan §3; ein eigenes
+    Metadaten-Tabellenpaar wie bei ``core/raw_data_archive`` entfällt, weil 1 Snapshot == 1
+    archivierte Datei ist)."""
     path = raw_json_path(condition_id, fetched_at, base_dir=base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, default=str, ensure_ascii=False, indent=2),
