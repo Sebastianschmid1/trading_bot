@@ -25,7 +25,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +80,15 @@ class MarketInfo:
 class MarketSnapshot:
     """Ein Abrufzeitpunkt, noch unbewertet — Eingabe für ``polymarket_quality.py``. ``raw``
     ist der unveränderte, kombinierte JSON-Response (Markt + Buch + Trades) fürs
-    Rohdatenarchiv, inkl. ``question``/``resolution_rules``."""
+    Rohdatenarchiv, inkl. ``question``/``resolution_rules``.
+
+    ``volume_24h_usd`` kommt primär aus Gammas ``volume24hr`` (belegtes Feld, siehe
+    Review-Befund BLOCKING 2); nur wenn Gamma es nicht liefert, wird ersatzweise über die
+    zurückgelieferten Trades summiert (``size * price`` je Trade, gefiltert auf die letzten
+    24h). ``trade_count_24h`` zählt ausschließlich Trades mit ``timestamp`` innerhalb der
+    letzten 24h — **ist das Abruf-Limit der Data-API ausgeschöpft** (alle zurückgelieferten
+    Trades sind jünger als 24h), ist der Zählwert eine UNTERGRENZE, weil ältere Trades
+    innerhalb des 24h-Fensters jenseits des Limits liegen könnten."""
     condition_id: str
     fetched_at: datetime
     bid: float | None
@@ -267,20 +275,6 @@ def _book_depth_usd(
     return sum(price * size for price, size in levels if price <= threshold)
 
 
-def _trade_amount_usd(trade: dict) -> float:
-    for key in ("size", "amount", "value", "usdcAmount"):
-        amount = _to_float(trade.get(key))
-        if amount is not None:
-            return amount
-    return 0.0
-
-
-def _sum_trade_volume(trades: list[dict]) -> float | None:
-    if not trades:
-        return None
-    return sum(_trade_amount_usd(trade) for trade in trades)
-
-
 def _parse_trade_time(value: Any) -> datetime | None:
     if value is None:
         return None
@@ -293,13 +287,48 @@ def _parse_trade_time(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
+def _trade_timestamp(trade: dict) -> datetime | None:
+    return _parse_trade_time(trade.get("timestamp", trade.get("match_time", trade.get("time"))))
+
+
+def _trade_amount_usd(trade: dict) -> float | None:
+    """USD-Wert EINES Trades = ``size`` (Anzahl Shares) * ``price`` — die Data API liefert in
+    ``size`` Stück, NICHT USD (Review-Befund BLOCKING 2). ``None`` wenn Preis oder Größe
+    fehlt — kein erfundener Betrag."""
+    size = _to_float(trade.get("size"))
+    price = _to_float(trade.get("price"))
+    if size is None or price is None:
+        return None
+    return size * price
+
+
+def _trade_count_24h(trades: list[dict], *, now: datetime) -> int:
+    """Zählt nur Trades, deren Zeitstempel höchstens 24h vor ``now`` liegt (Review-Befund
+    BLOCKING 2) — ``len(trades)`` allein zählt bloß die Antwortlänge (begrenzt durch
+    ``limit``), unabhängig davon, wie alt die Trades tatsächlich sind."""
+    cutoff = now - timedelta(hours=24)
+    return sum(1 for trade in trades
+              if (ts := _trade_timestamp(trade)) is not None and ts >= cutoff)
+
+
+def _sum_trade_volume_usd_24h(trades: list[dict], *, now: datetime) -> float | None:
+    """Ersatz-USD-Volumen aus einzelnen Trades (``size * price``, siehe ``_trade_amount_usd``),
+    gefiltert auf die letzten 24h — nur als Fallback verwendet, wenn Gammas ``volume24hr``
+    fehlt. Da die Data API höchstens ``limit`` Trades zurückliefert, ist auch dieser Wert bei
+    ausgeschöpftem Limit nur eine Untergrenze (analog ``_trade_count_24h``)."""
+    cutoff = now - timedelta(hours=24)
+    amounts = [
+        amount for trade in trades
+        if (ts := _trade_timestamp(trade)) is not None and ts >= cutoff
+        and (amount := _trade_amount_usd(trade)) is not None
+    ]
+    return sum(amounts) if amounts else None
+
+
 def _last_trade_at(trades: list[dict]) -> datetime | None:
     if not trades:
         return None
-    timestamps = [t for t in (
-        _parse_trade_time(trade.get("timestamp", trade.get("match_time", trade.get("time"))))
-        for trade in trades
-    ) if t is not None]
+    timestamps = [t for t in (_trade_timestamp(trade) for trade in trades) if t is not None]
     return max(timestamps) if timestamps else None
 
 
@@ -345,14 +374,18 @@ def fetch_market_snapshot(
         depth_bid = _book_depth_usd(bid_levels, side="bid", mid=mid, window_pct=depth_window_pct)
         depth_ask = _book_depth_usd(ask_levels, side="ask", mid=mid, window_pct=depth_window_pct)
 
+    volume_24h_usd = _to_float(market.get("volume24hr"))
+    if volume_24h_usd is None:
+        volume_24h_usd = _sum_trade_volume_usd_24h(trades, now=fetched_at)
+
     return MarketSnapshot(
         condition_id=info.condition_id,
         fetched_at=fetched_at,
         bid=bid, ask=ask,
         depth_bid_usd=depth_bid, depth_ask_usd=depth_ask,
-        volume_24h_usd=_sum_trade_volume(trades),
+        volume_24h_usd=volume_24h_usd,
         open_interest_usd=_to_float(market.get("liquidity")),
-        trade_count_24h=len(trades),
+        trade_count_24h=_trade_count_24h(trades, now=fetched_at),
         last_trade_at=_last_trade_at(trades),
         raw={"market": market, "book": book, "trades": trades},
     )
