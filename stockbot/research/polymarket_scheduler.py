@@ -46,7 +46,8 @@ def _process_market(
         return 0
     db.upsert_polymarket_market(info)
 
-    snapshot = polymarket.fetch_market_snapshot(market)
+    snapshot = polymarket.fetch_market_snapshot(
+        market, depth_window_pct=thresholds.depth_window_pct)
     raw_path = polymarket.write_raw_snapshot(
         info.condition_id, snapshot.fetched_at, snapshot.raw)
 

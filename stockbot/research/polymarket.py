@@ -46,6 +46,12 @@ _MAX_RETRIES = 1                 # genau ein Retry, keine Endlosschleife bei Rat
 _RETRY_BACKOFF_S = 2.0
 _MAX_RETRY_WAIT_S = 30.0
 
+# Default-Preisfenster für die kumulierte Buchtiefe (IMPORTANT 4) — muss zum Default von
+# ``polymarket_quality.QualityThresholds.depth_window_pct`` passen, damit ein Aufruf ohne
+# explizit durchgereichte Schwellenwerte (z. B. in Tests) dieselbe Tiefe liefert wie der
+# Erhebungszyklus mit ``DEFAULT_THRESHOLDS``.
+DEFAULT_DEPTH_WINDOW_PCT = 10.0
+
 POLYMARKET_ARCHIVE_DIR = DATA_DIR / "polymarket_archive"
 
 
@@ -215,20 +221,50 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
-def _book_top(levels: Any) -> tuple[float | None, float | None]:
-    """Bester Preis + USD-Tiefe der besten Buchstufe. Die CLOB liefert Stufen als
-    ``[{"price": "...", "size": "..."}, ...]``; ein leeres oder fehlerhaftes Buch liefert
-    ``(None, None)`` — kein erfundener Preis."""
+def _parse_book_levels(levels: Any) -> list[tuple[float, float]]:
+    """Parst Buchstufen ``[{"price": "...", "size": "..."}, ...]`` zu ``(price, size)``-Paaren.
+    Unparsbare/fehlerhafte Stufen werden übersprungen — kein erfundener Preis."""
     if not levels or not isinstance(levels, list):
-        return None, None
-    best = levels[0]
-    if not isinstance(best, dict):
-        return None, None
-    price = _to_float(best.get("price"))
-    size = _to_float(best.get("size"))
-    if price is None or size is None:
-        return None, None
-    return price, price * size
+        return []
+    parsed = []
+    for level in levels:
+        if not isinstance(level, dict):
+            continue
+        price = _to_float(level.get("price"))
+        size = _to_float(level.get("size"))
+        if price is None or size is None:
+            continue
+        parsed.append((price, size))
+    return parsed
+
+
+def _book_best_price(levels: list[tuple[float, float]], *, side: str) -> float | None:
+    """Bester Preis EINER Buchseite, robust über alle Stufen bestimmt statt über die
+    Listenreihenfolge (Review-Befund BLOCKING 1). Die CLOB liefert Bid-/Ask-Stufen
+    gegenläufig sortiert und das beste Gebot/der beste Ask liegt jeweils am ENDE der Liste
+    (``levels[-1]``) — ``max()``/``min()`` über ``price`` macht die Funktion unabhängig
+    davon, ob Polymarket die Sortierung künftig ändert. ``side='bid'`` will das HÖCHSTE
+    Gebot, ``side='ask'`` den NIEDRIGSTEN Ask."""
+    if not levels:
+        return None
+    prices = [price for price, _ in levels]
+    return max(prices) if side == "bid" else min(prices)
+
+
+def _book_depth_usd(
+    levels: list[tuple[float, float]], *, side: str, mid: float, window_pct: float,
+) -> float:
+    """Kumulierte USD-Tiefe (``price * size`` je Stufe, aufsummiert) aller Buchstufen
+    innerhalb eines Preisfensters ``window_pct`` % um den Mittelkurs (Review-Befund
+    IMPORTANT 4) — die beste Stufe allein unterschätzt die tatsächliche Tiefe eines großen
+    Markts massiv. Bid-Seite zählt Stufen mit ``price >= mid * (1 - window)``, Ask-Seite
+    ``price <= mid * (1 + window)``."""
+    window = window_pct / 100.0
+    if side == "bid":
+        threshold = mid * (1 - window)
+        return sum(price * size for price, size in levels if price >= threshold)
+    threshold = mid * (1 + window)
+    return sum(price * size for price, size in levels if price <= threshold)
 
 
 def _trade_amount_usd(trade: dict) -> float:
@@ -267,12 +303,20 @@ def _last_trade_at(trades: list[dict]) -> datetime | None:
     return max(timestamps) if timestamps else None
 
 
-def fetch_market_snapshot(market: dict, *, trades_limit: int = 100) -> MarketSnapshot:
+def fetch_market_snapshot(
+    market: dict, *, trades_limit: int = 100,
+    depth_window_pct: float = DEFAULT_DEPTH_WINDOW_PCT,
+) -> MarketSnapshot:
     """Voller Abrufzyklus für EINEN Markt: Buch + Trades holen und zu einem unbewerteten
     Snapshot samt unverändertem Rohdaten-Bundle bündeln. Ein fehlgeschlagener Teil-Abruf
     (Buch ODER Trades) bricht den Snapshot nicht ab — die betroffenen Felder bleiben ``None``/
     leer und der Qualitätsfilter lehnt den Snapshot dann folgerichtig ab (dünnes Buch /
-    kein Volumen), statt dass der ganze Zyklus abbricht."""
+    kein Volumen), statt dass der ganze Zyklus abbricht.
+
+    ``depth_window_pct`` steuert das Preisfenster um den Mid, über das die Buchtiefe
+    kumuliert wird (IMPORTANT 4) — der Scheduler reicht dafür
+    ``QualityThresholds.depth_window_pct`` durch, damit Filterung und Tiefenberechnung
+    denselben Wert verwenden."""
     info = parse_market_info(market)
     fetched_at = datetime.now(timezone.utc)
 
@@ -290,8 +334,16 @@ def fetch_market_snapshot(market: dict, *, trades_limit: int = 100) -> MarketSna
         except PolymarketAPIError as exc:
             log.warning(f"Polymarket-Trades für {info.condition_id} nicht abrufbar: {exc}")
 
-    bid, depth_bid = _book_top(book.get("bids") if isinstance(book, dict) else None)
-    ask, depth_ask = _book_top(book.get("asks") if isinstance(book, dict) else None)
+    bid_levels = _parse_book_levels(book.get("bids") if isinstance(book, dict) else None)
+    ask_levels = _parse_book_levels(book.get("asks") if isinstance(book, dict) else None)
+    bid = _book_best_price(bid_levels, side="bid")
+    ask = _book_best_price(ask_levels, side="ask")
+
+    depth_bid = depth_ask = None
+    if bid is not None and ask is not None:
+        mid = (bid + ask) / 2.0
+        depth_bid = _book_depth_usd(bid_levels, side="bid", mid=mid, window_pct=depth_window_pct)
+        depth_ask = _book_depth_usd(ask_levels, side="ask", mid=mid, window_pct=depth_window_pct)
 
     return MarketSnapshot(
         condition_id=info.condition_id,

@@ -27,6 +27,11 @@ class QualityThresholds:
     min_trade_count_24h: int = 5
     max_snapshot_age_seconds: float = 3600.0
     min_time_to_resolution_seconds: float = 24 * 3600.0
+    #: Preisfenster (in %) um den Mid, über das die Buchtiefe kumuliert wird (Review-Befund
+    #: IMPORTANT 4) — ``research/polymarket.py::fetch_market_snapshot`` summiert damit alle
+    #: Buchstufen im Fenster statt nur der besten Stufe. Muss zu
+    #: ``polymarket.DEFAULT_DEPTH_WINDOW_PCT`` passen (dort dokumentiert, warum).
+    depth_window_pct: float = 10.0
 
 
 DEFAULT_THRESHOLDS = QualityThresholds()
