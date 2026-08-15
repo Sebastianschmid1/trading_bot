@@ -56,9 +56,10 @@ def reconcile_user_oms(
         return report
     except Exception as exc:
         log.warning(
-            "[%s] OMS-Reconciliation fehlgeschlagen: %s",
+            "[%s] OMS-Reconciliation fehlgeschlagen: %r",
             user_id,
-            type(exc).__name__,
+            exc,
+            exc_info=True,
         )
         now = datetime.now(timezone.utc)
         return ReconciliationReport(findings=[], started_at=now, finished_at=now)
