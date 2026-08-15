@@ -261,7 +261,8 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
         timeframe = _to_alpaca_timeframe(interval)
         if period is not None:
             start = _period_to_start(period)
-        req = StockBarsRequest(symbol_or_symbols=ticker, timeframe=timeframe, start=start, end=end)
+        req = StockBarsRequest(symbol_or_symbols=broker_client.to_alpaca_symbol(ticker),
+                               timeframe=timeframe, start=start, end=end)
         return self._require_data_client().get_stock_bars(req).df
 
     def get_bars_batch(self, tickers: list[str], *, interval: str, period: str | None = None,
@@ -274,17 +275,20 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
             return {}
         timeframe = _to_alpaca_timeframe(interval)
         start = _period_to_start(period) if period is not None else None
-        req = StockBarsRequest(symbol_or_symbols=list(tickers), timeframe=timeframe, start=start)
+        # Alpaca-Grenze: Bot-Symbole (Yahoo-Konvention, "-") → Alpaca-Symbole ("."), sowohl im
+        # Request als auch beim Zurückmappen des (nach Alpaca-Symbol indizierten) Antwort-Frames.
+        alpaca_tickers = [broker_client.to_alpaca_symbol(t) for t in tickers]
+        req = StockBarsRequest(symbol_or_symbols=alpaca_tickers, timeframe=timeframe, start=start)
         df = self._require_data_client().get_stock_bars(req).df
         out: dict[str, pd.DataFrame] = {}
         if df is None or len(df) == 0:
             return out
         if isinstance(df.index, pd.MultiIndex):
             available = set(df.index.get_level_values(0))
-            for ticker in tickers:
-                if ticker not in available:
+            for ticker, alpaca_ticker in zip(tickers, alpaca_tickers):
+                if alpaca_ticker not in available:
                     continue
-                norm = _normalize_alpaca_bars(df.xs(ticker, level=0))
+                norm = _normalize_alpaca_bars(df.xs(alpaca_ticker, level=0))
                 if len(norm):
                     out[ticker] = norm
         elif len(tickers) == 1:
@@ -295,9 +299,10 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
 
     def get_quote(self, ticker: str) -> Quote:
         from alpaca.data.requests import StockLatestQuoteRequest
-        req = StockLatestQuoteRequest(symbol_or_symbols=ticker)
+        alpaca_ticker = broker_client.to_alpaca_symbol(ticker)
+        req = StockLatestQuoteRequest(symbol_or_symbols=alpaca_ticker)
         quotes = self._require_data_client().get_stock_latest_quote(req)
-        q = quotes[ticker]
+        q = quotes[alpaca_ticker]
         bid, ask = float(q.bid_price or 0.0), float(q.ask_price or 0.0)
         price = (bid + ask) / 2 if bid and ask else (ask or bid)
         now = datetime.now(timezone.utc)
@@ -319,7 +324,7 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
         self, ticker: str, *, since: datetime | None = None
     ) -> list[CorporateAction]:
         from alpaca.data.requests import CorporateActionsRequest
-        req = CorporateActionsRequest(symbols=[ticker], start=since)
+        req = CorporateActionsRequest(symbols=[broker_client.to_alpaca_symbol(ticker)], start=since)
         result = self._ca_client.get_corporate_actions(req)
         actions: list[CorporateAction] = []
         for action_type, items in result.data.items():
