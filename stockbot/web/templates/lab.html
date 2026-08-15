@@ -20,20 +20,20 @@
   .chip { font-family:var(--font-mono); font-size:.8rem; background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
           border-radius:var(--lg-r-pill); padding:.24rem .6rem; color:var(--lg-ink); box-shadow:var(--lg-cast-1); }
   .chip b { color:var(--lg-violet); font-weight:700; }
-  .chip.changed { border-color:var(--lg-success); background:rgb(62 158 110 / .12); }
+  .chip.changed { border-color:var(--lg-success); background:color-mix(in srgb, var(--lg-success) 12%, transparent); }
   .proposal { border:1px solid var(--lg-warning); }
   .proposal.none { border:1px solid var(--lg-edge-soft); }
   .bigchange { font-family:var(--font-mono); font-size:1.15rem; font-weight:700; color:var(--lg-ink); }
   .bigchange .arr { color:var(--lg-warning); margin:0 .3rem; }
   .cmp { width:100%; border-collapse:collapse; font-size:.88rem; margin-top:.5rem; }
-  .cmp th, .cmp td { padding:.35rem .5rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:right; white-space:nowrap; }
+  .cmp th, .cmp td { padding:.35rem .5rem; border-bottom:1px solid var(--sep); text-align:right; white-space:nowrap; }
   .cmp th { color:var(--lg-ink-muted); }
   .cmp th:first-child, .cmp td:first-child { text-align:left; color:var(--lg-ink-muted); }
   .cmp td { font-family:var(--font-mono); font-variant-numeric:tabular-nums; color:var(--lg-ink); }
   .win { color:var(--lg-success); } .lose { color:var(--lg-error); }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   table.hyp { width:100%; border-collapse:collapse; font-size:.86rem; }
-  table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:left; white-space:nowrap; color:var(--lg-ink); }
+  table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid var(--sep); text-align:left; white-space:nowrap; color:var(--lg-ink); }
   table.hyp th { color:var(--lg-ink-muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; }
   table.hyp td.m { font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right; }
   .kind { font-size:.66rem; font-weight:700; padding:.1rem .45rem; border-radius:var(--lg-r-pill); letter-spacing:.03em;
@@ -140,7 +140,7 @@
   </div>
   {% endif %}
   {% if st.reality and st.reality.live_win_rate is defined and st.reality.live_win_rate is not none %}
-  <div class="note" style="margin-top:.4rem {{ 'color:var(--red)' if st.reality.divergent }}">
+  <div class="note" style="margin-top:.4rem;{{ ' color:var(--red)' if st.reality.divergent }}">
     🩺 Reality-Check ({{ st.reality.n }} Live-Trades, {{ st.reality.days }} Tage):
     Trefferquote live {{ st.reality.live_win_rate }}% vs. erwartet
     {{ st.reality.expected_win_rate if st.reality.expected_win_rate is not none else '—' }}%

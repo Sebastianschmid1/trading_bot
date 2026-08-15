@@ -16,17 +16,17 @@
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
   table.hist { width:100%; border-collapse:collapse; font-size:.9rem; }
-  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid rgb(38 28 60 / .10); text-align:left; white-space:nowrap; color:var(--lg-ink); }
+  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid var(--sep); text-align:left; white-space:nowrap; color:var(--lg-ink); }
   table.hist th { cursor:pointer; user-select:none; color:var(--lg-ink-muted); font-size:.68rem;
                   text-transform:uppercase; letter-spacing:.06em; font-family:var(--font-display); }
   table.hist th:hover { color:var(--lg-ink); }
   table.hist th.r, table.hist td.r { text-align:right; }
   table.hist td.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  table.hist tbody tr:hover { background:rgb(153 124 230 / .10); }
+  table.hist tbody tr:hover { background:rgb(var(--lg-violet-rgb) / .10); }
   .arrow { color:var(--lg-violet); }
   .dir { display:inline-flex; align-items:center; font-size:.7rem; font-weight:700; padding:.12rem .5rem; border-radius:var(--lg-r-pill); letter-spacing:.03em; }
-  .dir.long { background:rgb(110 196 185 / .22); color:var(--lg-ink-on-teal); }
-  .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:#A5122B; }
+  .dir.long { background:rgb(var(--lg-teal-rgb) / .22); color:var(--lg-ink-on-teal); }
+  .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:var(--money-loss); }
   .empty { color:var(--lg-ink-muted); text-align:center; padding:2.2rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
 </style>
 
