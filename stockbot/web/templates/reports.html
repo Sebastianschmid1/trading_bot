@@ -4,15 +4,15 @@
 {% block content %}
 <style>
   td.r, th.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  .filters fieldset { border:1px solid rgb(38 28 60 / .14); border-radius:var(--lg-r-md); margin:.5rem 0; padding:.4rem .7rem .6rem; }
+  .filters fieldset { border:1px solid var(--border); border-radius:var(--lg-r-md); margin:.5rem 0; padding:.4rem .7rem .6rem; }
   .filters legend { padding:0 .4rem; color:var(--lg-ink-muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; }
   .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.3rem .7rem; margin:.18rem;
           border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-pill); cursor:pointer; font-size:.88rem; user-select:none;
           color:var(--lg-ink); text-decoration:none; background:var(--lg-glass-solid); box-shadow:var(--lg-cast-1); }   /* a.chip soll NICHT wie ein Link aussehen */
-  .chip:hover { background:rgb(153 124 230 / .12); color:var(--lg-ink); }
+  .chip:hover { background:rgb(var(--lg-violet-rgb) / .12); color:var(--lg-ink); }
   .chip:visited { color:var(--lg-ink); }                 /* sonst „besuchte" Jahr-Links lila */
-  .chip.on { background:rgb(153 124 230 / .20); border-color:var(--lg-violet); color:var(--lg-ink); font-weight:600; }
-  .chip.on:hover { background:rgb(153 124 230 / .26); color:var(--lg-ink); }
+  .chip.on { background:rgb(var(--lg-violet-rgb) / .20); border-color:var(--lg-violet); color:var(--lg-ink); font-weight:600; }
+  .chip.on:hover { background:rgb(var(--lg-violet-rgb) / .26); color:var(--lg-ink); }
   .chip input { accent-color:var(--lg-violet); margin:0; width:1rem; height:1rem; }
   .filters .actions { margin-top:.5rem; display:flex; gap:.5rem; align-items:center; }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -20,8 +20,8 @@
   .sortable-table th:hover { color:var(--lg-violet); }
   .sortable-table .arrow { color:var(--lg-violet); }
   tr.matrow { cursor:pointer; }
-  tr.matrow:hover { background:rgb(153 124 230 / .10); }
-  tr.matrow.sel td { background:rgb(153 124 230 / .16); }
+  tr.matrow:hover { background:rgb(var(--lg-violet-rgb) / .10); }
+  tr.matrow.sel td { background:rgb(var(--lg-violet-rgb) / .16); }
 </style>
 
 <h1>Reports</h1>
@@ -217,10 +217,15 @@
   });
 
   // Klick auf eine Matrix-Zeile → Depot-Equity-Kurve laden und zeichnen.
+  // Canvas/SVG-Farben per JS: getComputedStyle liest die aktiven --lg-*/--money-*-
+  // Werte bei jedem Aufruf frisch, damit die Kurve dem aktiven Theme folgt.
+  function themeColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function drawEquity(d) {
     var svg = document.getElementById('equitySvg');
+    var ink = themeColor('--lg-ink-muted'), inkStrong = themeColor('--lg-ink'), warn = themeColor('--lg-warning');
+    var gain = themeColor('--money-gain'), loss = themeColor('--money-loss');
     var pts = (d && d.points) || [];
-    if (pts.length < 2) { svg.innerHTML = '<text x="12" y="20" fill="#4E4763" font-size="12">Keine Trades.</text>'; return; }
+    if (pts.length < 2) { svg.innerHTML = '<text x="12" y="20" fill="' + ink + '" font-size="12">Keine Trades.</text>'; return; }
     var bm = (d && d.benchmark) || [];
     var W = 640, H = 240, padL = 60, padR = 12, padT = 16, padB = 28;
     var t0 = Date.parse(pts[0][0]), t1 = Date.parse(pts[pts.length - 1][0]) || (t0 + 1);
@@ -232,30 +237,36 @@
     var Y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
     var poly = function (arr) { return arr.map(function (p) { return X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' '); };
     var up = pts[pts.length - 1][1] >= base;
-    var color = up ? '#0A6B3C' : '#A5122B';
+    var color = up ? gain : loss;
     var yb = Y(base).toFixed(1);
     var fmt = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
     // Escaping für String-Daten (Datumswerte aus dem Report-JSON) im per innerHTML gesetzten SVG.
     var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
     var s = '';
-    s += '<line x1="' + padL + '" y1="' + yb + '" x2="' + (W - padR) + '" y2="' + yb + '" stroke="#4E4763" stroke-dasharray="4 3"/>';
-    if (bm.length > 1) s += '<polyline fill="none" stroke="#B87A18" stroke-width="1.5" points="' + poly(bm) + '"/>';
+    s += '<line x1="' + padL + '" y1="' + yb + '" x2="' + (W - padR) + '" y2="' + yb + '" stroke="' + ink + '" stroke-dasharray="4 3"/>';
+    if (bm.length > 1) s += '<polyline fill="none" stroke="' + warn + '" stroke-width="1.5" points="' + poly(bm) + '"/>';
     s += '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + poly(pts) + '"/>';
-    s += '<text x="6" y="' + (Y(hi) + 4) + '" fill="#4E4763" font-size="11">' + fmt(hi) + '</text>';
-    s += '<text x="6" y="' + (Y(lo) + 4) + '" fill="#4E4763" font-size="11">' + fmt(lo) + '</text>';
-    s += '<text x="6" y="' + (yb - 3) + '" fill="#4E4763" font-size="11">' + fmt(base) + '</text>';
-    s += '<text x="' + padL + '" y="' + (H - 8) + '" fill="#4E4763" font-size="11">' + esc(pts[0][0]) + '</text>';
-    s += '<text x="' + (W - padR) + '" y="' + (H - 8) + '" fill="#4E4763" font-size="11" text-anchor="end">' + esc(pts[pts.length - 1][0]) + '</text>';
+    s += '<text x="6" y="' + (Y(hi) + 4) + '" fill="' + ink + '" font-size="11">' + fmt(hi) + '</text>';
+    s += '<text x="6" y="' + (Y(lo) + 4) + '" fill="' + ink + '" font-size="11">' + fmt(lo) + '</text>';
+    s += '<text x="6" y="' + (yb - 3) + '" fill="' + ink + '" font-size="11">' + fmt(base) + '</text>';
+    s += '<text x="' + padL + '" y="' + (H - 8) + '" fill="' + ink + '" font-size="11">' + esc(pts[0][0]) + '</text>';
+    s += '<text x="' + (W - padR) + '" y="' + (H - 8) + '" fill="' + ink + '" font-size="11" text-anchor="end">' + esc(pts[pts.length - 1][0]) + '</text>';
     // Legende
     s += '<rect x="' + (padL + 4) + '" y="6" width="10" height="10" fill="' + color + '"/>';
-    s += '<text x="' + (padL + 18) + '" y="15" fill="#241F35" font-size="11">Strategie</text>';
+    s += '<text x="' + (padL + 18) + '" y="15" fill="' + inkStrong + '" font-size="11">Strategie</text>';
     if (bm.length > 1) {
-      s += '<rect x="' + (padL + 90) + '" y="6" width="10" height="10" fill="#B87A18"/>';
-      s += '<text x="' + (padL + 104) + '" y="15" fill="#241F35" font-size="11">S&amp;P 500 (Buy &amp; Hold)</text>';
+      s += '<rect x="' + (padL + 90) + '" y="6" width="10" height="10" fill="' + warn + '"/>';
+      s += '<text x="' + (padL + 104) + '" y="15" fill="' + inkStrong + '" font-size="11">S&amp;P 500 (Buy &amp; Hold)</text>';
     }
     svg.innerHTML = s;
+    lastEquityData = d;
   }
+  var lastEquityData = null;
+  // Panel bleibt beim Theme-Wechsel sichtbar → mit denselben Daten, neuen Farben neu zeichnen.
+  document.addEventListener('stockbot:themechange', function () {
+    if (lastEquityData) drawEquity(lastEquityData);
+  });
 
   document.querySelectorAll('tr.matrow').forEach(function (tr) {
     tr.addEventListener('click', function () {
@@ -270,7 +281,7 @@
       fetch('/app/reports/equity?years={{ sel_years }}&key=' + encodeURIComponent(k) + '&lev=' + encodeURIComponent(l) + '&mode=' + encodeURIComponent(m))
         .then(function (r) { return r.json(); })
         .then(function (d) { drawEquity(d); panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); })
-        .catch(function () { document.getElementById('equitySvg').innerHTML = '<text x="12" y="20" fill="#A5122B" font-size="12">Fehler beim Laden.</text>'; });
+        .catch(function () { document.getElementById('equitySvg').innerHTML = '<text x="12" y="20" fill="' + themeColor('--money-loss') + '" font-size="12">Fehler beim Laden.</text>'; });
     });
   });
 })();
