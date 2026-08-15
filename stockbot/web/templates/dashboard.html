@@ -9,8 +9,8 @@
        Die Klassen-/ID-Namen bleiben unverändert (JS-Haken), nur die Werte
        wechseln von der dunklen Avionik in die helle Glaswelt. */
     main { max-width: 1180px !important; padding: 20px 20px 64px !important; }
-    /* Semantische Geld-Farben: dunkel genug für ≥4.5:1 auf hellem/Solid-Glas */
-    .green { color:#0A6B3C; } .red { color:#A5122B; }
+    /* Semantische Geld-Farben: eigene Tokens, ≥4.5:1 auf Solid-Glas in BEIDEN Modi */
+    .green { color:var(--money-gain); } .red { color:var(--money-loss); }
 
     /* Signatur-Hero: Instrument (Gauge, 2:1) + quadratische Kennzahl-Kacheln (1:1) in EINEM Raster.
        #cards nutzt display:contents → seine Karten werden direkte Zellen des .hero-Rasters. */
@@ -52,8 +52,8 @@
     .ck-chip .dot { width:9px; height:9px; border-radius:50%; background:currentColor;
                     box-shadow:0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
     .ck-chip .k { color:var(--lg-ink-muted); font-weight:500; }
-    .ck-chip.is-paper  { color:#8A5A0F; }
-    .ck-chip.is-shadow { color:#3358B5; }
+    .ck-chip.is-paper  { color:var(--mode-paper); }
+    .ck-chip.is-shadow { color:var(--mode-shadow); }
     .ck-chip.is-live   { color:var(--lg-error); }
     .ck-chip.is-armed  { color:var(--lg-success); }
     .ck-meta { font-size:var(--lg-size-small); color:var(--lg-ink-muted); white-space:nowrap; }
@@ -64,14 +64,14 @@
             border:1px solid var(--lg-edge-soft); background:var(--lg-glass-solid);
             box-shadow:var(--lg-cast-1); white-space:nowrap; color:var(--lg-ink); }
     .pill .dot { width:.55rem; height:.55rem; border-radius:50%; background:var(--lg-success);
-                 box-shadow:0 0 0 0 rgb(62 158 110 / .6); }
+                 box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 60%, transparent); }
     .pill.live { color:var(--lg-success); }
     .pill.live .dot { animation:pulse 2s infinite; }
     .pill.paused { color:var(--lg-ink-muted); }
     .pill.paused .dot { background:var(--lg-ink-muted); animation:none; }
     .pill.offline { color:var(--lg-error); }
     .pill.offline .dot { background:var(--lg-error); animation:none; }
-    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgb(62 158 110 / .45)} 70%{box-shadow:0 0 0 .4rem rgb(62 158 110 / 0)} 100%{box-shadow:0 0 0 0 rgb(62 158 110 / 0)} }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 45%, transparent)} 70%{box-shadow:0 0 0 .4rem color-mix(in srgb, var(--lg-success) 0%, transparent)} 100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 0%, transparent)} }
 
     .iconbtn { display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
                border:1px solid var(--lg-edge); background:linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass));
@@ -89,7 +89,7 @@
              color:var(--lg-error); padding:.9rem 1rem;
              border-radius:var(--lg-r-md); margin-bottom:1rem; box-shadow:var(--lg-cast-1); }
     #sizing-hint { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-warning);
-                   color:#8A5A0F; padding:.8rem 1rem;
+                   color:var(--mode-paper); padding:.8rem 1rem;
                    border-radius:var(--lg-r-md); margin-bottom:20px; box-shadow:var(--lg-cast-1); }
 
     /* ── KPI-Kacheln: Glas, EINE Iris-Fläche (card-hero) ────────────────── */
@@ -152,7 +152,7 @@
 
     /* ── Dichte Datenzeilen: auf EINER Solid-Glas-Fläche, keine Einzelkacheln ── */
     table { width:100%; border-collapse:collapse; font-size:.88rem; }
-    th, td { text-align:left; padding:.55rem .5rem; border-bottom:1px solid rgb(38 28 60 / .08); }
+    th, td { text-align:left; padding:.55rem .5rem; border-bottom:1px solid var(--grid); }
     th { color:var(--lg-ink-muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
     th.sortable { cursor:pointer; white-space:nowrap; }
     th.sortable:hover { color:var(--lg-ink); }
@@ -169,7 +169,7 @@
     .table-scroll table { min-width:560px; }
     .table-scroll th, .table-scroll td { padding-left:16px; padding-right:16px; }
     tr.clickable { cursor:pointer; }
-    tbody tr:hover { background:rgb(153 124 230 / .10); }
+    tbody tr:hover { background:rgb(var(--lg-violet-rgb) / .10); }
     td .sub { color:var(--lg-ink-muted); font-size:.72rem; }
     .empty { color:var(--lg-ink-muted); text-align:center; padding:1.4rem; }
     .searchbox { background:var(--lg-glass-solid); color:var(--lg-ink); border:1px solid var(--lg-edge-soft);
@@ -188,7 +188,7 @@
     .chip-toggle input { accent-color:var(--lg-violet); margin:0; }
 
     /* ── Modal (Detail-Analyse) — Glas ──────────────────────────────────── */
-    .modal-overlay { display:none; position:fixed; inset:0; background:rgb(38 28 60 / .38); z-index:60;
+    .modal-overlay { display:none; position:fixed; inset:0; background:var(--overlay); z-index:60;
                      align-items:flex-start; justify-content:center; padding:2rem 1rem; overflow:auto;
                      -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
     .modal-overlay.open { display:flex; }
@@ -204,7 +204,7 @@
     .modal-x:hover { color:var(--lg-ink); }
     .modal canvas { height:340px !important; margin-top:.4rem; }
     .factor-table { width:100%; border-collapse:collapse; margin:.5rem 0 1rem; font-size:.9rem; }
-    .factor-table td { padding:.5rem .5rem; border-bottom:1px solid rgb(38 28 60 / .08); }
+    .factor-table td { padding:.5rem .5rem; border-bottom:1px solid var(--grid); }
     .factor-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
 
     /* base-Flash im Glas halten (falls msg gesetzt) */
@@ -253,6 +253,10 @@
     <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
     <button id="btnPause" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen">⏸</button>
     <button id="btnRefresh" class="iconbtn" title="Jetzt aktualisieren">⟳</button>
+    <button type="button" class="iconbtn theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Dunkelmodus umschalten" title="Dunkelmodus umschalten">
+      <svg class="icon-sun" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.6 4.4l-1.4 1.4M5.8 14.2l-1.4 1.4M15.6 15.6l-1.4-1.4M5.8 5.8L4.4 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <svg class="icon-moon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><path d="M17 11.5A7 7 0 1 1 8.5 3a5.5 5.5 0 0 0 8.5 8.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    </button>
     <span class="ck-meta" id="generated"></span>
     <form class="ck-logout" method="post" action="/logout"><button class="lg-btn lg-btn--glass lg-btn--sm">Logout</button></form>
   </div>
@@ -354,9 +358,21 @@
   </div>
 
   <script>
-    Chart.defaults.maintainAspectRatio = false;
-    Chart.defaults.color = "#4E4763";
-    Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif";
+    // Chart.js zeichnet auf Canvas und kann keine CSS-Variablen auflösen — diese
+    // Helper lesen die aktiven --lg-*/--money-*/--chart-*-Werte zur Laufzeit aus
+    // dem DOM (getComputedStyle), damit Gitter/Achsen/Serien dem aktiven Theme
+    // folgen. Bei jedem Aufruf frisch gelesen (kein Caching), damit ein
+    // Theme-Wechsel sofort greift, sobald neu gezeichnet wird.
+    const rootStyle = () => getComputedStyle(document.documentElement);
+    const cssVar = (name) => rootStyle().getPropertyValue(name).trim();
+    const cssVarRgb = (name, alpha) => `rgb(${cssVar(name)} / ${alpha})`;
+
+    function applyChartTheme() {
+      Chart.defaults.maintainAspectRatio = false;
+      Chart.defaults.color = cssVar("--lg-ink-muted");
+      Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif";
+    }
+    applyChartTheme();
 
     // Crosshair: vertikale Linie am aktiven Punkt (leichtgewichtiges Inline-Plugin)
     Chart.register({
@@ -367,7 +383,7 @@
         if (!act.length || !chart.chartArea) return;
         const x = act[0].element.x, a = chart.chartArea, ctx = chart.ctx;
         ctx.save(); ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom);
-        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(38,28,60,.16)"; ctx.stroke(); ctx.restore();
+        ctx.lineWidth = 1; ctx.strokeStyle = cssVar("--chart-crosshair"); ctx.stroke(); ctx.restore();
       }
     });
 
@@ -380,10 +396,10 @@
         if (!y || !a) return;
         const py = y.getPixelForValue(0);
         ctx.save();
-        ctx.strokeStyle = "rgba(38,28,60,.30)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.strokeStyle = cssVar("--chart-breakeven-line"); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
         ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(78,71,99,.75)"; ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
+        ctx.fillStyle = cssVar("--chart-breakeven-label"); ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
         ctx.fillText("Break-even", a.left + 5, py - 3);
         ctx.restore();
       }
@@ -590,14 +606,15 @@
       if (c._dpr !== dpr) { c._dpr = dpr; c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
       const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
       const cx = W / 2, cy = 64, R = 46, sweep = GAUGE_A1 - GAUGE_A0;
-      const col = (t) => t >= 0.70 ? "#3E9E6E" : t >= 0.40 ? "#B87A18" : "#C6455C";  // warn→caution→go (liquid-glass-Semantik)
+      const zGo = cssVar("--lg-success"), zCaution = cssVar("--lg-warning"), zWarn = cssVar("--lg-error");
+      const col = (t) => t >= 0.70 ? zGo : t >= 0.40 ? zCaution : zWarn;  // warn→caution→go (liquid-glass-Semantik)
       // Zonenbogen (Anzeigelampen-Logik: schwach=warn, stark=go)
       ctx.lineWidth = 9; ctx.lineCap = "butt";
-      [[0, .40, "#C6455C"], [.40, .70, "#B87A18"], [.70, 1, "#3E9E6E"]].forEach(([a, b, c2]) => {
+      [[0, .40, zWarn], [.40, .70, zCaution], [.70, 1, zGo]].forEach(([a, b, c2]) => {
         ctx.beginPath(); ctx.strokeStyle = c2; ctx.arc(cx, cy, R, GAUGE_A0 + sweep * a, GAUGE_A0 + sweep * b); ctx.stroke();
       });
       // Skalenstriche
-      ctx.strokeStyle = "rgba(38,28,60,.32)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = cssVar("--chart-tick"); ctx.lineWidth = 1;
       for (let i = 0; i <= 10; i++) { const a = GAUGE_A0 + sweep * (i / 10), r2 = R + (i % 5 === 0 ? 8 : 4);
         ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * (R - 8), cy + Math.sin(a) * (R - 8));
         ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); ctx.stroke(); }
@@ -607,7 +624,7 @@
         ctx.save(); ctx.shadowColor = cc; ctx.shadowBlur = 10; ctx.strokeStyle = cc; ctx.lineWidth = 2.6; ctx.lineCap = "round";
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * (R - 5), cy + Math.sin(na) * (R - 5)); ctx.stroke(); ctx.restore();
       }
-      ctx.beginPath(); ctx.fillStyle = "#241F35"; ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.fillStyle = cssVar("--lg-ink"); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill();
     }
     function renderSignalGauge(d) {
       // Nur Rohscores derselben Strategie mitteln; bei mehreren Strategien keine Mischskala bilden.
@@ -705,13 +722,13 @@
       upsertChart("equityChart", {
         type: "line",
         data: { labels: eq.map(p => p.date), datasets: [{
-          data: eq.map(p => p.cumulative), borderColor: "#997CE6", backgroundColor: "rgba(153,124,230,.14)",
+          data: eq.map(p => p.cumulative), borderColor: cssVar("--lg-violet"), backgroundColor: cssVarRgb("--lg-violet-rgb", ".14"),
           fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3 }] },
         options: {
           interaction: { mode: "index", intersect: false },
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "rgba(38,28,60,.08)" } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: "rgba(38,28,60,.08)" } } }
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: cssVar("--grid") } },
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -721,13 +738,13 @@
       upsertChart("tickerChart", {
         type: "bar",
         data: { labels: ts.map(t => t.ticker), datasets: [{
-          data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? "#0A6B3C" : "#A5122B"), borderRadius: 6 }] },
+          data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? cssVar("--money-gain") : cssVar("--money-loss")), borderRadius: 6 }] },
         options: {
           plugins: { legend: { display: false }, crosshair: false,
                      tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
           onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
           scales: { x: { ticks: {}, grid: { display: false } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: "rgba(38,28,60,.08)" } } }
+                    y: { ticks: { callback: v => v + "€" }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -761,8 +778,8 @@
       const data = [{ x: xmin, y: 0 }].concat(pts.map(p => ({ x: p.x, y: p.y })));
 
       const up = cum >= 0;
-      const line = up ? "#0A6B3C" : "#A5122B";
-      const fillc = up ? "rgba(10,107,60,.12)" : "rgba(165,18,43,.12)";
+      const line = up ? cssVar("--money-gain") : cssVar("--money-loss");
+      const fillc = up ? cssVarRgb("--money-gain-rgb", ".12") : cssVarRgb("--money-loss-rgb", ".12");
 
       // Diagrammtyp wechselte ggf. vom früheren Scatter → einmal sauber neu bauen.
       const existing = charts["tradesLogChart"];
@@ -799,12 +816,12 @@
           },
           scales: {
             x: { type: "linear", min: xmin, max: now,
-                 title: { display: true, text: "Zeit  →  jetzt", color: "#4E4763" },
+                 title: { display: true, text: "Zeit  →  jetzt", color: cssVar("--lg-ink-muted") },
                  ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => fmtWhen(v) },
-                 grid: { color: "rgba(38,28,60,.08)" } },
+                 grid: { color: cssVar("--grid") } },
             y: { type: "linear",
                  ticks: { callback: (v) => (v >= 0 ? "+" : "") + v + "€" },
-                 grid: { color: "rgba(38,28,60,.08)" } }
+                 grid: { color: cssVar("--grid") } }
           }
         }
       });
@@ -907,9 +924,9 @@
             borderColor: palette[i % palette.length], backgroundColor: "transparent", tension: .25, pointRadius: 0 })) },
           options: {
             interaction: { mode: "index", intersect: false },
-            plugins: { legend: { labels: { color: "#241F35", boxWidth: 14 } } },   // Klick blendet Linie aus/ein
-            scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "rgba(38,28,60,.08)" } },
-                      y: { min: 0, max: 100, grid: { color: "rgba(38,28,60,.08)" } } }
+            plugins: { legend: { labels: { color: cssVar("--lg-ink"), boxWidth: 14 } } },   // Klick blendet Linie aus/ein
+            scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: cssVar("--grid") } },
+                      y: { min: 0, max: 100, grid: { color: cssVar("--grid") } } }
           }
         });
       }
@@ -927,16 +944,16 @@
       const refLine = (val, color, label) => val == null ? null : ({
         label, data: labels.map(() => val), borderColor: color, borderDash: [5, 4], pointRadius: 0, borderWidth: 1, fill: false });
       const datasets = [{ label: s.ticker, data: s.points.map(p => p.price),
-        borderColor: "#997CE6", backgroundColor: "rgba(153,124,230,.12)", tension: .25, pointRadius: 0, fill: true }];
-      [refLine(s.take_profit, "#6EC4B9", "Take-Profit"), refLine(s.stop_loss, "#C6455C", "Stop-Loss"),
-       refLine(s.entry, "#4E4763", "Einstieg")].forEach(r => r && datasets.push(r));
+        borderColor: cssVar("--lg-violet"), backgroundColor: cssVarRgb("--lg-violet-rgb", ".12"), tension: .25, pointRadius: 0, fill: true }];
+      [refLine(s.take_profit, cssVar("--lg-teal"), "Take-Profit"), refLine(s.stop_loss, cssVar("--lg-error"), "Stop-Loss"),
+       refLine(s.entry, cssVar("--lg-ink-muted"), "Einstieg")].forEach(r => r && datasets.push(r));
       upsertChart("priceChartSingle", {
         type: "line", data: { labels, datasets },
         options: {
           interaction: { mode: "index", intersect: false },
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => `${i.dataset.label}: $${(+i.parsed.y).toFixed(2)}` } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "rgba(38,28,60,.08)" } },
-                    y: { ticks: { callback: v => "$" + v }, grid: { color: "rgba(38,28,60,.08)" } } }
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: cssVar("--grid") } },
+                    y: { ticks: { callback: v => "$" + v }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -1003,12 +1020,12 @@
           mkds("MACD", pts.map(p => p.macd_score), palette[1]),
           mkds("Trend", pts.map(p => p.trend_score), palette[2]),
           mkds("Volumen", pts.map(p => p.vol_score), palette[3]),
-          mkds("Gesamt", pts.map(p => p.score), "#241F35", 3) ] },
+          mkds("Gesamt", pts.map(p => p.score), cssVar("--lg-ink"), 3) ] },
         options: {
           layout: { padding: { top: 8, right: 8, bottom: 2, left: 2 } },
-          plugins: { legend: { labels: { color: "#241F35", boxWidth: 14, padding: 12 } } },
-          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: "rgba(38,28,60,.08)" } },
-                    y: { min: 0, max: 100, ticks: { stepSize: 20 }, grid: { color: "rgba(38,28,60,.08)" } } }
+          plugins: { legend: { labels: { color: cssVar("--lg-ink"), boxWidth: 14, padding: 12 } } },
+          scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: cssVar("--grid") } },
+                    y: { min: 0, max: 100, ticks: { stepSize: 20 }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -1019,6 +1036,17 @@
     document.getElementById("modalClose").addEventListener("click", closeModal);
     document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+    // ── Theme-Wechsel: alle Charts + das Gauge mit den neuen Farben neu zeichnen ──
+    // stockbot:themechange kommt aus base.html (Umschalter in der Kommandoleiste
+    // oder Systempräferenz-Änderung). Alle render*-Funktionen lesen ihre Farben
+    // bei jedem Aufruf frisch per cssVar() — ein erneuter render(state.data) reicht.
+    // Das Detail-Modal (factorChart) ist nur bei offenem Modal aktiv und wird bei
+    // jedem Öffnen ohnehin frisch aus der API gerendert — kein Extra-Redraw nötig.
+    document.addEventListener("stockbot:themechange", () => {
+      applyChartTheme();
+      if (state.data) render(state.data);
+    });
 
     // ── Start ───────────────────────────────────────────────────────────────
     updatePill();
