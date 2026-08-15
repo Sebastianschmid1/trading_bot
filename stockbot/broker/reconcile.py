@@ -12,7 +12,7 @@ verschwunden ist (z. B. manuell im Broker verkauft).
 
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from stockbot.core.evaluator import get_current_price, trade_pnl
 from stockbot.core import db
@@ -172,6 +172,32 @@ def sweep_missing_positions(user: dict, client, *, grace_sec: int = 300) -> dict
     return {"closed": closed, "skipped": skipped, "detail": detail}
 
 
+def _open_sell_order_symbols(client) -> set[str]:
+    """Symbole mit einer offenen (noch nicht finalen) Verkaufsorder am Broker.
+
+    `broker.list_open_orders` liefert per Definition nur Orders im Status OPEN (nicht
+    gefüllt/storniert/abgelehnt) zurück und schluckt Broker-Fehler bereits selbst (leere Liste).
+    Solange für ein Symbol eine offene Verkaufsorder existiert, läuft dort gerade eine Schließung —
+    das ist weder ein verwaister Kauf (`adopt_orphan_positions`) noch eine echte Abweichung
+    (`_reconcile_and_alert` in tgbot/bot.py), sondern der Zustand „Schließung noch nicht final"."""
+    orders = broker.list_open_orders(client)
+    return {o["symbol"] for o in orders if o.get("side") == "sell"}
+
+
+def _recently_closed_tickers(user_id: int, *, grace_sec: int) -> set[str]:
+    """Ticker, deren Bot-Trade innerhalb der letzten `grace_sec` Sekunden auf 'closed' gewechselt
+    ist (`trade_events`, geschrieben von `db.close_all` unabhängig von `broker_status`).
+
+    Grace-Phase analog zu `sweep_missing_positions`: eine Position, die der Bot gerade erst
+    geschlossen hat, aber am Broker (z. B. bei geschlossener Börse) noch offen steht, ist kein
+    verwaister Kauf, sondern die eigene, noch nicht gefüllte Verkaufsorder."""
+    now = datetime.utcnow()
+    ts_from = (now - timedelta(seconds=grace_sec)).strftime("%Y-%m-%d %H:%M:%S")
+    ts_to = now.strftime("%Y-%m-%d %H:%M:%S")
+    events = db.get_trade_events_between(user_id, ts_from=ts_from, ts_to=ts_to)
+    return {e["ticker"] for e in events if e.get("to_status") == "closed"}
+
+
 def tracked_symbols(user_id: int) -> set[str]:
     """Alle Broker-Symbole, die der Bot aktuell (nicht-terminal) führt — aktive Trades plus
     Orders, die gerade gefüllt oder geschlossen werden. Damit wird eine Position, die zu einer
@@ -204,22 +230,48 @@ def _signal_for_position(pos: dict) -> tuple[str, dict]:
     return sym, signal
 
 
-def adopt_orphan_positions(user: dict, client) -> dict:
+def adopt_orphan_positions(user: dict, client, *, grace_sec: int = 300) -> dict:
     """Übernimmt Broker-Positionen, die der Bot NICHT führt, als aktive Trades (Selbstheilung).
 
     Das ist der Gegenpart zu `sweep_missing_positions`: schließt die Lücke „im Broker offen,
     aber nicht im Bot" — etwa wenn eine Order beim Broker durchging, der Bot sie aber wegen
     eines Sende-/Antwortfehlers als fehlgeschlagen verbucht hat.
 
+    Guard gegen das Close↔Adopt-Ping-Pong (real beobachtet, z. B. JD am 13.08.: Stop-Loss schließt
+    den Trade, die Verkaufsorder bleibt bei geschlossener Börse bis zur Eröffnung offen liegen —
+    eine Sekunde später sieht dieser Job die Position am Broker noch und adoptiert sie erneut,
+    wodurch die Stop-Loss-Entscheidung zurückgenommen wird und derselbe Verlust doppelt in den
+    Büchern steht). Eine Position wird NICHT adoptiert, solange
+      (1) für ihr Symbol eine offene Verkaufsorder am Broker existiert, ODER
+      (2) der zugehörige Bot-Trade innerhalb der Grace-Phase geschlossen wurde —
+    beides ist der Zustand „Schließung läuft noch", kein verwaister Kauf.
+
     Rückgabe: {"adopted": [...], "skipped": [...], "detail": str}. Robust — wirft nie hart."""
     tracked = tracked_symbols(user["user_id"])
+    closing_syms = _open_sell_order_symbols(client)
+    recently_closed = _recently_closed_tickers(user["user_id"], grace_sec=grace_sec)
     adopted: list[dict] = []
     skipped: list[str] = []
     for pos in broker.list_positions(client):
         sym = pos["symbol"]
         if sym in tracked:
             continue
+        if sym in closing_syms:
+            log.info(
+                "[%s] Adoption übersprungen: %s hat eine offene Verkaufsorder am Broker "
+                "(Schließung läuft noch, kein verwaister Kauf).", user["user_id"], sym,
+            )
+            skipped.append(sym)
+            continue
         ticker, signal = _signal_for_position(pos)
+        if ticker in recently_closed:
+            log.info(
+                "[%s] Adoption übersprungen: %s (%s) wurde erst innerhalb der letzten %ds vom "
+                "Bot geschlossen (Grace-Phase, kein verwaister Kauf).",
+                user["user_id"], ticker, sym, grace_sec,
+            )
+            skipped.append(sym)
+            continue
         # `entry` ist der UNDERLYING-Kurs (Anzeige + P&L). Bei Aktien = avg_entry. Bei Options
         # ist avg_entry die PRÄMIE (z. B. 0.35) — die gehört in entry_premium, NICHT in entry,
         # sonst rechnet das Dashboard Prämie→Aktienkurs und zeigt absurde Gewinne. Daher den

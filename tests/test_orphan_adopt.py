@@ -160,6 +160,50 @@ def test_heal_ignores_plain_stock_trades(monkeypatch):
     assert db.get_trade(CHAT, "MSFT")["entry"] == 300.0       # unverändert
 
 
+def test_adopt_orphan_skips_symbol_with_open_sell_order(monkeypatch):
+    """Regression (Befund 2a, Teil 1 — JD am 13.08.): eine offene Verkaufsorder am Broker
+    verhindert die Adoption. Ohne diesen Guard nimmt `adopt_orphan_positions` eine gerade erst
+    per Stop-Loss geschlossene Position sofort wieder als NEUEN aktiven Trade auf, während die
+    eigene (noch nicht gefüllte) Sell-Order am Broker offen liegt — die Stop-Loss-Entscheidung
+    wird zurückgenommen und derselbe Verlust landet doppelt in den Büchern."""
+    _fresh_db()
+    positions = [{"symbol": "JD", "qty": 5.0, "avg_entry": 30.0, "side": "long"}]
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: positions)
+    monkeypatch.setattr(
+        reconcile.broker, "list_open_orders",
+        lambda *a, **k: [{"symbol": "JD", "side": "sell", "status": "accepted"}],
+    )
+
+    res = reconcile.adopt_orphan_positions(db.get_user(CHAT), client=object())
+
+    assert res["adopted"] == []
+    assert "JD" in res["skipped"]
+    assert db.get_trade(CHAT, "JD") is None
+
+
+def test_adopt_orphan_skips_recently_closed_bot_trade(monkeypatch):
+    """Regression (Befund 2a, Teil 2 — Grace-Phase analog `sweep_missing_positions`): ein
+    Bot-Trade, der GERADE ERST geschlossen wurde, wird innerhalb der Grace-Phase nicht als
+    verwaist übernommen — selbst wenn am Broker (transient) keine offene Verkaufsorder sichtbar
+    ist. Sonst entsteht exakt das JD-Ping-Pong: Close → sofortiger Re-Adopt → Zweit-Trade."""
+    _fresh_db()
+    sig = {"strategy": "standard", "sl_tp_mode": "aus", "leverage": 1.0,
+           "direction": "long", "price": 30.0}
+    db.adopt_active_trade(CHAT, "JD", entry=30.0, signal=sig, filled_qty=5)
+    db.close_all(CHAT, [{"ticker": "JD", "exit": 28.0, "pnl_eur": -1.87, "pnl_pct": -6.2}])
+    assert db.get_trade(CHAT, "JD")["status"] == "closed"
+
+    positions = [{"symbol": "JD", "qty": 5.0, "avg_entry": 30.0, "side": "long"}]
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: positions)
+    monkeypatch.setattr(reconcile.broker, "list_open_orders", lambda *a, **k: [])
+
+    res = reconcile.adopt_orphan_positions(db.get_user(CHAT), client=object(), grace_sec=300)
+
+    assert res["adopted"] == []
+    assert "JD" in res["skipped"]
+    assert db.get_trade(CHAT, "JD")["status"] == "closed"   # bleibt geschlossen, kein Zweit-Trade
+
+
 def test_regression_broker_has_position_bot_does_not(monkeypatch):
     """End-to-end: Order beim Broker durch, Bot verbuchte sie als failed → Diskrepanz.
     Nach einem Monitor-Lauf (adopt) ist der Trade wieder im Bot und der Abgleich sauber."""
