@@ -31,12 +31,15 @@ class _Order:
 
 class FakeClient:
     """Minimaler Stand-in für den Alpaca TradingClient."""
-    def __init__(self, *, fail=False, no_position=False, order_status="filled"):
+    def __init__(self, *, fail=False, no_position=False, order_status="filled",
+                position_symbol="AAPL"):
         self.fail = fail
         self.no_position = no_position
         self.order_status = order_status
+        self.position_symbol = position_symbol
         self.submitted = []
         self.closed = []
+        self.get_open_position_calls = []
     def get_account(self):
         if self.fail: raise RuntimeError("boom")
         return _Acct()
@@ -54,8 +57,17 @@ class FakeClient:
     def get_all_positions(self):
         if self.fail: raise RuntimeError("boom")
         class _P:
-            symbol = "AAPL"; qty = "3"; avg_entry_price = "100.0"; unrealized_pl = "5.0"
-        return [_P()]
+            pass
+        p = _P()
+        p.symbol, p.qty, p.avg_entry_price, p.unrealized_pl = (
+            self.position_symbol, "3", "100.0", "5.0")
+        return [p]
+    def get_open_position(self, symbol):
+        self.get_open_position_calls.append(symbol)
+        if self.fail: raise RuntimeError("boom")
+        if self.no_position: raise RuntimeError("position does not exist for symbol")
+        return SimpleNamespace(symbol=symbol, qty="3", avg_entry_price="100.0",
+                               unrealized_pl="5.0")
     def close_position(self, symbol):
         if self.fail: raise RuntimeError("boom")
         if self.no_position: raise RuntimeError("position does not exist for symbol")
@@ -255,6 +267,111 @@ def test_close_position_no_open_position_is_ok_noop():
 def test_close_position_error_is_handled():
     res = broker.close_position("AAPL", client=FakeClient(fail=True))
     assert res["ok"] is False and res["closed"] is False
+
+
+# ── Symbol-Mapping an der Alpaca-Grenze (Klassen-Suffixe BRK-B ↔ BRK.B) ──────
+
+def test_to_alpaca_symbol_maps_hyphen_class_suffix_to_dot():
+    assert broker.to_alpaca_symbol("BRK-B") == "BRK.B"
+    assert broker.to_alpaca_symbol("BF-B") == "BF.B"
+
+
+def test_to_bot_symbol_maps_dot_class_suffix_to_hyphen():
+    assert broker.to_bot_symbol("BRK.B") == "BRK-B"
+    assert broker.to_bot_symbol("BF.B") == "BF-B"
+
+
+def test_symbol_mapping_plain_ticker_unchanged_both_directions():
+    # AC5: normale Ticker ohne Suffix bleiben in beiden Richtungen exakt gleich.
+    assert broker.to_alpaca_symbol("AAPL") == "AAPL"
+    assert broker.to_bot_symbol("AAPL") == "AAPL"
+
+
+def test_symbol_mapping_occ_option_symbol_untouched():
+    # AC4: OCC-Optionssymbole (Root+YYMMDD+C/P+8-stelliger Strike) bleiben unverändert — sie
+    # enthalten strukturell weder Bindestrich noch Punkt.
+    occ = "AAPL260116C00200000"
+    assert broker.to_alpaca_symbol(occ) == occ
+    assert broker.to_bot_symbol(occ) == occ
+    occ_put = "SPY251219P00450500"
+    assert broker.to_alpaca_symbol(occ_put) == occ_put
+    assert broker.to_bot_symbol(occ_put) == occ_put
+
+
+def test_symbol_mapping_roundtrip_class_suffix():
+    assert broker.to_bot_symbol(broker.to_alpaca_symbol("BRK-B")) == "BRK-B"
+    assert broker.to_alpaca_symbol(broker.to_bot_symbol("BRK.B")) == "BRK.B"
+
+
+# ── AC1/AC2: Hinrichtung bei Orders (Kauf/Verkauf, Market/Limit) ─────────────
+
+def test_submit_buy_market_sends_alpaca_dot_symbol():
+    """AC2 (Kauf, Market): BRK-B geht als BRK.B an Alpaca raus."""
+    c = FakeClient()
+    res = broker.submit_buy("BRK-B", notional=50.0, client=c)
+    assert res["ok"] is True
+    req = c.submitted[0]
+    assert getattr(req, "symbol") == "BRK.B"
+
+
+def test_submit_buy_extended_limit_sends_alpaca_dot_symbol():
+    """AC2 (Kauf, Limit/Extended Hours): BF-B geht als BF.B an Alpaca raus."""
+    c = FakeClient()
+    res = broker.submit_buy("BF-B", qty=2, limit_price=50.0, extended_hours=True, client=c)
+    assert res["ok"] is True
+    req = c.submitted[0]
+    assert getattr(req, "symbol") == "BF.B"
+
+
+def test_submit_exit_order_sell_market_sends_alpaca_dot_symbol():
+    """AC2 (Verkauf, Market): BRK-B geht als BRK.B an Alpaca raus."""
+    c = FakeClient()
+    res = broker.submit_exit_order("BRK-B", side="SELL", qty=1, client=c)
+    assert res["ok"] is True
+    req = c.submitted[0]
+    assert getattr(req, "symbol") == "BRK.B"
+
+
+def test_submit_exit_order_sell_limit_sends_alpaca_dot_symbol():
+    """AC2 (Verkauf, Limit): BRK-B geht als BRK.B an Alpaca raus."""
+    c = FakeClient()
+    res = broker.submit_exit_order("BRK-B", side="SELL", qty=1, limit_price=300.0, client=c)
+    assert res["ok"] is True
+    req = c.submitted[0]
+    assert getattr(req, "symbol") == "BRK.B"
+
+
+def test_submit_stop_sell_sends_alpaca_dot_symbol():
+    c = FakeClient()
+    res = broker.submit_stop_sell("BRK-B", qty=1, stop_price=300.0, client=c)
+    assert res["ok"] is True
+    req = c.submitted[0]
+    assert getattr(req, "symbol") == "BRK.B"
+
+
+def test_close_position_sends_alpaca_dot_symbol():
+    c = FakeClient()
+    res = broker.close_position("BRK-B", client=c)
+    assert res["ok"] is True and res["closed"] is True
+    assert c.closed == ["BRK.B"]
+
+
+def test_position_exists_queries_alpaca_dot_symbol():
+    c = FakeClient()
+    assert broker.position_exists("BRK-B", client=c) is True
+    assert c.get_open_position_calls == ["BRK.B"]
+
+
+# ── Rückrichtung beim Einlesen von Positionen/Orders aus Alpaca-Antworten ────
+
+def test_list_positions_maps_alpaca_dot_symbol_back_to_bot_hyphen():
+    pos = broker.list_positions(client=FakeClient(position_symbol="BRK.B"))
+    assert len(pos) == 1 and pos[0]["symbol"] == "BRK-B"
+
+
+def test_get_position_maps_alpaca_dot_symbol_back_to_bot_hyphen():
+    pos = broker.get_position("BRK-B", client=FakeClient())
+    assert pos["symbol"] == "BRK-B"
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────

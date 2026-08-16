@@ -228,6 +228,72 @@ def test_regression_broker_has_position_bot_does_not(monkeypatch):
     assert db.get_trade(CHAT, "TSLA")["status"] == "active"
 
 
+# ── Alpaca-Symbolmapping Klassen-Suffixe (BRK-B ↔ BRK.B) ─────────────────────
+#
+# Alpaca meldet Positionen/Orders für Klassen-Suffix-Aktien mit Punkt ("BRK.B"), der Bot führt
+# den Trade intern mit Bindestrich ("BRK-B", Yahoo-Konvention, siehe market/universes.py). Diese
+# Tests rufen bewusst NICHT `reconcile.broker.list_positions` direkt gemockt auf, sondern gehen
+# über einen Fake-*Alpaca*-Client (wie tests/test_broker.py), damit die echte Rückrichtung in
+# `stockbot/broker/client.py::list_positions` mit ausgeführt wird — sonst würde ein zu früh
+# gemocktes `list_positions` die eigentlich zu testende Umschreibung umgehen.
+
+class _FakeAlpacaPosition:
+    def __init__(self, symbol, qty="1", avg_entry_price="300.0", unrealized_pl="0.0"):
+        self.symbol = symbol
+        self.qty = qty
+        self.avg_entry_price = avg_entry_price
+        self.unrealized_pl = unrealized_pl
+
+
+class _FakeAlpacaClient:
+    """Steht für den Alpaca TradingClient — nur `get_all_positions` wird für diese Tests gebraucht."""
+    def __init__(self, positions):
+        self._positions = positions
+
+    def get_all_positions(self):
+        return self._positions
+
+
+def test_reconcile_user_matches_alpaca_dot_symbol_to_bot_hyphen_trade():
+    """AC3: Der Bot führt BRK-B aktiv, Alpaca meldet die Position als BRK.B — nach der
+    Rückrichtung matcht der Abgleich sauber (kein only_bot/only_broker-Diff)."""
+    _fresh_db()
+    db.add_pending(CHAT, {"ticker": "BRK-B", "direction": "long", "price": 300.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    with db._connect() as conn:
+        conn.execute("UPDATE trades SET status='active', entry=300.0 WHERE user_id=? AND ticker=?",
+                     (CHAT, "BRK-B"))
+
+    client = _FakeAlpacaClient([_FakeAlpacaPosition("BRK.B")])
+    diff = reconcile.reconcile_user(db.get_user(CHAT), client=client)
+    assert diff["ok"] is True
+    assert diff["only_bot"] == [] and diff["only_broker"] == []
+
+
+def test_sweep_missing_positions_does_not_close_bot_hyphen_trade_reported_as_alpaca_dot():
+    """AC3: sweep_missing_positions darf den aktiven BRK-B-Trade NICHT als 'verkauft' schließen,
+    nur weil Alpaca die (weiterhin offene) Position als BRK.B meldet — keine falsche
+    Adoption/Fehlschließung durch einen Symbolformat-Mismatch."""
+    _fresh_db()
+    _seed_active(["BRK-B"])
+    client = _FakeAlpacaClient([_FakeAlpacaPosition("BRK.B")])
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=client, grace_sec=0)
+    assert res["closed"] == []
+    assert {t["ticker"] for t in db.get_active_trades(CHAT)} == {"BRK-B"}
+
+
+def test_adopt_orphan_position_reported_as_alpaca_dot_symbol_adopts_as_bot_hyphen_ticker():
+    """Ergänzend: eine wirklich verwaiste BRK.B-Position wird als Bot-Ticker BRK-B übernommen
+    (nicht als 'BRK.B' — das würde nicht zum intern verwendeten Yahoo-Ticker passen)."""
+    _fresh_db()
+    client = _FakeAlpacaClient([_FakeAlpacaPosition("BRK.B", qty="2", avg_entry_price="300.0")])
+    res = reconcile.adopt_orphan_positions(db.get_user(CHAT), client=client)
+    assert [a["ticker"] for a in res["adopted"]] == ["BRK-B"]
+    t = db.get_trade(CHAT, "BRK-B")
+    assert t is not None and t["status"] == "active" and t["entry"] == 300.0
+
+
 # ── Sweep-Guard gegen Massen-Fehlschließung (transiente Broker-Fehler) ────────
 
 def _seed_active(tickers):

@@ -18,10 +18,45 @@ Die Keys liegen NUR in .env (gitignored) — niemals committen/loggen.
 """
 
 import logging
+import re
 
 from stockbot import config
 
 log = logging.getLogger(__name__)
+
+
+# ── Symbol-Mapping an der Alpaca-Grenze (Klassen-Suffixe, z. B. BRK-B/BRK.B) ─────────────────
+#
+# Intern (Universum/Watchlist/DB, siehe market/universes.py::fetch_sp500 und config.py) läuft der
+# Bot durchgehend mit der Yahoo-Konvention (Bindestrich, "BRK-B"). Alpaca erwartet bei Aktien mit
+# Klassen-Suffix dagegen einen Punkt ("BRK.B") — ungemappt schlägt jeder Bars-/Quote-/Order-Aufruf
+# für solche Ticker fehl ("invalid symbol"). Die Umschreibung gehört ausschließlich hierher, an die
+# Alpaca-Grenze (Requests raus = Hinrichtung, Antworten rein = Rückrichtung) — NICHT ins Universum.
+#
+# Optionssymbole (OCC-Format, z. B. "AAPL260116C00200000" — Root + YYMMDD + C/P + 8-stelliger
+# Strike, siehe reconcile.py::parse_occ_symbol) enthalten strukturell weder Bindestrich noch Punkt
+# und werden von der rein mechanischen Ersetzung daher ohnehin nicht berührt; die Formatprüfung
+# unten macht das zusätzlich explizit statt sich nur auf die Abwesenheit von "-"/"." zu verlassen.
+_OCC_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
+
+
+def to_alpaca_symbol(symbol: str) -> str:
+    """Bot→Alpaca (Hinrichtung, für jeden ausgehenden Request): Klassen-Suffix Bindestrich→Punkt
+    (z. B. "BRK-B" → "BRK.B"). Optionssymbole (OCC) bleiben unverändert."""
+    sym = (symbol or "").strip()
+    if _OCC_SYMBOL_RE.match(sym.upper()):
+        return sym
+    return sym.replace("-", ".")
+
+
+def to_bot_symbol(symbol: str) -> str:
+    """Alpaca→Bot (Rückrichtung, beim Einlesen von Positionen/Orders aus Alpaca-Antworten):
+    Klassen-Suffix Punkt→Bindestrich (z. B. "BRK.B" → "BRK-B"). Optionssymbole (OCC) bleiben
+    unverändert."""
+    sym = (symbol or "").strip()
+    if _OCC_SYMBOL_RE.match(sym.upper()):
+        return sym
+    return sym.replace(".", "-")
 
 
 def make_client(api_key: str, api_secret: str, paper: bool = True):
@@ -125,10 +160,10 @@ def get_asset_info(symbol: str, client=None) -> dict:
     if client is None:
         return {"ok": False, "detail": "Alpaca nicht aktiv."}
     try:
-        asset = client.get_asset(symbol)
+        asset = client.get_asset(to_alpaca_symbol(symbol))
         return {
             "ok": True,
-            "symbol": str(getattr(asset, "symbol", symbol)),
+            "symbol": to_bot_symbol(str(getattr(asset, "symbol", symbol))),
             "tradable": bool(getattr(asset, "tradable", False)),
             "asset_class": str(getattr(asset, "asset_class", "")),
         }
@@ -171,14 +206,16 @@ def submit_buy(symbol: str, *, notional: float | None = None, qty: float | None 
             if not (qty and limit_price):
                 return {"ok": False, "detail": "Extended Hours benötigt qty + limit_price."}
             kwargs = dict(
-                symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
+                symbol=to_alpaca_symbol(symbol), qty=qty, side=OrderSide.BUY,
+                time_in_force=TimeInForce.DAY,
                 limit_price=round(float(limit_price), 2), extended_hours=True)
             if client_order_id:
                 kwargs["client_order_id"] = client_order_id
             req = LimitOrderRequest(**kwargs)
             human = f"{symbol} ×{qty:g} Limit/Ext"
         else:
-            kwargs = dict(symbol=symbol, side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+            kwargs = dict(symbol=to_alpaca_symbol(symbol), side=OrderSide.BUY,
+                          time_in_force=TimeInForce.DAY)
             if client_order_id:
                 kwargs["client_order_id"] = client_order_id
             if notional is not None:
@@ -238,7 +275,7 @@ def list_open_orders(client=None) -> list[dict]:
             out.append({
                 "id": str(getattr(order, "id", "")),
                 "client_order_id": str(getattr(order, "client_order_id", "") or ""),
-                "symbol": str(getattr(order, "symbol", "")),
+                "symbol": to_bot_symbol(str(getattr(order, "symbol", ""))),
                 "side": str(getattr(side, "value", None) or side).split(".")[-1].lower(),
                 "status": str(getattr(status, "value", None) or status).split(".")[-1].lower(),
                 "qty": float(getattr(order, "qty", 0) or 0),
@@ -265,7 +302,7 @@ def list_positions(client=None) -> list[dict]:
         out = []
         for p in client.get_all_positions():
             out.append({
-                "symbol": p.symbol,
+                "symbol": to_bot_symbol(p.symbol),
                 "qty": float(p.qty),
                 "avg_entry": float(p.avg_entry_price),
                 "side": str(getattr(p, "side", "")),
@@ -284,9 +321,9 @@ def get_position(symbol: str, client=None) -> dict | None:
     if client is None:
         return None
     try:
-        p = client.get_open_position(symbol)
+        p = client.get_open_position(to_alpaca_symbol(symbol))
         return {
-            "symbol": str(getattr(p, "symbol", symbol)),
+            "symbol": to_bot_symbol(str(getattr(p, "symbol", symbol))),
             "qty": float(getattr(p, "qty", 0) or 0),
             "avg_entry": float(getattr(p, "avg_entry_price", 0) or 0),
             "side": str(getattr(p, "side", "")),
@@ -315,7 +352,7 @@ def position_exists(symbol: str, client=None) -> bool | None:
     if client is None:
         return None
     try:
-        client.get_open_position(symbol)
+        client.get_open_position(to_alpaca_symbol(symbol))
         return True
     except Exception as e:
         msg = str(e).lower()
@@ -352,14 +389,16 @@ def submit_exit_order(symbol: str, *, side: str, qty: float, limit_price: float 
 
         side_u = str(side).upper()
         side_enum = OrderSide.SELL if side_u == "SELL" else OrderSide.BUY
+        alpaca_symbol = to_alpaca_symbol(symbol)
         if limit_price is not None:
             req = LimitOrderRequest(
-                symbol=symbol, qty=qty, side=side_enum, time_in_force=TimeInForce.DAY,
+                symbol=alpaca_symbol, qty=qty, side=side_enum, time_in_force=TimeInForce.DAY,
                 limit_price=round(float(limit_price), 2), extended_hours=extended_hours,
             )
             human = f"{symbol} ×{qty:g} {side_u} Limit{'/Ext' if extended_hours else ''}"
         else:
-            req = MarketOrderRequest(symbol=symbol, qty=qty, side=side_enum, time_in_force=TimeInForce.DAY)
+            req = MarketOrderRequest(symbol=alpaca_symbol, qty=qty, side=side_enum,
+                                     time_in_force=TimeInForce.DAY)
             human = f"{symbol} ×{qty:g} {side_u} Market"
         order = client.submit_order(req)
         log.info(f"Alpaca-ExitOrder {symbol} ({human}) → id={getattr(order, 'id', '?')}")
@@ -379,7 +418,7 @@ def submit_stop_sell(symbol: str, *, qty: float, stop_price: float, client=None)
         from alpaca.trading.requests import StopOrderRequest
 
         req = StopOrderRequest(
-            symbol=symbol, qty=qty, side=OrderSide.SELL,
+            symbol=to_alpaca_symbol(symbol), qty=qty, side=OrderSide.SELL,
             time_in_force=TimeInForce.DAY, stop_price=round(float(stop_price), 2),
         )
         order = client.submit_order(req)
@@ -398,7 +437,7 @@ def close_position(symbol: str, client=None) -> dict:
     if client is None:
         return {"ok": False, "closed": False, "detail": "Alpaca nicht aktiv."}
     try:
-        order = client.close_position(symbol)
+        order = client.close_position(to_alpaca_symbol(symbol))
         return {"ok": True, "closed": True, "id": str(getattr(order, "id", "")),
                 "detail": f"{symbol} geschlossen"}
     except Exception as e:

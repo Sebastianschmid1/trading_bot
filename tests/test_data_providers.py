@@ -323,6 +323,15 @@ def test_alpaca_get_bars_uses_period_to_compute_start():
     assert data_client.last_bars_request.start is not None
 
 
+def test_alpaca_get_bars_maps_class_suffix_to_alpaca_dot_symbol():
+    # AC1: Ein Bars-Abruf für BRK-B schickt BRK.B an Alpaca.
+    fake_bars = pd.DataFrame({"close": [1.0]})
+    data_client = _FakeDataClient(bars_df=fake_bars)
+    provider = _alpaca_provider(data_client=data_client)
+    provider.get_bars("BRK-B", interval="1d", period="5d")
+    assert data_client.last_bars_request.symbol_or_symbols == "BRK.B"
+
+
 def _alpaca_bars_df():
     ts = pd.DatetimeIndex(["2026-06-01 14:30", "2026-06-01 15:30", "2026-06-01 14:30"], tz="UTC")
     idx = pd.MultiIndex.from_arrays(
@@ -346,6 +355,24 @@ def test_alpaca_get_bars_batch_normalizes_multiindex_per_ticker():
     assert float(aapl["Close"].iloc[-1]) == 12.0
     # ein Batch-Request mit der vollständigen Symbolliste
     assert data_client.last_bars_request.symbol_or_symbols == ["AAPL", "MSFT"]
+
+
+def _alpaca_bars_df_class_suffix():
+    ts = pd.DatetimeIndex(["2026-06-01 14:30"], tz="UTC")
+    idx = pd.MultiIndex.from_arrays([["BRK.B"], ts], names=["symbol", "timestamp"])
+    return pd.DataFrame(
+        {"open": [10], "high": [12], "low": [9], "close": [11], "volume": [100]}, index=idx)
+
+
+def test_alpaca_get_bars_batch_maps_class_suffix_request_and_result_key():
+    # AC1: Batch-Bars-Abruf für BRK-B schickt BRK.B an Alpaca; die Antwort (nach BRK.B indiziert)
+    # landet im Ergebnis-Dict wieder unter dem Bot-Ticker BRK-B.
+    data_client = _FakeDataClient(bars_df=_alpaca_bars_df_class_suffix())
+    provider = _alpaca_provider(data_client=data_client)
+    bars = provider.get_bars_batch(["BRK-B"], interval="1d", period="5d")
+    assert data_client.last_bars_request.symbol_or_symbols == ["BRK.B"]
+    assert set(bars) == {"BRK-B"}
+    assert float(bars["BRK-B"]["Close"].iloc[0]) == 11.0
 
 
 def test_normalize_alpaca_bars_strips_tz_from_datetimeindex():
@@ -421,6 +448,19 @@ def test_alpaca_get_quote_maps_bid_ask_to_mid_price():
     assert q.price == 101.0
     assert q.bid == 100.0 and q.ask == 102.0
     assert q.provider == "alpaca_paper" and q.feed == "iex"
+
+
+def test_alpaca_get_quote_maps_class_suffix_to_alpaca_dot_symbol():
+    # AC1: Ein Quote-Abruf für BRK-B schickt BRK.B an Alpaca; die zurückgegebene Quote trägt
+    # weiter den Bot-Ticker (Bindestrich).
+    quote = SimpleNamespace(bid_price=100.0, ask_price=102.0,
+                            timestamp=datetime(2026, 6, 10, tzinfo=timezone.utc))
+    data_client = _FakeDataClient(quote=quote)
+    provider = _alpaca_provider(data_client=data_client)
+    q = provider.get_quote("BRK-B")
+    assert data_client.last_quote_request.symbol_or_symbols == "BRK.B"
+    assert q.ticker == "BRK-B"
+    assert q.price == 101.0
 
 
 def test_alpaca_stream_quotes_and_trades_not_implemented():
