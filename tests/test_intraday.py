@@ -49,6 +49,52 @@ def fresh_db():
     db.init_db()
 
 
+def test_reconcile_and_alert_suppresses_false_alarm_for_open_sell_order(monkeypatch):
+    """Regression (Befund 2b — JD am 13.08.): eine Position, die der Bot GERADE per Stop-Loss
+    geschlossen hat, deren Verkaufsorder am Broker aber noch offen ist (bei geschlossener Börse
+    bis zur Eröffnung), darf 400ms später NICHT als Positions-Abweichung gemeldet werden —
+    strukturell ein Fehlalarm, kein echter Mismatch. Ungefixt sendet `_reconcile_and_alert` hier
+    sofort die Abweichungsmeldung."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        reconcile_mod, "reconcile_user",
+        lambda user, client: {
+            "ok": False, "only_bot": [], "only_broker": ["JD"],
+            "detail": "• Bei Alpaca offen, aber NICHT im Bot: JD",
+        },
+    )
+    monkeypatch.setattr(reconcile_mod, "_open_sell_order_symbols", lambda client: {"JD"})
+    fake_bot = AsyncMock()
+    user = {"user_id": CHAT, "broker_exec": True, "broker_platform": "alpaca"}
+
+    asyncio.run(bot._reconcile_and_alert(fake_bot, user, object(), context="nach Schließung"))
+
+    fake_bot.send_message.assert_not_awaited()
+
+
+def test_reconcile_and_alert_still_alerts_for_genuine_mismatch(monkeypatch):
+    """Gegenprobe zum Guard oben: ein Symbol OHNE offene Verkaufsorder ist weiterhin eine echte
+    Abweichung und muss gemeldet werden — der Guard darf nur Schließungs-Races unterdrücken."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        reconcile_mod, "reconcile_user",
+        lambda user, client: {
+            "ok": False, "only_bot": [], "only_broker": ["MSFT"],
+            "detail": "• Bei Alpaca offen, aber NICHT im Bot: MSFT",
+        },
+    )
+    monkeypatch.setattr(reconcile_mod, "_open_sell_order_symbols", lambda client: set())
+    fake_bot = AsyncMock()
+    user = {"user_id": CHAT, "broker_exec": True, "broker_platform": "alpaca"}
+
+    asyncio.run(bot._reconcile_and_alert(fake_bot, user, object(), context="nach Schließung"))
+
+    fake_bot.send_message.assert_awaited()
+    assert "MSFT" in fake_bot.send_message.await_args.kwargs["text"]
+
+
 class _FakeFastInfo:
     def __init__(self, p): self.last_price = p
 class _FakeTicker:

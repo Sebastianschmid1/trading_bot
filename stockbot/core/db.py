@@ -2014,6 +2014,7 @@ def get_closed_trade_results_since(days: int = 45) -> list[dict]:
 def _trade_to_dict(row) -> dict:
     out = {
         "id":         row["id"] if "id" in row.keys() else None,
+        "user_id":    row["user_id"] if "user_id" in row.keys() else None,
         "ticker":     row["ticker"],
         "direction":  row["direction"],
         "signal":     json.loads(row["signal_json"]),

@@ -321,6 +321,23 @@ async def _reconcile_and_alert(bot: Bot, user: dict, client, *, context: str):
     except Exception as e:
         log.warning(f"[{user['user_id']}] Reconcile fehlgeschlagen: {e}")
         return
+    only_broker = list(rep.get("only_broker") or [])
+    if only_broker:
+        # Eine Position, deren Verkaufsorder am Broker noch offen (nicht gefüllt/abgelehnt) ist,
+        # ist strukturell KEIN Abweichungsfall, sondern eine laufende Schließung — reale Ursache
+        # des JD-Falls (13.08.): 400ms nach `close_position` prüft dieser Job schon, ob die
+        # Position noch da ist, obwohl die Order (bei geschlossener Börse) erst zur Eröffnung
+        # füllt. Solche Symbole vor der Alarmentscheidung herausfiltern (spiegelt den Guard aus
+        # `adopt_orphan_positions`/`sweep_missing_positions`).
+        closing_syms = await asyncio.to_thread(reconcile_mod._open_sell_order_symbols, client)
+        residual = [s for s in only_broker if s not in closing_syms]
+        if len(residual) != len(only_broker):
+            log.info(
+                f"[{user['user_id']}] Reconcile ({context}): "
+                f"{len(only_broker) - len(residual)} Symbol(e) mit offener Verkaufsorder aus der "
+                f"Abweichungsmeldung gefiltert (Schließung läuft noch, kein Fehlalarm).")
+        rep = dict(rep, only_broker=residual, ok=not (rep.get("only_bot") or residual))
+        rep["detail"] = reconcile_mod._format(rep)
     if rep.get("ok"):
         return
     detail = rep.get("detail", "")
