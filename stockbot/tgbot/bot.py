@@ -1453,36 +1453,79 @@ async def monitor_broker_closing(bot: Bot):
             db.mark_broker_closing(user["user_id"], ticker, order_id=order_id, broker_status=status)
 
 
+async def _sweep_missing_for_user(bot: Bot, user: dict, *, full: bool) -> None:
+    """Ein-Nutzer-Schritt von `monitor_missing_broker_positions` (für parallelen Fan-out)."""
+    if not _broker_reconcile_enabled(user, full=full):
+        return
+    client = _alpaca_client(user)
+    if client is None:
+        return
+    result = await asyncio.to_thread(
+        reconcile_mod.sweep_missing_positions,
+        user,
+        client,
+        grace_sec=BROKER_POSITION_MISSING_AFTER_SEC,
+    )
+    if not result.get("closed"):
+        return
+    for closed in result["closed"]:
+        ticker = closed["ticker"]
+        exit_price = float(closed.get("exit") or 0.0)
+        await _tg_status(
+            bot, user,
+            (f"🔁 *{ticker}* wurde bei Alpaca nicht mehr gefunden und daher als verkauft markiert.\n"
+             f"Abgleich mit aktuellem Kurs: ${exit_price:.2f}."),
+            parse_mode="Markdown",
+        )
+    await refill_pending(bot, user["user_id"], user, None)
+
+
 async def monitor_missing_broker_positions(bot: Bot, *, full: bool = False):
     """Schließt aktive Bot-Trades, deren Broker-Position verschwunden ist.
 
     Das fängt den Fall ab, dass ein User die Position manuell im Broker verkauft hat.
     Nach einer kurzen Grace-Phase wird der Trade automatisch als geschlossen markiert.
+
+    Läuft je Nutzer parallel (MONITOR-PERF): jeder Nutzer hat seine EIGENEN Alpaca-Keys
+    (`_alpaca_client`, kein globaler Fallback) — die Netzwerkaufrufe verschiedener Nutzer
+    treffen also unterschiedliche Alpaca-Konten/Rate-Limits und dürfen sich überlappen,
+    statt den 60s-Takt des `monitor_trades`-Jobs mit sequentieller Wartezeit aufzufressen.
     """
-    for user in db.list_active_users():
-        if not _broker_reconcile_enabled(user, full=full):
-            continue
-        client = _alpaca_client(user)
-        if client is None:
-            continue
-        result = await asyncio.to_thread(
-            reconcile_mod.sweep_missing_positions,
-            user,
-            client,
-            grace_sec=BROKER_POSITION_MISSING_AFTER_SEC,
+    users = db.list_active_users()
+    await asyncio.gather(*(_sweep_missing_for_user(bot, u, full=full) for u in users))
+
+
+async def _adopt_orphans_for_user(bot: Bot, user: dict, *, full: bool) -> None:
+    """Ein-Nutzer-Schritt von `monitor_orphan_broker_positions` (für parallelen Fan-out)."""
+    if not _broker_reconcile_enabled(user, full=full):
+        return
+    client = _alpaca_client(user)
+    if client is None:
+        return
+    result = await asyncio.to_thread(reconcile_mod.adopt_orphan_positions, user, client)
+    for a in result.get("adopted", []):
+        entry = float(a.get("entry") or 0.0)
+        qty = a.get("qty")
+        await _tg_status(
+            bot, user,
+            (f"♻️ *{a['ticker']}* war bei Alpaca offen, aber nicht im Bot — "
+             f"jetzt automatisch übernommen ({a['symbol']}"
+             f"{f', {qty:g}×' if qty is not None else ''} @ ${entry:.2f}).\n"
+             f"Der Trade wird wieder überwacht. SL/TP sind aus (nachträglich erkannt) — "
+             f"bei Bedarf manuell verkaufen."),
+            parse_mode="Markdown",
         )
-        if not result.get("closed"):
-            continue
-        for closed in result["closed"]:
-            ticker = closed["ticker"]
-            exit_price = float(closed.get("exit") or 0.0)
-            await _tg_status(
-                bot, user,
-                (f"🔁 *{ticker}* wurde bei Alpaca nicht mehr gefunden und daher als verkauft markiert.\n"
-                 f"Abgleich mit aktuellem Kurs: ${exit_price:.2f}."),
-                parse_mode="Markdown",
-            )
-        await refill_pending(bot, user["user_id"], user, None)
+    # Frühere Fehlübernahmen heilen: Options-Trades, deren Einstieg fälschlich die Prämie war.
+    healed = await asyncio.to_thread(reconcile_mod.heal_adopted_option_entries, user)
+    if healed:
+        await _tg_status(
+            bot, user,
+            ("🔧 Einstieg korrigiert für übernommene Options-Trades: "
+             f"*{', '.join(healed)}*.\nBei diesen war die Options-Prämie fälschlich als "
+             f"Aktienkurs hinterlegt (absurde Prozent-/€-Anzeige). Jetzt auf den echten "
+             f"Aktienkurs gesetzt."),
+            parse_mode="Markdown",
+        )
 
 
 async def monitor_orphan_broker_positions(bot: Bot, *, full: bool = False):
@@ -1491,37 +1534,15 @@ async def monitor_orphan_broker_positions(bot: Bot, *, full: bool = False):
     Schließt die Lücke „im Broker offen, aber nicht im Bot" (z. B. Order ging beim Broker
     durch, der Bot verbuchte sie wegen eines Sende-/Antwortfehlers aber als fehlgeschlagen).
     Danach überwacht der Bot die Position wieder (SL/TP, Tagesende-Auswertung).
+
+    Läuft je Nutzer parallel (MONITOR-PERF) — Begründung wie bei
+    `monitor_missing_broker_positions`: eigene Alpaca-Keys je Nutzer, kein gemeinsames
+    Rate-Limit. Die kürzlich gemergten Ping-Pong-Guards (offene Verkaufsorder + Grace-Phase)
+    stecken unverändert in `reconcile_mod.adopt_orphan_positions`/`sweep_missing_positions`
+    selbst und bleiben pro Nutzer wirksam.
     """
-    for user in db.list_active_users():
-        if not _broker_reconcile_enabled(user, full=full):
-            continue
-        client = _alpaca_client(user)
-        if client is None:
-            continue
-        result = await asyncio.to_thread(reconcile_mod.adopt_orphan_positions, user, client)
-        for a in result.get("adopted", []):
-            entry = float(a.get("entry") or 0.0)
-            qty = a.get("qty")
-            await _tg_status(
-                bot, user,
-                (f"♻️ *{a['ticker']}* war bei Alpaca offen, aber nicht im Bot — "
-                 f"jetzt automatisch übernommen ({a['symbol']}"
-                 f"{f', {qty:g}×' if qty is not None else ''} @ ${entry:.2f}).\n"
-                 f"Der Trade wird wieder überwacht. SL/TP sind aus (nachträglich erkannt) — "
-                 f"bei Bedarf manuell verkaufen."),
-                parse_mode="Markdown",
-            )
-        # Frühere Fehlübernahmen heilen: Options-Trades, deren Einstieg fälschlich die Prämie war.
-        healed = await asyncio.to_thread(reconcile_mod.heal_adopted_option_entries, user)
-        if healed:
-            await _tg_status(
-                bot, user,
-                ("🔧 Einstieg korrigiert für übernommene Options-Trades: "
-                 f"*{', '.join(healed)}*.\nBei diesen war die Options-Prämie fälschlich als "
-                 f"Aktienkurs hinterlegt (absurde Prozent-/€-Anzeige). Jetzt auf den echten "
-                 f"Aktienkurs gesetzt."),
-                parse_mode="Markdown",
-            )
+    users = db.list_active_users()
+    await asyncio.gather(*(_adopt_orphans_for_user(bot, u, full=full) for u in users))
 
 
 async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):

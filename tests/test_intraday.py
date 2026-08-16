@@ -725,6 +725,145 @@ def test_monitor_evaluates_each_trade_with_its_own_strategy():
     assert ticks and ticks[-1]["strength"] == 10.0
 
 
+# ── MONITOR-PERF: monitor_missing/orphan laufen je Nutzer parallel ───────────
+# Grund: jeder Nutzer hat eigene Alpaca-Keys (kein globaler Fallback in `_alpaca_client`),
+# die Netzwerkaufrufe verschiedener Nutzer treffen also unterschiedliche Konten/Rate-Limits.
+# Sequentiell (vorher) summierte sich die Wartezeit über alle broker_exec-Nutzer und ließ den
+# 60s-Takt von monitor_trades reißen ("skipped: maximum number of running instances reached"
+# im Live-Journal, ~13x/3 Tage) — in diesen Minuten fehlte die SL/TP-Überwachung komplett.
+
+def _setup_broker_users(n: int, prefix: int = 9100) -> list[int]:
+    chats = []
+    for i in range(n):
+        chat = prefix + i
+        db.get_or_create_user(chat, f"pu{i}")
+        db.save_profile(chat, trade_size_eur=25.0)
+        db.set_broker_exec(chat, True)
+        chats.append(chat)
+    return chats
+
+
+def test_monitor_missing_broker_positions_runs_users_concurrently(monkeypatch):
+    import asyncio
+    import threading
+    import time
+    from unittest.mock import AsyncMock
+
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    n = 4
+    _setup_broker_users(n)
+    monkeypatch.setattr(bot, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(bot, "_alpaca_client", lambda user: object())
+
+    lock = threading.Lock()
+    state = {"concurrent": 0, "max_concurrent": 0, "calls": 0}
+
+    def fake_list_positions(client=None):
+        with lock:
+            state["concurrent"] += 1
+            state["max_concurrent"] = max(state["max_concurrent"], state["concurrent"])
+            state["calls"] += 1
+        time.sleep(0.05)   # simulierte Netzwerklatenz — echte Threads (asyncio.to_thread)
+        with lock:
+            state["concurrent"] -= 1
+        return []
+
+    monkeypatch.setattr(reconcile_mod.broker, "list_positions", fake_list_positions)
+    ctx_bot = AsyncMock()
+
+    t0 = time.perf_counter()
+    asyncio.run(bot.monitor_missing_broker_positions(ctx_bot))
+    dt = time.perf_counter() - t0
+
+    assert state["calls"] == n                      # jeder Nutzer wurde bedient (kein Verhaltensverlust)
+    assert state["max_concurrent"] > 1               # tatsächlich überlappend, nicht mehr sequentiell
+    assert dt < n * 0.05                             # deutlich schneller als n * Einzel-Latenz
+
+
+def test_monitor_orphan_broker_positions_runs_users_concurrently(monkeypatch):
+    import asyncio
+    import threading
+    import time
+    from unittest.mock import AsyncMock
+
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    n = 4
+    _setup_broker_users(n)
+    monkeypatch.setattr(bot, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(bot, "_alpaca_client", lambda user: object())
+
+    lock = threading.Lock()
+    state = {"concurrent": 0, "max_concurrent": 0, "calls": 0}
+
+    def fake_list_positions(client=None):
+        with lock:
+            state["concurrent"] += 1
+            state["max_concurrent"] = max(state["max_concurrent"], state["concurrent"])
+            state["calls"] += 1
+        time.sleep(0.05)
+        with lock:
+            state["concurrent"] -= 1
+        return []
+
+    monkeypatch.setattr(reconcile_mod.broker, "list_positions", fake_list_positions)
+    monkeypatch.setattr(reconcile_mod, "heal_adopted_option_entries", lambda user: [])
+    ctx_bot = AsyncMock()
+
+    t0 = time.perf_counter()
+    asyncio.run(bot.monitor_orphan_broker_positions(ctx_bot))
+    dt = time.perf_counter() - t0
+
+    assert state["calls"] == n
+    assert state["max_concurrent"] > 1
+    assert dt < n * 0.05
+
+
+def test_monitor_missing_and_orphan_close_and_adopt_unchanged_when_parallel(monkeypatch):
+    """Verhalten bleibt gleich: dieselben Trades werden geschlossen/übernommen wie sequentiell —
+    nur die Wartezeit sinkt. Zwei Nutzer: einer mit fehlender Position (→ Close nach Grace),
+    einer mit einer verwaisten Broker-Position (→ Adopt)."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    fresh_db()
+    db.yf = _FakeYF(100.0)
+    chat_missing, chat_orphan = 9200, 9201
+    for chat in (chat_missing, chat_orphan):
+        db.get_or_create_user(chat, f"u{chat}")
+        db.save_profile(chat, trade_size_eur=25.0)
+        db.set_broker_exec(chat, True)
+
+    db.add_pending(chat_missing, {"ticker": "IBM", "direction": "long", "price": 100.0,
+                                  "leverage": 1.0, "strength": 80.0}, 1)
+    db.activate_trade(chat_missing, "IBM")
+    with db._connect() as conn:
+        conn.execute(
+            "UPDATE trades SET broker_updated_at = '2026-01-01 00:00:00' "
+            "WHERE user_id = ? AND ticker = ?", (chat_missing, "IBM"))
+
+    monkeypatch.setattr(bot, "_alpaca_ready", lambda user: True)
+    monkeypatch.setattr(bot, "_alpaca_client", lambda user: object())
+    monkeypatch.setattr(bot, "_us_market_open", lambda *a, **k: False)
+
+    def fake_list_positions(client=None):
+        return []   # bei BEIDEN Nutzern leer → IBM fehlt (Close), keine Adopt-Kandidaten
+
+    monkeypatch.setattr(reconcile_mod.broker, "list_positions", fake_list_positions)
+    monkeypatch.setattr(reconcile_mod.broker, "position_exists", lambda sym, c=None: False)
+    monkeypatch.setattr(reconcile_mod, "get_current_price", lambda ticker, fallback: 97.5)
+    ctx_bot = AsyncMock()
+
+    asyncio.run(bot.monitor_missing_broker_positions(ctx_bot))
+    asyncio.run(bot.monitor_orphan_broker_positions(ctx_bot))
+
+    trade = db.get_trade(chat_missing, "IBM")
+    assert trade["status"] == "closed"
+    assert trade["broker_status"] == "reconciled_missing_position"
+    assert trade["exit"] == 97.5
+
+
 # ── SL/TP-Modus „aus": einmalige Heads-up-Warnung (kein Auto-Close) ──────────
 
 def test_sltp_off_warns_once_on_weak_signal():
