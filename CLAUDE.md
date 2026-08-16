@@ -39,6 +39,25 @@ Implementierungsarbeit grundsätzlich delegiert, auch wenn sie klein wirkt. Selb
 erledigen darfst du nur Glue/Config/Docs und Ein-Zeilen-Fixes im Reviewfluss.
 Grund: sicherheitskritisches Live-Trading — jeder Diff soll durch das Review-Gate.
 
+## Design der Web-App: `design-lead`
+
+Für alles unter `stockbot/web/` gibt es einen eigenen Agenten
+(`.claude/agents/design-lead.md`, Opus, read-only bis auf `DESIGN.md`-Ergänzungen).
+Der Lead ruft ihn bei UI-Arbeit **zweimal**: einmal **vor** dem Handoff für die
+Design-Vorgabe (Komponente, Tokens, Zustände) und einmal **nach** dem Worker-Branch
+zur Abnahme, bevor gemergt wird.
+
+Seine **Blocker sind bindend** (Kontrast < 4.5:1, Tastaturbedienung, Fork des
+vendorierten `liquid-glass.css`, fehlender Bestätigungsdialog bei Geldbewegung,
+verharmloster Verlust, gebrochener Zustand); alles Gestalterische ist Empfehlung.
+
+Rangordnung der Design-Quellen: visuelle Fragen entscheidet `DESIGN.md` +
+`liquid-glass.css`, Prinzipien und Fachstruktur `docs/Stylekonzept.md` (dessen
+**visuelle** Kapitel sind seit der Liquid-Glass-Migration überholt).
+
+Die Sichtprüfung braucht **Seed-Daten** — die lokale DB ist leer. Ohne sie liefert
+der Agent nur den Code-Teil und meldet den Rest als ungeprüft.
+
 ## Plan-Dokumente & Merge-Gate
 
 - Maßgeblich: `docs/PLAN_CHECKLIST.md` (Phasen 0–12 + Gates, Tasks getaggt
