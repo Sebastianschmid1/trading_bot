@@ -19,9 +19,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler as _default_http_exception_handler
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from stockbot.core import db
 from stockbot.market import strategies
@@ -35,12 +37,14 @@ from stockbot.core.glossary import (
     broker_status_label,
     trade_status_label,
 )
+from stockbot.core import glossary as glossary
 from stockbot.core.settings import validate_config, assert_postgres_backend
 from stockbot.core.logging_setup import configure_logging
 from stockbot.broker import client as broker
 from stockbot import config
 from stockbot.config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_BASE_URL, BERLIN_TZ
 from stockbot.core.evaluator import get_current_price, trade_pnl, effective_leverage
+from stockbot.web import auth
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -49,6 +53,11 @@ if sys.platform == "win32":
 log = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# §32.9: das gemeinsame Web↔Telegram-Glossar auch dieser Jinja-Umgebung bereitstellen —
+# dashboard.html/error.html rendern teils über DIESE templates-Instanz (Token-Route unten),
+# teils über die von webapp.py (`/app/dashboard`); beide Umgebungen brauchen `glossary`,
+# sonst bricht die Extends-Kette auf base.html für die jeweils andere Route.
+templates.env.globals["glossary"] = glossary
 
 # Sentinel-Fallback fuer `evaluator.get_current_price`: NaN ist kein moeglicher Kurs und
 # macht den (dort bewusst abgefangenen) Abruffehler fuer die UI erkennbar — §32.5, siehe
@@ -472,6 +481,71 @@ from stockbot.web.api_idempotency import IdempotencyStore          # noqa: E402
 app.add_middleware(TraceIDMiddleware)
 app.state.idempotency = IdempotencyStore()
 app.include_router(api_v1_router)
+
+
+# ── Fehlerseiten (§UI-ONBOARDING/Befund 2) ───────────────────────────────────
+# Ohne eigenen Handler lieferte JEDE Fehlerantwort (404/403/500) rohes FastAPI-/
+# Starlette-JSON bzw. eine unformatierte Plaintext-Seite — ohne Navigation, ohne
+# Design, ohne Weg zurück. `/api/...` (api_v1 UND die Token-API oben) MUSS weiter JSON
+# liefern (api_v1_router-Tests + das JS des Dashboards erwarten das) — deshalb wird nach
+# Pfad-Präfix bzw. `Accept`-Header unterschieden: nur Browser-Anfragen an Nicht-API-Routen
+# bekommen die gestaltete HTML-Seite. Andere Statuscodes (400/401/422/…) bleiben unverändert
+# (nicht Teil dieses Befunds).
+_ERROR_COPY = {
+    404: {"title": "Seite nicht gefunden",
+          "message": "Diese Seite gibt es nicht oder wurde verschoben."},
+    403: {"title": "Kein Zugriff",
+          "message": "Für diese Aktion fehlt die Berechtigung."},
+    500: {"title": "Etwas ist schiefgelaufen",
+          "message": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es in Kürze erneut."},
+}
+
+
+def _wants_json(request: Request) -> bool:
+    """True für API-Aufrufer: alles unter `/api/...` (api_v1 + die Token-API dieser Datei)
+    IMMER, sonst nur bei explizit JSON-bevorzugendem `Accept`-Header (kein Browser-GET)."""
+    if request.url.path.startswith("/api/"):
+        return True
+    accept = request.headers.get("accept", "")
+    return "application/json" in accept and "text/html" not in accept
+
+
+def _render_error_page(request: Request, status_code: int, detail: str | None = None) -> HTMLResponse:
+    copy = _ERROR_COPY.get(
+        status_code, {"title": "Fehler", "message": "Es ist ein Fehler aufgetreten."})
+    try:
+        user = auth.current_user(request)
+    except Exception:
+        user = None   # Fehlerseite darf nie an einem kaputten Session-Lookup scheitern.
+    return templates.TemplateResponse(
+        request, "error.html", {
+            "user": user, "active": "",
+            "error_code": status_code,
+            "error_title": copy["title"],
+            "error_message": copy["message"],
+            # Den sachlichen HTTPException-Grund (z. B. "Nur der Admin darf …") nur bei 403
+            # zeigen — bei 404 nichtssagend ("Ungültiger Token."), bei 500 nie (§ keine
+            # Interna nach außen).
+            "error_detail": detail if status_code == 403 else None,
+        }, status_code=status_code,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code in (403, 404) and not _wants_json(request):
+        return _render_error_page(
+            request, exc.status_code, detail=str(exc.detail) if exc.detail else None)
+    # Alles andere (inkl. API-Routen und alle sonstigen Codes) unverändert wie zuvor.
+    return await _default_http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    log.exception(f"Unbehandelter Fehler auf {request.method} {request.url.path}: {exc}")
+    if _wants_json(request):
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+    return _render_error_page(request, 500)
 
 
 def run():

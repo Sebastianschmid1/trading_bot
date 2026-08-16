@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title }} — Stock Signal Bot{% endblock %}
+{% block content %}
+<div class="card2" style="max-width:520px;margin:3rem auto;text-align:center">
+  <div class="card2__header" style="justify-content:center">
+    <h1 class="card2__title" style="font-size:1.4rem">{{ error_code }} · {{ error_title }}</h1>
+  </div>
+  <div class="card2__body">
+    <p>{{ error_message }}</p>
+    {% if error_detail %}<p class="muted">{{ error_detail }}</p>{% endif %}
+  </div>
+  <div style="margin-top:1.4rem;display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap">
+    {% if user %}
+    <a class="btn2 btn2--primary" href="/app">Zurück zur App</a>
+    {% else %}
+    <a class="btn2 btn2--primary" href="/login">Anmelden</a>
+    {% endif %}
+    <a class="btn2 btn2--secondary" href="/">Zur Startseite</a>
+  </div>
+</div>
+{% endblock %}
