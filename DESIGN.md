@@ -366,3 +366,127 @@ because SVG presentation attributes lose to a CSS declaration — no JS needed f
   no data hook behind it — a hardcoded chip would assert a false safety status, violating
   the product's "no silent/false status" principle. A kill-switch indicator returns only
   when wired to real state.
+
+## Kontrast-Härtung (agent/UI-CONTRAST)
+
+A binding design review found four hard contrast blockers (WCAG 2.1, measured against the
+**actual composite background**, not an idealized surface) plus one confirmation-dialog
+blocker. All are fixed with new local tokens, following the existing `--money-gain`/
+`--money-loss` pattern: where a vendor accent (`--lg-*`) is used as **text** and doesn't
+clear 4.5:1 on its own surface, that spot gets its own light/dark pair instead of forking
+`--lg-*`. `liquid-glass.css` and `--cat-1..6` are untouched.
+
+### Why `--lg-success`/`--lg-warning` don't work as text color
+
+Both vendor semantic colors are tuned for **dots and thin fills** (the "status lives in the
+dot, never in a fill" rule), not for body text or badge text on their own soft tint. Two
+independent failure modes compound:
+
+1. **`--lg-success` cannot reach AA as text even on a best-case surface.** `--lg-success`
+   light `#3E9E6E` on **pure white** is only 3.32:1 — below the 4.5:1 text minimum before any
+   real (slightly warm, slightly translucent) surface is even considered. No amount of
+   background tuning fixes this while keeping the vendor hex as the ink; the token is
+   accessible as a small dot/border (≥3:1, non-text) but not as text.
+2. **Text-on-its-own-soft-tint is a self-similar-luminosity trap.** `--warning-soft`/
+   `--info-soft`/`--success-soft` are `color-mix()`/`rgba()` of the *same* accent at 13–18%
+   over the surface — so the accent-as-text sits on a background that is itself mostly that
+   accent's hue, just diluted. Diluting a light-ish accent toward the (light) surface raises
+   background luminance faster than the unmodified accent-as-text can keep pace with, so the
+   two converge well short of 4.5:1 (measured 2.15–2.84:1 in Light Mode for Paper/Shadow/
+   Backtest/chip--caution/chip--go; **money**'s already-darkened pair (`--money-loss`) avoids
+   this because it starts far enough from its own soft-tint's luminance).
+
+### New tokens: light value → dark value
+
+All declared in base.html's `.lg-body` block (light) plus its two dark blocks, next to the
+existing money/mode-chip tokens; consumed via `var(--token)` in CSS. Fallback literals
+(`var(--token, #hex)`) are given at the two `tokens.css`/`components.css` call sites so they
+degrade sensibly if ever used outside `.lg-body`.
+
+| Token | Light | Dark | Used for |
+|---|---|---|---|
+| `--badge-teal-ink` | `var(--lg-ink-on-teal)` (unchanged) | `var(--lg-teal)` | `.dir.long`, `.badge` (teal-tinted pill text) |
+| `--tone-warning-bg` / `-fg` | `#F5E6C8` / `#6B430A` | `#4A3416` / `#FFD699` | `.mode-badge--paper`, `.chip--caution` |
+| `--tone-violet-bg` / `-fg` | `#ECE6FB` / `#443592` | `#322A54` / `#D8CCFB` | `.mode-badge--shadow` |
+| `--tone-indigo-bg` / `-fg` | `#E7E4FE` / `#3F3AAE` | `#2E2B57` / `#CFCBFF` | `.mode-badge--backtest` |
+| `--tone-success-bg` / `-fg` | `#DCEEE4` / `#146C43` | `#1B3A2C` / `#8CE6BB` | `.chip--go` |
+| `--status-ink-success` | `#2E7552` | `var(--lg-success)` (unchanged, already ≥4.5:1) | `--lg-success`-as-text spots (Blocker 4) |
+| `--status-ink-error` | `#9C3043` | `var(--lg-error)` (unchanged, already ≥4.5:1) | `--lg-error`-as-text spots (Blocker 4) |
+
+The `--tone-*` pairs are **opaque, self-contained** colors (not a translucent tint over an
+unknown backdrop) — chosen so the contrast is deterministic and doesn't depend on what glass
+layers happen to sit behind the badge/chip. `--mode-paper`/`--mode-shadow` (the dashboard's
+own richer `.ck-chip`, on solid glass) and `--danger`/`--danger-soft` (already routed through
+the darkened `--money-loss`) needed no change — both already clear 4.5:1 in both themes.
+
+### Contrast: before → after (WCAG 2.1, real composite background)
+
+Methodology: solid-glass surface approximated the same way the existing Dark-Mode table
+does — `--lg-glass-solid` composited over the body mesh (light ≈ `rgb(247 244 243)`, dark ≈
+`rgb(30 26 45)`); soft tints are `color-mix()`/`rgba()` of the accent composited over that
+same surface at their declared alpha. This reproduces the review's own numbers exactly
+(validated against 3.04:1, 4.35:1, 1.40:1, 10.97:1, 3.32:1-on-white — all matched to 2
+decimals), so it's used throughout below. New `--tone-*` values are opaque, so their ratio is
+exact regardless of backdrop.
+
+| # | Spot | Before | After | Needs |
+|---|---|---|---|---|
+| 1 | `.dir.long`/`.badge` teal-tint text, **Dark** | `--lg-ink-on-teal` `#0E2F2A` on 22% teal-over-dark-glass `#33424F` → **1.40:1** | `--badge-teal-ink` = `--lg-teal` `#7FD2C6` on same bg → **5.84:1** | ≥4.5:1 |
+| 1 | same, Light (unchanged) | `--lg-ink-on-teal` `#0E332E` on 22% teal-over-light-glass `#D9E9E6` → **10.97:1** | unchanged | ≥4.5:1 ✓ already |
+| 2 | `.mode-badge--paper`, Light | `--lg-warning` `#B87A18` on `--warning-soft` → **2.31–2.84:1** (range measured) | `--tone-warning-fg` `#6B430A` on `--tone-warning-bg` `#F5E6C8` → **7.00:1** | ≥4.5:1 |
+| 2 | `.mode-badge--paper`, Dark | `--lg-warning` dark on `--warning-soft` dark → **4.30:1** | `--tone-warning-fg` `#FFD699` on `--tone-warning-bg` `#4A3416` → **8.55:1** | ≥4.5:1 |
+| 2 | `.mode-badge--shadow`, Light | `--lg-violet` `#997CE6` on `--info-soft` → **2.15–2.66:1** | `--tone-violet-fg` `#443592` on `--tone-violet-bg` `#ECE6FB` → **7.96:1** | ≥4.5:1 |
+| 2 | `.mode-badge--shadow`, Dark | `--lg-violet` dark on `--info-soft` dark → **3.16:1** | `--tone-violet-fg` `#D8CCFB` on `--tone-violet-bg` `#322A54` → **8.75:1** | ≥4.5:1 |
+| 2 | `.mode-badge--backtest`, Light+Dark | hardcoded `#9B8CFF` on `rgba(155,140,255,.14)`, unthemed → **1.83:1 / 3.62:1** | `--tone-indigo-fg` `#3F3AAE`/`#CFCBFF` on `--tone-indigo-bg` `#E7E4FE`/`#2E2B57` → **6.97:1 / 8.53:1** | ≥4.5:1 |
+| 2 | `.mode-badge--live`, Light+Dark (unchanged) | `--danger` on `--danger-soft` → **4.60:1 / ok** | unchanged | ≥4.5:1 ✓ already |
+| 3 | `.chip--go`, Light | `--lg-success` `#3E9E6E` on `--success-soft` → **2.64:1** (and only 3.32:1 even on pure white — AA unreachable with this token) | `--tone-success-fg` `#146C43` on `--tone-success-bg` `#DCEEE4` → **5.34:1** | ≥4.5:1 |
+| 3 | `.chip--go`, Dark (unchanged, already ok) | `--lg-success` dark on `--success-soft` dark → ok | `--tone-success-fg` `#8CE6BB` on `--tone-success-bg` `#1B3A2C` → **8.38:1** | ≥4.5:1 |
+| 3 | `.chip--caution`, Light | `--lg-warning` on `--warning-soft` → **2.84:1** | `--tone-warning-fg`/`-bg` (shared with Paper-Badge, same pair) → **7.00:1** | ≥4.5:1 |
+| 3 | `.chip--caution`, Dark | ok-ish per review, hardened anyway for consistency | `--tone-warning-fg`/`-bg` dark → **8.55:1** | ≥4.5:1 |
+| 3 | `.chip--warn`, both themes (unchanged) | `--danger` on `--danger-soft` → **5.71:1 / ok** | unchanged | ≥4.5:1 ✓ already |
+| 4 | `--lg-success`/`--lg-error` as text, Light (`#error`, `.pill.live/.offline`, `.ck-chip.is-live/.is-armed`, `button.red`, `.win/.lose`, `.kind.applied/.rejected`, `.ok`) | `#3E9E6E` / `#C6455C` on light solid glass → **3.04:1 / 4.35:1** | `--status-ink-success` `#2E7552` / `--status-ink-error` `#9C3043` on same bg → **5.07:1 / 6.58:1** | ≥4.5:1 |
+| 4 | same, Dark (unchanged, already ok) | `--lg-success`/`--lg-error` dark on dark solid glass → **9.29:1 / 7.08:1** (existing Dark-Mode table) | unchanged (`--status-ink-*` dark = `var(--lg-success/-error)`) | ≥4.5:1 ✓ already |
+
+### Cascade fix: `color-scheme`
+
+`tokens.css`'s bare `:root { color-scheme: dark }` (selector specificity 0,1,0 — a leftover
+from the pre-migration dark avionics default) beat base.html's `html { color-scheme: light
+dark }` (specificity 0,0,1) **regardless of load order**, because higher specificity always
+wins within the same origin. Verified by cascade math, not by rendering: `:root` and `html`
+both match the root element, `:root`'s pseudo-class contributes a class-level specificity
+point that the bare type selector `html` doesn't have, so `:root`'s declaration always won
+for the un-attributed (System, no `[data-theme]`) case — the explicit-choice rules
+(`html[data-theme="light|dark"]`, specificity 0,1,1) were never affected, only the default.
+
+**Effect confirmed:** in System mode (no explicit theme choice — the default state for every
+new visitor), the page rendered its light Liquid Glass look while every native UA widget
+(`select` dropdowns, scrollbars, checkboxes, autofill, the `input[type=date]` calendar icon)
+rendered in **dark** chrome, because the browser's `color-scheme` hint said `dark`
+unconditionally. This is exactly the mismatch flagged in the task.
+
+**Fix:** removed the stray `color-scheme: dark;` line from `tokens.css`'s `:root` (it
+predates the light/dark toggle system and is fully superseded by base.html's three rules,
+which already correctly cover System/light/dark). No `liquid-glass.css` change needed — that
+file never declared `color-scheme` itself.
+
+### Confirmation dialogs (Blocker 8, §18.1)
+
+`settings.html` ("Alpaca-Verbindung entfernen", "Demo zurücksetzen") and `lab.html` ("Als
+Live-Override übernehmen") now open a `dialog2` instead of a native `confirm()`, via a small
+shared, declarative helper added to base.html (`form[data-confirm-dialog]` → opens the named
+`<dialog class="dialog2">`, with the same focus-trap / initial-focus-on-cancel / Enter-safe-
+confirm-button / focus-restore behavior as the existing `#tradeConfirm` dialog in app.html —
+app.html's own richer, per-row dynamic dialog is untouched). Each dialog **lists its concrete
+consequences** instead of stating them in the surrounding prose:
+
+- **Alpaca-Verbindung entfernen** — löscht die gespeicherten API-Zugangsdaten, deaktiviert
+  sofort die echte Broker-Order-Ausführung, offene Positionen bleiben (unsteuerbar) bestehen.
+- **Demo zurücksetzen** — löscht alle Trades/Verlauf/Mitteilungen, schließt offene
+  Alpaca-Positionen (falls echte Broker-Ausführung aktiv), Einstellungen/Alpaca-Verbindung
+  bleiben erhalten.
+- **Live-Override übernehmen** (lab.html) — nennt den konkreten Parameter samt altem/neuem
+  Wert, dass es ab dem nächsten Bot-Zyklus (~20 s) gilt, und dass der bisherige Wert danach
+  nicht automatisch wiederhergestellt wird.
+
+The kill-switch toggle and the dashboard-link-rotate `confirm()` in `settings.html` were left
+untouched — out of scope (no money movement, not among the three named blockers).

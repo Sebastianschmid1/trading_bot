@@ -115,8 +115,16 @@
   background: var(--bg-surface-3); color: var(--text-secondary); border: 1px solid var(--border-default);
 }
 .chip__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.chip--go { color: var(--success); border-color: var(--success-border); background: var(--success-soft); }
-.chip--caution { color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft); }
+/* chip--go/--caution tragen §32.3 (Datenaktualität) — ein Sicherheitselement, kein Deko-Chip
+   (§ Blocker 3, agent/UI-CONTRAST). --success/--warning (vendor lg-success/lg-warning) reichen
+   als Text auf --success-soft/--warning-soft nicht an 4.5:1 heran (2.64–2.84:1 im Light Mode;
+   --lg-success schafft selbst auf reinem Weiß nur 3.32:1 — mit dem Vendor-Token ist AA im Light
+   Mode für diesen Anwendungsfall grundsätzlich unerreichbar, siehe DESIGN.md). Eigene,
+   undurchsichtige --tone-success-/--tone-warning-bg/-fg-Paare lösen das (>=5:1 in beiden
+   Themes). chip--warn bleibt unverändert: --danger/--danger-soft (vom bereits abgedunkelten
+   --money-loss abgeleitet) erreicht schon >=4.5:1. */
+.chip--go { color: var(--tone-success-fg, #146C43); border-color: color-mix(in srgb, var(--tone-success-fg, #146C43) 35%, transparent); background: var(--tone-success-bg, #DCEEE4); }
+.chip--caution { color: var(--tone-warning-fg, #6B430A); border-color: color-mix(in srgb, var(--tone-warning-fg, #6B430A) 35%, transparent); background: var(--tone-warning-bg, #F5E6C8); }
 .chip--warn { color: var(--danger); border-color: var(--danger-border); background: var(--danger-soft); }
 .chip--neutral { color: var(--text-muted); }
 

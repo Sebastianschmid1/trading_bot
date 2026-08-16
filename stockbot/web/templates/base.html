@@ -70,6 +70,35 @@
     --mode-paper: #8A5A0F; --mode-shadow: #3358B5;
     /* Modal-/Overlay-Abdunkelung */
     --overlay: rgb(38 28 60 / .38); --overlay-strong: rgb(38 28 60 / .45);
+    /* ── Kontrast-Härtung (agent/UI-CONTRAST, Blocker 1–4) — eigene, geprüfte Tokens ──
+       Kontrastzahlen (WCAG 2.1, gegen den tatsächlichen Komposit-Hintergrund) stehen in
+       DESIGN.md „Kontrast-Härtung". Grundregel wie bei --money-gain/-loss: wo ein
+       Vendor-Akzent (--lg-*) als TEXT auf einer eigenen Fläche nicht auf 4.5:1 kommt, bekommt
+       diese Stelle einen eigenen, lokalen Light/Dark-Wert statt --lg-* zu forken. */
+    /* Blocker 1: .dir.long/.badge (Teal-Tönung) — --lg-ink-on-teal ist Tinte für eine VOLLE
+       Teal-Fläche und bleibt auf der 22%-Tönung über dunklem Glas dunkel-auf-dunkel (1.40:1).
+       Im Light Mode unveraendert (10.97:1 ok). */
+    --badge-teal-ink: var(--lg-ink-on-teal);
+    /* Blocker 2+3: Modus-Badge (Backtest/Shadow/Paper) und Feed-Status-Chip (chip--caution/-go)
+       — Vendor-Akzent als Text auf seiner eigenen -soft-Tönung reicht nicht an 4.5:1 (2.15–2.84:1
+       im Light Mode; --lg-success schafft selbst auf reinem Weiß nur 3.32:1, AA ist mit diesem
+       Vendor-Token fuer Text grundsaetzlich unerreichbar). Eigene, UNDURCHSICHTIGE bg/fg-Paare
+       (statt einer Translucenz-Tönung ueber unbekanntem Hintergrund) machen den Kontrast
+       deterministisch pruefbar — >=5:1 in beiden Themes, siehe DESIGN.md.
+       --tone-warning: Paper-Badge + chip--caution (verzoegert/unsicher/Alter unbekannt).
+       --tone-violet: Shadow-Badge. --tone-indigo: Backtest-Badge (eigener, von Shadow
+       unterscheidbarer Blauton). --tone-success: chip--go (Kursdaten aktuell). */
+    --tone-warning-bg: #F5E6C8; --tone-warning-fg: #6B430A;
+    --tone-violet-bg:  #ECE6FB; --tone-violet-fg:  #443592;
+    --tone-indigo-bg:  #E7E4FE; --tone-indigo-fg:  #3F3AAE;
+    --tone-success-bg: #DCEEE4; --tone-success-fg: #146C43;
+    /* Blocker 4: --lg-success/--lg-error als TEXTFARBE (statt Punkt/Fläche) auf Solid-Glas
+       reichen im Light Mode nicht (3.04:1 / 4.35:1) — DESIGN.md nennt die Vendor-Semantikfarben
+       selbst als fuer Punkte/Flaechen gedacht, nicht fuer Text. Nur Light betroffen: Dark ist mit
+       den Vendor-Werten bereits >=4.5:1 (siehe DESIGN.md „Vendor-Kontrast“-Tabelle), deshalb dort
+       unveraendert auf --lg-success/--lg-error verweisend. */
+    --status-ink-success: #2E7552;
+    --status-ink-error: #9C3043;
     /* Chart-Chrome-Literale (Canvas kann keine CSS-Variablen lesen — JS liest diese
        zur Laufzeit per getComputedStyle, siehe dashboard.html/reports.html) */
     --chart-crosshair: rgb(38 28 60 / .16);
@@ -146,6 +175,14 @@
       --danger-soft: color-mix(in srgb, var(--money-loss) 14%, transparent);
       --danger-border: color-mix(in srgb, var(--money-loss) 48%, transparent);
       --info-soft: rgb(var(--lg-violet-rgb) / .18);
+      /* Kontrast-Härtung (agent/UI-CONTRAST) — Dark-Werte, Kontrastzahlen in DESIGN.md */
+      --badge-teal-ink: var(--lg-teal);
+      --tone-warning-bg: #4A3416; --tone-warning-fg: #FFD699;
+      --tone-violet-bg:  #322A54; --tone-violet-fg:  #D8CCFB;
+      --tone-indigo-bg:  #2E2B57; --tone-indigo-fg:  #CFCBFF;
+      --tone-success-bg: #1B3A2C; --tone-success-fg: #8CE6BB;
+      --status-ink-success: var(--lg-success);
+      --status-ink-error: var(--lg-error);
     }
   }
   :root[data-theme="dark"] .lg-body {
@@ -170,6 +207,14 @@
     --danger-soft: color-mix(in srgb, var(--money-loss) 14%, transparent);
     --danger-border: color-mix(in srgb, var(--money-loss) 48%, transparent);
     --info-soft: rgb(var(--lg-violet-rgb) / .18);
+    /* Kontrast-Härtung (agent/UI-CONTRAST) — Dark-Werte, Kontrastzahlen in DESIGN.md */
+    --badge-teal-ink: var(--lg-teal);
+    --tone-warning-bg: #4A3416; --tone-warning-fg: #FFD699;
+    --tone-violet-bg:  #322A54; --tone-violet-fg:  #D8CCFB;
+    --tone-indigo-bg:  #2E2B57; --tone-indigo-fg:  #CFCBFF;
+    --tone-success-bg: #1B3A2C; --tone-success-fg: #8CE6BB;
+    --status-ink-success: var(--lg-success);
+    --status-ink-error: var(--lg-error);
   }
 
   * { box-sizing:border-box; }
@@ -247,8 +292,11 @@
       var(--lg-teal);
     box-shadow:0 14px 26px -10px rgb(var(--lg-teal-rgb) / .70), var(--lg-cast-1), var(--lg-facet);
   }
+  /* Blocker 4 (agent/UI-CONTRAST): --lg-error als TEXT auf Solid-Glas ist im Light Mode
+     4.35:1 (< 4.5) — --status-ink-error statt der Vendor-Semantikfarbe, siehe DESIGN.md.
+     Rand bleibt --lg-error (Rahmen brauchen nur 3:1). */
   button.red, .btn.red { background:var(--lg-glass-solid); border:1px solid var(--lg-error);
-                         color:var(--lg-error); box-shadow:var(--lg-cast-1); }
+                         color:var(--status-ink-error); box-shadow:var(--lg-cast-1); }
 
   /* ── Felder ───────────────────────────────────────────────────────────── */
   select, input[type=text], input[type=number], input[type=date], input[type=password], textarea {
@@ -275,15 +323,18 @@
   .marklabel { text-transform:uppercase; letter-spacing:.1em; font-size:.66rem; color:var(--lg-ink-muted);
                font-family:var(--font-display); font-weight:600; }
 
-  /* ── Richtungs-Pill: getönt, dunkle Tinte (long=türkis, short=fehler) ───── */
+  /* ── Richtungs-Pill: getönt, dunkle Tinte (long=türkis, short=fehler) ─────
+     Blocker 1 (agent/UI-CONTRAST): --lg-ink-on-teal ist Tinte für eine VOLLE Teal-Fläche
+     und bleibt auf der 22%-Tönung über dunklem Glas dunkel-auf-dunkel (1.40:1 im Dark
+     Mode) — --badge-teal-ink statt --lg-ink-on-teal, siehe DESIGN.md. */
   .dir { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
          padding:.15rem .5rem; border-radius:var(--lg-r-pill); letter-spacing:.03em; }
-  .dir.long { background:rgb(var(--lg-teal-rgb) / .22); color:var(--lg-ink-on-teal); }
+  .dir.long { background:rgb(var(--lg-teal-rgb) / .22); color:var(--badge-teal-ink); }
   .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:var(--money-loss); }
 
   /* ── Badge: getönte Glas-Pill ──────────────────────────────────────────── */
   .badge { display:inline-flex; align-items:center; background:rgb(var(--lg-teal-rgb) / .22);
-           color:var(--lg-ink-on-teal); border-radius:var(--lg-r-pill); padding:.05rem .5rem;
+           color:var(--badge-teal-ink); border-radius:var(--lg-r-pill); padding:.05rem .5rem;
            font-size:.72rem; font-weight:700; margin-left:.2rem; }
 
   /* ── Annunciator-Punkt: Farbe nur für Zustand, KEIN Leucht-Halo ────────── */
@@ -421,6 +472,65 @@
     mql.addEventListener("change", function () { if (!stored()) announce(); });
     return { effective: effective, set: set, toggle: toggle };
   })();
+
+  // ── Generischer Bestätigungsdialog (§18.1, Komponente dialog2, Blocker 8
+  // agent/UI-CONTRAST) ────────────────────────────────────────────────────────
+  // Ein Formular mit dem Attribut data-confirm-dialog (Wert: die ID des zugehörigen
+  // Bestätigungs-Dialogs, Klasse dialog2) öffnet vor dem Submit diesen Dialog statt
+  // sofort abzusenden — Ersatz für natives confirm() bei Geldbewegung/Order-Ausführung.
+  // Fokus-Falle, Enter-Schutz auf [data-confirm-ok] (kein versehentliches Enter löst die
+  // Aktion aus) und Fokus-Rückgabe an den Auslöser, gespiegelt vom Trade-Bestätigungsdialog
+  // in app.html (dort bleibt die reichere, pro-Zeile befüllte Variante — hier reicht ein
+  // statischer Dialog pro Formular). Fällt ohne JS auf den normalen POST zurück (Formular
+  // bleibt funktionsfähig).
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("form[data-confirm-dialog]").forEach(function (form) {
+      var dlg = document.getElementById(form.dataset.confirmDialog);
+      if (!dlg) return;
+      var okBtn = dlg.querySelector("[data-confirm-ok]");
+      var cancelBtn = dlg.querySelector("[data-confirm-cancel]");
+      var lastFocus = null;
+
+      function focusables() {
+        var sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+        return Array.prototype.slice.call(dlg.querySelectorAll(sel)).filter(function (el) { return !el.disabled; });
+      }
+      dlg.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Tab") return;
+        var items = focusables();
+        if (!items.length) return;
+        var first = items[0], last = items[items.length - 1];
+        if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+        else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+      });
+      function restoreFocus() {
+        var t = lastFocus; lastFocus = null;
+        if (t && t.isConnected && !t.disabled && typeof t.focus === "function") t.focus();
+      }
+      dlg.addEventListener("close", restoreFocus);
+
+      form.addEventListener("submit", function (ev) {
+        if (form.dataset.confirmed === "1") return;   // Dialog wurde bestätigt → normal weiter
+        ev.preventDefault();
+        lastFocus = form.querySelector("button[type=submit]") || form.querySelector("button") || document.activeElement;
+        if (okBtn) okBtn.disabled = false;             // Loading-Zustand des letzten Öffnens zurücksetzen
+        dlg.showModal();
+        if (cancelBtn) cancelBtn.focus();               // Initialfokus explizit auf „Abbrechen"
+      });
+      if (cancelBtn) cancelBtn.addEventListener("click", function () { dlg.close(); });
+      if (okBtn) {
+        // Anti-Fehlklick (§32.4): Enter auf dem Bestätigen-Button tut nichts.
+        okBtn.addEventListener("keydown", function (ev) { if (ev.key === "Enter") ev.preventDefault(); });
+        okBtn.addEventListener("click", function () {
+          okBtn.disabled = true;                        // zweiter (Doppel-)Klick läuft ins Leere
+          dlg.close();
+          restoreFocus();                                // vor dem Submit, Fokus landet auf dem Auslöser
+          form.dataset.confirmed = "1";
+          form.submit();
+        });
+      }
+    });
+  });
 </script>
 <main id="main">
   {% if msg %}<div class="flash" role="status">{{ msg }}</div>{% endif %}

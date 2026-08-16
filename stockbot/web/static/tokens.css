@@ -1,5 +1,13 @@
 :root {
-  color-scheme: dark;
+  /* KEIN `color-scheme` hier: `:root { … }` hat Selektor-Spezifität (0,1,0) und würde
+     base.html:32 `html { color-scheme: light dark }` (0,0,1) immer schlagen — auch ohne
+     explizite Nutzerwahl (kein [data-theme]), unabhängig von der Ladereihenfolge. Vor der
+     Kontrast-Härtung (agent/UI-CONTRAST) stand hier `color-scheme: dark`, ein Rest aus der
+     alten dunklen Avionik-Welt: die UA-Widgets (Select-Aufklapplisten, Scrollbars, Checkboxen,
+     Autofill, Kalender-Icon von input[type=date]) liefen dadurch im System-Default IMMER
+     dunkel, obwohl die Seite hell rendert. base.html:32–34 setzt `color-scheme` bereits
+     vollständig und korrekt für alle drei Zustände (System/hell/dunkel) — siehe DESIGN.md
+     „Kaskaden-Fix: color-scheme". */
 
   --bg-base: #0B0D10;
   --bg-surface-1: #11151A;
@@ -174,7 +182,14 @@ body {
   fill: currentColor;
 }
 
-.mode-badge--backtest { color: #9B8CFF; background: rgba(155, 140, 255, 0.14); border-color: rgba(155, 140, 255, 0.38); }
-.mode-badge--shadow { color: var(--info); background: var(--info-soft); border-color: rgba(102, 183, 255, 0.38); }
-.mode-badge--paper { color: var(--warning); background: var(--warning-soft); border-color: var(--warning-border); }
+/* Modus-Badge = die Risiko-Anzeige selbst (§ Blocker 2, agent/UI-CONTRAST): --info/--warning
+   (vendor lg-violet/lg-warning) reichen als Text auf --info-soft/--warning-soft NICHT an
+   4.5:1 heran (2.15–2.84:1 in beiden Themes, siehe DESIGN.md). Backtest/Shadow/Paper nutzen
+   deshalb eigene, undurchsichtige --tone-*-bg/-fg-Paare (>=5:1 in beiden Themes, deterministisch
+   geprüft — keine Translucenz-Abhängigkeit vom unbekannten Hintergrund). Live bleibt
+   unverändert: --danger/--danger-soft (abgeleitet vom bereits abgedunkelten --money-loss)
+   erreichen bereits >=4.5:1 in beiden Themes. */
+.mode-badge--backtest { color: var(--tone-indigo-fg, #3F3AAE); background: var(--tone-indigo-bg, #E7E4FE); border-color: color-mix(in srgb, var(--tone-indigo-fg, #3F3AAE) 35%, transparent); }
+.mode-badge--shadow { color: var(--tone-violet-fg, #443592); background: var(--tone-violet-bg, #ECE6FB); border-color: color-mix(in srgb, var(--tone-violet-fg, #443592) 35%, transparent); }
+.mode-badge--paper { color: var(--tone-warning-fg, #6B430A); background: var(--tone-warning-bg, #F5E6C8); border-color: color-mix(in srgb, var(--tone-warning-fg, #6B430A) 35%, transparent); }
 .mode-badge--live { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }

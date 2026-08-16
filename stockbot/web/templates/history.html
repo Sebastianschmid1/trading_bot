@@ -25,7 +25,10 @@
   table.hist tbody tr:hover { background:rgb(var(--lg-violet-rgb) / .10); }
   .arrow { color:var(--lg-violet); }
   .dir { display:inline-flex; align-items:center; font-size:.7rem; font-weight:700; padding:.12rem .5rem; border-radius:var(--lg-r-pill); letter-spacing:.03em; }
-  .dir.long { background:rgb(var(--lg-teal-rgb) / .22); color:var(--lg-ink-on-teal); }
+  /* Blocker 1 (agent/UI-CONTRAST): --lg-ink-on-teal ist Tinte für eine volle Teal-Fläche,
+     bleibt auf der 22%-Tönung über dunklem Glas dunkel-auf-dunkel (1.40:1 Dark) —
+     --badge-teal-ink statt --lg-ink-on-teal (siehe base.html/DESIGN.md). */
+  .dir.long { background:rgb(var(--lg-teal-rgb) / .22); color:var(--badge-teal-ink); }
   .dir.short { background:color-mix(in srgb, var(--lg-error) 16%, transparent); color:var(--money-loss); }
   .empty { color:var(--lg-ink-muted); text-align:center; padding:2.2rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
 </style>
