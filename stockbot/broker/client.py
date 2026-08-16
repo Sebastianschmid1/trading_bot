@@ -20,9 +20,44 @@ Die Keys liegen NUR in .env (gitignored) — niemals committen/loggen.
 import logging
 import re
 
+import requests
+
 from stockbot import config
 
 log = logging.getLogger(__name__)
+
+
+# ── HTTP-Timeout für alle Alpaca-Clients ─────────────────────────────────────
+#
+# Die installierte alpaca-py-Version (siehe alpaca/common/rest.py::RESTClient) nimmt weder im
+# Konstruktor noch sonstwo einen `timeout`- oder `session`-Parameter an; `_one_request()` ruft
+# stur `self._session.request(method, url, **opts)` ohne `timeout` in `opts` auf — ein hängender
+# Server blockiert damit unbegrenzt. Einziger Ansatzpunkt: `RESTClient._session` ist ein normales,
+# nach der Konstruktion austauschbares Attribut (nur `requests.Session()`, sonst nirgends
+# konfiguriert) — `apply_http_timeout()` ersetzt es durch eine Session, die jedem Request einen
+# Default-Timeout mitgibt, wenn keiner explizit gesetzt wurde.
+ALPACA_HTTP_TIMEOUT = (config.ALPACA_CONNECT_TIMEOUT, config.ALPACA_READ_TIMEOUT)
+
+
+class _TimeoutSession(requests.Session):
+    """`requests.Session`, die auf jedem `.request()` einen Default-Timeout erzwingt."""
+
+    def __init__(self, timeout: tuple[float, float]):
+        super().__init__()
+        self._default_timeout = timeout
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault("timeout", self._default_timeout)
+        return super().request(*args, **kwargs)
+
+
+def apply_http_timeout(client, timeout: tuple[float, float] = ALPACA_HTTP_TIMEOUT):
+    """Hängt eine `_TimeoutSession` an einen bereits gebauten Alpaca-Client (Trading- oder
+    Data-Client, siehe auch `market/data_providers.py`). `client=None` bleibt `None` (Aufrufer
+    prüfen selbst, ob der Client gebaut werden konnte)."""
+    if client is not None:
+        client._session = _TimeoutSession(timeout)
+    return client
 
 
 # ── Symbol-Mapping an der Alpaca-Grenze (Klassen-Suffixe, z. B. BRK-B/BRK.B) ─────────────────
@@ -66,7 +101,7 @@ def make_client(api_key: str, api_secret: str, paper: bool = True):
         return None
     try:
         from alpaca.trading.client import TradingClient
-        return TradingClient(api_key, api_secret, paper=paper)
+        return apply_http_timeout(TradingClient(api_key, api_secret, paper=paper))
     except Exception as e:
         log.warning(f"Alpaca-Client nicht verfügbar: {e}")
         return None
@@ -458,7 +493,7 @@ def _option_data_client(api_key: str | None = None, api_secret: str | None = Non
         return None
     try:
         from alpaca.data.historical.option import OptionHistoricalDataClient
-        return OptionHistoricalDataClient(key, sec)
+        return apply_http_timeout(OptionHistoricalDataClient(key, sec))
     except Exception as e:
         log.warning(f"Options-Datenclient nicht verfügbar: {e}")
         return None
