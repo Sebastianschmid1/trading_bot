@@ -7,7 +7,8 @@
 
 <div class="card">
   <form class="row" method="post" action="/app/watchlist/add">
-    <input type="text" name="symbol" placeholder="z. B. AAPL oder Apple" style="flex:1;min-width:180px" required>
+    <label for="watchlistSymbol" class="sr-only">Symbol (Ticker oder Firmenname)</label>
+    <input id="watchlistSymbol" type="text" name="symbol" placeholder="z. B. AAPL oder Apple" style="flex:1;min-width:180px" required>
     <button class="btn2 btn2--primary">Hinzufügen</button>
   </form>
   {% if suggestions %}
