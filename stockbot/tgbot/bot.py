@@ -32,6 +32,7 @@ from telegram.ext import (
 from stockbot.core import db
 from stockbot.core import exchange_calendar
 from stockbot.core.glossary import broker_status_label  # §32.9: geteiltes Web↔Telegram-Glossar
+from stockbot.market import asset_classes
 from stockbot.market import universes
 from stockbot.market import smartmoney
 from stockbot.market import strategies
@@ -636,6 +637,11 @@ async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
             "roundup_factor": 1.0,
             "entry_price": float(entry),
             "candidate_notional": budget,
+            # RISK-005-Wiring: Korrelationsgruppe des Kandidaten neben candidate_notional, damit
+            # der Korrelations-Exposure-Check (heute inert via 100%-Default) ueberhaupt eine
+            # Eingabe bekommt. None (Ticker in keiner statischen Liste) laesst den Check wie
+            # bisher aus (fail-neutral, siehe asset_classes.correlation_group_for_ticker).
+            "candidate_correlation_group": asset_classes.correlation_group_for_ticker(ticker),
             **risk_context.account_context(client, chat_id),
             **risk_context.quote_context(ticker),
         },

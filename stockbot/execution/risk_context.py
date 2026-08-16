@@ -22,9 +22,30 @@ from stockbot import config
 from stockbot.broker import client as broker
 from stockbot.core import db
 from stockbot.core.domain import RiskProfile, Signal, TradeIntent
+from stockbot.core.exposure import ExposurePosition
+from stockbot.market import asset_classes
 from stockbot.market.data_providers import AlpacaPaperMarketDataProvider
 
 log = logging.getLogger(__name__)
+
+
+def _open_position_notional(trade: dict) -> float | None:
+    """Notional einer aktiven Position aus dem persistierten Fill (Stückzahl × Einstiegspreis).
+
+    Fehlt eine der beiden Größen (z. B. ein reiner Demo-Trade ohne Broker-Ausführung, dessen
+    ``broker_filled_qty`` nie gesetzt wurde), bleibt die Position für den Korrelations-/
+    Sektor-Exposure-Vergleich außen vor, statt eine Größe zu raten (fail-neutral, analog zur
+    fehlenden Korrelationsgruppe in :func:`correlation_group_for_ticker`)."""
+    qty, entry = trade.get("broker_filled_qty"), trade.get("entry")
+    if qty is None or entry is None:
+        return None
+    try:
+        qty_f, entry_f = float(qty), float(entry)
+    except (TypeError, ValueError):
+        return None
+    if qty_f <= 0 or entry_f <= 0:
+        return None
+    return qty_f * entry_f
 
 
 def quote_context(
@@ -103,6 +124,25 @@ def signal_context(intent: TradeIntent, signal: Signal) -> dict[str, Any]:
             str(trade.get("ticker", "")).upper() == signal.ticker.upper()
             for trade in active_trades
         )
+        # RISK-005-Wiring: Bestand fuer den Korrelations-/Sektor-Exposure-Check
+        # (exposure.evaluate_exposure vergleicht sonst gegen einen leeren Bestand). Trades ohne
+        # ermittelbares Notional (kein Broker-Fill) bleiben außen vor statt geraten zu werden.
+        context["open_positions"] = tuple(
+            ExposurePosition(
+                ticker=str(trade.get("ticker", "")),
+                notional=notional,
+                correlation_group=asset_classes.correlation_group_for_ticker(trade.get("ticker", "")),
+            )
+            for trade in active_trades
+            if (notional := _open_position_notional(trade)) is not None
+        )
+
+    # Korrelationsgruppe des Kandidaten selbst (RISK-005-Wiring). Kein Sektor-Pendant: dem Repo
+    # fehlt eine Sektor-Datenquelle (market/asset_classes.py klassifiziert Anlageklassen, keine
+    # Sektoren) — eine erfundene Zuordnung waere schlechter als der uebersprungene Check.
+    candidate_group = asset_classes.correlation_group_for_ticker(signal.ticker)
+    if candidate_group is not None:
+        context["candidate_correlation_group"] = candidate_group
 
     # `market_open` wird bewusst NICHT gesetzt: der Loader (intent, signal) kennt den
     # `extended`-Modus nicht, und der Bot unterstuetzt Extended-Hours-Orders (vorgemerkte

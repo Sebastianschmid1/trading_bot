@@ -81,6 +81,29 @@ def test_classify_ticker():
     assert ac.classify_ticker("") == "stocks"
 
 
+def test_correlation_group_for_ticker_known_universes():
+    # RISK-005-Wiring: Emerging-Markets-ADR aus UNIVERSE_EMERGING → Gruppe "emerging".
+    assert ac.correlation_group_for_ticker("BABA") == "emerging"
+    assert ac.correlation_group_for_ticker("tsm") == "emerging"     # case-insensitiv
+    assert ac.correlation_group_for_ticker(" ggb ".strip()) == "emerging"
+
+
+def test_correlation_group_for_ticker_prefers_first_matching_universe():
+    # AAPL steht sowohl in UNIVERSE_SP500 als auch UNIVERSE_MSCI_WORLD — config.UNIVERSES ist
+    # sp500-zuerst definiert, die Zuordnung ist deterministisch die erste passende Gruppe.
+    assert list(config.UNIVERSES)[0] == "sp500"
+    assert "AAPL" in config.UNIVERSE_SP500 and "AAPL" in config.UNIVERSE_MSCI_WORLD
+    assert ac.correlation_group_for_ticker("AAPL") == "sp500"
+
+
+def test_correlation_group_for_ticker_unknown_and_empty_is_none():
+    # Ticker aus keiner statischen Liste (z. B. nur ueber das dynamische volle S&P-500-Universum
+    # in market/universes.py bekannt) bleibt ohne Gruppe — fail-neutral, kein Raten.
+    assert ac.correlation_group_for_ticker("NOPE_XYZ") is None
+    assert ac.correlation_group_for_ticker("") is None
+    assert ac.correlation_group_for_ticker(None) is None
+
+
 def test_apply_sl_tp_mode_overrides_and_aus():
     base = {"price": 100.0, "atr": 2.0, "stop_loss": 90.0, "take_profit": 130.0}
     # passiv = (1.0, 1.5) → SL 98, TP 103

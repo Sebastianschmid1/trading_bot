@@ -136,3 +136,25 @@ def classify_ticker(ticker: str) -> str:
 def all_asset_classes() -> list[AssetClass]:
     """Alle registrierten Asset-Klassen in Anzeige-Reihenfolge (Aktien zuerst)."""
     return list(ASSET_CLASSES.values())
+
+
+# Schnelle Zuordnung Ticker → Korrelationsgruppe (RISK-005-Wiring, exposure.py). Nutzt exakt die
+# statischen Ticker-Listen aus config.UNIVERSES (sp500/msci_world/emerging) — dieselbe Datenquelle
+# wie die Markt-Körbe der Website. config.UNIVERSES ist in dieser Reihenfolge definiert, daher
+# gewinnt bei einem Ticker, der in mehreren Listen steht (z. B. AAPL in sp500 UND msci_world), die
+# zuerst genannte Gruppe deterministisch (setdefault).
+_TICKER_CORRELATION_GROUP: dict[str, str] = {}
+for _region, _tickers in config.UNIVERSES.items():
+    for _t in _tickers:
+        _TICKER_CORRELATION_GROUP.setdefault(_t.upper(), _region)
+
+
+def correlation_group_for_ticker(ticker: str) -> str | None:
+    """Ordnet einen Ticker seiner Korrelationsgruppe zu (einer der config.UNIVERSES-Schlüssel).
+
+    Steht der Ticker in keiner der statischen Listen — z. B. weil er nur über das dynamisch
+    geladene volle S&P-500-Universum (market/universes.py, ~500 Werte) bekannt ist —, liefert die
+    Funktion ``None``. Der Korrelations-Exposure-Check (exposure.check_correlated_exposure)
+    überspringt einen Kandidaten/eine Position ohne Gruppe bewusst, statt sie zu raten
+    (fail-neutral)."""
+    return _TICKER_CORRELATION_GROUP.get((ticker or "").upper())
