@@ -120,7 +120,10 @@
     .controls { display:flex; gap:1.2rem; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
     .tabs { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
     .tabs .lbl { color:var(--lg-ink-muted); font-size:.78rem; font-weight:500; }
-    .tab { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); color:var(--lg-ink-muted);
+    /* .tab ist jetzt ein <button> (Tastaturzugriff) — appearance:none/font/margin
+       neutralisieren den Browser-Button-Chrome, alle sichtbaren Werte bleiben gleich. */
+    .tab { appearance:none; -webkit-appearance:none; margin:0; font-family:inherit; line-height:1.3;
+           background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); color:var(--lg-ink-muted);
            padding:.4rem .9rem; border-radius:var(--lg-r-pill); cursor:pointer; font-size:.83rem;
            font-weight:500; transition:.15s; box-shadow:var(--lg-cast-1); }
     .tab:hover { color:var(--lg-ink); }
@@ -140,7 +143,10 @@
                   user-select:none; }
     .panel-head h2 { font-size:var(--lg-size-title); font-weight:600; letter-spacing:-.01em; margin:0;
                      display:flex; align-items:center; gap:.45rem; flex:1; color:var(--lg-ink); }
-    .panel-head .caret { color:var(--lg-ink-muted); transition:transform .2s; font-size:.8rem; }
+    /* .caret ist jetzt ein <button> (eigener Tastatur-Stop zum Auf-/Zuklappen) —
+       Button-Chrome zurückgesetzt, sichtbarer Wert (Farbe/Größe/Drehung) unverändert. */
+    .panel-head .caret { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+                          color:var(--lg-ink-muted); transition:transform .2s; font-size:.8rem; cursor:pointer; line-height:1; }
     .panel.collapsed .caret { transform:rotate(-90deg); }
     .panel-body { padding:8px 20px 20px; }
     .panel.collapsed .panel-body { display:none; }
@@ -154,8 +160,14 @@
     table { width:100%; border-collapse:collapse; font-size:.88rem; }
     th, td { text-align:left; padding:.55rem .5rem; border-bottom:1px solid var(--grid); }
     th { color:var(--lg-ink-muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
-    th.sortable { cursor:pointer; white-space:nowrap; }
-    th.sortable:hover { color:var(--lg-ink); }
+    /* th.sortable: die Klick-/Tastaturfläche ist jetzt ein <button> IM <th> statt des
+       ganzen <th>. Das <th> behält seine Innenabstände nicht mehr selbst (padding:0),
+       der Button übernimmt sie 1:1 — Position/Größe der Kopfzelle bleiben identisch. */
+    th.sortable { padding:0; white-space:nowrap; }
+    th.sortable .th-sort { all:unset; box-sizing:border-box; display:flex; align-items:center; gap:.3rem;
+                            width:100%; padding:.55rem .5rem; cursor:pointer; color:inherit; font:inherit;
+                            text-transform:inherit; letter-spacing:inherit; }
+    th.sortable .th-sort:hover { color:var(--lg-ink); }
     th .arr { opacity:.5; font-size:.7rem; }
     th.sorted { color:var(--lg-ink); }
     th.sorted .arr { opacity:1; color:var(--lg-violet); }
@@ -170,6 +182,12 @@
     .table-scroll th, .table-scroll td { padding-left:16px; padding-right:16px; }
     tr.clickable { cursor:pointer; }
     tbody tr:hover { background:rgb(var(--lg-violet-rgb) / .10); }
+    /* .row-open ersetzt das frühere <b>Ticker</b> in der Zeile: ein <button>, der
+       genau wie zuvor fett/farblos dasteht (kein Browser-Button-Chrome), aber per
+       Tab erreichbar ist und Enter/Space öffnet dieselbe Detailanalyse wie der
+       Zeilen-Klick (Klick-Event blubbert zum bestehenden document-Listener hoch). */
+    .row-open { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+                font:inherit; font-weight:700; color:inherit; text-align:left; cursor:pointer; }
     td .sub { color:var(--lg-ink-muted); font-size:.72rem; }
     .empty { color:var(--lg-ink-muted); text-align:center; padding:1.4rem; }
     .searchbox { background:var(--lg-glass-solid); color:var(--lg-ink); border:1px solid var(--lg-edge-soft);
@@ -187,22 +205,29 @@
     .chip-toggle:hover { color:var(--lg-ink); }
     .chip-toggle input { accent-color:var(--lg-violet); margin:0; }
 
-    /* ── Modal (Detail-Analyse) — Glas ──────────────────────────────────── */
-    .modal-overlay { display:none; position:fixed; inset:0; background:var(--overlay); z-index:60;
-                     align-items:flex-start; justify-content:center; padding:2rem 1rem; overflow:auto;
-                     -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
-    .modal-overlay.open { display:flex; }
-    .modal { background:var(--lg-glass-solid);
-             -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
-             backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
-             border:1px solid var(--lg-edge); border-radius:var(--lg-r-xl);
-             padding:1.4rem 1.6rem; max-width:760px; width:100%; box-shadow:var(--lg-cast-3), var(--lg-facet);
-             color:var(--lg-ink); }
+    /* ── Modal (Detail-Analyse) — natives <dialog>, gleiches Muster wie app.html
+       (Fokus-Trap + Fokus-Rückgabe im <script> unten, §32.4). Das Overlay-Div
+       entfällt: der Hintergrundschein wandert unveraendert auf ::backdrop, die
+       Box selbst behält exakt ihre alten Werte (Hintergrund/Rahmen/Radius/
+       Schatten/Innenabstand/Breite) — nur die Position wird per position:fixed
+       nachgebildet (vorher: Overlay mit padding:2rem 1rem, align-items:flex-start,
+       justify-content:center, overflow:auto). */
+    dialog#modal { position:fixed; inset:2rem 1rem auto 1rem; margin:0 auto; overflow:auto;
+                   max-height:calc(100vh - 4rem);
+                   background:var(--lg-glass-solid);
+                   -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
+                   backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
+                   border:1px solid var(--lg-edge); border-radius:var(--lg-r-xl);
+                   padding:1.4rem 1.6rem; max-width:760px; width:100%; box-shadow:var(--lg-cast-3), var(--lg-facet);
+                   color:var(--lg-ink); }
+    dialog#modal::backdrop { background:var(--overlay); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
     .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
     .modal-head h2 { color:var(--lg-ink); font-weight:600; }
-    .modal-x { cursor:pointer; color:var(--lg-ink-muted); font-size:1.3rem; line-height:1; }
+    /* .modal-x ist jetzt ein <button> — Chrome zurückgesetzt, sichtbarer Wert unveraendert. */
+    .modal-x { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+               cursor:pointer; color:var(--lg-ink-muted); font-size:1.3rem; line-height:1; }
     .modal-x:hover { color:var(--lg-ink); }
-    .modal canvas { height:340px !important; margin-top:.4rem; }
+    dialog#modal canvas { height:340px !important; margin-top:.4rem; }
     .factor-table { width:100%; border-collapse:collapse; margin:.5rem 0 1rem; font-size:.9rem; }
     .factor-table td { padding:.5rem .5rem; border-bottom:1px solid var(--grid); }
     .factor-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
@@ -251,8 +276,8 @@
     <span class="ck-chip is-shadow" title="Shadow-Modus — Live-Daten ohne Broker-Order"><span class="dot"></span>Shadow</span>
     {% endif %}
     <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
-    <button id="btnPause" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen">⏸</button>
-    <button id="btnRefresh" class="iconbtn" title="Jetzt aktualisieren">⟳</button>
+    <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen">⏸</button>
+    <button id="btnRefresh" type="button" class="iconbtn" title="Jetzt aktualisieren" aria-label="Jetzt aktualisieren">⟳</button>
     <button type="button" class="iconbtn theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Dunkelmodus umschalten" title="Dunkelmodus umschalten">
       <svg class="icon-sun" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.6 4.4l-1.4 1.4M5.8 14.2l-1.4 1.4M15.6 15.6l-1.4-1.4M5.8 5.8L4.4 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <svg class="icon-moon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><path d="M17 11.5A7 7 0 1 1 8.5 3a5.5 5.5 0 0 0 8.5 8.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -284,15 +309,16 @@
   <div class="grid">
     <div class="col">
       <section class="panel" data-panel="equity">
-        <div class="panel-head"><h2>📈 Equity-Kurve <span class="desc" style="margin:0;font-weight:400">kumuliertes P&L</span></h2><span class="caret">▾</span></div>
-        <div class="panel-body"><canvas role="img" aria-label="Equity-Kurve: kumulierte P&L je Ausstiegsdatum" id="equityChart"></canvas></div>
+        <div class="panel-head"><h2>📈 Equity-Kurve <span class="desc" style="margin:0;font-weight:400">kumuliertes P&L</span></h2>
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-equity" aria-label="Equity-Kurve ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-equity"><canvas role="img" aria-label="Equity-Kurve: kumulierte P&L je Ausstiegsdatum" id="equityChart"></canvas></div>
       </section>
 
       <section class="panel tall" data-panel="trades">
         <div class="panel-head"><h2>📈 Kontowert über Zeit <span class="desc" style="margin:0;font-weight:400">realisiert + offen</span></h2>
           <label class="chip-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="inclOpen"> inkl. offene</label>
-          <span class="caret">▾</span></div>
-        <div class="panel-body">
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-trades" aria-label="Kontowert über Zeit ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-trades">
           <div class="desc"><b>Laufender Kontowert</b> aus deinen Trades über die Zeit: jede abgeschlossene
             Position summiert ihr Ergebnis an ihrem <b>Ausstiegszeitpunkt</b> zur kumulierten P&L.
             <b>Offene Trades</b> steuern ihre aktuelle (unrealisierte) P&L bis „jetzt" bei (Häkchen
@@ -304,20 +330,22 @@
       <section class="panel" data-panel="price">
         <div class="panel-head"><h2>🕯 Kursverlauf heute</h2>
           <select id="priceTicker" class="dd" aria-label="Trade wählen" onclick="event.stopPropagation()"></select>
-          <span class="caret">▾</span></div>
-        <div class="panel-body"><canvas role="img" aria-label="Intraday-Kursverlauf des gewählten Trades" id="priceChartSingle"></canvas></div>
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-price" aria-label="Kursverlauf heute ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-price"><canvas role="img" aria-label="Intraday-Kursverlauf des gewählten Trades" id="priceChartSingle"></canvas></div>
       </section>
     </div>
 
     <div class="col">
       <section class="panel" data-panel="ticker">
-        <div class="panel-head"><h2>🎯 P&L pro Ticker</h2><span class="caret">▾</span></div>
-        <div class="panel-body"><canvas role="img" aria-label="Ergebnis je Ticker" id="tickerChart"></canvas></div>
+        <div class="panel-head"><h2>🎯 P&L pro Ticker</h2>
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-ticker" aria-label="P&amp;L pro Ticker ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-ticker"><canvas role="img" aria-label="Ergebnis je Ticker" id="tickerChart"></canvas></div>
       </section>
 
       <section class="panel" data-panel="strength">
-        <div class="panel-head"><h2>📶 Strategie-Rohscore heute</h2><span class="caret">▾</span></div>
-        <div class="panel-body">
+        <div class="panel-head"><h2>📶 Strategie-Rohscore heute</h2>
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-strength" aria-label="Strategie-Rohscore heute ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-strength">
           <div class="desc">Rohwerte gelten nur innerhalb der genannten Strategie und sind keine Gewinnwahrscheinlichkeit. Klick auf einen Ticker in der Legende blendet ihn aus/ein.</div>
           <canvas role="img" aria-label="Trefferquote nach Signalstärke" id="strengthChart"></canvas>
         </div>
@@ -327,8 +355,8 @@
     <div class="col span-2">
       <section class="panel" data-panel="modes">
         <div class="panel-head"><h2>Modus-Report <span class="desc" style="margin:0;font-weight:400">Paper vs. Shadow</span></h2>
-          <span class="caret">▾</span></div>
-        <div class="panel-body">
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-modes" aria-label="Modus-Report ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-modes">
           <div class="desc">Kennzahlen werden <b>nie über Modi hinweg vermischt</b> (RES-002).
             <b>Paper</b> = Broker-Orders im Alpaca-Papermodus, <b>Shadow</b> = Live-Daten ohne Broker-Order.
             „—" bedeutet: die Datenlage trägt den Wert nicht, kein Nullwert.</div>
@@ -340,22 +368,23 @@
     <div class="col span-2">
       <section class="panel" data-panel="active">
         <div class="panel-head"><h2>🔵 Aktive Demo-Trades</h2>
+          <label for="tradeFilter" class="sr-only" onclick="event.stopPropagation()">Ticker filtern</label>
           <input id="tradeFilter" class="searchbox" type="text" placeholder="🔍 Ticker filtern…"
                  onclick="event.stopPropagation()" autocomplete="off">
-          <span class="caret">▾</span></div>
-        <div class="panel-body"><div id="active"></div></div>
+          <button type="button" class="caret" aria-expanded="true" aria-controls="panelBody-active" aria-label="Aktive Demo-Trades ein-/ausklappen">▾</button></div>
+        <div class="panel-body" id="panelBody-active"><div id="active"></div></div>
       </section>
     </div>
   </div>
 
-  <!-- Detail-Analyse-Modal -->
-  <div id="modal" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-head"><h2 id="modalTitle"></h2><span class="modal-x" id="modalClose">✕</span></div>
-      <div id="modalBody"></div>
-      <canvas role="img" aria-label="Faktorverlauf der gewählten Analyse" id="factorChart" height="120"></canvas>
-    </div>
-  </div>
+  <!-- Detail-Analyse-Modal: natives <dialog>, gleiches Muster wie app.html#tradeConfirm
+       (Fokus-Trap + Fokus-Rückgabe siehe <script> unten). -->
+  <dialog id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head"><h2 id="modalTitle"></h2>
+      <button type="button" class="modal-x" id="modalClose" aria-label="Analyse schließen">✕</button></div>
+    <div id="modalBody"></div>
+    <canvas role="img" aria-label="Faktorverlauf der gewählten Analyse" id="factorChart" height="120"></canvas>
+  </dialog>
 
   <script>
     // Chart.js zeichnet auf Canvas und kann keine CSS-Variablen auflösen — diese
@@ -579,11 +608,13 @@
     }
 
     // ── Steuerleiste ────────────────────────────────────────────────────────
+    // .tab ist ein <button> (Tastaturzugriff per Tab/Enter/Space) mit aria-pressed
+    // als Zustandsträger statt allein der .active-Klasse (§ dashboard.html Tabs).
     function renderTabs(d) {
       const tabs = d.strategies || [], el = document.getElementById("tabs");
       if (tabs.length <= 2) { el.innerHTML = ""; return; }
       el.innerHTML = `<span class="lbl">Strategie:</span>` + tabs.map(t =>
-        `<div class="tab ${t.key === state.strategy ? "active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</div>`).join("");
+        `<button type="button" class="tab ${t.key === state.strategy ? "active" : ""}" aria-pressed="${t.key === state.strategy}" data-key="${esc(t.key)}">${esc(t.label)}</button>`).join("");
       el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
         state.strategy = b.dataset.key; lsSet("strategy", state.strategy); countdown = REFRESH_SEC; load(false);
       }));
@@ -591,7 +622,7 @@
     function renderRanges(d) {
       const ranges = d.ranges || [0, 1, 7, 14, 30], el = document.getElementById("ranges");
       el.innerHTML = `<span class="lbl">Zeitraum:</span>` + ranges.map(n =>
-        `<div class="tab ${n === state.days ? "active" : ""}" data-days="${n}">${rangeLabel(n)}</div>`).join("");
+        `<button type="button" class="tab ${n === state.days ? "active" : ""}" aria-pressed="${n === state.days}" data-days="${n}">${rangeLabel(n)}</button>`).join("");
       el.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
         state.days = parseInt(b.dataset.days, 10); lsSet("days", state.days); countdown = REFRESH_SEC; load(false);
       }));
@@ -851,6 +882,11 @@
     ];
     function renderActive() {
       const host = document.getElementById("active");
+      // Fokus über den innerHTML-Rebuild hinweg erhalten: ein per Tastatur fokussierter
+      // Sortier-Button soll nach dem Neuaufbau derselbe (neue) Knoten bleiben, sonst
+      // fiele der Fokus bei jedem Sortier-Klick auf <body> zurück.
+      const activeEl = document.activeElement;
+      const focusedSort = activeEl && activeEl.classList && activeEl.classList.contains("th-sort") ? activeEl.dataset.sort : null;
       let act = (state.data && state.data.active_trades) || [];
       if (state.filter) {
         const f = state.filter.toLowerCase();
@@ -867,13 +903,16 @@
         return state.sort.dir * (va - vb);
       });
       const arrow = (k) => state.sort.key === k ? (state.sort.dir < 0 ? "▼" : "▲") : "↕";
+      // aria-sort gehört ans <th>, die Klick-/Enter-Fläche ist ein <button> IM <th>
+      // (echtes Element statt div/th-Klick-Handler — siehe components.css .btn-reset).
+      const ariaSort = (k) => state.sort.key !== k ? "" : (state.sort.dir < 0 ? ' aria-sort="descending"' : ' aria-sort="ascending"');
       const ths = COLS.map(c =>
-        `<th class="sortable ${c.num ? "num" : ""} ${state.sort.key === c.key ? "sorted" : ""}" data-sort="${c.key}">${c.label} <span class="arr">${arrow(c.key)}</span></th>`).join("");
+        `<th class="sortable ${c.num ? "num" : ""} ${state.sort.key === c.key ? "sorted" : ""}"${ariaSort(c.key)}><button type="button" class="th-sort" data-sort="${c.key}">${c.label} <span class="arr">${arrow(c.key)}</span></button></th>`).join("");
       host.innerHTML = `<div class="table-scroll"><table>
         <thead><tr>${ths}</tr></thead>
         <tbody>${act.map(t => `
           <tr class="clickable" data-ticker="${esc(t.ticker)}">
-            <td><b>${esc(t.ticker)}</b><div class="sub">${esc(t.status_text || "Aktiv")}</div></td>
+            <td><button type="button" class="row-open" data-ticker="${esc(t.ticker)}">${esc(t.ticker)}</button><div class="sub">${esc(t.status_text || "Aktiv")}</div></td>
             <td><span class="badge">${esc(t.direction.toUpperCase())}${t.leverage > 1 ? " " + (+t.leverage).toString().replace(".", ",") + "×" : ""}</span></td>
             <td class="num" title="${t.leverage > 1 ? "Margin " + eur0(t.invested) + " × " + (+t.leverage) + "× = Position " + eur0(t.exposure) : "eingesetzte Margin"}">${t.invested != null ? eur0(t.invested) : "—"}${t.leverage > 1 ? `<div class="sub">Pos. ${eur0(t.exposure)}</div>` : ""}</td>
             <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
@@ -882,12 +921,16 @@
             <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
             <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
           </tr>`).join("")}</tbody></table></div>`;
-      host.querySelectorAll("th.sortable").forEach(th => th.addEventListener("click", () => {
-        const k = th.dataset.sort;
+      host.querySelectorAll("th.sortable .th-sort").forEach(btn => btn.addEventListener("click", () => {
+        const k = btn.dataset.sort;
         if (state.sort.key === k) state.sort.dir *= -1;
         else state.sort = { key: k, dir: COLS.find(c => c.key === k).num ? -1 : 1 };
         renderActive();
       }));
+      if (focusedSort) {
+        const again = host.querySelector(`.th-sort[data-sort="${focusedSort}"]`);
+        if (again) again.focus();
+      }
     }
     document.getElementById("tradeFilter").addEventListener("input", (e) => {
       state.filter = e.target.value.trim(); renderActive();
@@ -963,33 +1006,67 @@
     });
 
     // ── Einklappbare Panels (Zustand in localStorage) ───────────────────────
+    // Der Caret ist ein <button aria-expanded> — Klick ODER Enter/Space auf ihm
+    // loest ein natives "click" aus, das zum bestehenden .panel-head-Listener
+    // hochblubbert; die Maus-Bedienung (Klick irgendwo im Kopf) bleibt unveraendert.
     document.querySelectorAll(".panel[data-panel]").forEach(panel => {
       const key = panel.dataset.panel;
+      const head = panel.querySelector(".panel-head");
+      const caret = head.querySelector(".caret");
+      const syncExpanded = () => { if (caret) caret.setAttribute("aria-expanded", panel.classList.contains("collapsed") ? "false" : "true"); };
       if (state.collapsed[key]) panel.classList.add("collapsed");
-      panel.querySelector(".panel-head").addEventListener("click", () => {
+      syncExpanded();
+      head.addEventListener("click", () => {
         panel.classList.toggle("collapsed");
         state.collapsed[key] = panel.classList.contains("collapsed");
         lsSet("collapsed", JSON.stringify(state.collapsed));
+        syncExpanded();
         // Beim Aufklappen Chart neu vermessen (war auf 0-Höhe)
         if (!state.collapsed[key]) Object.values(charts).forEach(c => c.resize());
       });
     });
 
     // ── Detail-Analyse-Modal ────────────────────────────────────────────────
+    // Natives <dialog>, gleiches Fokus-Trap-/Fokus-Rückgabe-Muster wie
+    // app.html#tradeConfirm (§32.4): Tab/Shift-Tab bleiben im Dialog, Escape/
+    // Backdrop-Klick schließen nativ ("cancel"/"close"), der Fokus kehrt zum
+    // auslösenden Element zurück.
     let factorChartObj = null;
+    let modalLastFocus = null;
+    const modalEl = document.getElementById("modal");
     const mkds = (label, data, color, width = 2) => ({
       label, data, borderColor: color, backgroundColor: "transparent",
       cubicInterpolationMode: "monotone", tension: 0, pointRadius: 2, pointHoverRadius: 4, borderWidth: width });
-    function closeModal() {
-      document.getElementById("modal").classList.remove("open");
-      if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
+
+    function modalFocusables() {
+      const sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+      return Array.prototype.slice.call(modalEl.querySelectorAll(sel)).filter((el) => !el.disabled);
     }
-    async function openAnalysis(ticker) {
-      const m = document.getElementById("modal");
+    modalEl.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Tab") return;
+      const items = modalFocusables();
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    });
+
+    function closeModal() {
+      if (modalEl.open) modalEl.close();
+    }
+    modalEl.addEventListener("close", () => {
+      if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
+      const target = modalLastFocus; modalLastFocus = null;
+      if (target && target.isConnected && !target.disabled && typeof target.focus === "function") target.focus();
+    });
+
+    async function openAnalysis(ticker, triggerEl) {
+      modalLastFocus = triggerEl || document.activeElement;
       document.getElementById("modalTitle").textContent = "🔬 " + ticker + " — Modell-Faktoren (7 Tage)";
       document.getElementById("modalBody").innerHTML = `<div class="empty">Lade Analyse…</div>`;
       if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
-      m.classList.add("open");
+      if (!modalEl.open) modalEl.showModal();
+      document.getElementById("modalClose").focus();
       try {
         const res = await fetch(`/api/${token}/analyze/${encodeURIComponent(ticker)}`);
         if (!res.ok) throw new Error("Analyse fehlgeschlagen.");
@@ -1031,11 +1108,14 @@
     }
     document.addEventListener("click", (e) => {
       const row = e.target.closest("tr.clickable[data-ticker]");
-      if (row) openAnalysis(row.dataset.ticker);
+      if (row) openAnalysis(row.dataset.ticker, row.querySelector(".row-open") || row);
     });
     document.getElementById("modalClose").addEventListener("click", closeModal);
-    document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+    // Klick auf den Rand des <dialog> außerhalb seines Inhalts (= Backdrop-Klick,
+    // ein bekannter Trick: dort ist e.target das <dialog>-Element selbst) schließt es.
+    modalEl.addEventListener("click", (e) => { if (e.target === modalEl) closeModal(); });
+    // Kein eigener Escape-Handler nötig: <dialog> feuert bei Escape nativ "cancel" →
+    // Default-Aktion schließt den Dialog → unser "close"-Listener oben räumt auf.
 
     // ── Theme-Wechsel: alle Charts + das Gauge mit den neuen Farben neu zeichnen ──
     // stockbot:themechange kommt aus base.html (Umschalter in der Kommandoleiste
