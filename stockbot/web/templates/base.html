@@ -365,7 +365,7 @@
   {% elif trade_mode == 'paper' %}
   {{ mode_badge('paper', title='Broker-Order an Alpaca, aber im Papermodus (kein echtes Geld)') }}
   {% else %}
-  {{ mode_badge('shadow', title='Shadow-Modus — Live-Daten ohne Broker-Order') }}
+  {{ mode_badge('shadow', label=glossary.MODE_LABELS.demo, title=glossary.MODE_LABELS.demo ~ '-Modus — Live-Daten ohne Broker-Order') }}
   {% endif %}
   <span class="appbar__user">{{ user.username or user.user_id }}</span>
   <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Dunkelmodus umschalten" title="Dunkelmodus umschalten">

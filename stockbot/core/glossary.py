@@ -22,10 +22,22 @@ RISK_BLOCKED = "Durch Risikoregel blockiert"
 SIGNAL_EXPIRED = "Signal ist abgelaufen."
 
 # ── Modus (§5) ──────────────────────────────────────────────────────────────
-#: Betriebsmodus, Schlüssel = ``core.domain.Mode``-Werte.
+#: Betriebsmodus, Schlüssel = ``core.domain.Mode``-Werte + ``"demo"``.
+#:
+#: ``"demo"`` ist ein eigener, UI-seitiger Schlüssel (kein ``Mode``-Enum-Wert): den setzt
+#: ``webapp._render`` genau dann als ``trade_mode``, wenn für den Nutzer keine
+#: Broker-Ausführung aktiv ist (§UI-ONBOARDING/Befund 4). Dieser Zustand hieß in der UI an
+#: vier Stellen unterschiedlich (Badge „SHADOW", Chip „Shadow", Dialogzeile „DEMO", Panel
+#: „Aktive Demo-Trades") — ein Defekt nach §32.9. Entscheidung: „Demo" gewinnt, weil es aus
+#: Kundensicht (fremdes, wachsendes Publikum, PRODUCT.md „Users") verständlicher ist als der
+#: interne Fachbegriff „Shadow". ``"shadow"`` bleibt UNVERÄNDERT bestehen — das ist der
+#: getestete ``core.domain.Mode``-Wert und die Bezeichnung der persistierten
+#: Paper-/Shadow-Modus-Reports (RES-002, ``mode_reporting``); beide sind ein anderer,
+#: technischer Datenpartitions-Begriff und nicht Teil dieser Vereinheitlichung.
 MODE_LABELS = {
     "backtest": "Backtest",
     "shadow": "Shadow",
+    "demo": "Demo",
     "paper": "Paper",
     "live": "Live",
 }

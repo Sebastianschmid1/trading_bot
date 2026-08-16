@@ -256,7 +256,7 @@
     {% endif %}
     <dl class="tc-grid">
       <dt>Modus</dt>
-      <dd id="tcMode">{% if trade_mode == 'live' %}LIVE – ECHTES GELD{% elif trade_mode == 'paper' %}PAPER (Broker-Order, kein echtes Geld){% else %}DEMO (ohne Broker){% endif %}</dd>
+      <dd id="tcMode">{% if trade_mode == 'live' %}LIVE – ECHTES GELD{% elif trade_mode == 'paper' %}PAPER (Broker-Order, kein echtes Geld){% else %}{{ glossary.MODE_LABELS.demo|upper }} (ohne Broker){% endif %}</dd>
       <dt>Instrument</dt> <dd><span id="tcTicker" class="mono"></span> · <span id="tcDirection"></span></dd>
       <dt id="tcPriceLabel">Entry (aktueller Kurs)</dt> <dd class="mono" id="tcPrice"></dd>
       <dt>Stop-Loss</dt> <dd class="mono" id="tcStop">—</dd>
