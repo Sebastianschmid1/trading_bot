@@ -1,7 +1,32 @@
 {% extends "base.html" %}
+{% from "components.html" import alert, chip %}
 {% block title %}Signale — Stock Signal Bot{% endblock %}
 {% block content %}
 <h1>Signale</h1>
+
+{# ── Erstnutzer-Karte (§UI-ONBOARDING/Befund 3) ──────────────────────────────
+   Nur solange das Konto leer ist (kein Trade, keine Alpaca-Verbindung — siehe
+   `show_onboarding` in webapp.app_home): fehlender Erstkontakt war die Lücke, die
+   Einzel-Leerzustände weiter unten sind bereits gut. Bewusst KEINE neue Komponentenwelt —
+   nur card2/alert2/chip aus components.css/components.html. #}
+{% if show_onboarding %}
+<div class="card2" style="margin-bottom:1rem">
+  <div class="card2__header"><h2 class="card2__title">Erste Schritte</h2></div>
+  <div class="card2__body">
+    {{ alert("Es wird kein echtes Geld bewegt, solange kein Broker verbunden ist.",
+             tone='info', title=glossary.MODE_LABELS.demo) }}
+    <p style="margin:.9rem 0 .4rem"><strong>Nächste Schritte:</strong></p>
+    <ul style="margin:0;padding-left:1.15rem;display:flex;flex-direction:column;gap:.3rem">
+      <li><a href="/app/settings">Trade-Größe prüfen</a> — aktuell {{ '%.0f'|format(user.trade_size_eur) }} € je Position</li>
+      <li><a href="/app/watchlist">Watchlist füllen</a> — Ticker markieren, die beobachtet werden sollen</li>
+      <li>Optional: <a href="/app/settings">Broker verbinden</a> — echte Paper-Order über Alpaca</li>
+    </ul>
+    <p style="margin-top:.8rem">
+      {{ chip("Nächste automatische Analyse in bis zu " ~ next_analysis_minutes ~ " Min.", tone='neutral') }}
+    </p>
+  </div>
+</div>
+{% endif %}
 
 <form id="scanForm" class="row" method="post" action="/app/scan" style="margin:.4rem 0 1rem"
       onsubmit="document.getElementById('scanOverlay').style.display='flex'">

@@ -502,6 +502,12 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
             "stop_loss": sig.get("stop_loss"), "take_profit": sig.get("take_profit"),
         })
     active_trades = build_dashboard_data(user)["active_trades"]
+    # §UI-ONBOARDING/Befund 3: Erstnutzer-Karte NUR, solange es weder je einen Trade
+    # (aktiv ODER abgeschlossen) noch eine Alpaca-Verbindung gibt — sonst hat der Nutzer
+    # längst einen Bezugspunkt und die Karte wäre nur noch Lärm. Vor dem atf-Filter (unten)
+    # gemessen, sonst würde ein leerer Anlageklassen-Filter fälschlich als "leeres Konto" zählen.
+    show_onboarding = not (
+        active_trades or db.get_closed_trades(user["user_id"]) or _alpaca_ready(user))
     broker_pending = []
     for t in db.get_broker_pending_trades(user["user_id"]):
         sig = t.get("signal", {}) or {}
@@ -561,7 +567,9 @@ def app_home(request: Request, msg: str = "", atf: str = ""):
                    broker_closing=broker_closing, active_trades=active_trades,
                    asset_classes=asset_classes.all_asset_classes(), asset_pref=asset_pref,
                    scanned=scanned, trade_filter=atf,
-                   feed_status=feed, feed_as_of_utc=feed_as_of_utc)
+                   feed_status=feed, feed_as_of_utc=feed_as_of_utc,
+                   show_onboarding=show_onboarding,
+                   next_analysis_minutes=config.INTRADAY_SCAN_INTERVAL_SEC // 60)
 
 
 @router.post("/app/asset")
