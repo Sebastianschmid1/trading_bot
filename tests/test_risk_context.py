@@ -25,9 +25,9 @@ def _fresh_quote() -> Quote:
     return Quote(ticker="AAPL", price=100.0, as_of=now, fetched_at=now, provider="stub")
 
 
-def _signal() -> Signal:
+def _signal(ticker: str = "AAPL") -> Signal:
     return Signal(
-        id=17, strategy_version_id=1, ticker="AAPL", direction="long", mode=Mode.PAPER,
+        id=17, strategy_version_id=1, ticker=ticker, direction="long", mode=Mode.PAPER,
         status=SignalStatus.ACCEPTED,
         expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
     )
@@ -64,6 +64,54 @@ def test_signal_context_omits_missing_stop(monkeypatch):
     monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
 
     assert "stop_price" not in risk_context.signal_context(_intent(), _signal())
+
+
+# ── RISK-005: Korrelationsgruppen-Wiring (candidate + Bestand) ───────────────
+
+def test_signal_context_sets_candidate_correlation_group_for_known_universe(monkeypatch):
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+
+    context = risk_context.signal_context(_intent(), _signal("BABA"))
+
+    assert context["candidate_correlation_group"] == "emerging"
+
+
+def test_signal_context_omits_candidate_correlation_group_for_unknown_ticker(monkeypatch):
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+
+    context = risk_context.signal_context(_intent(), _signal("NOPE_XYZ"))
+
+    assert "candidate_correlation_group" not in context   # fail-neutral: Check bleibt aus
+
+
+def test_signal_context_builds_open_positions_with_correlation_group_and_notional(monkeypatch):
+    trades = [
+        {"ticker": "BABA", "broker_filled_qty": 10.0, "entry": 50.0},   # emerging, 500.0
+        {"ticker": "PDD", "broker_filled_qty": 5.0, "entry": 100.0},    # emerging, 500.0
+        {"ticker": "NOPE_XYZ", "broker_filled_qty": 1.0, "entry": 10.0},  # keine Gruppe
+        {"ticker": "NOFILL", "entry": 10.0},                              # kein Fill -> raus
+    ]
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: trades)
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+
+    context = risk_context.signal_context(_intent(), _signal())
+    positions = {p.ticker: p for p in context["open_positions"]}
+
+    assert positions["BABA"].correlation_group == "emerging"
+    assert positions["BABA"].notional == 500.0
+    assert positions["PDD"].correlation_group == "emerging"
+    assert positions["PDD"].notional == 500.0
+    assert positions["NOPE_XYZ"].correlation_group is None
+    assert "NOFILL" not in positions   # kein Broker-Fill -> kein Notional -> ausgeschlossen
+
+
+def test_signal_context_open_positions_empty_without_active_trades(monkeypatch):
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+
+    assert risk_context.signal_context(_intent(), _signal())["open_positions"] == ()
 
 
 def _stub_signal_context_db(monkeypatch, *, stored_profile, realized_pnl):
@@ -287,6 +335,72 @@ def test_real_oms_daily_loss_limit_bites_with_stored_profile(monkeypatch):
         risk_context={"account_value": 10000.0, "candidate_notional": 100.0},
     )
     assert rejected.ok is False and rejected.code == "daily_loss_limit_reached"
+
+
+# ── RISK-005: Korrelations-Exposure Ende-zu-Ende (echter OMS-Pfad) ───────────
+
+def test_real_oms_correlated_exposure_default_profile_allows_like_before(monkeypatch):
+    # Ohne gespeichertes Profil bleibt der 100%-Default-Deckel wirkungslos (Aus-Schalter) — eine
+    # Order, die heute durchgeht, geht trotz vorhandenem Bestand in derselben Gruppe weiter durch.
+    active = [{"ticker": "BABA", "broker_filled_qty": 50.0, "entry": 100.0}]   # emerging, 5.000
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: active)
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal("PDD"), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:30"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 4000.0, "account_value": 10_000.0},
+    )
+
+    assert result.ok is True
+
+
+def test_real_oms_correlated_exposure_blocks_when_profile_lowers_limit(monkeypatch):
+    # Gesenktes Limit (40%) macht den Check scharf: Bestand 5.000 + Kandidat 2.000 = 7.000 über
+    # 40% von 10.000 (=4.000) -> abgelehnt mit dem vorhandenen exposure.py-Ablehngrund.
+    stored = RiskProfile(user_id=42, max_correlated_exposure_pct=40.0)
+    active = [{"ticker": "BABA", "broker_filled_qty": 50.0, "entry": 100.0}]   # emerging, 5.000
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: active)
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", lambda user_id: 0.0)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal("PDD"), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:31"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 2000.0, "account_value": 10_000.0},
+    )
+
+    assert result.ok is False and result.code == "correlated_exposure"
+
+
+def test_real_oms_correlated_exposure_stays_inert_for_unmapped_ticker(monkeypatch):
+    # Kandidat-Ticker ohne Gruppenzuordnung (keine der statischen Universen-Listen) lässt den
+    # Check aus wie bisher -- selbst mit einem sehr scharfen Limit.
+    stored = RiskProfile(user_id=42, max_correlated_exposure_pct=1.0)
+    active = [{"ticker": "BABA", "broker_filled_qty": 50.0, "entry": 100.0}]
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: active)
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+    monkeypatch.setattr(risk_context.db, "get_realized_pnl_today", lambda user_id: 0.0)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal("NOPE_XYZ"), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:32"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 2000.0, "account_value": 10_000.0},
+    )
+
+    assert result.ok is True
 
 
 def test_oms_fail_open_default_lets_missing_quote_through(monkeypatch):
