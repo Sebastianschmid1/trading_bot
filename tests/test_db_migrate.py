@@ -12,6 +12,7 @@ BLOB-Spalten (`broker_api_key`/`_secret`) verhalten sich auf Postgres (`BYTEA`) 
 auf SQLite. Wird übersprungen, wenn kein lokaler Postgres erreichbar ist.
 """
 
+import logging.config
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -28,6 +29,36 @@ from stockbot.paths import PROJECT_ROOT
 
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 CHAT_A, CHAT_B = 6_933_293_791, 4002
+
+
+@pytest.fixture(autouse=True)
+def _alembic_logging_config_keeps_other_loggers_enabled(monkeypatch):
+    """`migrations/env.py` ruft bei JEDEM `command.upgrade`/`downgrade` (also bei jedem
+    Test hier) `logging.config.fileConfig(alembic.ini)` auf. Deren Default
+    `disable_existing_loggers=True` setzt `.disabled = True` auf JEDEN zu diesem
+    Zeitpunkt bereits erzeugten Logger, der nicht selbst (oder als Vorfahre) im
+    `[loggers]`-Abschnitt der `alembic.ini` steht — dort stehen nur `root`,
+    `sqlalchemy.engine` und `alembic`. Trifft z. B. `stockbot.tgbot.bot`.
+
+    Logger-Objekte sind Singletons (`logging.Logger.manager.loggerDict`) und bleiben
+    über dieses Testmodul hinaus für den Rest des Prozesses `disabled` — Records auf
+    einem disabled Logger werden von `Logger.handle()` verworfen, bevor sie einen
+    Handler (auch `caplog`s) erreichen. Ohne dieses Fixture reißt das spätere,
+    unabhängige Tests, die mit `caplog` auf einem dieser Logger prüfen (z. B.
+    `tests/test_intraday.py::test_bot_broker_order_persists_real_reject_code_and_logs`
+    auf `stockbot.tgbot.bot`), sobald `test_db_migrate.py` vorher lief.
+
+    Fix an der Quelle: `disable_existing_loggers` für die `fileConfig`-Aufrufe, die aus
+    diesem Testmodul heraus ausgelöst werden, hart auf `False` erzwingen — und über
+    `monkeypatch` automatisch wieder zurücksetzen, statt globalen Logging-Zustand ohne
+    Teardown zu hinterlassen."""
+    original_file_config = logging.config.fileConfig
+
+    def _file_config_keeps_other_loggers(*args, **kwargs):
+        kwargs["disable_existing_loggers"] = False
+        return original_file_config(*args, **kwargs)
+
+    monkeypatch.setattr(logging.config, "fileConfig", _file_config_keeps_other_loggers)
 
 
 def _alembic_config(sqlite_path: Path) -> Config:
