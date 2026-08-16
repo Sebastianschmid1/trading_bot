@@ -108,6 +108,25 @@ nutzt denselben Account/dieselbe DB (eine Aktion wirkt sofort in beiden Kanälen
 Die Website wird vom **gleichen Server wie das Dashboard** ausgeliefert (`run_dashboard.py` bzw.
 `RUN_DASHBOARD_IN_BOT=true`) — kein zusätzlicher Dienst nötig. Konzept & Phasen: [docs/WEBSITE_KONZEPT.md](docs/WEBSITE_KONZEPT.md).
 
+### Demo-Daten für die Design-Abnahme
+
+`data/bot.db` ist auf einem frischen Checkout leer — ohne Nutzer/Trades zeigt die App nur leere
+Seiten und man kommt nicht am Login vorbei. [tools/seed_design_data.py](tools/seed_design_data.py)
+befüllt eine **eigene** SQLite-Datei (`data/design_seed.db`, niemals `data/bot.db`) mit einem
+Demo-Nutzer und einem breiten Zustandsraum an Trades (offen in Gewinn/Verlust, geschlossen über
+mehrere Tage, abgelehnte Signale mit echten Ablehngründen, Layout-Randfälle, aktiver Kill-Switch)
+und gibt am Ende die Dashboard-Login-URL samt Token aus:
+
+```bash
+ENCRYPTION_KEY=<Fernet-Key, s. u.> python tools/seed_design_data.py
+```
+
+Läuft ausschließlich gegen SQLite (bricht bei `DB_BACKEND=postgres` sofort ohne Schreibzugriff
+ab) und ist idempotent — mehrfaches Ausführen erzeugt denselben Zustand, keine Dubletten.
+`ENCRYPTION_KEY` braucht `stockbot/config.py` schon beim Import (verschlüsselt hier nur
+Wegwerf-Demodaten, der Demo-Nutzer bekommt keine Broker-Keys); einmalig erzeugen mit
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+
 ## 📊 Web-Dashboard
 
 Zusätzlich zum Telegram-Bot gibt es ein Web-Dashboard mit Equity-Kurve, Trefferquote, P&L pro Ticker und aktiven Trades — pro Nutzer über einen privaten Token-Link.
