@@ -105,8 +105,11 @@ def _app_page() -> str:
 
 def test_confirm_dialog_is_declared_as_modal_dialog():
     text = _app_page()
-    tag = text[text.index("<dialog"):]
-    tag = tag[:tag.index(">") + 1]
+    # Über die id suchen statt „erstes <dialog> der Seite" anzunehmen: seit UI-A11Y
+    # (Scan-Overlay) trägt app.html ein zweites, frueher im Dokument stehendes <dialog>.
+    match = re.search(r'<dialog\b[^>]*\bid="tradeConfirm"[^>]*>', text)
+    assert match, "kein <dialog id=\"tradeConfirm\" …> gefunden"
+    tag = match.group(0)
     assert 'id="tradeConfirm"' in tag
     assert 'role="dialog"' in tag
     assert 'aria-modal="true"' in tag

@@ -2,6 +2,24 @@
    Risikoorientiert, keine Gamification. Alle Farben/Abstände aus Design-Tokens.
    Zustände: Default/Hover/Active/Focus/Disabled/Loading/Success/Error. */
 
+/* ── Barrierefreiheit: Utilities (UI-A11Y) ───────────────────────────────
+   .sr-only: Label/Status nur für Screenreader, ohne Platz im Layout zu
+   beanspruchen (position:absolute + 1px-Clip statt display:none, damit
+   Screenreader den Inhalt trotzdem vorlesen). Keine sichtbare Wirkung. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* .btn-reset: setzt ein natives <button>, das an Stelle eines reinen
+   Klick-Handler-Elements (div/span/b/strong/th) steht, optisch auf das
+   umgebende Element zurück (kein Browser-Chrome: kein Rahmen, keine
+   Innenabstände, keine eigene Schrift) — Tastaturzugriff + programmatischer
+   Name kommen dazu, ohne dass sich am Layout etwas verschiebt. Jeder
+   Aufrufer ergänzt lokal nur die Eigenschaften, die vom ersetzten Element
+   übernommen werden müssen (z. B. font-weight, padding, display, width). */
+.btn-reset { all: unset; box-sizing: border-box; cursor: pointer; color: inherit; font: inherit; }
+
 /* ── Button ────────────────────────────────────────────────────────────── */
 .btn2 {
   --btn-bg: var(--bg-surface-3);

@@ -15,16 +15,56 @@
   <button class="on" title="Live-Analyse für die gewählte Anlageklasse ausführen">🔄 Signale anfordern</button>
 </form>
 
-<div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:50;
-     background:var(--overlay-strong); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
-     align-items:center; justify-content:center; text-align:center; padding:1rem">
+<!-- Scan-Overlay: natives <dialog> (Fokus geht beim Öffnen automatisch hinein, Escape
+     schließt nativ) statt eines reinen Sperr-Divs. role="status" macht den Wartetext
+     zur Live-Region — Screenreader erfahren, dass etwas läuft und wann sich der Text
+     ändert. Ein hängender Scan (kein Seitenwechsel innerhalb von 90s, siehe <script>
+     unten) endet in einem sichtbaren Fehlerzweig mit Schließen-Button statt einer
+     Endlosanzeige (§ Befund „Scan-Overlay ist kein Dialog"). -->
+<style>
+  #scanOverlay { background:transparent; border:0; padding:0; max-width:calc(100vw - 2rem); }
+  #scanOverlay::backdrop { background:var(--overlay-strong); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+</style>
+<dialog id="scanOverlay" aria-labelledby="scanOverlayTitle">
   <div class="card" style="max-width:340px">
-    <div style="font-size:1.6rem; margin-bottom:.4rem">⏳</div>
-    <strong>Signale werden berechnet …</strong>
-    <p class="muted" style="margin:.5rem 0 0">Die Live-Analyse läuft (kann je nach Anlageklasse bis zu ~1 Minute dauern,
+    <div style="font-size:1.6rem; margin-bottom:.4rem" aria-hidden="true">⏳</div>
+    <strong id="scanOverlayTitle">Signale werden berechnet …</strong>
+    <p class="muted" id="scanOverlayMsg" role="status" style="margin:.5rem 0 0">Die Live-Analyse läuft (kann je nach Anlageklasse bis zu ~1 Minute dauern,
       „Alle" auch länger). Bitte das Fenster offen lassen.</p>
+    <button type="button" id="scanOverlayClose" class="btn2 btn2--secondary" style="display:none; margin-top:.8rem">Schließen</button>
   </div>
-</div>
+</dialog>
+<script>
+// Scan-Overlay als natives <dialog>: showModal() ersetzt das alte style.display='flex'
+// aus dem onsubmit-Attribut oben (das bleibt unangetastet — sein display:flex wird durch
+// showModal()/close() unten schlicht überschrieben). Timeout-Zweig gegen einen hängenden
+// Scan: bleibt der Seitenwechsel (normaler POST/Redirect von #scanForm) länger als
+// TIMEOUT_MS aus, zeigt der Dialog einen Fehlertext + Schließen-Button statt endlos zu warten.
+(function () {
+  var dlg = document.getElementById("scanOverlay");
+  var form = document.getElementById("scanForm");
+  var msg = document.getElementById("scanOverlayMsg");
+  var closeBtn = document.getElementById("scanOverlayClose");
+  if (!dlg || !form || !msg || !closeBtn) return;
+  var DEFAULT_MSG = msg.textContent;
+  var TIMEOUT_MS = 90000;   // grosszuegig ueber der angekuendigten „bis zu ~1 Minute"
+  var timer = null;
+  form.addEventListener("submit", function () {
+    dlg.style.display = "";     // eventuellen Altzustand durch showModal() ersetzen lassen
+    closeBtn.style.display = "none";
+    msg.textContent = DEFAULT_MSG;
+    if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      msg.textContent = "Das dauert ungewöhnlich lange — der Scan läuft evtl. weiter im Hintergrund. Du kannst warten oder schließen und es später erneut versuchen.";
+      closeBtn.style.display = "";
+      closeBtn.focus();
+    }, TIMEOUT_MS);
+  });
+  closeBtn.addEventListener("click", function () { clearTimeout(timer); dlg.close(); });
+  dlg.addEventListener("close", function () { clearTimeout(timer); });
+})();
+</script>
 
 {# ── §32.3 Datenaktualität: Sicherheits-Element, kein Deko-Element ──────────────────
    EIN Chip pro Seite: alle hier gerenderten Kurse stammen aus demselben Scan-Ergebnis

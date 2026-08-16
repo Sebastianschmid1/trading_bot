@@ -16,10 +16,16 @@
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
   table.hist { width:100%; border-collapse:collapse; font-size:.9rem; }
-  table.hist th, table.hist td { padding:.5rem .55rem; border-bottom:1px solid var(--sep); text-align:left; white-space:nowrap; color:var(--lg-ink); }
-  table.hist th { cursor:pointer; user-select:none; color:var(--lg-ink-muted); font-size:.68rem;
+  table.hist th, table.hist td { border-bottom:1px solid var(--sep); text-align:left; white-space:nowrap; color:var(--lg-ink); }
+  table.hist td { padding:.5rem .55rem; }
+  table.hist th { padding:0; color:var(--lg-ink-muted); font-size:.68rem;
                   text-transform:uppercase; letter-spacing:.06em; font-family:var(--font-display); }
-  table.hist th:hover { color:var(--lg-ink); }
+  /* Sortier-Header: die Klick-/Enter-Fläche ist ein <button> IM <th> (aria-sort
+     sitzt am <th>) statt eines th-Klick-Handlers ohne Tastaturzugriff. */
+  table.hist th .th-sort { all:unset; box-sizing:border-box; display:inline-flex; align-items:center;
+                            gap:.25rem; width:100%; padding:.5rem .55rem; cursor:pointer; user-select:none;
+                            color:inherit; font:inherit; text-align:inherit; }
+  table.hist th .th-sort:hover { color:var(--lg-ink); }
   table.hist th.r, table.hist td.r { text-align:right; }
   table.hist td.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
   table.hist tbody tr:hover { background:rgb(var(--lg-violet-rgb) / .10); }
@@ -48,6 +54,7 @@
   <div class="empty">Noch keine abgeschlossenen Trades — sie erscheinen hier, sobald der erste Trade geschlossen wurde.</div>
 {% else %}
 <div class="toolbar">
+  <label for="hfilter" class="sr-only">Ticker filtern</label>
   <input id="hfilter" class="searchbox" type="text" placeholder="🔍 Ticker filtern…" autocomplete="off">
   <span class="marklabel" id="hcount"></span>
   <span style="flex:1"></span>
@@ -56,16 +63,16 @@
 <div class="scroll">
 <table class="hist" id="histTable">
   <thead><tr>
-    <th data-sort="date">Datum</th>
-    <th data-sort="ticker">Ticker</th>
-    <th data-sort="dir">Richtung</th>
-    <th class="r" data-sort="entry">Einstieg</th>
-    <th class="r" data-sort="exit">Ausstieg</th>
-    <th class="r" data-sort="lev">Hebel</th>
-    <th class="r" data-sort="pnl">P&amp;L</th>
-    <th class="r" data-sort="pct">Rendite%</th>
-    <th data-sort="strat">Strategie</th>
-    <th data-sort="broker">Broker</th>
+    <th data-sort="date"><button type="button" class="th-sort">Datum</button></th>
+    <th data-sort="ticker"><button type="button" class="th-sort">Ticker</button></th>
+    <th data-sort="dir"><button type="button" class="th-sort">Richtung</button></th>
+    <th class="r" data-sort="entry"><button type="button" class="th-sort">Einstieg</button></th>
+    <th class="r" data-sort="exit"><button type="button" class="th-sort">Ausstieg</button></th>
+    <th class="r" data-sort="lev"><button type="button" class="th-sort">Hebel</button></th>
+    <th class="r" data-sort="pnl"><button type="button" class="th-sort">P&amp;L</button></th>
+    <th class="r" data-sort="pct"><button type="button" class="th-sort">Rendite%</button></th>
+    <th data-sort="strat"><button type="button" class="th-sort">Strategie</button></th>
+    <th data-sort="broker"><button type="button" class="th-sort">Broker</button></th>
   </tr></thead>
   <tbody>
   {% for r in rows %}
@@ -91,12 +98,16 @@
   var table = document.getElementById("histTable");
   var ths = table.tHead.rows[0].cells, tbody = table.tBodies[0];
   Array.prototype.forEach.call(ths, function (th, i) {
-    th.addEventListener("click", function () {
+    var btn = th.querySelector(".th-sort");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
       var asc = th.getAttribute("data-dir") !== "asc";
       Array.prototype.forEach.call(ths, function (h) {
-        h.removeAttribute("data-dir"); var a = h.querySelector(".arrow"); if (a) a.remove();
+        h.removeAttribute("data-dir"); h.removeAttribute("aria-sort");
+        var a = h.querySelector(".arrow"); if (a) a.remove();
       });
       th.setAttribute("data-dir", asc ? "asc" : "desc");
+      th.setAttribute("aria-sort", asc ? "ascending" : "descending");
       var rows = Array.prototype.slice.call(tbody.rows);
       rows.sort(function (ra, rb) {
         var x = ra.cells[i].getAttribute("data-sort") || "", y = rb.cells[i].getAttribute("data-sort") || "";
@@ -105,7 +116,7 @@
         return asc ? cmp : -cmp;
       });
       rows.forEach(function (r) { tbody.appendChild(r); });
-      var s = document.createElement("span"); s.className = "arrow"; s.textContent = asc ? " ▲" : " ▼"; th.appendChild(s);
+      var s = document.createElement("span"); s.className = "arrow"; s.textContent = asc ? " ▲" : " ▼"; btn.appendChild(s);
     });
   });
   var f = document.getElementById("hfilter"), cnt = document.getElementById("hcount");
