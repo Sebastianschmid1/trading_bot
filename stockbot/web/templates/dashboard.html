@@ -286,7 +286,7 @@
     {% elif trade_mode == 'paper' %}
     <span class="ck-chip is-paper" title="Broker-Order an Alpaca, aber im Papermodus (kein echtes Geld)"><span class="dot"></span>Paper</span>
     {% else %}
-    <span class="ck-chip is-shadow" title="Shadow-Modus — Live-Daten ohne Broker-Order"><span class="dot"></span>Shadow</span>
+    <span class="ck-chip is-shadow" title="{{ glossary.MODE_LABELS.demo }}-Modus — Live-Daten ohne Broker-Order"><span class="dot"></span>{{ glossary.MODE_LABELS.demo }}</span>
     {% endif %}
     <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
     <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen">⏸</button>
@@ -380,7 +380,7 @@
 
     <div class="col span-2">
       <section class="panel" data-panel="active">
-        <div class="panel-head"><h2>🔵 Aktive Demo-Trades</h2>
+        <div class="panel-head"><h2>🔵 Aktive {{ glossary.MODE_LABELS.demo }}-Trades</h2>
           <label for="tradeFilter" class="sr-only" onclick="event.stopPropagation()">Ticker filtern</label>
           <input id="tradeFilter" class="searchbox" type="text" placeholder="🔍 Ticker filtern…"
                  onclick="event.stopPropagation()" autocomplete="off">

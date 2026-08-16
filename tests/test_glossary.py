@@ -106,6 +106,7 @@ def test_action_review_trade_constant():
 @pytest.mark.parametrize("mode,label", [
     ("paper", "Paper"),
     ("shadow", "Shadow"),
+    ("demo", "Demo"),
     ("live", "Live"),
     ("backtest", "Backtest"),
 ])
