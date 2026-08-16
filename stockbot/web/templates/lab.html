@@ -30,7 +30,10 @@
   .cmp th { color:var(--lg-ink-muted); }
   .cmp th:first-child, .cmp td:first-child { text-align:left; color:var(--lg-ink-muted); }
   .cmp td { font-family:var(--font-mono); font-variant-numeric:tabular-nums; color:var(--lg-ink); }
-  .win { color:var(--lg-success); } .lose { color:var(--lg-error); }
+  /* Blocker 4 (agent/UI-CONTRAST): --lg-success/--lg-error als TEXT auf Solid-Glas
+     reichen im Light Mode nicht (3.04:1 / 4.35:1) — --status-ink-success/-error statt
+     der Vendor-Semantikfarbe (siehe DESIGN.md). */
+  .win { color:var(--status-ink-success); } .lose { color:var(--status-ink-error); }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   table.hyp { width:100%; border-collapse:collapse; font-size:.86rem; }
   table.hyp th, table.hyp td { padding:.4rem .5rem; border-bottom:1px solid var(--sep); text-align:left; white-space:nowrap; color:var(--lg-ink); }
@@ -38,10 +41,12 @@
   table.hyp td.m { font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right; }
   .kind { font-size:.66rem; font-weight:700; padding:.1rem .45rem; border-radius:var(--lg-r-pill); letter-spacing:.03em;
           text-transform:uppercase; font-family:var(--font-mono); background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft); color:var(--lg-ink-muted); }
-  .kind.applied { color:var(--lg-success); border-color:var(--lg-success); }
-  .kind.rejected { color:var(--lg-error); border-color:var(--lg-error); }
+  /* Blocker 4 (agent/UI-CONTRAST): Textfarbe auf --status-ink-*, Rand bleibt auf der
+     Vendor-Semantikfarbe (Rahmen brauchen nur 3:1, siehe DESIGN.md). */
+  .kind.applied { color:var(--status-ink-success); border-color:var(--lg-success); }
+  .kind.rejected { color:var(--status-ink-error); border-color:var(--lg-error); }
   .kind.decision { color:var(--lg-violet); border-color:var(--lg-violet); }
-  .ok { color:var(--lg-success); } .bad { color:var(--lg-ink-muted); }
+  .ok { color:var(--status-ink-success); } .bad { color:var(--lg-ink-muted); }
   .empty { color:var(--lg-ink-muted); text-align:center; padding:1.6rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
   .note { color:var(--lg-ink-muted); font-size:.82rem; line-height:1.5; }
 </style>
@@ -206,13 +211,34 @@
   {% endif %}
   {% if is_admin %}
   <div class="row" style="margin-top:.8rem">
-    <form method="post" action="/app/lab/apply" class="inline"
-          onsubmit="return confirm('Parameter als Live-Override übernehmen? Der Bot handelt danach mit diesen Werten.');">
+    <form method="post" action="/app/lab/apply" class="inline" data-confirm-dialog="labApplyConfirm">
       <button class="btn2 btn2--destructive">Als Live-Override übernehmen</button></form>
     <form method="post" action="/app/lab/reject" class="inline">
       <button class="btn2 btn2--secondary">Verwerfen</button></form>
     <span class="note">Übernehmen schreibt die Parameter als Live-Override — der Bot nutzt sie binnen ~20 s.</span>
   </div>
+  {# Blocker 8 (agent/UI-CONTRAST, §18.1): Live-Override der Handelsparameter bestätigt
+     über den vorhandenen dialog2 statt eines nativen confirm() — die Folgen (welcher
+     Parameter, alter/neuer Wert, Wirkung) werden im Dialog aufgezählt, nicht im
+     Fließtext darüber. #}
+  <dialog id="labApplyConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="labApplyTitle">
+    <div class="dialog2__body">
+      <h2 class="dialog2__title" id="labApplyTitle">Live-Override übernehmen?</h2>
+      <div class="alert2 alert2--danger" role="alert">
+        <div><p class="alert2__title">Der Bot handelt danach mit diesem Wert</p>
+        <div>Das wirkt auf alle Nutzer im Live-/Paper-Handel, nicht nur im Labor.</div></div>
+      </div>
+      <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
+        <li>Setzt <b>{{ pr.param }}</b> von <span class="mono">{{ pr.old }}</span> auf <span class="mono">{{ pr.new }}</span></li>
+        <li>Gilt ab dem nächsten Zyklus des Bots — binnen ~20 Sekunden</li>
+        <li>Der bisherige Champion-Wert lässt sich danach nicht automatisch wiederherstellen</li>
+      </ul>
+      <div class="dialog2__actions">
+        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Als Live-Override übernehmen</button>
+      </div>
+    </div>
+  </dialog>
   {% else %}
   <div class="note" style="margin-top:.6rem">Nur der Admin kann Vorschläge übernehmen/verwerfen.</div>
   {% endif %}

@@ -138,10 +138,26 @@
     </div>
   </form>
   {% if has_alpaca %}
-  <form class="inline" method="post" action="/app/settings/alpaca/clear"
-        onsubmit="return confirm('Alpaca-Verbindung wirklich entfernen? Echte Broker-Order wird dabei deaktiviert.');">
+  <form class="inline" method="post" action="/app/settings/alpaca/clear" data-confirm-dialog="alpacaClearConfirm">
     <button class="btn2 btn2--destructive">Verbindung entfernen</button>
   </form>
+  {# Blocker 8 (agent/UI-CONTRAST, §18.1): entfernt echte Broker-Zugangsdaten und deaktiviert
+     damit sofort die echte Order-Ausführung — abgesichert über den vorhandenen dialog2 statt
+     eines nativen confirm(), Folgen als Liste statt im Fließtext oben. #}
+  <dialog id="alpacaClearConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="alpacaClearTitle">
+    <div class="dialog2__body">
+      <h2 class="dialog2__title" id="alpacaClearTitle">Alpaca-Verbindung wirklich entfernen?</h2>
+      <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
+        <li>Löscht die gespeicherten API-Zugangsdaten (Key &amp; Secret) unwiderruflich</li>
+        <li>Deaktiviert sofort die echte Broker-Order-Ausführung</li>
+        <li>Bereits offene Alpaca-Positionen bleiben unverändert bestehen, sind hier aber nicht mehr steuerbar, bis neue Zugangsdaten hinterlegt werden</li>
+      </ul>
+      <div class="dialog2__actions">
+        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Verbindung entfernen</button>
+      </div>
+    </div>
+  </dialog>
   {% endif %}
 </div>
 
@@ -162,12 +178,27 @@
 
 <div class="card">
   <h2>Demo zurücksetzen</h2>
-  <p class="muted">Löscht <strong>alle</strong> deine Trades, den Verlauf und Mitteilungen und schließt
-    (falls echte Broker-Ausführung aktiv) deine offenen Alpaca-Positionen. Einstellungen und die
-    Alpaca-Verbindung bleiben erhalten. Das kann nicht rückgängig gemacht werden.</p>
-  <form class="inline" method="post" action="/app/reset"
-        onsubmit="return confirm('Wirklich alle Trades &amp; den Verlauf löschen und offene Alpaca-Positionen schließen?');">
+  <p class="muted">Setzt deinen Trade-Verlauf komplett zurück. Das kann nicht rückgängig gemacht werden —
+    die Folgen stehen im Bestätigungsdialog.</p>
+  <form class="inline" method="post" action="/app/reset" data-confirm-dialog="resetConfirm">
     <button class="btn2 btn2--destructive">🗑️ Zurücksetzen</button>
   </form>
 </div>
+{# Blocker 8 (agent/UI-CONTRAST, §18.1): löscht Trades/Verlauf und schließt ggf. echte
+   Alpaca-Positionen — abgesichert über den vorhandenen dialog2 statt eines nativen
+   confirm(), Folgen als Liste statt im Fließtext oben. #}
+<dialog id="resetConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="resetConfirmTitle">
+  <div class="dialog2__body">
+    <h2 class="dialog2__title" id="resetConfirmTitle">Demo wirklich zurücksetzen?</h2>
+    <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
+      <li>Löscht <strong>alle</strong> deine Trades, den Verlauf und Mitteilungen unwiderruflich</li>
+      <li>Schließt deine offenen Alpaca-Positionen, falls echte Broker-Ausführung aktiv ist</li>
+      <li>Einstellungen und die Alpaca-Verbindung bleiben erhalten</li>
+    </ul>
+    <div class="dialog2__actions">
+      <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
+      <button type="button" class="btn2 btn2--destructive" data-confirm-ok>🗑️ Zurücksetzen</button>
+    </div>
+  </div>
+</dialog>
 {% endblock %}
