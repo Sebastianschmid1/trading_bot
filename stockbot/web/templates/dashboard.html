@@ -54,8 +54,12 @@
     .ck-chip .k { color:var(--lg-ink-muted); font-weight:500; }
     .ck-chip.is-paper  { color:var(--mode-paper); }
     .ck-chip.is-shadow { color:var(--mode-shadow); }
-    .ck-chip.is-live   { color:var(--lg-error); }
-    .ck-chip.is-armed  { color:var(--lg-success); }
+    /* Blocker 4 (agent/UI-CONTRAST): --lg-error/--lg-success als TEXT auf Solid-Glas
+       reichen im Light Mode nicht (4.35:1 / 3.04:1) — --status-ink-error/-success statt
+       der Vendor-Semantikfarbe (siehe DESIGN.md). Der Punkt (.ck-chip .dot) übernimmt die
+       Farbe automatisch mit (background:currentColor). */
+    .ck-chip.is-live   { color:var(--status-ink-error); }
+    .ck-chip.is-armed  { color:var(--status-ink-success); }
     .ck-meta { font-size:var(--lg-size-small); color:var(--lg-ink-muted); white-space:nowrap; }
 
     /* Live-Pille (JS toggelt live/paused/offline) — als Glaschip */
@@ -65,11 +69,15 @@
             box-shadow:var(--lg-cast-1); white-space:nowrap; color:var(--lg-ink); }
     .pill .dot { width:.55rem; height:.55rem; border-radius:50%; background:var(--lg-success);
                  box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 60%, transparent); }
-    .pill.live { color:var(--lg-success); }
+    /* Blocker 4 (agent/UI-CONTRAST): --lg-success/--lg-error als TEXT auf Solid-Glas
+       reichen im Light Mode nicht (3.04:1 / 4.35:1) — --status-ink-success/-error statt
+       der Vendor-Semantikfarbe. Der Punkt (.pill .dot) bleibt bewusst auf --lg-success/
+       --lg-error (Fläche, kein Text, siehe DESIGN.md). */
+    .pill.live { color:var(--status-ink-success); }
     .pill.live .dot { animation:pulse 2s infinite; }
     .pill.paused { color:var(--lg-ink-muted); }
     .pill.paused .dot { background:var(--lg-ink-muted); animation:none; }
-    .pill.offline { color:var(--lg-error); }
+    .pill.offline { color:var(--status-ink-error); }
     .pill.offline .dot { background:var(--lg-error); animation:none; }
     @keyframes pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 45%, transparent)} 70%{box-shadow:0 0 0 .4rem color-mix(in srgb, var(--lg-success) 0%, transparent)} 100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--lg-success) 0%, transparent)} }
 
@@ -84,9 +92,11 @@
     .ck-logout { display:inline; }
     .ck-logout button { min-height:36px; padding:0 16px; }
 
-    /* Warn-/Fehlerbänder als helle Glaskarten mit farbiger Kante */
+    /* Warn-/Fehlerbänder als helle Glaskarten mit farbiger Kante. Blocker 4
+       (agent/UI-CONTRAST): --lg-error als TEXT reicht im Light Mode nicht (4.35:1) —
+       --status-ink-error statt der Vendor-Semantikfarbe (Rand bleibt --lg-error). */
     #error { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-error);
-             color:var(--lg-error); padding:.9rem 1rem;
+             color:var(--status-ink-error); padding:.9rem 1rem;
              border-radius:var(--lg-r-md); margin-bottom:1rem; box-shadow:var(--lg-cast-1); }
     #sizing-hint { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-warning);
                    color:var(--mode-paper); padding:.8rem 1rem;
@@ -160,9 +170,12 @@
     th.sorted { color:var(--lg-ink); }
     th.sorted .arr { opacity:1; color:var(--lg-violet); }
     td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    /* Blocker 1 (agent/UI-CONTRAST): --lg-ink-on-teal ist Tinte für eine volle Teal-Fläche,
+       bleibt auf der 22%-Tönung über dunklem Glas dunkel-auf-dunkel (1.40:1 Dark) —
+       --badge-teal-ink statt --lg-ink-on-teal (siehe base.html/DESIGN.md). */
     .badge { display:inline-flex; align-items:center; font-size:.68rem; font-weight:700; letter-spacing:.02em;
              padding:.15rem .5rem; border-radius:var(--lg-r-pill);
-             background:rgb(var(--lg-teal-rgb) / .22); color:var(--lg-ink-on-teal); }
+             background:rgb(var(--lg-teal-rgb) / .22); color:var(--badge-teal-ink); }
     .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch;
                     border-radius:var(--lg-r-md); background:var(--lg-glass-solid);
                     border:1px solid var(--lg-edge-soft); box-shadow:var(--lg-trough); }
