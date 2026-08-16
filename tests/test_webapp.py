@@ -18,6 +18,7 @@ import pandas as pd
 from starlette.testclient import TestClient
 
 from stockbot.core import db
+from stockbot.core import glossary
 from stockbot.market import lookup
 from stockbot.market import strategies
 from stockbot.backtest import engine as backtest_engine
@@ -121,9 +122,13 @@ def test_design_tokens_and_mode_badge_are_served():
     c = _client()
 
     page = c.get("/app")
+    # Interne CSS-/Datenklasse bleibt "shadow" (Styling-Hook) — der sichtbare Text kommt
+    # aus dem Glossar und heißt "Demo" (§UI-ONBOARDING/Befund 4: EIN Begriff, nicht mehr
+    # "SHADOW"/"Shadow"/"DEMO" an vier verschiedenen Stellen).
     assert 'class="mode-badge mode-badge--shadow' in page.text
     assert 'data-trading-mode="shadow"' in page.text
-    assert "SHADOW" in page.text
+    assert glossary.MODE_LABELS["demo"] in page.text
+    assert "SHADOW" not in page.text
 
     css = c.get("/static/tokens.css")
     assert css.status_code == 200
@@ -977,6 +982,116 @@ def test_broker_status_label_covers_leverage_blocked():
 
 def test_broker_status_label_falls_back_for_unknown_code():
     assert _dashboard.broker_status_label("some_new_code") == "Some New Code"
+
+
+# ── Startseite (§UI-ONBOARDING/Befund 1) ─────────────────────────────────────
+
+def test_index_page_renders_via_base_html_without_telegram_jargon_or_inline_colors():
+    fresh()
+    c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+    r = c.get("/")
+    assert r.status_code == 200
+    assert '/static/liquid-glass.css' in r.text      # rendert über base.html, nicht mehr ad-hoc
+    assert '/login' in r.text                        # Weg zur Anmeldung bleibt vorhanden
+    # Kein Telegram-Jargon mehr für einen Web-Kunden, der den Bot nicht kennt:
+    assert "Telegram-Bot" not in r.text
+    assert "/dashboard</code>" not in r.text
+    # Keine hartkodierten Alt-Avionik-Inline-Farbwerte der alten dunklen Welt:
+    for old_color in ("#0f1420", "#e6e6e6", "#4f8cff"):
+        assert old_color not in r.text
+
+
+# ── Fehlerseiten (§UI-ONBOARDING/Befund 2) ───────────────────────────────────
+
+def test_unknown_route_returns_styled_html_404_for_browser():
+    fresh()
+    c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+    r = c.get("/gibtesnicht")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Seite nicht gefunden" in r.text
+    assert '/static/liquid-glass.css' in r.text        # gerendert über base.html
+    assert "Zur Startseite" in r.text or "Anmelden" in r.text   # ein Weg zurück
+
+
+def test_admin_only_action_returns_styled_html_403_for_browser():
+    fresh()                                            # CHAT ist kein Admin
+    c = _client()
+    r = c.post("/app/lab/run", headers={"origin": "http://testserver"})
+    assert r.status_code == 403
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Kein Zugriff" in r.text
+    assert "Nur der Admin darf das Labor starten." in r.text   # sachlicher Originalgrund bleibt sichtbar
+
+
+def test_api_routes_keep_raw_json_on_404_and_403():
+    """§UI-ONBOARDING/Befund 2 AC: `/api/...` darf sich durch die neuen Fehlerseiten NICHT
+    ändern — weder die Token-API dieser App noch api_v1 (RBAC/Idempotency-Tests hängen davon
+    ab, dass HTTPException.detail unverändert als JSON durchkommt)."""
+    fresh()
+    c = _client()
+    r = c.get("/api/keinsolchertoken/data")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.json() == {"detail": "Ungültiger Token."}
+
+    r2 = c.post("/api/v1/kill-switch", json={"active": True},
+                headers={"Idempotency-Key": "k1"})       # CHAT ist kein Admin → 403
+    assert r2.status_code == 403
+    assert r2.headers["content-type"].startswith("application/json")
+
+
+def test_unhandled_exception_returns_styled_500_for_browser_and_json_for_api(monkeypatch):
+    fresh()
+    tok = db.get_or_create_dashboard_token(CHAT)
+    app = __import__("stockbot.web.dashboard", fromlist=["app"]).app
+    c = TestClient(app, raise_server_exceptions=False)   # sonst reicht der Client die Exception
+    c.get(f"/auth/token?token={tok}")                    # durch statt den Handler greifen zu lassen
+
+    def _boom(user_id):
+        raise RuntimeError("kaboom")
+    monkeypatch.setattr(db, "get_pending_trades", _boom)
+
+    r = c.get("/app")
+    assert r.status_code == 500
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Etwas ist schiefgelaufen" in r.text
+    assert "kaboom" not in r.text                        # keine Interna nach außen
+
+    r2 = c.get("/api/v1/signals")
+    assert r2.status_code == 500
+    assert r2.headers["content-type"].startswith("application/json")
+    assert r2.json() == {"detail": "Internal Server Error"}
+
+
+# ── Erstnutzer-Karte (§UI-ONBOARDING/Befund 3) ───────────────────────────────
+
+def test_onboarding_card_shown_for_empty_account_without_broker():
+    fresh()
+    c = _client()
+    r = c.get("/app")
+    assert "Erste Schritte" in r.text
+    assert glossary.MODE_LABELS["demo"] in r.text
+    assert "/app/settings" in r.text and "/app/watchlist" in r.text
+
+
+def test_onboarding_card_hidden_once_a_trade_exists():
+    fresh()
+    db.add_pending(CHAT, {"ticker": "NVDA", "direction": "long", "price": 100.0,
+                          "leverage": 1.0, "strength": 70.0}, 1)
+    c = _client()
+    c.post("/app/accept", data={"ticker": "NVDA"}, follow_redirects=False)
+    assert "Erste Schritte" not in c.get("/app").text    # aktiver Trade reicht schon
+
+    c.post("/app/sell", data={"ticker": "NVDA"}, follow_redirects=False)
+    assert "Erste Schritte" not in c.get("/app").text    # bleibt versteckt (Trade-Historie existiert)
+
+
+def test_onboarding_card_hidden_with_alpaca_connection_even_without_trades():
+    fresh()
+    db.set_alpaca_credentials(CHAT, "AKEY", "ASECRET")
+    c = _client()
+    assert "Erste Schritte" not in c.get("/app").text
 
 
 def test_verify_telegram_login_valid_and_tampered():
