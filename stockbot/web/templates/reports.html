@@ -16,9 +16,20 @@
   .chip input { accent-color:var(--lg-violet); margin:0; width:1rem; height:1rem; }
   .filters .actions { margin-top:.5rem; display:flex; gap:.5rem; align-items:center; }
   .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .sortable-table th { cursor:pointer; user-select:none; white-space:nowrap; }
-  .sortable-table th:hover { color:var(--lg-violet); }
+  /* Sortier-Header: die Klick-/Enter-Fläche ist ein <button> IM <th> (echtes Element
+     statt eines th-Klick-Handlers ohne Tastaturzugriff), aria-sort sitzt am <th>. */
+  .sortable-table th { padding:0; white-space:nowrap; }
+  .sortable-table th .th-sort { all:unset; box-sizing:border-box; display:inline-flex; align-items:center;
+                                 gap:.25rem; width:100%; padding:.5rem .4rem; cursor:pointer; color:inherit;
+                                 font:inherit; text-align:inherit; }
+  .sortable-table th.r .th-sort { justify-content:flex-end; }
+  .sortable-table th .th-sort:hover { color:var(--lg-violet); }
   .sortable-table .arrow { color:var(--lg-violet); }
+  /* .row-open ersetzt <strong>Label</strong> in der ersten Spalte: gleiche Optik
+     (fett, kein Chrome), aber per Tab erreichbar; öffnet dieselbe Depotkurve wie
+     der Zeilen-Klick (Klick blubbert zum tr.matrow-Listener hoch). */
+  .row-open { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+              font:inherit; font-weight:700; color:inherit; text-align:left; cursor:pointer; }
   tr.matrow { cursor:pointer; }
   tr.matrow:hover { background:rgb(var(--lg-violet-rgb) / .10); }
   tr.matrow.sel td { background:rgb(var(--lg-violet-rgb) / .16); }
@@ -151,7 +162,7 @@
   <div class="row">
     <strong id="equityTitle"></strong>
     <span class="spacer"></span>
-    <button type="button" class="btn" onclick="document.getElementById('equityPanel').style.display='none'">✕</button>
+    <button type="button" class="btn" aria-label="Depotkurve schließen" onclick="document.getElementById('equityPanel').style.display='none'">✕</button>
   </div>
   <svg id="equitySvg" viewBox="0 0 640 240" width="100%" style="height:240px; display:block"></svg>
 </div>
@@ -161,15 +172,22 @@
 <div class="scroll">
 <table class="sortable-table">
   <thead><tr>
-    <th>Strategie</th><th class="r">Hebel</th><th>Modus</th>
-    <th class="r">Trades</th><th class="r">P&amp;L</th><th class="r">Rendite%</th>
-    <th class="r">Trefferq.%</th><th class="r">Profitf.</th><th class="r">Ø&nbsp;Halten</th>
-    <th class="r">Liquid.</th><th class="r">MaxDD%</th>
+    <th><button type="button" class="th-sort">Strategie</button></th>
+    <th class="r"><button type="button" class="th-sort">Hebel</button></th>
+    <th><button type="button" class="th-sort">Modus</button></th>
+    <th class="r"><button type="button" class="th-sort">Trades</button></th>
+    <th class="r"><button type="button" class="th-sort">P&amp;L</button></th>
+    <th class="r"><button type="button" class="th-sort">Rendite%</button></th>
+    <th class="r"><button type="button" class="th-sort">Trefferq.%</button></th>
+    <th class="r"><button type="button" class="th-sort">Profitf.</button></th>
+    <th class="r"><button type="button" class="th-sort">Ø&nbsp;Halten</button></th>
+    <th class="r"><button type="button" class="th-sort">Liquid.</button></th>
+    <th class="r"><button type="button" class="th-sort">MaxDD%</button></th>
   </tr></thead>
   <tbody>
   {% for r in rows %}
   <tr class="matrow" data-key="{{ r.key }}" data-lev="{{ r.leverage }}" data-mode="{{ r.mode }}">
-    <td data-sort="{{ r.label }}"><strong>{{ r.label }}</strong></td>
+    <td data-sort="{{ r.label }}"><button type="button" class="row-open">{{ r.label }}</button></td>
     <td class="r" data-sort="{{ r.leverage }}">{{ r.leverage }}×</td>
     <td data-sort="{{ r.mode }}">{{ r.mode }}</td>
     <td class="r" data-sort="{{ r.trades }}">{{ r.trades }}</td>
@@ -191,15 +209,19 @@
   document.querySelectorAll('table.sortable-table').forEach(function (table) {
     var ths = table.tHead.rows[0].cells;
     Array.prototype.forEach.call(ths, function (th, i) {
-      th.addEventListener('click', function () {
+      var btn = th.querySelector('.th-sort');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
         var tbody = table.tBodies[0];
         var rows = Array.prototype.slice.call(tbody.rows);
         var asc = th.getAttribute('data-dir') !== 'asc';
         Array.prototype.forEach.call(ths, function (h) {
           h.removeAttribute('data-dir');
+          h.removeAttribute('aria-sort');
           var a = h.querySelector('.arrow'); if (a) a.remove();
         });
         th.setAttribute('data-dir', asc ? 'asc' : 'desc');
+        th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
         rows.sort(function (ra, rb) {
           var x = ra.cells[i].getAttribute('data-sort') || '';
           var y = rb.cells[i].getAttribute('data-sort') || '';
@@ -211,7 +233,7 @@
         rows.forEach(function (r) { tbody.appendChild(r); });
         var arrow = document.createElement('span');
         arrow.className = 'arrow'; arrow.textContent = asc ? ' ▲' : ' ▼';
-        th.appendChild(arrow);
+        btn.appendChild(arrow);
       });
     });
   });
