@@ -1,13 +1,18 @@
 ---
-name: Stockbot Dashboard (Liquid Glass, Light)
-description: The stockbot web app, dressed in the adopted Liquid Glass light world (whole-app migration, dashboard-led).
+name: Stockbot Dashboard (Liquid Glass, Light + Dark)
+description: The stockbot web app, dressed in the adopted Liquid Glass system — light and dark, user-switchable, system default.
 # This project ADOPTS an external system. The exhaustive token/component grammar
 # lives upstream — see /static/liquid-glass.css (vendored) and the source below.
-# Only project-specific application decisions are recorded here.
+# Only project-specific application decisions are recorded here. The vendored file
+# already ships light+dark --lg-* tokens; this project's own local tokens (below)
+# now carry matching light+dark pairs too — see "Dark Mode" further down.
 colors:
-  # Project-added semantic money tokens (darkened for >=4.5:1 on light/solid glass).
-  money-gain: "#0A6B3C"
-  money-loss: "#A5122B"
+  # Project-added semantic money tokens (own light/dark pair, each >=4.5:1 on
+  # solid glass in its own mode — see "Dark Mode" for the dark contrast numbers).
+  money-gain: "#0A6B3C"        # light
+  money-loss: "#A5122B"        # light
+  money-gain-dark: "#4FDC9E"
+  money-loss-dark: "#FF7A8E"
   # Accents the dashboard leans on, inherited from the vendored system (do not fork values):
   iris-violet: "#997CE6"
   iris-teal: "#6EC4B9"
@@ -16,7 +21,9 @@ colors:
   ink-on-iris: "#1B2340"
   # CVD-safe categorical chart palette (--cat-1..6, coupled to chart_palette.py) —
   # a data-encoding contract preserved for multi-series charts, deliberately NOT
-  # restyled into the accent violet/teal. Literal in Chart.js JS (canvas can't read CSS vars).
+  # restyled into the accent violet/teal, and IDENTICAL in light and dark (a
+  # data-encoding contract, not a material — it must not shift with the theme).
+  # Literal in Chart.js JS (canvas can't read CSS vars).
   cat-1: "#3987e5"
   cat-2: "#d95926"
   cat-3: "#199e70"
@@ -24,15 +31,26 @@ colors:
   cat-5: "#d55181"
   cat-6: "#9085e9"
   # Chart chrome + mode-chip literals: mirror the --lg-* tokens / derived faint lines,
-  # written literally because Chart.js / the canvas gauge cannot resolve CSS variables.
+  # written literally because Chart.js / the canvas gauge cannot resolve CSS variables —
+  # JS reads the live --chart-*/--mode-*/--money-* custom properties at draw time instead
+  # (getComputedStyle), so these literals are the LIGHT values only; dark has its own pair.
   chart-grid: "rgb(38 28 60 / .08)"
+  chart-grid-dark: "rgb(242 238 255 / .12)"
   mode-paper: "#8A5A0F"
   mode-shadow: "#3358B5"
-  # Live-status pulse glow (connection heartbeat on the .pill dot) — --lg-success (#3E9E6E) at alpha.
-  pulse-glow: "rgb(62 158 110 / .6)"
-  pulse-glow-soft: "rgb(62 158 110 / .45)"
-  # Glass edge highlight, sibling of --lg-edge (white at .5).
+  mode-paper-dark: "#E5A23D"
+  mode-shadow-dark: "#7FA8FF"
+  # Live-status pulse glow (connection heartbeat on the .pill dot) — color-mix() off the
+  # theme's own --lg-success, so it needs no separate dark value.
+  pulse-glow: "color-mix(in srgb, var(--lg-success) 60%, transparent)"
+  pulse-glow-soft: "color-mix(in srgb, var(--lg-success) 45%, transparent)"
+  # Glass edge highlight, sibling of --lg-edge (white at .5) — deliberately theme-invariant,
+  # see "Dark Mode · What stays fixed on purpose".
   glass-edge-half: "rgb(255 255 255 / .5)"
+  # .btn2--live text-on-fill ink. Light danger (#A5122B) is dark enough for white text;
+  # dark danger (#FF7A8E) is light and needs a dark ink instead (see contrast numbers below).
+  danger-ink: "#fff"
+  danger-ink-dark: "#2A0F14"
 components:
   # Project-specific compositions built ON the vendored primitives.
   kpi-hero-iris:
@@ -70,10 +88,14 @@ colored surface for the one number that matters.
 
 **Key Characteristics:**
 
-- Adopted, pinned world — Liquid Glass light; the vendored CSS is the source of truth.
-- Applied app-wide via base.html (global `lg-body` + `data-theme="light"`); the incumbent dark cockpit is fully replaced.
+- Adopted, pinned world — Liquid Glass, light **and** dark; the vendored CSS is the source
+  of truth for both (it already ships both palettes — see "Dark Mode" below).
+- Applied app-wide via base.html (global `lg-body`); the incumbent dark **avionics** cockpit
+  is fully replaced by Liquid Glass — which itself has a dark mode, not to be confused with
+  the old cockpit.
 - One iris (colored) surface per view: the Gesamt-P&L tile. Everything else is glass.
-- Semantic green/red for money only, darkened for legibility on light surfaces.
+- Semantic green/red for money only, each mode's pair own-darkened/-lightened for legibility
+  on that mode's solid glass.
 - German UI, orthographically correct; tabular numerals throughout.
 
 ## Colors
@@ -161,9 +183,11 @@ This is the local expression of the upstream One-Iris-Surface rule.
 ### Command Bar & Status Chips
 
 - **Mode chip** (`.ck-chip`): solid-glass pill; the color lives in the dot, the fill stays
-  glass. Paper `#8A5A0F`, Shadow `#3358B5`, Live `--lg-error`. Bound to `trade_mode`.
+  glass. Paper `#8A5A0F`/`#E5A23D` (light/dark), Shadow `#3358B5`/`#7FA8FF`, Live `--lg-error`.
+  Bound to `trade_mode`.
 - **Live pill** (`.pill`): JS toggles live / paused / offline; success/muted/error dot.
-- **Icon buttons** (`.iconbtn`): glass discs for pause/refresh.
+- **Icon buttons** (`.iconbtn`): glass discs for pause/refresh, same disc for the theme toggle
+  (`.theme-toggle`, sun/moon, see "Dark Mode").
 - **Logout**: the vendored `lg-btn lg-btn--glass lg-btn--sm`.
 
 ### Signature — Rohscore Gauge
@@ -175,10 +199,133 @@ Liquid-Glass semantic triad (error → warning → success); the needle color fo
 ### Charts (Chart.js)
 
 Chrome is themed to the world — ink-muted default text, violet equity fill/stroke, teal
-badges, `rgba(38,28,60,.08)` grid, violet-tinted crosshair and break-even guides. The
-**CVD-safe categorical palette** (`--cat-1..6`, coupled to `chart_palette.py`) is
-**preserved for multi-series charts and NOT restyled** into the accent violet/teal — it is
-the accessibility contract for distinguishing series and stays authoritative.
+badges, faint ink grid, violet-tinted crosshair and break-even guides. Canvas can't resolve
+CSS variables, so every chart color is read at draw time via
+`getComputedStyle(document.documentElement).getPropertyValue(...)` instead of being literal —
+see "Dark Mode · Charts" for the mechanism and the redraw trigger. The **CVD-safe categorical
+palette** (`--cat-1..6`, coupled to `chart_palette.py`) is **preserved for multi-series
+charts and NOT restyled** into the accent violet/teal, and is the one chart color family
+that stays **identical in light and dark** — it is the accessibility contract for
+distinguishing series, and a data-encoding contract must not shift with the theme.
+
+## Dark Mode
+
+Liquid Glass ships both palettes upstream (`@media (prefers-color-scheme: dark)` plus
+`:root[data-theme="dark"]` in `liquid-glass.css`) — the `--lg-*` material tokens already
+flip themselves. What didn't flip, before this change, were this project's own **local**
+tokens layered on top in base.html's `.lg-body` block: hairline borders, the money pair, the
+mode-chip pair, and the Chart.js/SVG chrome literals were hardcoded to their light values.
+Those now carry a light value and a dark override, following the exact two-selector pattern
+`liquid-glass.css` itself uses (`@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lg-body { … } }`
+plus `:root[data-theme="dark"] .lg-body { … }`), so an explicit dark choice always wins over
+system preference, and no attribute at all means "follow the system" (the default).
+
+### State & switch
+
+- **Three states**, one `data-theme` attribute on `<html>`: `light`, `dark`, or absent
+  (= System, the default — `prefers-color-scheme` decides). Persisted in `localStorage`
+  (`stockbot:theme`) once the user picks one explicitly.
+- **No FOUC**: a small inline `<script>` at the very top of `<head>`, before the stylesheet
+  links, sets `data-theme` from `localStorage` synchronously — the attribute is on the
+  element before the browser has anything to paint. No framework, no extra asset.
+- **The switch** (`.theme-toggle`, `id="themeToggle"`): the same glass icon-button/disc as
+  the dashboard's existing `.iconbtn` (pause/refresh) — one control pattern, not a new one.
+  Sun/moon SVG visibility is pure CSS (`:root[data-theme="dark"] .theme-toggle .icon-sun {
+  display:none }`, mirrored under the system-preference `@media` block) — no flash of the
+  wrong icon. `aria-pressed` reflects the *effective* theme (explicit or system-derived) and
+  is kept in sync by `window.stockbotTheme`, a small shared module in base.html that both the
+  appbar's and the dashboard's `.ck-bar`'s toggle call into. Clicking sets an explicit
+  `light`/`dark` choice (abandoning "System" from then on, the common toggle convention);
+  `aria-label="Dunkelmodus umschalten"`, keyboard-operable (`<button>`), visible
+  `:focus-visible` ring inherited from the vendored focus rule.
+- Every explicit or system-driven change dispatches `document` event
+  `stockbot:themechange` — the hook charts and the reports SVG use to redraw (below).
+
+### Local tokens: light value → dark value
+
+All declared in base.html's `.lg-body` block (light) plus its two dark blocks; consumed via
+`var(--token)` in CSS or `getComputedStyle` in JS. `--danger`/`--green`/`--red` stay as
+aliases of `--money-loss`/`--money-gain` for old call sites, so they flip for free.
+
+| Token | Light | Dark | Used for |
+|---|---|---|---|
+| `--border`, `--line`, `--edge` | `rgb(38 28 60 / .12–.14)` | `rgb(242 238 255 / .16–.20)` | generic hairlines |
+| `--sep`, `--grid` | `rgb(38 28 60 / .08–.10)` | `rgb(242 238 255 / .12–.14)` | table rows, chart grid |
+| `--border-subtle/-default/-strong` | `rgb(38 28 60 / .10–.26)` | `rgb(242 238 255 / .14–.32)` | components.css inputs/tabs/dialogs |
+| `--money-gain` / `--money-loss` | `#0A6B3C` / `#A5122B` | `#4FDC9E` / `#FF7A8E` | P&L text, bars, equity stroke |
+| `--money-gain-rgb` / `--money-loss-rgb` | `10 107 60` / `165 18 43` | `79 220 158` / `255 122 142` | translucent P&L area fills |
+| `--danger-ink` | `#fff` | `#2A0F14` | text on a **solid** `--danger` fill (`.btn2--live`) |
+| `--mode-paper` / `--mode-shadow` | `#8A5A0F` / `#3358B5` | `#E5A23D` / `#7FA8FF` | `.ck-chip.is-paper/.is-shadow`, sizing-hint text |
+| `--overlay` / `--overlay-strong` | `rgb(38 28 60 / .38–.45)` | `rgb(8 6 14 / .55–.62)` | modal/scan-overlay backdrops |
+| `--chart-crosshair`, `--chart-tick`, `--chart-breakeven-line/-label` | ink-based, light alpha | light-ink-based, matching alpha | Chart.js/canvas-only chrome |
+| `--bg-hover`, `--bg-selected`, `--primary-soft/-border`, `--info-soft` | `rgb(var(--lg-violet-rgb) / X)` | same formula, `--lg-violet-rgb` already flips | hover/selected tints — **no dark override needed**, they ride the vendor accent |
+| `--success-soft/-border`, `--warning-soft/-border`, `--danger-soft/-border` | `color-mix(in srgb, var(--lg-success/-warning) X%, transparent)` | same formula, alpha raised slightly | soft semantic fills — ride `--lg-success/-warning`, which already flip |
+
+Two rows above are intentionally formula-based rather than hardcoded pairs: whatever already
+resolves through `--lg-violet-rgb` or `color-mix()` off a vendor semantic color needs no
+second dark literal, because the vendor token underneath already flips. New local tokens
+were only added where the value doesn't derive from anything the vendor already themes
+(hairlines, money, mode chips, overlays, chart-only chrome).
+
+### Contrast (WCAG 2.1, computed against each mode's own solid-glass surface)
+
+Solid-glass surface approximated by compositing `--lg-glass-solid` over the body mesh
+gradient (light ≈ `rgb(247 244 243)`, dark ≈ `rgb(30 26 45)`); ratios below use that
+composite, not the raw bare-background color.
+
+| Pair | Ratio | Needs |
+|---|---|---|
+| `--money-gain` light `#0A6B3C` on light solid glass | 6.04:1 | ≥4.5:1 ✓ |
+| `--money-loss` light `#A5122B` on light solid glass | 7.06:1 | ≥4.5:1 ✓ |
+| `--money-gain` dark `#4FDC9E` on dark solid glass | 9.75:1 | ≥4.5:1 ✓ |
+| `--money-loss` dark `#FF7A8E` on dark solid glass | 6.81:1 | ≥4.5:1 ✓ |
+| `--mode-paper` light `#8A5A0F` on light solid glass | 5.41:1 | ≥4.5:1 ✓ |
+| `--mode-shadow` light `#3358B5` on light solid glass | 6.00:1 | ≥4.5:1 ✓ |
+| `--mode-paper` dark `#E5A23D` on dark solid glass | 7.73:1 | ≥4.5:1 ✓ |
+| `--mode-shadow` dark `#7FA8FF` on dark solid glass | 7.23:1 | ≥4.5:1 ✓ |
+| white `#fff` on dark `--danger` fill `#FF7A8E` (`.btn2--live`, unfixed) | 2.49:1 | fails — why `--danger-ink` exists |
+| `--danger-ink` dark `#2A0F14` on `--danger` fill `#FF7A8E` | 7.16:1 | ≥4.5:1 ✓ |
+| `--lg-ink` dark `#F2EEFF` on dark solid glass | 14.91:1 | ≥4.5:1 ✓ |
+| `--lg-ink-muted` dark `#B8B0D0` on dark solid glass | 8.21:1 | ≥4.5:1 ✓ |
+| vendor `--lg-success` dark `#6FD3A0` / `--lg-error` dark `#F0899C` on dark solid glass | 9.29:1 / 7.08:1 | ≥4.5:1 ✓ (unchanged, vendor-owned) |
+
+Hairlines (`--border`/`--sep`/`--grid`/…) are decorative row/panel dividers, not the
+"UI component boundary" WCAG 1.4.11 targets with 3:1 (that's the vendored `--lg-edge`/
+`--lg-focus`, unchanged, upstream's responsibility) — their dark alphas were chosen to match
+the *same* low-contrast-by-design weight the shipped light hairlines already have (≈1.2–1.7:1
+against their own surface), not invented from scratch.
+
+### Charts
+
+Chart.js/canvas/inline-SVG code cannot read CSS custom properties, so every color that used
+to be a literal hex in `dashboard.html`'s `<script>` and `reports.html`'s SVG-string builder
+now goes through a small helper (`cssVar()` in dashboard.html, `themeColor()` in reports.html)
+that calls `getComputedStyle(document.documentElement).getPropertyValue(name).trim()` at
+**draw time** — never cached, so a redraw always picks up whatever theme is active then.
+`Chart.defaults.color`/grid/legend/gauge-zone/gauge-tick/crosshair/break-even colors, the
+equity/ticker/trades/price/factor chart series and fills, and the reports equity SVG (axis
+text, baseline, benchmark line, up/down stroke, legend) all route through it. On
+`stockbot:themechange`, dashboard.html re-applies `Chart.defaults` and re-runs `render(state.data)`
+— every `render*` function reads its colors fresh, so all charts and the Rohscore gauge
+repaint with the new theme without a page reload; reports.html keeps the last-drawn equity
+payload and redraws the same SVG with the new palette. The one exception left as a
+static server-rendered value: the 7-day sparkline in `app.html` — that's plain inline SVG
+with no JS driving it, so its stroke color moved from an inline `stroke="#hex"` attribute to
+a CSS class (`.spark-up`/`.spark-down`, `stroke:var(--money-gain)`), which **is** theme-aware
+because SVG presentation attributes lose to a CSS declaration — no JS needed for that one.
+
+### What stays fixed on purpose
+
+- **`--cat-1..6`** — the CVD-safe categorical palette. A data-encoding contract, not a
+  material; shifting it with the theme would break the accessibility guarantee it exists for.
+  Unchanged, and `tests/test_chart_palette_parity.py` still couples it to `chart_palette.py`.
+- **The iris hero tile** (`.card-hero`) and its white `rgb(255 255 255 / .5)` edge — the
+  vendored `--lg-iris-1/-2`/`--lg-pink`/`--lg-pink-rgb` tokens are not redefined in
+  `liquid-glass.css`'s dark blocks either, so the one colored gel surface in the view stays
+  the same vivid gradient in both modes; only the money figure sitting on its solid-glass
+  plate (`.card-hero .value`) needs — and gets — the mode's own money color.
+- **`stockbot/backtest/report.py`** (Matplotlib PNGs) and **`stockbot/core/chart_palette.py`**
+  — untouched, out of scope, and not theme-driven (server-rendered images, not the live app).
 
 ## Do's and Don'ts
 
@@ -186,21 +333,32 @@ the accessibility contract for distinguishing series and stays authoritative.
 
 - **Do** treat `/static/liquid-glass.css` as the source of truth; add local CSS for
   *composition* (grid, rows, KPIs) only, and pull every material from the vendored tokens.
-- **Do** use the darkened money pair (`#0A6B3C` / `#A5122B`) for P&L on any light or solid
-  surface; the vendored `--lg-success/--lg-error` are too light there.
+- **Do** use each mode's own money pair (`--money-gain`/`--money-loss`, light `#0A6B3C`/
+  `#A5122B`, dark `#4FDC9E`/`#FF7A8E`) for P&L on any solid surface; the vendored
+  `--lg-success/--lg-error` are tuned for status dots, not money text, in either mode.
 - **Do** keep exactly one iris surface per view (the P&L tile) and put its number on a
   solid-glass plate.
-- **Do** keep the CVD-safe `--cat-*` palette for multi-series charts as-is.
+- **Do** keep the CVD-safe `--cat-*` palette for multi-series charts as-is, identical in
+  both modes.
+- **Do** read Chart.js/canvas/SVG colors via `getComputedStyle` at draw time, never bake a
+  hex into JS/inline-SVG — canvas can't see CSS variables, so that's the only way a chart
+  follows the theme (see "Dark Mode · Charts").
 - **Do** write orthographically correct German for every user-visible string.
 
 ### Don't:
 
 - **Don't** roll or restyle the adopted world — it is pinned. Extend via named local tokens,
   never by re-tinting `--lg-*`.
-- **Don't** re-introduce the incumbent dark cockpit. The light world is global in
-  base.html (`data-theme="light"` + `lg-body` on every page). Only the shared header is
-  gated `active != 'dashboard'`, because the dashboard renders its own richer command bar
-  (`.ck-*`); every other page uses the base glass command bar (`.appbar`).
+- **Don't** re-introduce the incumbent **avionics** cockpit (the pre-migration dark theme).
+  Liquid Glass itself has a light *and* a dark mode — both are the adopted world; `lg-body`
+  is global on every page, `data-theme` just picks which of the vendored palettes is active
+  (see "Dark Mode"). Only the shared header is gated `active != 'dashboard'`, because the
+  dashboard renders its own richer command bar (`.ck-*`); every other page uses the base
+  glass command bar (`.appbar`).
+- **Don't** build a second theming mechanism next to `data-theme`/`prefers-color-scheme` —
+  extend the two-block dark pattern already used throughout (`@media` block for System +
+  `:root[data-theme="dark"]` for the explicit choice), matching how `liquid-glass.css`
+  itself does it.
 - **Don't** color a glass fill for status; the color belongs in the chip's dot.
 - **Don't** lay out many small glass tiles; hold dense data on one solid-glass surface.
 - **Don't** re-introduce a static "Kill-Switch" status chip on the dashboard. The comp

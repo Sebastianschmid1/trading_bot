@@ -33,7 +33,10 @@
 
 /* Live-Order: unverwechselbar, rot, „echtes Geld" — höchste Warnstufe */
 .btn2--live {
-  --btn-bg: var(--danger); --btn-fg: #fff; --btn-bd: var(--danger);
+  /* --danger-ink: eigenes Kontrast-Token statt hartem #fff — Money-Loss-Rot ist im
+     Dark Mode hell (#FF7A8E), weiße Schrift darauf fiele auf 2,5:1 (siehe DESIGN.md).
+     Fällt auf #fff zurück, falls die Variable fehlt (z. B. außerhalb von .lg-body). */
+  --btn-bg: var(--danger); --btn-fg: var(--danger-ink, #fff); --btn-bd: var(--danger);
   font-weight: 700; letter-spacing: .02em;
   box-shadow: 0 0 0 1px var(--danger-border), 0 6px 18px var(--danger-soft);
 }
