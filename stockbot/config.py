@@ -394,6 +394,15 @@ ALPACA_ENABLED    = bool(ALPACA_API_KEY and ALPACA_API_SECRET)
 # Erweiterte Handelszeiten (US Pre-/After-Market). Monitoring/Signal-Fenster nutzen dann
 # 4:00–20:00 ET statt 9:30–16:00 ET. yfinance-Extended-Daten sind dünn — Nutzen teilweise.
 EXTENDED_HOURS    = os.getenv("EXTENDED_HOURS", "true").strip().lower() in ("1", "true", "yes")
+# HTTP-Timeouts für alle Alpaca-Clients (Trading + Data, siehe broker/client.py::apply_http_timeout).
+# alpaca-py bietet dafür keinen Konstruktor-Parameter — ohne diese Werte blockiert ein hängender
+# Alpaca-Call (z. B. "request timed out") beliebig lange und lässt monitor_trades über sein
+# 60s-Job-Intervall laufen, wodurch der nächste Tick als "maximum number of running instances
+# reached" übersprungen wird (keine SL/TP-Überwachung in der Minute). 10s connect / 20s read
+# liegen deutlich unter den 60s, lassen einer normalen Antwort (gemessen: median 14s, p90 22s
+# für den gesamten monitor_trades-Lauf) aber genug Luft für einen einzelnen Broker-Call.
+ALPACA_CONNECT_TIMEOUT = float(os.getenv("ALPACA_CONNECT_TIMEOUT", "10"))
+ALPACA_READ_TIMEOUT    = float(os.getenv("ALPACA_READ_TIMEOUT", "20"))
 
 # ── Trading-Modus & globale Sicherheits-Flags (Phase 0 / TSAFE-001) ──────────
 # Globaler Kill-Switch gegen ungewollten Live-Handel. Diese Flags sind die EINZIGE Stelle,

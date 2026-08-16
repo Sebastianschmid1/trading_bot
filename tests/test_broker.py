@@ -9,6 +9,8 @@ Lauf:  python test_broker.py   oder   pytest test_broker.py
 import sys
 from types import SimpleNamespace
 
+import requests
+
 from stockbot.broker import client as broker
 from stockbot import config
 
@@ -372,6 +374,55 @@ def test_list_positions_maps_alpaca_dot_symbol_back_to_bot_hyphen():
 def test_get_position_maps_alpaca_dot_symbol_back_to_bot_hyphen():
     pos = broker.get_position("BRK-B", client=FakeClient())
     assert pos["symbol"] == "BRK-B"
+
+
+# ── BROKER-TIMEOUTS: hängende Alpaca-Calls dürfen den 60s-Job nicht sprengen ─
+#
+# Kontext: monitor_trades wurde am Live-VPS gelegentlich als "maximum number of running
+# instances reached" übersprungen — die Skips korrelierten exakt mit Alpaca-Timeouts
+# ("request timed out"), weil kein Alpaca-Client je ein HTTP-Timeout gesetzt hatte. Die
+# installierte alpaca-py-Version (RESTClient in alpaca/common/rest.py) hat dafür keinen
+# Konstruktor-Parameter — `apply_http_timeout()` tauscht stattdessen `_session` gegen eine
+# Session mit erzwungenem Default-Timeout aus.
+
+def test_make_client_attaches_timeout_session_with_configured_values():
+    c = broker.make_client("key", "secret", paper=True)
+    assert isinstance(c._session, broker._TimeoutSession)
+    assert c._session._default_timeout == (config.ALPACA_CONNECT_TIMEOUT, config.ALPACA_READ_TIMEOUT)
+
+
+def test_timeout_session_passes_configured_timeout_into_real_request_call(monkeypatch):
+    """Prüft die tatsächlich übergebene Konfiguration end-to-end: über den echten TradingClient
+    bis zum darunterliegenden `requests.Session.request()`-Aufruf — nicht nur, dass irgendwo eine
+    Konstante mit passendem Namen existiert."""
+    captured = {}
+
+    def fake_request(self, method, url, **kwargs):
+        captured.update(kwargs)
+        raise requests.exceptions.ReadTimeout("request timed out")
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    c = broker.make_client("key", "secret", paper=True)
+    try:
+        c.get_clock()
+    except requests.exceptions.ReadTimeout:
+        pass
+    assert captured.get("timeout") == (config.ALPACA_CONNECT_TIMEOUT, config.ALPACA_READ_TIMEOUT)
+
+
+def test_list_positions_timeout_is_fail_neutral_not_uncaught(monkeypatch, caplog):
+    """Ein Timeout beim Positionsabruf darf weiterhin nur zu {ok:.., []} + Warnung führen
+    (bestehendes fail-neutrales Verhalten aus list_positions) — nicht zu einer neuen,
+    ungefangenen Exception."""
+    def _raise_timeout(self, *a, **kw):
+        raise requests.exceptions.ReadTimeout('{"code":N,"message":"request timed out"}')
+
+    monkeypatch.setattr(requests.Session, "request", _raise_timeout)
+    c = broker.make_client("key", "secret", paper=True)
+    with caplog.at_level("WARNING"):
+        result = broker.list_positions(client=c)
+    assert result == []
+    assert "Alpaca-Positionen nicht abrufbar" in caplog.text
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────

@@ -239,14 +239,14 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
         if not (api_key and api_secret):
             return None
         from alpaca.data.historical.stock import StockHistoricalDataClient
-        return StockHistoricalDataClient(api_key, api_secret)
+        return broker_client.apply_http_timeout(StockHistoricalDataClient(api_key, api_secret))
 
     @staticmethod
     def _build_ca_client(api_key, api_secret):
         if not (api_key and api_secret):
             return None
         from alpaca.data.historical.corporate_actions import CorporateActionsClient
-        return CorporateActionsClient(api_key, api_secret)
+        return broker_client.apply_http_timeout(CorporateActionsClient(api_key, api_secret))
 
     def _require_data_client(self):
         if self._data_client is None:

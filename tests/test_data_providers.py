@@ -506,3 +506,23 @@ def test_alpaca_get_market_status_raises_without_trading_client():
         trading_client=None)
     with pytest.raises(RuntimeError):
         provider.get_market_status()
+
+
+# ── BROKER-TIMEOUTS: Marktdaten-/Corporate-Actions-Client bekommen dasselbe HTTP-Timeout ────
+#
+# Kein Dependency-Injection-Fake hier — bewusst die echten `_build_data_client`/`_build_ca_client`
+# durchlaufen (kein Netzwerkaufruf beim Konstruieren), damit geprüft wird, was tatsächlich an den
+# echten alpaca-py-Client übergeben wird (siehe broker/client.py::apply_http_timeout).
+
+def test_alpaca_data_client_gets_timeout_session():
+    provider = dp.AlpacaPaperMarketDataProvider(api_key="key", api_secret="secret")
+    assert isinstance(provider._data_client._session, dp.broker_client._TimeoutSession)
+    assert provider._data_client._session._default_timeout == (
+        dp.config.ALPACA_CONNECT_TIMEOUT, dp.config.ALPACA_READ_TIMEOUT)
+
+
+def test_alpaca_corporate_actions_client_gets_timeout_session():
+    provider = dp.AlpacaPaperMarketDataProvider(api_key="key", api_secret="secret")
+    assert isinstance(provider._ca_client._session, dp.broker_client._TimeoutSession)
+    assert provider._ca_client._session._default_timeout == (
+        dp.config.ALPACA_CONNECT_TIMEOUT, dp.config.ALPACA_READ_TIMEOUT)
