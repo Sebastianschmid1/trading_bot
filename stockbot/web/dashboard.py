@@ -421,15 +421,11 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
 # ── Routen ──────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    return (
-        "<html><body style='font-family:sans-serif;background:#0f1420;color:#e6e6e6;"
-        "padding:2rem'><h2>📈 Stock Signal Bot</h2>"
-        "<p><a href='/login' style='color:#4f8cff'>➡️ Zur Web-App anmelden</a> "
-        "(Signale annehmen, Einstellungen, Watchlist).</p>"
-        "<p>Oder öffne deinen persönlichen Dashboard-Link über <code>/dashboard</code> im Telegram-Bot.</p>"
-        "</body></html>"
-    )
+def index(request: Request):
+    """Öffentliche Startseite — kein hartkodiertes HTML mehr, sondern eine echte Seite auf
+    base.html (Liquid Glass, Theme-fähig). Kein Telegram-Jargon: ein Web-Kunde landet hier
+    ohne den Bot zu kennen (§UI-ONBOARDING/Befund 1)."""
+    return templates.TemplateResponse(request, "index.html", {"user": None, "active": ""})
 
 
 @app.get("/dashboard/{token}", response_class=HTMLResponse)
