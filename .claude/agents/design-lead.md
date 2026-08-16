@@ -68,7 +68,18 @@ Sichtprüfung **wie weit** — wenn du schaust, gehst du **vollständig** durch:
 
 Protokoll:
 
-1. App lokal starten (`stockbot/web/dashboard.py`, SQLite-Modus), Seed-Daten laden (siehe unten).
+1. Demo-Daten und App starten — beides liegt fertig bereit:
+   ```
+   KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+   PYTHONPATH=. DB_BACKEND=sqlite ENCRYPTION_KEY=$KEY python tools/seed_design_data.py
+   PYTHONPATH=. DB_BACKEND=sqlite ENCRYPTION_KEY=$KEY python tools/run_design_preview.py --port 8011
+   ```
+   Das Seed-Skript gibt einen Token-Link aus — damit anmelden, sonst siehst du nur `/login`.
+   Die echten Routen (Vorsicht, alles hängt unter `/app`, nicht auf der Wurzel):
+   ```
+   /                /app              /app/dashboard    /app/history    /app/reports
+   /app/settings    /app/watchlist    /app/backtest     /app/lab        /login
+   ```
 2. Je Seite/Theme/Breite eine Aufnahme. Auffälligkeiten zusätzlich im Detail.
 3. Kontraste **rechnen**, nicht schätzen — Textfarbe gegen tatsächlichen Hintergrund, Zahl im
    Report. „Sieht kontrastreich aus" ist kein Befund.
