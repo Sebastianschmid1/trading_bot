@@ -114,7 +114,7 @@ Bestehendes Schema (`users`, `trades`, `trade_ticks`) bleibt unverändert → ke
 ## 10. Tech-Stack-Empfehlung (v1, schlank halten)
 - **Backend:** FastAPI (schon vorhanden) — Endpunkte unter `/api/...`, Auth-Middleware, SSE.
 - **Frontend:** Bewusst minimal für v1 — **server-gerendert (Jinja2-Templates) + etwas HTMX/Alpine.js**
-  statt schwergewichtiger SPA. Das vorhandene [dashboard.html](../stockbot/web/static/dashboard.html) +
+  statt schwergewichtiger SPA. Das vorhandene [dashboard.html](../stockbot/web/templates/dashboard.html) +
   Chart.js wird wiederverwendet. (SPA mit React/Vue erst, wenn nötig.)
 - **Deployment:** die Website wird vom selben Server wie das Dashboard ausgeliefert (`run_dashboard.py`
   bzw. `RUN_DASHBOARD_IN_BOT=true`) hinter HTTPS-Reverse-Proxy; Bot-Dienst läuft parallel auf derselben
