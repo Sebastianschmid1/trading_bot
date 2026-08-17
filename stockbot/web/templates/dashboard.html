@@ -163,8 +163,16 @@
     .panel-head h2 { font-size:var(--lg-size-title); font-weight:600; letter-spacing:-.01em; margin:0;
                      display:flex; align-items:center; gap:.45rem; flex:1; color:var(--lg-ink); }
     /* .caret ist jetzt ein <button> (eigener Tastatur-Stop zum Auf-/Zuklappen) —
-       Button-Chrome zurückgesetzt, sichtbarer Wert (Farbe/Größe/Drehung) unverändert. */
-    .panel-head .caret { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+       Button-Chrome zurückgesetzt, sichtbarer Wert (Farbe/Größe/Drehung) unverändert.
+       Treffer-/Fokusfläche per Padding auf ≥44×44px angehoben (WCAG 2.5.5): das
+       sichtbare Glyphen-Feld bleibt fest .8rem×.8rem (12,8×12,8px), Padding legt
+       ringsum 16px drauf (⇒ 44,8×44,8px Border-Box), ein gleich großes negatives
+       Margin zieht die Layout-Box (das, was der Flex-Zeile für ihre Höhe zählt)
+       exakt auf die alte 12,8×12,8px zurück — die Kopfzeile wird dadurch NICHT
+       höher, sie bleibt von h2 (Titelschrift, deutlich größer) bestimmt. */
+    .panel-head .caret { background:none; border:0; -webkit-appearance:none; appearance:none;
+                          display:inline-flex; align-items:center; justify-content:center;
+                          width:.8rem; height:.8rem; padding:16px; margin:-16px;
                           color:var(--lg-ink-muted); transition:transform .2s; font-size:.8rem; cursor:pointer; line-height:1; }
     .panel.collapsed .caret { transform:rotate(-90deg); }
     .panel-body { padding:8px 20px 20px; }
