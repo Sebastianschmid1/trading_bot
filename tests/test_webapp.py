@@ -1134,6 +1134,27 @@ def test_admin_only_action_returns_styled_html_403_for_browser():
     assert "Nur der Admin darf das Labor starten." in r.text   # sachlicher Originalgrund bleibt sichtbar
 
 
+def test_error_page_has_no_inline_style_attributes():
+    """Befund: error.html trug Inline-style="..." statt Utility-Klassen (card2--narrow/
+    --center, btn-row--center) aus components.css."""
+    fresh()
+    c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+    r = c.get("/gibtesnicht")
+    assert r.status_code == 404
+    assert 'style="' not in r.text
+    assert "card2--narrow" in r.text and "card2--center" in r.text
+    assert "btn-row btn-row--center" in r.text
+
+
+def test_index_page_has_no_inline_style_attributes():
+    fresh()
+    r = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app).get("/")
+    assert r.status_code == 200
+    assert 'style="' not in r.text
+    assert "card2--narrow" in r.text and "card2--center" not in r.text   # Prosa bleibt linksbündig
+    assert "btn-row" in r.text
+
+
 def test_api_routes_keep_raw_json_on_404_and_403():
     """§UI-ONBOARDING/Befund 2 AC: `/api/...` darf sich durch die neuen Fehlerseiten NICHT
     ändern — weder die Token-API dieser App noch api_v1 (RBAC/Idempotency-Tests hängen davon
