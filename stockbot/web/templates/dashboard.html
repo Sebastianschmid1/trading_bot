@@ -98,8 +98,11 @@
     #error { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-error);
              color:var(--status-ink-error); padding:.9rem 1rem;
              border-radius:var(--lg-r-md); margin-bottom:1rem; box-shadow:var(--lg-cast-1); }
+    /* --mode-paper ist laut DESIGN.md eine Trade-Modus-Chip-Punktfarbe, keine
+       Fließtextfarbe — für Fließtext gibt es --tone-warning-fg (≥4.5:1 auf
+       Solid-Glas in beiden Modi, siehe DESIGN.md „Kontrast-Härtung"). */
     #sizing-hint { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-warning);
-                   color:var(--mode-paper); padding:.8rem 1rem;
+                   color:var(--tone-warning-fg); padding:.8rem 1rem;
                    border-radius:var(--lg-r-md); margin-bottom:20px; box-shadow:var(--lg-cast-1); }
 
     /* ── KPI-Kacheln: Glas, EINE Iris-Fläche (card-hero) ────────────────── */
