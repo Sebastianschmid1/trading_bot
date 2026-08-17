@@ -46,3 +46,55 @@
   </div>
 {%- endmacro %}
 
+{# ── Warte-Dialog (Befund „Formular startet spürbar langen POST ohne Rückmeldung") ──
+   Natives <dialog> (Fokus geht beim Öffnen automatisch hinein, Escape schließt nativ)
+   statt eines reinen Sperr-Divs. role="status" macht den Wartetext zur Live-Region —
+   Screenreader erfahren, dass etwas läuft und wann sich der Text ändert. Ein hängender
+   Vorgang (kein Seitenwechsel innerhalb von timeout_ms) endet in einem sichtbaren
+   Fehlerzweig mit Schließen-Button statt einer Endlosanzeige. Extrahiert aus app.html
+   (Scan-Overlay), damit der Timeout-Zweig (Sicherheitsverhalten) nicht in mehreren
+   Kopien auseinanderdriftet — jeder Aufrufer bindet nur id/form_id/Texte. #}
+{% macro wait_dialog(id, form_id, title, message, timeout_message,
+                     timeout_ms=90000, close_label='Schließen') -%}
+<dialog id="{{ id }}" class="wait-dialog" aria-labelledby="{{ id }}Title">
+  <div class="card" style="max-width:340px">
+    <div style="font-size:1.6rem; margin-bottom:.4rem" aria-hidden="true">⏳</div>
+    <strong id="{{ id }}Title">{{ title }}</strong>
+    <p class="muted" id="{{ id }}Msg" role="status" style="margin:.5rem 0 0">{{ message }}</p>
+    <button type="button" id="{{ id }}Close" class="btn2 btn2--secondary" style="display:none; margin-top:.8rem">{{ close_label }}</button>
+  </div>
+</dialog>
+<script>
+// Warte-Dialog als natives <dialog>: showModal() beim Formular-Submit. Timeout-Zweig
+// gegen einen hängenden Vorgang: bleibt der Seitenwechsel (normaler POST/Redirect)
+// länger als TIMEOUT_MS aus, zeigt der Dialog einen Fehlertext + Schließen-Button
+// statt endlos zu warten.
+(function () {
+  var dlg = document.getElementById("{{ id }}");
+  var form = document.getElementById("{{ form_id }}");
+  var msg = document.getElementById("{{ id }}Msg");
+  var closeBtn = document.getElementById("{{ id }}Close");
+  if (!dlg || !form || !msg || !closeBtn) return;
+  var DEFAULT_MSG = msg.textContent;
+  var TIMEOUT_MS = {{ timeout_ms }};
+  var timer = null;
+  form.addEventListener("submit", function () {
+    dlg.style.display = "";     // eventuellen Altzustand durch showModal() ersetzen lassen
+    closeBtn.style.display = "none";
+    msg.textContent = DEFAULT_MSG;
+    if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      msg.textContent = {{ timeout_message|tojson }};
+      closeBtn.style.display = "";
+      closeBtn.focus();
+    }, TIMEOUT_MS);
+  });
+  closeBtn.addEventListener("click", function () { clearTimeout(timer); dlg.close(); });
+  dlg.addEventListener("close", function () { clearTimeout(timer); });
+  // bfcache: per Zurück-Taste zurückkehren darf keinen offen hängenden Sperr-Dialog zeigen.
+  window.addEventListener("pageshow", function (e) { if (e.persisted && dlg.open) dlg.close(); });
+})();
+</script>
+{%- endmacro %}
+

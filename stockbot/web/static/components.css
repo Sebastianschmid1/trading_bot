@@ -192,3 +192,10 @@
 /* Live-Bestätigung: roter Rahmen + Warnbanner */
 .dialog2--live { border-color: var(--danger); }
 .dialog2--live .dialog2__title { color: var(--danger); }
+
+/* ── Warte-Dialog (components.html#wait_dialog) ──────────────────────────
+   Trägt selbst keine Karten-Optik — der Inhalt liefert sein eigenes .card,
+   das <dialog> ist nur der native Fokus-/Escape-/Backdrop-Container.
+   --overlay-strong ist in base.html definiert. */
+.wait-dialog { background: transparent; border: 0; padding: 0; max-width: calc(100vw - 2rem); }
+.wait-dialog::backdrop { background: var(--overlay-strong); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }

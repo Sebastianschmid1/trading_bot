@@ -483,6 +483,65 @@ def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):
     assert "Take-Profit" in portfolio.text
 
 
+def test_backtest_form_ships_wait_dialog_for_the_slow_post():
+    # Befund „Formular startet spürbar langen POST ohne jede Rückmeldung" — der Warte-Dialog
+    # (components.html#wait_dialog) muss verdrahtet sein, bevor überhaupt ein Ergebnis da ist.
+    fresh()
+    r = _client().get("/app/backtest")
+    assert r.status_code == 200
+    assert 'id="backtestForm"' in r.text
+    assert 'id="btOverlay"' in r.text
+    assert 'class="wait-dialog"' in r.text
+    assert "Backtest läuft" in r.text
+
+
+def test_backtest_trades_table_notes_the_25_row_cap_with_true_total(monkeypatch):
+    # 1b: N kommt aus result.trades|length, NICHT aus result.metrics.trades (getrennt berechnet).
+    fresh()
+    c = _client()
+    trades = [{"ticker": "AAPL", "entry_date": "2024-01-01", "exit_date": "2024-01-02",
+               "pnl_pct": 1.0, "pnl_eur": 1.0, "reason": "Take-Profit"} for _ in range(30)]
+    monkeypatch.setattr(
+        backtest_engine, "run_backtest",
+        lambda *args, **kwargs: {
+            "label": "Single", "n_tickers": 1, "years": 1,
+            "metrics": {"trades": 999, "profit_factor": 1.2, "win_rate": 55.0,
+                        "total_pnl_eur": 30.0, "max_drawdown_pct": 2.0, "avg_win": 1.0, "avg_loss": -1.0},
+            "trades": trades,
+        })
+    r = c.post("/app/backtest", data={
+        "mode": "single", "strategy": "high52_wide", "tickers": "AAPL", "years": "1",
+        "trade_size": "100.0", "top_n": "10", "leverage": "1.0", "max_concurrent": "10",
+        "max_hold": "20", "q": "",
+    })
+    assert r.status_code == 200
+    assert "Zeigt die ersten 25 von 30 Trades." in r.text
+    assert "aus allen 30 Trades berechnet" in r.text
+    assert r.text.count("Take-Profit") == 25          # Tabelle bleibt auf 25 Zeilen gekappt
+
+
+def test_backtest_shows_empty_state_for_zero_trades(monkeypatch):
+    # 1c: kein Fehler, kein leeres Loch — erklärender Text statt einer leeren/fehlenden Karte.
+    fresh()
+    c = _client()
+    monkeypatch.setattr(
+        backtest_engine, "run_backtest",
+        lambda *args, **kwargs: {
+            "label": "Single", "n_tickers": 1, "years": 1,
+            "metrics": {"trades": 0, "profit_factor": None, "win_rate": None,
+                        "total_pnl_eur": None, "max_drawdown_pct": None, "avg_win": None, "avg_loss": None},
+            "trades": [],
+        })
+    r = c.post("/app/backtest", data={
+        "mode": "single", "strategy": "high52_wide", "tickers": "AAPL", "years": "1",
+        "trade_size": "100.0", "top_n": "10", "leverage": "1.0", "max_concurrent": "10",
+        "max_hold": "20", "q": "",
+    })
+    assert r.status_code == 200
+    assert "Keine Trades in diesem Zeitraum" in r.text
+    assert "<table>" not in r.text.split("<h2>Trades</h2>")[1]
+
+
 # ── Einstellungen & Watchlist ───────────────────────────────────────────────
 
 def test_settings_and_notify_channel_via_web():
