@@ -255,7 +255,7 @@ aliases of `--money-loss`/`--money-gain` for old call sites, so they flip for fr
 | `--money-gain` / `--money-loss` | `#0A6B3C` / `#A5122B` | `#4FDC9E` / `#FF7A8E` | P&L text, bars, equity stroke |
 | `--money-gain-rgb` / `--money-loss-rgb` | `10 107 60` / `165 18 43` | `79 220 158` / `255 122 142` | translucent P&L area fills |
 | `--danger-ink` | `#fff` | `#2A0F14` | text on a **solid** `--danger` fill (`.btn2--live`) |
-| `--mode-paper` / `--mode-shadow` | `#8A5A0F` / `#3358B5` | `#E5A23D` / `#7FA8FF` | `.ck-chip.is-paper/.is-shadow`, sizing-hint text |
+| `--mode-paper` / `--mode-shadow` | `#8A5A0F` / `#3358B5` | `#E5A23D` / `#7FA8FF` | `.ck-chip.is-paper/.is-shadow` (Chip-Punktfarbe, KEIN Fließtext — siehe `--tone-warning-fg` unten für `#sizing-hint`) |
 | `--overlay` / `--overlay-strong` | `rgb(38 28 60 / .38–.45)` | `rgb(8 6 14 / .55–.62)` | modal/scan-overlay backdrops |
 | `--chart-crosshair`, `--chart-tick`, `--chart-breakeven-line/-label` | ink-based, light alpha | light-ink-based, matching alpha | Chart.js/canvas-only chrome |
 | `--bg-hover`, `--bg-selected`, `--primary-soft/-border`, `--info-soft` | `rgb(var(--lg-violet-rgb) / X)` | same formula, `--lg-violet-rgb` already flips | hover/selected tints — **no dark override needed**, they ride the vendor accent |
@@ -406,7 +406,7 @@ degrade sensibly if ever used outside `.lg-body`.
 | Token | Light | Dark | Used for |
 |---|---|---|---|
 | `--badge-teal-ink` | `var(--lg-ink-on-teal)` (unchanged) | `var(--lg-teal)` | `.dir.long`, `.badge` (teal-tinted pill text) |
-| `--tone-warning-bg` / `-fg` | `#F5E6C8` / `#6B430A` | `#4A3416` / `#FFD699` | `.mode-badge--paper`, `.chip--caution` |
+| `--tone-warning-bg` / `-fg` | `#F5E6C8` / `#6B430A` | `#4A3416` / `#FFD699` | `.mode-badge--paper`, `.chip--caution`; `-fg` allein (ohne `-bg`) auch als Textfarbe von `#sizing-hint` (dashboard.html) auf `--lg-glass-solid` — 7.42:1 Light / 11.90:1 Dark am schlechtesten Mesh-Punkt (`.panel`-Methodik) |
 | `--tone-violet-bg` / `-fg` | `#ECE6FB` / `#443592` | `#322A54` / `#D8CCFB` | `.mode-badge--shadow` |
 | `--tone-indigo-bg` / `-fg` | `#E7E4FE` / `#3F3AAE` | `#2E2B57` / `#CFCBFF` | `.mode-badge--backtest` |
 | `--tone-success-bg` / `-fg` | `#DCEEE4` / `#146C43` | `#1B3A2C` / `#8CE6BB` | `.chip--go` |
