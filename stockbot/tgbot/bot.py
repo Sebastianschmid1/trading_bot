@@ -31,7 +31,7 @@ from telegram.ext import (
 
 from stockbot.core import db
 from stockbot.core import exchange_calendar
-from stockbot.core.glossary import broker_status_label  # §32.9: geteiltes Web↔Telegram-Glossar
+from stockbot.core.glossary import broker_status_label, BROKER_CURRENCY_NOTE  # §32.9: geteiltes Web↔Telegram-Glossar
 from stockbot.market import asset_classes
 from stockbot.market import universes
 from stockbot.market import smartmoney
@@ -470,7 +470,7 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
         f"━━━━━━━━━━━━━━━━━━\n"
         f"{risk_block}"
         f"{lev_block}"
-        f"💶 Demo-Trade: *{trade_size_eur:.0f}€ {direction.upper()}*\n"
+        f"💵 Demo-Trade: *{trade_size_eur:.0f}$ {direction.upper()}*\n"
         f"{footer}"
     )
     return text, keyboard
@@ -538,7 +538,9 @@ async def _ensure_buying_power_for_bot(bot: Bot, chat_id: int, ticker: str, clie
 async def _maybe_broker_order(bot: Bot, chat_id: int, trade: dict):
     """Sendet (falls für den Nutzer aktiviert) eine echte ALPACA-(Paper-)Order zum gerade
     aktivierten Trade und bestätigt erst nach der tatsächlichen Ausführung (Fill).
-    Größe = Trade-Größe × Hebel (Demo: € ≈ USD). Best-effort: scheitert nie hart."""
+    Größe = Trade-Größe × Hebel. agent/CURRENCY-HONEST: `trade_size_eur` ist historisch
+    "eur"-benannt, ist aber tatsächlich USD (Alpaca liefert nur USD, keine Umrechnung im
+    Repo) — keine Näherung, sondern derselbe Wert. Best-effort: scheitert nie hart."""
     if not trade:
         return
     user = db.get_user(chat_id)
@@ -1107,7 +1109,7 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
             f"📋 *Tagesauswertung Demo-Trades*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"✅ Gewinner: {winners} | ❌ Verlierer: {losers}\n"
-            f"{pnl_emoji} Gesamt P&L: *{'+' if total_pnl >= 0 else ''}{total_pnl:.2f}€*\n"
+            f"{pnl_emoji} Gesamt P&L: *{'+' if total_pnl >= 0 else ''}{total_pnl:.2f}$*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
         )
 
@@ -1116,7 +1118,7 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
             emoji = "🟢" if r["pnl_eur"] > 0 else ("🔴" if r["pnl_eur"] < 0 else "⚪")
             summary += (
                 f"{emoji} *{r['ticker']}*: Einstieg ${r['entry']:.2f} → Ausstieg ${r['exit']:.2f} "
-                f"| {pnl_sign}{r['pnl_pct']:.1f}% ({pnl_sign}{r['pnl_eur']:.2f}€)\n"
+                f"| {pnl_sign}{r['pnl_pct']:.1f}% ({pnl_sign}{r['pnl_eur']:.2f}$)\n"
                 f"    └ {r.get('exit_reason', 'Schlusskurs')}\n"
             )
 
@@ -1125,9 +1127,9 @@ async def close_and_evaluate(context: ContextTypes.DEFAULT_TYPE):
         await bot.send_message(chat_id=chat_id, text=summary, parse_mode="Markdown")
         notify_svc.notify(
             chat_id, "📋 Tagesauswertung",
-            f"{winners} Gewinner, {losers} Verlierer · Gesamt {'+' if total_pnl >= 0 else ''}{total_pnl:.2f}€",
+            f"{winners} Gewinner, {losers} Verlierer · Gesamt {'+' if total_pnl >= 0 else ''}{total_pnl:.2f}$",
             type="evaluation", user=u)
-        log.info(f"[{chat_id}] Auswertung abgeschlossen. Gesamt P&L: {total_pnl:.2f}€")
+        log.info(f"[{chat_id}] Auswertung abgeschlossen. Gesamt P&L: {total_pnl:.2f}$")
         await asyncio.sleep(0.5)
 
 
@@ -1174,10 +1176,10 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
 
     total = sum(pe for _, _, _, pe, _ in sold)
     tsign = "+" if total >= 0 else ""
-    lines.append(f"🔴 *Verkauft ({len(sold)})*" + (f" · Gesamt {tsign}{total:.2f}€" if sold else ""))
+    lines.append(f"🔴 *Verkauft ({len(sold)})*" + (f" · Gesamt {tsign}{total:.2f}$" if sold else ""))
     for tk, en, ex, pe, pp in sold:
         s = "+" if pe >= 0 else ""
-        lines.append(f"  • {tk}: ${en:.2f} → ${ex:.2f} ({s}{pp:.1f}%, {s}{pe:.2f}€)")
+        lines.append(f"  • {tk}: ${en:.2f} → ${ex:.2f} ({s}{pp:.1f}%, {s}{pe:.2f}$)")
     if not sold:
         lines.append("  — keine")
 
@@ -1541,7 +1543,7 @@ async def monitor_orphan_broker_positions(bot: Bot, *, full: bool = False):
                 bot, user,
                 ("🔧 Einstieg korrigiert für übernommene Options-Trades: "
                  f"*{', '.join(healed)}*.\nBei diesen war die Options-Prämie fälschlich als "
-                 f"Aktienkurs hinterlegt (absurde Prozent-/€-Anzeige). Jetzt auf den echten "
+                 f"Aktienkurs hinterlegt (absurde Prozent-/$-Anzeige). Jetzt auf den echten "
                  f"Aktienkurs gesetzt."),
                 parse_mode="Markdown",
             )
@@ -1613,7 +1615,7 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                  f"Strategie-Rohscore ({_strategy_label(trade.get('signal', {}))}): "
                  f"Einstieg {_fmt_strength(trade.get('signal', {}).get('raw_score', trade.get('signal', {}).get('strength')))} → "
                  f"Ausstieg {_fmt_strength(strength)}  ·  "
-                 f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"),
+                 f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}$)"),
                 parse_mode="Markdown",
             )
             # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
@@ -1621,7 +1623,7 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                                       broker_symbol=reconcile_mod.bot_symbol(trade))
             # nach Auto-Close auch nachrücken (sofern manueller Modus)
             await refill_pending(context.bot, uid, user, context.job_queue)
-            log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}€")
+            log.info(f"[{uid}] Auto-Close {trade['ticker']} ({reason}) {sign}{pnl_eur:.2f}$")
 
 
 # ── Smart-Money: nächtlicher Scan (was große Trader handeln) ─────────────────
@@ -1860,7 +1862,7 @@ def _trade_card(trade: dict, trade_size_eur: float, current_strength=None,
         f"📈 Aktuell: ${current:.2f}\n"
         f"📶 Strategie-Rohscore ({strategy_label}): Einstieg {_fmt_strength(entry_strength)} → "
         f"jetzt {_fmt_strength(current_strength)} (keine Gewinnwahrscheinlichkeit)\n"
-        f"{emoji} Unrealisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)"
+        f"{emoji} Unrealisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}$)"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💰 Verkaufen",
@@ -1919,7 +1921,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     regions = _user_regions(user)
     await update.message.reply_text(
         "👤 *Dein Profil*\n"
-        f"💶 Demo-Trade-Größe: *{user['trade_size_eur']:.0f}€*\n"
+        f"💵 Demo-Trade-Größe: *{user['trade_size_eur']:.0f}$*\n"
         f"🌍 Markt-Körbe: *{' + '.join(REGION_LABELS.get(r, r) for r in regions)}*\n"
         f"🔢 Signale pro Tag: *{user.get('top_n_signals') or TOP_N_SIGNALS}*\n"
         f"🎯 SL/TP-Modus: *{user.get('sl_tp_mode') or DEFAULT_SL_TP_MODE}*\n"
@@ -1955,10 +1957,11 @@ def _settings_view(user: dict):
 
     text = (
         "⚙️ *Einstellungen* — zum Ändern unten antippen\n"
-        f"💶 Trade-Größe *{size:.0f}€*  ·  ⚡ Hebel *{lev:g}×*\n"
+        f"💵 Trade-Größe *{size:.0f}$*  ·  ⚡ Hebel *{lev:g}×*\n"
         f"🌍 Körbe *{' + '.join(REGION_LABELS.get(k, k) for k in region_keys)}*\n"
         f"🔢 Signale/Tag *{top_n}*  ·  🎯 SL/TP *{mode}*\n"
         f"🧠 Strategien *{', '.join(strategies.get(k).label for k in strat_keys)}*\n"
+        f"\n_{BROKER_CURRENCY_NOTE}_\n"
         "\n_Schalter: ✅ an/aktiv · ▫️ aus_"
     )
 
@@ -1967,7 +1970,7 @@ def _settings_view(user: dict):
         return InlineKeyboardButton(("✅ " if on else "▫️ ") + label,
                                     callback_data=f"{action}:{0 if on else 1}")
 
-    size_row = [InlineKeyboardButton(("✅ " if float(v) == float(size) else "") + f"{v:g}€",
+    size_row = [InlineKeyboardButton(("✅ " if float(v) == float(size) else "") + f"{v:g}$",
                                      callback_data=f"set_size:{v}")
                 for v in TRADE_SIZE_CHOICES]
     region_row = [InlineKeyboardButton(("✅ " if k in region_keys else "") + lbl, callback_data=f"set_region:{k}")
@@ -2009,7 +2012,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/tradesize <betrag> — Demo-Trade-Größe in € setzen (beliebiger Betrag)."""
+    """/tradesize <betrag> — Demo-Trade-Größe in $ setzen (beliebiger Betrag)."""
     chat_id = update.effective_chat.id
     user = _registered_user(chat_id)
     if not user:
@@ -2017,11 +2020,13 @@ async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not context.args:
         await update.message.reply_text(
-            f"💶 Aktuelle Demo-Trade-Größe: *{user['trade_size_eur']:.0f}€*\n"
+            f"💵 Aktuelle Demo-Trade-Größe: *{user['trade_size_eur']:.0f}$*\n"
             "Ändern mit z. B. `/tradesize 250` — oder Schnellauswahl in /settings.",
             parse_mode="Markdown")
         return
-    raw = context.args[0].strip().replace(",", ".").replace("€", "")
+    # agent/CURRENCY-HONEST: Anzeige nennt jetzt "$" statt "€" — Nutzer koennten das
+    # Symbol mittippen, deshalb wird neben "€" (Alttext/Copy-Paste) auch "$" entfernt.
+    raw = context.args[0].strip().replace(",", ".").replace("€", "").replace("$", "")
     try:
         val = float(raw)
         if val <= 0:
@@ -2031,7 +2036,7 @@ async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         parse_mode="Markdown")
         return
     saved = db.set_trade_size(chat_id, val)
-    await update.message.reply_text(f"✅ Demo-Trade-Größe gesetzt: *{saved:.0f}€*", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Demo-Trade-Größe gesetzt: *{saved:.0f}$*", parse_mode="Markdown")
 
 
 async def cmd_strategies(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2407,7 +2412,7 @@ HELP_TEXT = (
     "/start — Setup starten oder Status anzeigen\n"
     "/profile — Dein Profil ansehen (Trade-Größe, Markt, Broker, Status)\n"
     "/settings — Körbe, Trade-Größe & Anzahl Signale ändern\n"
-    "/tradesize <betrag> — Demo-Trade-Größe in € setzen (z. B. /tradesize 250)\n"
+    "/tradesize <betrag> — Demo-Trade-Größe in $ setzen (z. B. /tradesize 250)\n"
     "/website — Ein-Klick-Login zur Web-App (Signale, Einstellungen, Watchlist)\n"
     "/dashboard — Link zu deinem Web-Dashboard\n"
     "/signals — Aktuelle Signale jetzt live abrufen\n"
@@ -2585,7 +2590,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Strategie-Rohscore ({_strategy_label(result['trade'].get('signal', {}))}): "
                 f"Einstieg {_fmt_strength(result['entry_strength'])} → "
                 f"Ausstieg {_fmt_strength(result['exit_strength'])}  ·  "
-                f"Vorläufig: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
+                f"Vorläufig: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}$)",
                 parse_mode="Markdown"
             )
             await _maybe_broker_close_trade(context.bot, user, result["trade"],
@@ -2612,13 +2617,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Strategie-Rohscore ({_strategy_label(result['trade'].get('signal', {}))}): "
                 f"Einstieg {_fmt_strength(result['entry_strength'])} → "
                 f"Ausstieg {_fmt_strength(result['exit_strength'])}  ·  "
-                f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}€)",
+                f"Realisiert: {sign}{pnl_pct:.1f}% ({sign}{pnl_eur:.2f}$)",
                 parse_mode="Markdown"
             )
             # echte Alpaca-Position (falls vorhanden) mitschließen — bei Options der Kontrakt
             await _maybe_broker_close(context.bot, user, ticker,
                                       broker_symbol=reconcile_mod.bot_symbol(result["trade"]))
-            log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}€)")
+            log.info(f"[{chat_id}] Trade verkauft: {ticker} @ ${current:.2f} ({sign}{pnl_eur:.2f}$)")
 
     elif action in settings_svc.SETTING_ACTIONS:
         # 'ticker' trägt hier den Wert der Aktion (Korb-Key / Zahl / "1"/"0" …)
