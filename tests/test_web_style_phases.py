@@ -349,6 +349,37 @@ def test_kill_switch_shows_state_chip_and_reason_field():
     assert "Grund (wird protokolliert)" in text
 
 
+# ── agent/UI-HARDENING-2: Chart.js lokal statt CDN ───────────────────────────
+
+def test_dashboard_loads_chartjs_locally_not_from_cdn():
+    text = _client().get("/app/dashboard").text
+    assert "cdn.jsdelivr.net" not in text
+    assert '<script src="/static/chart.umd.js"></script>' in text
+    # Muss VOR dem großen Inline-Skript stehen, damit `Chart` beim Parsen schon da ist.
+    assert text.index('/static/chart.umd.js') < text.index("applyChartTheme")
+
+
+def test_no_jsdelivr_references_left_in_web_templates():
+    templates_dir = Path("stockbot/web/templates")
+    offenders = [str(f) for f in templates_dir.glob("*.html")
+                 if "jsdelivr" in f.read_text(encoding="utf-8")]
+    assert not offenders, f"jsdelivr-Referenzen in Templates gefunden: {offenders}"
+
+
+def test_csp_keeps_jsdelivr_only_because_the_legacy_static_dashboard_still_needs_it():
+    """`grep -rn jsdelivr stockbot/` darf den CSP-Eintrag nur behalten, solange
+    wirklich noch etwas von dort lädt. Aktuell ist das ausschließlich die
+    Legacy-Seite stockbot/web/static/dashboard.html (außerhalb dieses Tasks) — wird
+    sie migriert, MUSS dieser Test angepasst und der CSP-Eintrag entfernt werden."""
+    dashboard_py = Path("stockbot/web/dashboard.py").read_text(encoding="utf-8")
+    assert "https://cdn.jsdelivr.net" in dashboard_py       # (noch) absichtlich vorhanden
+    legacy_static = Path("stockbot/web/static/dashboard.html")
+    assert legacy_static.exists()
+    assert "cdn.jsdelivr.net" in legacy_static.read_text(encoding="utf-8"), (
+        "Legacy-Seite laedt kein Chart.js mehr vom CDN — CSP-Eintrag jsdelivr jetzt entfernen"
+    )
+
+
 # ── W3.4 / RES-002: Modus-Report-Panel ───────────────────────────────────────
 
 def test_dashboard_renders_mode_report_panel_from_existing_json():
