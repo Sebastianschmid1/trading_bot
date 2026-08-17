@@ -490,3 +490,103 @@ consequences** instead of stating them in the surrounding prose:
 
 The kill-switch toggle and the dashboard-link-rotate `confirm()` in `settings.html` were left
 untouched — out of scope (no money movement, not among the three named blockers).
+
+## Kontrast-Härtung: Fließtext auf dichten Flächen (agent/UI-READABLE-GROUND)
+
+A binding design review found one blocker plus two related findings — same root cause: body
+text sitting on a background whose contrast isn't predictable, either because the surface
+itself is translucent (`.panel`) or because there is no surface at all (bare page ground under
+`main`). `liquid-glass.css:303` states the rule the codebase had one exception to: *"Flaechen,
+die Fliesstext tragen, sind deutlich dichter — sonst laeuft der Grund durch die Schrift und der
+Kontrast ist nicht mehr vorhersagbar."* The vendored file is unchanged; the fix is either
+routing the affected spot onto the existing `--lg-glass-solid` recipe (already used by `.card`,
+`.table-scroll`, `dialog#modal`, `.ck-chip`, `.pill`, `.tab`) or, where there genuinely is no
+surface to move onto, a new local, opaque token — same pattern as `--money-gain`/`--money-loss`
+and the `--tone-*`/`--status-ink-*` pairs above.
+
+`body.lg-body`'s mesh background is `background-attachment: fixed` (viewport-anchored), so a
+panel's composite background changes as the page scrolls underneath it — every ratio below is
+therefore checked against **all four** mesh stops (`--lg-bg-1..4`), not just the best case, and
+the worst stop is called out explicitly.
+
+### Blocker: `.panel` (dashboard.html)
+
+Before, `.panel` used the three-stop translucent gradient (`--lg-glass-hi .38` →
+`--lg-glass .16` → `--lg-glass-lo .10`) meant for *decorative* glass, not text-bearing glass.
+`.desc`/`.empty`/the `replaceCanvas` chart-failure message all sit on it in `--lg-ink-muted`.
+
+| Mesh point | Light: before (composite, worst stop) | Light: after | Dark: before (composite, worst stop) | Dark: after |
+|---|---|---|---|---|
+| `--lg-bg-1` | bottom `rgb(244,232,222)` → **7.25:1** | `rgb(253,250,248)` → **8.40:1** | top `rgb(90,84,108)` (worst overall) → **3.48:1** ❌ | `rgb(34,29,49)` → **7.89:1** |
+| `--lg-bg-2` | bottom `rgb(224,208,202)` → **5.84:1** | `rgb(249,246,244)` → **8.11:1** | top `rgb(73,68,86)` → **4.53:1** | `rgb(30,25,44)` → **8.26:1** |
+| `--lg-bg-3` | bottom `rgb(178,166,166)` (worst overall) → **3.70:1** ❌ | `rgb(240,237,237)` → **7.50:1** ✓ | top `rgb(58,55,67)` → **5.62:1** | `rgb(27,23,40)` → **8.47:1** ✓ |
+| `--lg-bg-4` | bottom `rgb(206,191,186)` → **4.90:1** | `rgb(245,242,241)` → **7.84:1** | top `rgb(76,70,95)` → **4.33:1** ❌ | `rgb(31,26,46)` → **8.16:1** |
+
+("Before" picks whichever of the gradient's three stops (`.38`/`.16`/`.10` light,
+`.16`/`.07`/`.04` dark) is worst at that mesh point — the gradient sweeps through all three
+over the panel's height, so every stop is a real on-screen position, not a hypothetical. Light's
+worst stop is uniformly the bottom edge (`--lg-glass-lo .10`, thinnest wash); Dark's worst stop
+is uniformly the top edge (`--lg-glass-hi .16`, paradoxically the *most* opaque stop, because in
+Dark Mode the overlay is white-tinted and lightens a dark mesh toward mid-grey, which is worse
+for the light Dark-Mode ink than staying close to the mesh's own near-black value). Overall
+worst point: **Light `--lg-bg-3`, bottom edge → 3.70:1**; **Dark `--lg-bg-1`, top edge →
+3.48:1** — both below the 4.5:1 floor, confirming the review's own measurements (3.69 / 3.49).
+
+**Fix chosen: the preferred path** — `.panel` now uses `background:var(--lg-glass-solid)` +
+`border-color:var(--lg-edge-soft)`, i.e. the same recipe `liquid-glass.css`'s own
+`.lg-glass--solid`/`.lg-card--solid` apply (radius/shadow are unchanged, still `--lg-r-xl` /
+`--lg-cast-3`, per the surrounding `.lg-panel` sizing — only the fill and border color move to
+the solid variant). This was possible without any visible-design cost (no fallback to raising
+`.desc`/`.empty` to `--lg-ink` was needed): `≥7.50:1` in both themes at the worst mesh point,
+comfortably above the 4.5:1 floor with headroom for the blur/saturate filter's minor color
+shift. `.desc`/`.empty` keep `--lg-ink-muted` unchanged — the surface moved, not the ink.
+
+### Related 1: `--lg-ink-muted` on the bare page ground
+
+`main` has no surface of its own; `.muted` (base.html, used across every template) and two
+page-local rules with the same shape — `.filters legend` (`reports.html`) and `.note`
+(`lab.html`, only its one out-of-card instance, "So arbeitet das Labor…") — sit directly on the
+mesh in `--lg-ink-muted`.
+
+| Mesh point | Light: `--lg-ink-muted` (before) | Light: `--ink-muted-ground` (after) | Dark: `--lg-ink-muted` |
+|---|---|---|---|
+| `--lg-bg-1` | **7.13:1** | **9.59:1** | **5.72:1** ✓ (dark unchanged, already passing) |
+| `--lg-bg-2` | **5.58:1** | **7.51:1** | **7.57:1** ✓ |
+| `--lg-bg-3` (worst) | **3.29:1** ❌ | **4.93:1** ✓ | **8.99:1** ✓ |
+| `--lg-bg-4` | **4.55:1** (borderline) | **6.13:1** | **7.19:1** ✓ |
+
+**Decision: raise the text color, not move the paragraphs onto glass.** Wrapping every
+`.muted` paragraph across `settings.html`/`reports.html`/`lab.html` in a card would be the
+larger, more invasive change (layout, not just a token) for text whose whole point is to read
+as *inline*, lower-emphasis prose next to un-muted siblings — moving it onto its own glass
+plate would visually promote it, the opposite of "muted". A new local token
+(`--ink-muted-ground: #332E40` light, `= var(--lg-ink-muted)` dark — dark already clears 4.5:1
+at every mesh stop, so no change needed there) keeps the paragraphs inline and fixes the one
+theme that was failing, following the same Inherited-Palette pattern as `--money-gain/-loss`
+rather than forking `--lg-ink-muted` itself (which stays correct and unchanged for its many
+solid-glass uses elsewhere).
+
+### Related 2: `--text-primary/-secondary/-muted/-disabled` collapsed to two values
+
+`base.html`'s alias block for `tokens.css`'s component tokens (`.btn2`, `.card2`, `.chip`,
+`.table2`, `.tabs__tab`, `.dialog2`, …) had `--text-primary`/`--text-secondary` both pointing at
+`--lg-ink`, and `--text-muted`/`--text-disabled` both at `--lg-ink-muted` — a disabled control
+was visually identical to ordinary secondary text. All four consumers of these tokens render on
+`--bg-surface-*`/`--bg-elevated`, which are themselves `var(--lg-glass-solid)` (base.html:111–
+114) — never the bare mesh — so the roles are checked against the solid-glass composite at its
+worst mesh point (Light `--lg-bg-3`, Dark `--lg-bg-1`), matching the `.panel` methodology above.
+
+| Role | Value | Light (worst: bg-3) | Dark (worst: bg-1) |
+|---|---|---|---|
+| `--text-primary` | `var(--lg-ink)` (unchanged) | **13.64:1** | **14.32:1** |
+| `--text-secondary` | `var(--lg-ink-muted)` (was `var(--lg-ink)`) | **7.50:1** | **7.89:1** |
+| `--text-muted` | `var(--lg-ink-muted)` (unchanged) | **7.50:1** | **7.89:1** |
+| `--text-disabled` | `#7C729A` light / `#7E6FA9` dark (was `var(--lg-ink-muted)`) | **3.81:1** | **3.68:1** |
+
+Four roles, three visually distinguishable values by design: `secondary` and `muted` are
+deliberately the **same** value — both name "de-emphasized running text", and a fourth,
+in-between tone with no distinct role would just be noise. `disabled` is the one role WCAG
+doesn't require 4.5:1 for (deactivated controls are exempt from the text-contrast success
+criterion); it's set to sit clearly below `muted` (3.7–3.8:1 vs. 7.5–7.9:1 — visibly dimmer at a
+glance) while staying above the 3:1 non-text-UI floor, so "disabled" reads as *present but
+inactive* rather than invisible.

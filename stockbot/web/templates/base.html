@@ -114,11 +114,34 @@
     --bg-elevated: var(--lg-glass-solid);
     --bg-hover: rgb(var(--lg-violet-rgb) / .10);
     --bg-selected: rgb(var(--lg-violet-rgb) / .16);
+    /* Vier Rollen, drei unterscheidbare Werte (agent/UI-READABLE-GROUND). Alle vier
+       liegen praktisch immer auf --bg-surface-*/--bg-elevated (= --lg-glass-solid, Zeile
+       111–114), nie auf dem nackten Mesh — Kontrastzahlen deshalb gegen die Solid-Glas-
+       Komposition (Grund + 0,82 Deckkraft) am jeweils ungünstigsten Mesh-Punkt gerechnet
+       (Light: --lg-bg-3 ⇒ Komposit rgb(240 237 237); Dark: --lg-bg-1 ⇒ Komposit rgb(34 29 49),
+       siehe DESIGN.md „Kontrast-Härtung: Textrollen“).
+       - primary   = --lg-ink        (13,64:1 Light / 14,32:1 Dark) — stärkste Stufe.
+       - secondary = --lg-ink-muted  (7,50:1 Light / 7,89:1 Dark) — bewusst mit muted
+                     zusammengelegt: beides ist sekundärer Lauftext, eine eigene dritte
+                     Stufe zwischen primary und muted hätte keine erkennbare Rolle.
+       - muted     = --lg-ink-muted  (identisch zu secondary, s. o.).
+       - disabled  = eigener, gedimmter Ton, deutlich schwächer als muted, aber noch lesbar
+                     (3,81:1 Light / 3,68:1 Dark) — WCAG verlangt für deaktivierte Bedienelemente
+                     kein AA-Textkontrast; der Wert bleibt trotzdem oberhalb der 3:1-Schwelle für
+                     nicht-Text-UI, damit „deaktiviert“ noch wahrnehmbar bleibt, aber sichtbar
+                     schwächer als jeder Lauftext. */
     --text-primary: var(--lg-ink);
-    --text-secondary: var(--lg-ink);
+    --text-secondary: var(--lg-ink-muted);
     --text-muted: var(--lg-ink-muted);
-    --text-disabled: var(--lg-ink-muted);
+    --text-disabled: #7C729A;
     --text-inverse: var(--lg-ink-on-violet);
+    /* Verwandt 1 (agent/UI-READABLE-GROUND): .muted liegt auf dem nackten Mesh-Grund, nicht
+       auf Solid-Glas — --lg-ink-muted selbst reicht dort am dunkelsten Meshpunkt (Light,
+       --lg-bg-3) nur auf 3,29:1. Eigener, lokal abgedunkelter Ton statt den Vendor-Wert zu
+       forken (Inherited-Palette-Regel) — 4,93:1 am ungünstigsten Punkt, siehe DESIGN.md.
+       Dark braucht keine Anhebung: dort erreicht --lg-ink-muted auf dem nackten Grund an
+       jedem Meshpunkt bereits ≥5,72:1. */
+    --ink-muted-ground: #332E40;
     --primary: var(--lg-violet);
     --primary-hover: #A98EF2;
     --primary-active: #8266d8;
@@ -183,6 +206,9 @@
       --tone-success-bg: #1B3A2C; --tone-success-fg: #8CE6BB;
       --status-ink-success: var(--lg-success);
       --status-ink-error: var(--lg-error);
+      /* Textrollen (agent/UI-READABLE-GROUND) — Dark-Werte, Kontrastzahlen in DESIGN.md */
+      --text-disabled: #7E6FA9;
+      --ink-muted-ground: var(--lg-ink-muted);
     }
   }
   :root[data-theme="dark"] .lg-body {
@@ -215,6 +241,9 @@
     --tone-success-bg: #1B3A2C; --tone-success-fg: #8CE6BB;
     --status-ink-success: var(--lg-success);
     --status-ink-error: var(--lg-error);
+    /* Textrollen (agent/UI-READABLE-GROUND) — Dark-Werte, Kontrastzahlen in DESIGN.md */
+    --text-disabled: #7E6FA9;
+    --ink-muted-ground: var(--lg-ink-muted);
   }
 
   * { box-sizing:border-box; }
@@ -252,7 +281,9 @@
   /* ── Layout-Helfer ─────────────────────────────────────────────────────── */
   .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
   .spacer { flex:1; }
-  .muted { color:var(--lg-ink-muted); font-size:.86rem; }
+  /* .muted rendert direkt auf dem nackten Mesh-Grund (main hat keine eigene Fläche) —
+     --ink-muted-ground statt --lg-ink-muted, siehe Token-Kommentar weiter oben. */
+  .muted { color:var(--ink-muted-ground); font-size:.86rem; }
   .pos, .green { color:var(--money-gain); } .neg, .red { color:var(--money-loss); }
   form.inline { display:inline; }
 

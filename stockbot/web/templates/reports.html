@@ -5,7 +5,10 @@
 <style>
   td.r, th.r { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
   .filters fieldset { border:1px solid var(--border); border-radius:var(--lg-r-md); margin:.5rem 0; padding:.4rem .7rem .6rem; }
-  .filters legend { padding:0 .4rem; color:var(--lg-ink-muted); font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; }
+  /* .filters legend liegt beim Zeitraum-Filter (Zeile ~95) direkt auf dem nackten Mesh-Grund
+     (kein .card) — --ink-muted-ground statt --lg-ink-muted, siehe base.html/DESIGN.md
+     „Kontrast-Härtung: nackter Grund". */
+  .filters legend { padding:0 .4rem; color:var(--ink-muted-ground); font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; }
   .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.3rem .7rem; margin:.18rem;
           border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-pill); cursor:pointer; font-size:.88rem; user-select:none;
           color:var(--lg-ink); text-decoration:none; background:var(--lg-glass-solid); box-shadow:var(--lg-cast-1); }   /* a.chip soll NICHT wie ein Link aussehen */
