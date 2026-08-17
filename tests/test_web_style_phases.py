@@ -349,6 +349,73 @@ def test_kill_switch_shows_state_chip_and_reason_field():
     assert "Grund (wird protokolliert)" in text
 
 
+# ── agent/UI-HARDENING-2: Kill-Switch-Abschalten & Link-Erneuern hinter dialog2 ──
+# (§18.1 statt nativem confirm() — Kill-Switch abschalten hebt die Einstiegssperre
+# auf und ist damit sicherheitsrelevant; Link-Erneuern ist die harmlosere zweite
+# Stelle derselben Art. Muster gespiegelt von alpacaClearConfirm/resetConfirm.)
+
+def test_kill_switch_off_form_uses_dialog2_not_native_confirm():
+    c = _client()
+    r = c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Testgrund"},
+               follow_redirects=False)
+    assert r.status_code in (302, 303, 307, 308)
+    text = re.sub(r"\s+", " ", c.get("/app/settings").text)
+
+    assert "onsubmit=" not in text                       # kein natives confirm() mehr am Formular
+    assert 'data-confirm-dialog="killSwitchOffConfirm"' in text
+    match = re.search(r'<dialog\b[^>]*\bid="killSwitchOffConfirm"[^>]*>', text)
+    assert match, 'kein <dialog id="killSwitchOffConfirm" …> gefunden'
+    tag = match.group(0)
+    assert 'class="dialog2 dialog2--live"' in tag
+    assert 'role="dialog"' in tag and 'aria-modal="true"' in tag
+
+    dialog = text[text.index('id="killSwitchOffConfirm"'):]
+    dialog = dialog[:dialog.index("</dialog>")]
+    # Folgen konkret benannt (nicht nur der generische Warnsatz von oben im Formular):
+    assert "neue Positionen" in dialog and ("eröffnen" in dialog or "möglich" in dialog)
+    assert "Schutz-Verkäufe" in dialog
+    assert "Stop-Loss" in dialog or "Take-Profit" in dialog
+    # Gleiches Fokus-/Aktions-Muster wie die drei bestehenden dialog2-Stellen:
+    assert re.search(r'<button[^>]*data-confirm-cancel[^>]*autofocus[^>]*>', dialog)
+    assert 'data-confirm-ok' in dialog
+
+
+def test_kill_switch_activation_needs_no_confirm_dialog():
+    """Nur das Abschalten (Einstiegssperre aufheben) ist sicherheitsrelevant — das
+    Aktivieren (Sperre setzen) bleibt ein normaler Submit ohne Bestätigungsdialog."""
+    text = re.sub(r"\s+", " ", _client().get("/app/settings").text)
+    assert 'data-confirm-dialog="killSwitchOffConfirm"' not in text
+    assert 'id="killSwitchOffConfirm"' not in text
+
+
+def test_token_rotate_form_uses_dialog2_not_native_confirm():
+    text = re.sub(r"\s+", " ", _client().get("/app/settings").text)
+    assert 'onsubmit="return confirm(' not in text
+    assert 'data-confirm-dialog="tokenRotateConfirm"' in text
+    match = re.search(r'<dialog\b[^>]*\bid="tokenRotateConfirm"[^>]*>', text)
+    assert match, 'kein <dialog id="tokenRotateConfirm" …> gefunden'
+    tag = match.group(0)
+    assert "dialog2" in tag
+    assert 'role="dialog"' in tag and 'aria-modal="true"' in tag
+    dialog = text[text.index('id="tokenRotateConfirm"'):]
+    dialog = dialog[:dialog.index("</dialog>")]
+    assert "ungültig" in dialog                           # nennt die Folge (alter Link bricht)
+    assert re.search(r'<button[^>]*data-confirm-cancel[^>]*autofocus[^>]*>', dialog)
+    assert 'data-confirm-ok' in dialog
+
+
+def test_no_native_confirm_dialogs_remain_in_web_templates():
+    """Repo-weiter Beleg für Abnahmekriterium 3: kein natives confirm() mehr in den
+    Templates (Kommentare, die das Wort nennen, sind erlaubt)."""
+    templates_dir = Path("stockbot/web/templates")
+    offenders = []
+    for f in templates_dir.glob("*.html"):
+        text = f.read_text(encoding="utf-8")
+        for m in re.finditer(r"onsubmit\s*=\s*\"[^\"]*confirm\(", text):
+            offenders.append(f"{f}: {m.group(0)}")
+    assert not offenders, f"native confirm()-Bestätigungen gefunden: {offenders}"
+
+
 # ── agent/UI-HARDENING-2: Chart.js lokal statt CDN ───────────────────────────
 
 def test_dashboard_loads_chartjs_locally_not_from_cdn():
