@@ -2724,11 +2724,32 @@ def _session_job_due(now_utc: datetime, target_utc: datetime, last_fired_date: d
     return target_utc <= now_utc < target_utc + timedelta(minutes=window_min)
 
 
+async def _session_signals_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job-Ziel für den Eröffnungs-Signal-Scan — von `_session_scheduler_tick` nur eingereiht,
+    damit der 60s-Tick nicht für die gesamte Scan-Dauer blockiert. Fehler laufen hier NICHT durch
+    den globalen (bewusst knappen) `error_handler`, sondern werden mit vollem Stacktrace geloggt —
+    sonst kann ein toter Job monatelang unbemerkt bleiben."""
+    try:
+        await send_daily_signals(context)
+    except Exception:
+        log.error("Eröffnungs-Signal-Job fehlgeschlagen", exc_info=True)
+
+
+async def _session_close_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job-Ziel für die Tagesauswertung nach Handelsschluss — siehe `_session_signals_job`."""
+    try:
+        await close_and_evaluate(context)
+    except Exception:
+        log.error("Tagesauswertungs-Job fehlgeschlagen", exc_info=True)
+
+
 async def _session_scheduler_tick(context: ContextTypes.DEFAULT_TYPE):
-    """DATA-002: feuert Eröffnungssignale (`SIGNAL_OPEN_OFFSET_MIN` nach Open) und Tagesauswertung
+    """DATA-002: reiht Eröffnungssignale (`SIGNAL_OPEN_OFFSET_MIN` nach Open) und Tagesauswertung
     (`CLOSE_AFTER_CLOSE_OFFSET_MIN` nach Close) relativ zum echten NYSE/Nasdaq-Handelstag statt zu
-    einer festen Europe/Berlin-Uhrzeit — läuft alle `SESSION_TICK_INTERVAL_SEC` Sekunden und feuert
-    jeden der beiden Jobs höchstens einmal pro Handelstag."""
+    einer festen Europe/Berlin-Uhrzeit in die Job-Queue ein — läuft alle `SESSION_TICK_INTERVAL_SEC`
+    Sekunden und reiht jeden der beiden Jobs höchstens einmal pro Handelstag ein. Die beiden
+    Tagesjobs laufen selbst (als `_session_signals_job`/`_session_close_job`) außerhalb dieses
+    Ticks, damit ein mehrminütiger Scan den 60s-Wächter nicht blockiert (SESSION-TICK-OFFLOAD)."""
     global _last_signals_fire_date, _last_close_fire_date
     metrics.heartbeat()
     now_et = datetime.now(ZoneInfo("America/New_York"))
@@ -2743,15 +2764,24 @@ async def _session_scheduler_tick(context: ContextTypes.DEFAULT_TYPE):
     if open_dt is not None:
         signal_target = open_dt + timedelta(minutes=SIGNAL_OPEN_OFFSET_MIN)
         if _session_job_due(now_utc, signal_target, _last_signals_fire_date, today):
+            # Reihenfolge bindend: Datum ZUERST setzen, dann erst einreihen — sonst reiht der
+            # naechste Tick (60s spaeter, noch im Feuerfenster) denselben Eroeffnungs-Scan ein
+            # zweites Mal ein (doppelter Kaufversuch).
             _last_signals_fire_date = today
-            await send_daily_signals(context)
+            context.job_queue.run_once(
+                _session_signals_job, when=1, name=f"session_signals_{today}",
+                job_kwargs={"id": "session_signals_job", "replace_existing": True, "max_instances": 1},
+            )
 
     close_dt = exchange_calendar.market_close(today)
     if close_dt is not None:
         close_target = close_dt + timedelta(minutes=CLOSE_AFTER_CLOSE_OFFSET_MIN)
         if _session_job_due(now_utc, close_target, _last_close_fire_date, today):
             _last_close_fire_date = today
-            await close_and_evaluate(context)
+            context.job_queue.run_once(
+                _session_close_job, when=1, name=f"session_close_{today}",
+                job_kwargs={"id": "session_close_job", "replace_existing": True, "max_instances": 1},
+            )
 
 
 async def post_trade_risk_scan_job(context: ContextTypes.DEFAULT_TYPE):
