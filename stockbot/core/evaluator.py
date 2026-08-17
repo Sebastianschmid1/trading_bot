@@ -35,6 +35,12 @@ def get_day_high_low(ticker: str, fallback: float) -> tuple[float, float]:
 
 
 # ── Zentrale Geld-Mathematik (Hebel + Liquidation) ──────────────────────────
+# agent/CURRENCY-HONEST: `trade_size_eur`/`pnl_eur` in diesem Modul sind historisch
+# "eur"-benannte Parameter-/Rückgabewerte, tragen aber tatsächlich US-Dollar — Alpaca
+# liefert Kurse, Kontowerte und Buying Power ausschließlich in USD, im Repo gibt es
+# keine EUR/USD-Umrechnung (kein fx_rate, kein Kursabruf). Namen bleiben unverändert
+# (keine Migration/Rename der DB-Spalten trades.pnl_eur/users.trade_size_eur); nur die
+# Anzeige in Web-App/Telegram wurde korrigiert (zeigt $ statt €).
 
 def liquidation_price(entry: float, leverage: float, direction: str = "long") -> float | None:
     """Liquidationskurs: Long wird bei einem Kursverlust von 1/Hebel liquidiert.

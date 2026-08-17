@@ -42,6 +42,19 @@ MODE_LABELS = {
     "live": "Live",
 }
 
+# ── Broker-Währung (agent/CURRENCY-HONEST) ──────────────────────────────────
+#: Alpaca führt Konten ausschließlich in US-Dollar; im Repo gibt es KEINE Wechselkurs-
+#: Umrechnung (kein fx_rate, kein Kursabruf für EUR/USD). Trade-Größe, P&L und Kontowerte
+#: kommen deshalb 1:1 in USD vom Broker — auch dort, wo intern historisch `_eur`-benannte
+#: Felder/Spalten (z. B. `trades.pnl_eur`, `users.trade_size_eur`) sie tragen. Dieser Hinweis
+#: ist die EINE Quelle für den erklärenden Satz in Web-App und Telegram (§32.9-Prinzip).
+#: KEIN "&" im Text — würde in HTML-Templates (Jinja-Autoescape zu `&amp;`) und im
+#: Vergleich mit der rohen Konstante auseinanderlaufen.
+BROKER_CURRENCY_NOTE = (
+    "Das Alpaca-Konto läuft in US-Dollar — alle Beträge hier (Trade-Größe, Gewinn/Verlust, "
+    "Kontowert) stehen deshalb in $, nicht in €."
+)
+
 # ── Trade-Status (§25.2) ────────────────────────────────────────────────────
 TRADE_STATUS_LABELS = {
     "active": "Aktiv",

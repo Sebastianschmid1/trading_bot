@@ -389,7 +389,12 @@ def equity_metrics(equity: list[float], bench: list[float] | None = None,
 
 
 def format_metrics(m: dict, title: str = "") -> str:
-    """Kennzahlen als kompakter Text (für Telegram), Profitfaktor zuerst."""
+    """Kennzahlen als kompakter Text (für Telegram), Profitfaktor zuerst.
+
+    agent/CURRENCY-HONEST: `total_pnl_eur`/`avg_win`/`avg_loss`/`expectancy` sind
+    historisch "eur"-benannt, tragen aber USD (Alpaca liefert nur USD, keine
+    EUR/USD-Umrechnung im Repo) — Anzeige entsprechend als $ statt €.
+    """
     pf = "∞" if m["profit_factor"] is None and m["trades"] else (
         f"{m['profit_factor']:.2f}" if m["profit_factor"] is not None else "—")
     head = f"📊 *{title}*\n" if title else ""
@@ -397,8 +402,8 @@ def format_metrics(m: dict, title: str = "") -> str:
         f"{head}"
         f"💹 Profitfaktor: *{pf}*\n"
         f"🎯 Trefferquote: {m['win_rate']:.1f}%  ({m['wins']}/{m['trades']})\n"
-        f"💰 Gesamt-P&L: {m['total_pnl_eur']:+.2f}€\n"
+        f"💰 Gesamt-P&L: {m['total_pnl_eur']:+.2f}$\n"
         f"📉 Max. Drawdown: {m['max_drawdown_pct']:.1f}%\n"
-        f"📈 Ø Gewinn/Verlust: {m['avg_win']:+.2f}€ / {m['avg_loss']:+.2f}€\n"
-        f"🧮 Erwartungswert/Trade: {m['expectancy']:+.2f}€"
+        f"📈 Ø Gewinn/Verlust: {m['avg_win']:+.2f}$ / {m['avg_loss']:+.2f}$\n"
+        f"🧮 Erwartungswert/Trade: {m['expectancy']:+.2f}$"
     )
