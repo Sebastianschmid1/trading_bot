@@ -219,29 +219,79 @@ def test_session_job_due_fires_once_within_window():
     assert bot._session_job_due(target + timedelta(hours=3), target, None, today) is False
 
 
-def test_session_scheduler_tick_fires_signals_and_close_once_per_day():
-    from unittest.mock import AsyncMock
-    orig_signals, orig_close = bot.send_daily_signals, bot.close_and_evaluate
+def _signal_time_et(day):
+    open_dt = exchange_calendar.market_open(day)
+    return (open_dt + timedelta(minutes=bot.SIGNAL_OPEN_OFFSET_MIN)).astimezone(
+        ZoneInfo("America/New_York")).replace(tzinfo=None)
+
+
+def test_session_scheduler_tick_offloads_signals_job_exactly_once_per_fire_window():
+    """SESSION-TICK-OFFLOAD: der Tick reiht den Eroeffnungs-Scan nur in die Job-Queue ein
+    (blockiert also nicht selbst mehrere Minuten) — und tut das, auch bei mehreren Ticks
+    innerhalb desselben Feuerfensters, genau EINMAL. Ein zweiter eingereihter Scan waere ein
+    doppelter Kaufversuch."""
+    from unittest.mock import MagicMock
     orig_last_signals, orig_last_close = bot._last_signals_fire_date, bot._last_close_fire_date
-    bot.send_daily_signals = AsyncMock()
-    bot.close_and_evaluate = AsyncMock()
     bot._last_signals_fire_date = None
     bot._last_close_fire_date = None
+    ctx = MagicMock()
+    ctx.job_queue = MagicMock()
     try:
-        open_dt = exchange_calendar.market_open(date(2026, 6, 10))
-        signal_time_et = (open_dt + timedelta(minutes=bot.SIGNAL_OPEN_OFFSET_MIN)).astimezone(
-            ZoneInfo("America/New_York"))
-        bot.datetime = _FixedClock(signal_time_et.replace(tzinfo=None))
-        asyncio.run(bot._session_scheduler_tick(object()))
-        bot.send_daily_signals.assert_awaited_once()
-        bot.close_and_evaluate.assert_not_awaited()
-        # ein zweiter Tick im selben Fenster feuert nicht erneut
-        asyncio.run(bot._session_scheduler_tick(object()))
-        bot.send_daily_signals.assert_awaited_once()
+        bot.datetime = _FixedClock(_signal_time_et(date(2026, 6, 10)))
+        asyncio.run(bot._session_scheduler_tick(ctx))
+        assert ctx.job_queue.run_once.call_count == 1
+        call = ctx.job_queue.run_once.call_args
+        assert call.args[0] is bot._session_signals_job
+        assert call.kwargs["job_kwargs"]["max_instances"] == 1
+        # zweiter (und dritter) Tick im selben Fenster reiht NICHT nochmal ein
+        asyncio.run(bot._session_scheduler_tick(ctx))
+        asyncio.run(bot._session_scheduler_tick(ctx))
+        assert ctx.job_queue.run_once.call_count == 1
     finally:
         bot.datetime = datetime
-        bot.send_daily_signals, bot.close_and_evaluate = orig_signals, orig_close
         bot._last_signals_fire_date, bot._last_close_fire_date = orig_last_signals, orig_last_close
+
+
+def test_session_scheduler_tick_fires_again_after_trading_day_change():
+    """AC: nach einem Handelstagwechsel feuert der (ausgelagerte) Signal-Job wieder."""
+    from unittest.mock import MagicMock
+    orig_last_signals, orig_last_close = bot._last_signals_fire_date, bot._last_close_fire_date
+    bot._last_signals_fire_date = None
+    bot._last_close_fire_date = None
+    ctx = MagicMock()
+    ctx.job_queue = MagicMock()
+    try:
+        bot.datetime = _FixedClock(_signal_time_et(date(2026, 6, 10)))
+        asyncio.run(bot._session_scheduler_tick(ctx))
+        assert ctx.job_queue.run_once.call_count == 1
+        assert bot._last_signals_fire_date == date(2026, 6, 10)
+
+        bot.datetime = _FixedClock(_signal_time_et(date(2026, 6, 11)))
+        asyncio.run(bot._session_scheduler_tick(ctx))
+        assert ctx.job_queue.run_once.call_count == 2
+        assert bot._last_signals_fire_date == date(2026, 6, 11)
+    finally:
+        bot.datetime = datetime
+        bot._last_signals_fire_date, bot._last_close_fire_date = orig_last_signals, orig_last_close
+
+
+def test_session_signals_job_logs_stacktrace_on_failure(caplog):
+    """AC: ein Fehlschlag des ausgelagerten Jobs verschwindet nicht still, sondern wird mit
+    vollem Stacktrace geloggt (genau dieser Fehler hat vorher einen toten Job monatelang
+    verborgen)."""
+    from unittest.mock import AsyncMock
+    orig_signals = bot.send_daily_signals
+    bot.send_daily_signals = AsyncMock(side_effect=RuntimeError("Datenquelle kaputt"))
+    try:
+        with caplog.at_level("ERROR", logger="stockbot.tgbot.bot"):
+            asyncio.run(bot._session_signals_job(object()))
+        assert any(
+            "Eröffnungs-Signal-Job fehlgeschlagen" in r.message and r.exc_info is not None
+            for r in caplog.records
+        )
+        assert "RuntimeError" in caplog.text and "Datenquelle kaputt" in caplog.text
+    finally:
+        bot.send_daily_signals = orig_signals
 
 
 def test_broker_reconcile_enabled_for_own_alpaca_credentials_even_if_exec_off(monkeypatch):
