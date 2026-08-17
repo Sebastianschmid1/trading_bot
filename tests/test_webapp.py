@@ -573,6 +573,24 @@ def test_settings_page_shows_readonly_risk_parameters():
     assert "ADX-Trendfolge" not in r.text
 
 
+def test_settings_page_shows_trade_size_in_dollar_not_euro():
+    """agent/CURRENCY-HONEST: Alpaca liefert Kurse/Kontowerte ausschließlich in USD, im
+    Repo gibt es keine EUR/USD-Umrechnung — die Trade-Größe-Karte muss deshalb $ zeigen,
+    nicht €, und den einordnenden Hinweis (Broker-Konto in USD) tragen. `trade_size_eur`
+    bleibt als Spalten-/Variablenname unverändert (keine Migration), nur die Anzeige ändert
+    sich (siehe glossary.BROKER_CURRENCY_NOTE)."""
+    fresh()
+    c = _client()
+    r = c.get("/app/settings")
+    assert r.status_code == 200
+    # Nur die Betrags-/Eingabezeile prüfen (bis </form>) — der einordnende Hinweis
+    # danach nennt € bewusst zum Kontrast ("…, nicht in €.") und ist kein Betrag.
+    size_form = r.text.split('<h2>Trade-Größe</h2>')[1].split('</form>')[0]
+    assert "$ pro Position" in size_form
+    assert "€" not in size_form
+    assert glossary.BROKER_CURRENCY_NOTE in r.text
+
+
 def test_watchlist_add_remove_via_web():
     fresh()
     c = _client()
