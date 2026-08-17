@@ -98,8 +98,11 @@
     #error { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-error);
              color:var(--status-ink-error); padding:.9rem 1rem;
              border-radius:var(--lg-r-md); margin-bottom:1rem; box-shadow:var(--lg-cast-1); }
+    /* --mode-paper ist laut DESIGN.md eine Trade-Modus-Chip-Punktfarbe, keine
+       Fließtextfarbe — für Fließtext gibt es --tone-warning-fg (≥4.5:1 auf
+       Solid-Glas in beiden Modi, siehe DESIGN.md „Kontrast-Härtung"). */
     #sizing-hint { display:none; background:var(--lg-glass-solid); border:1px solid var(--lg-warning);
-                   color:var(--mode-paper); padding:.8rem 1rem;
+                   color:var(--tone-warning-fg); padding:.8rem 1rem;
                    border-radius:var(--lg-r-md); margin-bottom:20px; box-shadow:var(--lg-cast-1); }
 
     /* ── KPI-Kacheln: Glas, EINE Iris-Fläche (card-hero) ────────────────── */
@@ -163,8 +166,16 @@
     .panel-head h2 { font-size:var(--lg-size-title); font-weight:600; letter-spacing:-.01em; margin:0;
                      display:flex; align-items:center; gap:.45rem; flex:1; color:var(--lg-ink); }
     /* .caret ist jetzt ein <button> (eigener Tastatur-Stop zum Auf-/Zuklappen) —
-       Button-Chrome zurückgesetzt, sichtbarer Wert (Farbe/Größe/Drehung) unverändert. */
-    .panel-head .caret { background:none; border:0; padding:0; margin:0; -webkit-appearance:none; appearance:none;
+       Button-Chrome zurückgesetzt, sichtbarer Wert (Farbe/Größe/Drehung) unverändert.
+       Treffer-/Fokusfläche per Padding auf ≥44×44px angehoben (WCAG 2.5.5): das
+       sichtbare Glyphen-Feld bleibt fest .8rem×.8rem (12,8×12,8px), Padding legt
+       ringsum 16px drauf (⇒ 44,8×44,8px Border-Box), ein gleich großes negatives
+       Margin zieht die Layout-Box (das, was der Flex-Zeile für ihre Höhe zählt)
+       exakt auf die alte 12,8×12,8px zurück — die Kopfzeile wird dadurch NICHT
+       höher, sie bleibt von h2 (Titelschrift, deutlich größer) bestimmt. */
+    .panel-head .caret { background:none; border:0; -webkit-appearance:none; appearance:none;
+                          display:inline-flex; align-items:center; justify-content:center;
+                          width:.8rem; height:.8rem; padding:16px; margin:-16px;
                           color:var(--lg-ink-muted); transition:transform .2s; font-size:.8rem; cursor:pointer; line-height:1; }
     .panel.collapsed .caret { transform:rotate(-90deg); }
     .panel-body { padding:8px 20px 20px; }
@@ -298,7 +309,7 @@
     <span class="ck-chip is-shadow" title="{{ glossary.MODE_LABELS.demo }}-Modus — Live-Daten ohne Broker-Order"><span class="dot"></span>{{ glossary.MODE_LABELS.demo }}</span>
     {% endif %}
     <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
-    <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen">⏸</button>
+    <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen" aria-pressed="false">⏸</button>
     <button id="btnRefresh" type="button" class="iconbtn" title="Jetzt aktualisieren" aria-label="Jetzt aktualisieren">⟳</button>
     <button type="button" class="iconbtn theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Dunkelmodus umschalten" title="Dunkelmodus umschalten">
       <svg class="icon-sun" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.6 4.4l-1.4 1.4M5.8 14.2l-1.4 1.4M15.6 15.6l-1.4-1.4M5.8 5.8L4.4 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -417,9 +428,14 @@
     // Chart.js kommt jetzt lokal aus /static/chart.umd.js (kein CDN mehr) — bleibt die
     // Datei aus irgendeinem Grund trotzdem aus (Netzwerk/Cache/CSP), darf das nicht mehr
     // die ganze Seite mitreißen: Kennzahlen, Tabellen und Panels stehen unabhängig von
-    // Chart.js; an jeder Diagramm-Stelle erscheint dann nur ein ruhiger Hinweis
-    // ("Diagramm nicht verfügbar", siehe upsertChart/replaceCanvas weiter unten).
+    // Chart.js; an jeder Diagramm-Stelle erscheint dann nur der ruhige Hinweis aus
+    // CHART_UNAVAILABLE_MSG (siehe upsertChart/replaceCanvas weiter unten). Der Text
+    // nennt kurz den wahrscheinlichen Grund (blockiertes Skript) und beruhigt explizit,
+    // dass die Zahlen daneben (Kennzahlen/Tabellen) davon unberührt und korrekt sind —
+    // ohne Alarmton, keine Fehler-/Rot-Optik (bleibt in .empty, wie zuvor).
     const chartAvailable = typeof Chart !== "undefined";
+    const CHART_UNAVAILABLE_MSG = "Diagramm nicht verfügbar — ein Skript wurde blockiert " +
+      "(z. B. Adblocker, Proxy oder Netzwerk). Die Zahlen daneben stimmen weiterhin.";
 
     const rootStyle = () => getComputedStyle(document.documentElement);
     const cssVar = (name) => rootStyle().getPropertyValue(name).trim();
@@ -507,7 +523,7 @@
       // Ohne Chart.js gibt es hier nichts zu zeichnen — statt eines leeren/toten Canvas
       // erscheint der ruhige Hinweis aus replaceCanvas(); Kennzahlen/Tabellen sind davon
       // unabhängig und rendern in render() unverändert weiter.
-      if (!chartAvailable) { replaceCanvas(id, "Diagramm nicht verfügbar"); return null; }
+      if (!chartAvailable) { replaceCanvas(id, CHART_UNAVAILABLE_MSG); return null; }
       const c = document.getElementById(id); if (!c) return null;
       showCanvas(id);
       let ch = charts[id];
@@ -540,7 +556,13 @@
       if (!online)            { pill.classList.add("offline"); txt.textContent = "Offline — neuer Versuch…"; }
       else if (!state.autoRefresh) { pill.classList.add("paused"); txt.textContent = "Pausiert"; }
       else                    { pill.classList.add("live"); txt.textContent = `Live · in ${countdown}s`; }
-      document.getElementById("btnPause").textContent = state.autoRefresh ? "⏸" : "▶";
+      // btnPause ist ein Toggle-Button (⏸ läuft / ▶ pausiert) — aria-pressed muss den
+      // tatsächlichen Zustand tragen, sonst bleibt der Name für Screenreader generisch
+      // und "pausiert/läuft" ist nur visuell am Glyph erkennbar. "pressed" = pausiert
+      // (analog Mute-Button: gedrückt = Aktion aktiv/eingerastet).
+      const btnPause = document.getElementById("btnPause");
+      btnPause.textContent = state.autoRefresh ? "⏸" : "▶";
+      btnPause.setAttribute("aria-pressed", state.autoRefresh ? "false" : "true");
     }
     setInterval(() => {
       if (!state.autoRefresh || document.hidden) return;
@@ -954,8 +976,13 @@
             <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
             <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
             <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 && t.pnl_pct != null ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
-            <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
-            <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
+            <!-- Stop-Loss/Take-Profit sind PREIS-NIVEAUS, kein Ergebnis — die Money-Only-
+                 Color-Regel (DESIGN.md: "Grün und Rot heißen Geld, sonst nichts") gilt nur
+                 für tatsächliche Gewinn/Verlust-Spalten (P&L oben bleibt gefärbt). Bedeutung
+                 kommt hier über die Spaltenüberschrift ("Stop-Loss"/"Take-Profit"), nicht
+                 über die Farbe. -->
+            <td class="num">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
+            <td class="num">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
           </tr>`).join("")}</tbody></table></div>`;
       host.querySelectorAll("th.sortable .th-sort").forEach(btn => btn.addEventListener("click", () => {
         const k = btn.dataset.sort;
@@ -1128,7 +1155,7 @@
       if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
       // Auch im Detail-Modal gilt: ohne Chart.js ein Hinweis statt eines toten Canvas,
       // die Faktor-Tabelle darüber (bereits gesetzt) bleibt in jedem Fall lesbar.
-      if (!chartAvailable) { replaceCanvas("factorChart", "Diagramm nicht verfügbar"); return; }
+      if (!chartAvailable) { replaceCanvas("factorChart", CHART_UNAVAILABLE_MSG); return; }
       showCanvas("factorChart");
       factorChartObj = new Chart(document.getElementById("factorChart"), {
         type: "line",
