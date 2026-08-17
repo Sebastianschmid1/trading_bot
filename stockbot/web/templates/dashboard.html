@@ -309,7 +309,7 @@
     <span class="ck-chip is-shadow" title="{{ glossary.MODE_LABELS.demo }}-Modus — Live-Daten ohne Broker-Order"><span class="dot"></span>{{ glossary.MODE_LABELS.demo }}</span>
     {% endif %}
     <span id="pill" class="pill live"><span class="dot"></span><span id="pillText">Live</span></span>
-    <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen">⏸</button>
+    <button id="btnPause" type="button" class="iconbtn" title="Auto-Refresh pausieren/fortsetzen" aria-label="Auto-Refresh pausieren/fortsetzen" aria-pressed="false">⏸</button>
     <button id="btnRefresh" type="button" class="iconbtn" title="Jetzt aktualisieren" aria-label="Jetzt aktualisieren">⟳</button>
     <button type="button" class="iconbtn theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Dunkelmodus umschalten" title="Dunkelmodus umschalten">
       <svg class="icon-sun" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.6 4.4l-1.4 1.4M5.8 14.2l-1.4 1.4M15.6 15.6l-1.4-1.4M5.8 5.8L4.4 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -556,7 +556,13 @@
       if (!online)            { pill.classList.add("offline"); txt.textContent = "Offline — neuer Versuch…"; }
       else if (!state.autoRefresh) { pill.classList.add("paused"); txt.textContent = "Pausiert"; }
       else                    { pill.classList.add("live"); txt.textContent = `Live · in ${countdown}s`; }
-      document.getElementById("btnPause").textContent = state.autoRefresh ? "⏸" : "▶";
+      // btnPause ist ein Toggle-Button (⏸ läuft / ▶ pausiert) — aria-pressed muss den
+      // tatsächlichen Zustand tragen, sonst bleibt der Name für Screenreader generisch
+      // und "pausiert/läuft" ist nur visuell am Glyph erkennbar. "pressed" = pausiert
+      // (analog Mute-Button: gedrückt = Aktion aktiv/eingerastet).
+      const btnPause = document.getElementById("btnPause");
+      btnPause.textContent = state.autoRefresh ? "⏸" : "▶";
+      btnPause.setAttribute("aria-pressed", state.autoRefresh ? "false" : "true");
     }
     setInterval(() => {
       if (!state.autoRefresh || document.hidden) return;

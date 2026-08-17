@@ -151,6 +151,7 @@ const vm = require('vm');
 const scriptPath = process.argv[2];
 const apiJsonPath = process.argv[3];
 const chartAvailable = process.argv[4] === '1';
+const initialPaused = process.argv[5] === '1';
 
 const API_RESPONSE = JSON.parse(fs.readFileSync(apiJsonPath, 'utf8'));
 const dashboardScript = fs.readFileSync(scriptPath, 'utf8');
@@ -180,11 +181,16 @@ function make2dContext() {
 }
 const elements = new Map();
 function makeEl(id) {
+  // setAttribute/getAttribute schreiben/lesen wirklich (statt No-Op) — wird
+  // gebraucht, um btnPause's aria-pressed nach dem echten Skriptlauf zu prüfen
+  // (Aufgabe 4, agent/UI-POLISH-DASH); zuvor unbenutzt, daher risikolos scharf.
+  const attrs = {};
   const el = {
     id, textContent: '', innerHTML: '', value: '', checked: false,
     style: makeStyle(), dataset: {}, classList: makeClassList(),
     addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
-    setAttribute() {}, getAttribute() { return null; },
+    setAttribute(name, v) { attrs[name] = String(v); },
+    getAttribute(name) { return name in attrs ? attrs[name] : null; },
     focus() {}, click() {}, closest() { return null; },
     appendChild() {}, insertBefore() {},
     parentNode: { insertBefore() {} },
@@ -220,7 +226,10 @@ async function fetchStub() {
 const sandbox = {
   document: documentStub,
   getComputedStyle,
-  localStorage: { getItem: () => null, setItem() {} },
+  // initialPaused simuliert einen zuvor per localStorage persistierten
+  // "pausiert"-Zustand (key endet auf ":auto", siehe LS()/lsGet() im Skript),
+  // ohne den dynamischen Token im Schlüssel kennen zu müssen.
+  localStorage: { getItem: (k) => (initialPaused && k.endsWith(':auto') ? '0' : null), setItem() {} },
   fetch: fetchStub,
   URLSearchParams,
   setInterval: () => 0, clearInterval() {},
@@ -274,6 +283,8 @@ async function main() {
   out.cardsInnerHTML = getElementById('cards').innerHTML;
   out.activeInnerHTML = getElementById('active').innerHTML;
   out.errorDisplay = getElementById('error').style.display;
+  out.btnPauseAriaPressed = getElementById('btnPause').getAttribute('aria-pressed');
+  out.btnPauseText = getElementById('btnPause').textContent;
   for (const id of ['equityChart', 'tickerChart', 'tradesLogChart', 'strengthChart', 'priceChartSingle']) {
     out[id] = {
       canvasDisplay: getElementById(id).style.display,
@@ -288,7 +299,7 @@ main();
 """
 
 
-def _run_harness(script_text: str, chart_available: bool, tmp_path: Path) -> dict:
+def _run_harness(script_text: str, chart_available: bool, tmp_path: Path, initial_paused: bool = False) -> dict:
     script_path = tmp_path / "dashboard_inline.js"
     script_path.write_text(script_text, encoding="utf-8")
     api_path = tmp_path / "api_response.json"
@@ -297,7 +308,8 @@ def _run_harness(script_text: str, chart_available: bool, tmp_path: Path) -> dic
     harness_path.write_text(_HARNESS, encoding="utf-8")
 
     proc = subprocess.run(
-        [NODE, str(harness_path), str(script_path), str(api_path), "1" if chart_available else "0"],
+        [NODE, str(harness_path), str(script_path), str(api_path),
+         "1" if chart_available else "0", "1" if initial_paused else "0"],
         capture_output=True, text=True, timeout=30,
     )
     assert proc.returncode == 0, (
@@ -354,6 +366,38 @@ def test_chart_library_present_renders_unchanged(tmp_path):
         info = result[chart_id]
         assert info["canvasDisplay"] != "none", f"{chart_id}: sollte mit Chart.js sichtbar bleiben"
         assert info["msgText"] != CHART_UNAVAILABLE_MSG, f"{chart_id}: sollte keinen Fallback zeigen"
+
+
+def test_btn_pause_aria_pressed_follows_autorefresh_state(tmp_path):
+    """`btnPause` ist ein Toggle-Button (⏸ läuft / ▶ pausiert) — aria-pressed muss den
+    tatsächlichen Zustand tragen, sonst bleibt der Accessible Name generisch und
+    Screenreader-Nutzer erfahren nicht, ob gerade pausiert ist oder nicht
+    (Aufgabe 4, agent/UI-POLISH-DASH). Nutzt denselben Node-Harness wie oben, einmal mit
+    dem Default-Zustand (Auto-Refresh an) und einmal mit einem simulierten, aus
+    localStorage persistierten "pausiert"-Zustand."""
+    script = _extract_dashboard_script()
+    running_dir, paused_dir = tmp_path / "running", tmp_path / "paused"
+    running_dir.mkdir()
+    paused_dir.mkdir()
+
+    running = _run_harness(script, chart_available=True, tmp_path=running_dir, initial_paused=False)
+    assert not running["threw"], f"Inline-Skript abgebrochen:\n{running.get('error')}"
+    assert running["btnPauseText"] == "⏸"
+    assert running["btnPauseAriaPressed"] == "false", "läuft (nicht pausiert) => aria-pressed=false"
+
+    paused = _run_harness(script, chart_available=True, tmp_path=paused_dir, initial_paused=True)
+    assert not paused["threw"], f"Inline-Skript abgebrochen:\n{paused.get('error')}"
+    assert paused["btnPauseText"] == "▶"
+    assert paused["btnPauseAriaPressed"] == "true", "pausiert => aria-pressed=true"
+
+
+def test_btn_pause_has_static_aria_pressed_default():
+    """Serverseitig gerendertes Markup trägt schon vor dem ersten Skriptlauf ein
+    initiales aria-pressed (Default-Zustand: Auto-Refresh an => nicht pausiert)."""
+    text = Path("stockbot/web/templates/dashboard.html").read_text(encoding="utf-8")
+    btn = re.search(r'<button id="btnPause"[^>]*>', text)
+    assert btn, "btnPause-Button nicht gefunden"
+    assert 'aria-pressed="false"' in btn.group(0)
 
 
 def test_dashboard_script_guards_every_top_level_chart_access():
