@@ -732,7 +732,9 @@ async def app_sell(request: Request, ticker: str = Form(...)):
 
     res = await run_in_threadpool(trade_svc.sell_trade, user["user_id"], ticker)
     if res["ok"]:
-        msg = f"{ticker} verkauft: {res['pnl_eur']:+.2f}€"
+        # agent/CURRENCY-HONEST: pnl_eur traegt tatsaechlich USD (kein FX-Kurs im Repo,
+        # Alpaca liefert nur USD) — Anzeige entsprechend als $ statt €.
+        msg = f"{ticker} verkauft: {res['pnl_eur']:+.2f}$"
     else:
         msg = "Trade nicht mehr aktiv."
     return _redirect(f"/app?msg={msg}")

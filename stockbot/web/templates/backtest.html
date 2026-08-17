@@ -68,7 +68,7 @@
   <div class="card">
     <h2>Compare Results</h2>
     <table>
-      <thead><tr><th>Strategie</th><th class="r">PF</th><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Trades</th><th class="r">Short (n · €)</th></tr></thead>
+      <thead><tr><th>Strategie</th><th class="r">PF</th><th class="r">Winrate</th><th class="r">P&L $</th><th class="r">Trades</th><th class="r">Short (n · $)</th></tr></thead>
       <tbody>
       {% for r in compare_results %}
         <tr>
@@ -77,7 +77,7 @@
           <td class="r">{{ '%.1f'|format(r.metrics.win_rate) if r.metrics.win_rate is not none else '—' }}%</td>
           <td class="r">{{ '%.1f'|format(r.metrics.total_pnl_eur) if r.metrics.total_pnl_eur is not none else '—' }}</td>
           <td class="r">{{ r.metrics.trades }}</td>
-          <td class="r">{% if r.direction_split and r.direction_split.n_short %}{{ r.direction_split.n_short }} · {{ '%.0f'|format(r.direction_split.pnl_short) }}€{% else %}—{% endif %}</td>
+          <td class="r">{% if r.direction_split and r.direction_split.n_short %}{{ r.direction_split.n_short }} · {{ '%.0f'|format(r.direction_split.pnl_short) }}${% else %}—{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -96,14 +96,14 @@
     </div>
     {% if result.allow_short %}
     <div class="row muted" style="margin-top:.3rem;">
-      <span>📈 Long: {{ result.direction_split.n_long }} Trades ({{ '%.0f'|format(result.direction_split.pnl_long) }}€)</span>
+      <span>📈 Long: {{ result.direction_split.n_long }} Trades ({{ '%.0f'|format(result.direction_split.pnl_long) }}$)</span>
       <span>·</span>
-      <span>📉 Short: {{ result.direction_split.n_short }} Trades ({{ '%.0f'|format(result.direction_split.pnl_short) }}€)</span>
+      <span>📉 Short: {{ result.direction_split.n_short }} Trades ({{ '%.0f'|format(result.direction_split.pnl_short) }}$)</span>
     </div>
     {% endif %}
     <table style="margin-top:.7rem;">
       <thead>
-        <tr><th class="r">Winrate</th><th class="r">P&L €</th><th class="r">Max DD %</th><th class="r">Avg Win</th><th class="r">Avg Loss</th></tr>
+        <tr><th class="r">Winrate</th><th class="r">P&L $</th><th class="r">Max DD %</th><th class="r">Avg Win</th><th class="r">Avg Loss</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -125,7 +125,7 @@
         Die Kennzahlen oben sind aus allen {{ result.trades|length }} Trades berechnet.</p>
       {% endif %}
       <table>
-        <thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th class="r">PnL %</th><th class="r">PnL €</th><th>Reason</th></tr></thead>
+        <thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th class="r">PnL %</th><th class="r">PnL $</th><th>Reason</th></tr></thead>
         <tbody>
         {% for t in result.trades[:25] %}
           <tr>

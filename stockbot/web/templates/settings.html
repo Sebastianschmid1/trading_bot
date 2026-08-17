@@ -16,11 +16,15 @@
   <h2>Trade-Größe</h2>
   <form class="row" method="post" action="/app/settings/set">
     <input type="hidden" name="action" value="set_size">
-    <label for="tradeSizeInput" class="sr-only">Trade-Größe in Euro pro Position</label>
+    <label for="tradeSizeInput" class="sr-only">Trade-Größe in US-Dollar pro Position</label>
     <input id="tradeSizeInput" type="number" name="value" min="1" step="1" value="{{ '%.0f'|format(user.trade_size_eur) }}">
     <button>Speichern</button>
-    <span class="muted">€ pro Position</span>
+    <span class="muted">$ pro Position</span>
   </form>
+  {# agent/CURRENCY-HONEST: `trade_size_eur` ist historisch benannt, trägt aber USD —
+     Alpaca liefert Kurse/Kontowerte ausschließlich in US-Dollar, im Repo gibt es keine
+     EUR/USD-Umrechnung. Einordnender Satz an der Stelle, wo die Größe eingestellt wird. #}
+  <p class="muted" style="margin-top:.5rem">{{ glossary.BROKER_CURRENCY_NOTE }}</p>
 </div>
 
 <div class="card">

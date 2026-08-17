@@ -17,7 +17,7 @@
              tone='info', title=glossary.MODE_LABELS.demo) }}
     <p style="margin:.9rem 0 .4rem"><strong>Nächste Schritte:</strong></p>
     <ul style="margin:0;padding-left:1.15rem;display:flex;flex-direction:column;gap:.3rem">
-      <li><a href="/app/settings">Trade-Größe prüfen</a> — aktuell {{ '%.0f'|format(user.trade_size_eur) }} € je Position</li>
+      <li><a href="/app/settings">Trade-Größe prüfen</a> — aktuell {{ '%.0f'|format(user.trade_size_eur) }} $ je Position</li>
       <li><a href="/app/watchlist">Watchlist füllen</a> — Ticker markieren, die beobachtet werden sollen</li>
       <li>Optional: <a href="/app/settings">Broker verbinden</a> — echte Paper-Order über Alpaca</li>
     </ul>
@@ -213,10 +213,10 @@
     <span class="muted">{{ t.asset_label }} · Einstieg ${{ '%.2f'|format(t.entry) }} → aktuell {% if t.price_degraded %}nicht verfügbar{% else %}${{ '%.2f'|format(t.current) }}{% endif %} · {{ '%.1f'|format(t.leverage) }}×</span>
     <span class="spacer"></span>
     {% if t.price_degraded %}
-    <span class="muted" data-degraded="pnl">— €</span>
+    <span class="muted" data-degraded="pnl">— $</span>
     {% else %}
     <span class="{{ 'pos' if t.pnl_eur >= 0 else 'neg' }}">
-      {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}€ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)
+      {{ '+' if t.pnl_eur >= 0 }}{{ '%.2f'|format(t.pnl_eur) }}$ ({{ '+' if t.roi_pct >= 0 }}{{ '%.1f'|format(t.roi_pct) }}%)
     </span>
     {% endif %}
   </div>
@@ -254,7 +254,7 @@
       <dt>Stop-Loss</dt> <dd class="mono" id="tcStop">—</dd>
       <dt>Take-Profit</dt> <dd class="mono" id="tcTarget">—</dd>
       <dt>Risiko</dt> <dd class="mono" id="tcRisk">—</dd>
-      <dt>Größe</dt> <dd class="mono" id="tcSize">{{ '%.0f'|format(user.trade_size_eur) }} € × <span id="tcLev"></span></dd>
+      <dt>Größe</dt> <dd class="mono" id="tcSize">{{ '%.0f'|format(user.trade_size_eur) }} $ × <span id="tcLev"></span></dd>
     </dl>
     <p class="muted" id="tcNote" style="margin:.6rem 0 0"></p>
     <div class="dialog2__actions">
@@ -304,14 +304,14 @@
         risk = document.getElementById("tcRisk"), note = document.getElementById("tcNote");
     if (isSell) {
       stop.textContent = "—"; target.textContent = "—";
-      risk.textContent = "Unrealisiert: " + d.pnl + " €";
+      risk.textContent = "Unrealisiert: " + d.pnl + " $";
       note.textContent = "Die Position wird zum nächsten verfügbaren Kurs geschlossen.";
     } else if (d.sl) {
       var slDist = Math.abs(Number(d.price) - Number(d.sl)) / Number(d.price) * 100;
       var riskEur = {{ '%.0f'|format(user.trade_size_eur) }} * (slDist / 100) * Number(d.leverage || 1);
       stop.textContent = fmt(d.sl) + " (−" + slDist.toFixed(1) + "%)";
       target.textContent = d.tp ? fmt(d.tp) : "—";
-      risk.textContent = "≈ " + riskEur.toFixed(2) + " € bis zum Stop";
+      risk.textContent = "≈ " + riskEur.toFixed(2) + " $ bis zum Stop";
       note.textContent = "Stop-Loss und Take-Profit werden automatisch überwacht.";
     } else {
       stop.textContent = "aus"; target.textContent = "aus";

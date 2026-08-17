@@ -506,10 +506,13 @@
       data:        null,
     };
 
-    const fmt  = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "€";
+    // agent/CURRENCY-HONEST: Alpaca liefert Kurse/Kontowerte ausschließlich in USD, keine
+    // EUR/USD-Umrechnung im Repo — fmt/eur0 zeigen deshalb $ statt €, obwohl die Backend-Felder
+    // (pnl_eur, trade_size_eur) historisch "eur" heißen. Zahlen/Rundung bleiben unverändert.
+    const fmt  = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "$";
     const cls  = (n) => n >= 0 ? "green" : "red";
     const usd0 = (n) => "$" + Math.round(n).toLocaleString("de-DE");
-    const eur0 = (n) => Math.round(n).toLocaleString("de-DE") + "€";
+    const eur0 = (n) => Math.round(n).toLocaleString("de-DE") + "$";
     const rangeLabel = (n) => n === 0 ? "Alle" : (n === 1 ? "1 Tag" : n + " Tage");
 
     // ── Chart-Registry: erstellt einmal, danach in-place aktualisiert (smooth) ──
@@ -635,7 +638,7 @@
       kpis.push({ key: "wl", label: "Gewinner / Verlierer", html: `<span class="green">${s.wins}</span> / <span class="red">${s.losses}</span>` });
       kpis.push({ key: "closed", label: "Abgeschlossen", num: s.total_closed, fmt: (v) => "" + Math.round(v) });
       kpis.push({ key: "active", label: "Aktiv", num: s.active_count, fmt: (v) => "" + Math.round(v) });
-      kpis.push({ key: "size", label: "Trade-Größe", num: d.trade_size_eur, fmt: (v) => Math.round(v) + "€" });
+      kpis.push({ key: "size", label: "Trade-Größe", num: d.trade_size_eur, fmt: (v) => Math.round(v) + "$" });
 
       const host = document.getElementById("cards");
       const keys = kpis.map(k => k.key).join(",");
@@ -742,10 +745,10 @@
       const sh = d.sizing_hint, hintEl = document.getElementById("sizing-hint");
       if (sh) {
         hintEl.style.display = "";
-        hintEl.innerHTML = `⚠️ <b>Trade-Größe ${sh.trade_size}€ ist klein:</b> ~${sh.frac_rate}% deiner `
+        hintEl.innerHTML = `⚠️ <b>Trade-Größe ${sh.trade_size}$ ist klein:</b> ~${sh.frac_rate}% deiner `
           + `Signale liegen über dem Budget → Bruchteil-Orders (außerhalb der regulären US-Sitzung `
           + `werden sie vorgemerkt). Für überwiegend <b>ganze Aktien</b> empfiehlt sich eine Trade-Größe `
-          + `von etwa <b>${sh.recommended}€</b> — anpassbar unter Einstellungen.`;
+          + `von etwa <b>${sh.recommended}$</b> — anpassbar unter Einstellungen.`;
       } else { hintEl.style.display = "none"; }
 
       const noData = "Noch keine abgeschlossenen Trades — Daten erscheinen nach der ersten Auswertung.";
@@ -775,7 +778,7 @@
       if (kind === "int") return String(value);
       if (kind === "num") return Number(value).toFixed(2);
       return Number(value).toLocaleString("de-DE",
-        { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "€";
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "$";
     }
 
     function renderModeReports(d) {
@@ -815,9 +818,9 @@
           fill: true, tension: .25, pointRadius: eq.length > 30 ? 0 : 3 }] },
         options: {
           interaction: { mode: "index", intersect: false },
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "$" } } },
           scales: { x: { ticks: { maxTicksLimit: 8 }, grid: { color: cssVar("--grid") } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: cssVar("--grid") } } }
+                    y: { ticks: { callback: v => v + "$" }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -830,10 +833,10 @@
           data: ts.map(t => t.pnl), backgroundColor: ts.map(t => t.pnl >= 0 ? cssVar("--money-gain") : cssVar("--money-loss")), borderRadius: 6 }] },
         options: {
           plugins: { legend: { display: false }, crosshair: false,
-                     tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "€" } } },
+                     tooltip: { callbacks: { label: (i) => (i.parsed.y >= 0 ? "+" : "") + i.parsed.y + "$" } } },
           onClick: (evt, els) => { if (els.length) openAnalysis(ts[els[0].index].ticker); },
           scales: { x: { ticks: {}, grid: { display: false } },
-                    y: { ticks: { callback: v => v + "€" }, grid: { color: cssVar("--grid") } } }
+                    y: { ticks: { callback: v => v + "$" }, grid: { color: cssVar("--grid") } } }
         }
       });
     }
@@ -859,7 +862,7 @@
         active.forEach(m => items.push({ x: now, eur: m.final_eur || 0, open: true, m }));
       items.sort((a, b) => a.x - b.x);
 
-      // Laufende Summe → Kontowert-Kurve; Startanker bei 0 € am linken Rand.
+      // Laufende Summe → Kontowert-Kurve; Startanker bei 0 $ am linken Rand.
       let cum = 0;
       const pts = items.map(it => { cum += it.eur; return { x: it.x, y: +cum.toFixed(2), it }; });
       const xmin = (d.trades_curves_x && d.trades_curves_x.min) || (pts.length ? pts[0].x : now);
@@ -890,11 +893,11 @@
               title: (its) => fmtWhen(its[0].parsed.x),
               label: (item) => {
                 const m = item.dataset._meta[item.dataIndex];
-                const base = "Kontowert: " + (item.parsed.y >= 0 ? "+" : "") + item.parsed.y.toFixed(2) + "€";
+                const base = "Kontowert: " + (item.parsed.y >= 0 ? "+" : "") + item.parsed.y.toFixed(2) + "$";
                 if (!m) return base;
                 const s = (v) => (v >= 0 ? "+" : "") + v;
                 // §32.5: unbekanntes Ergebnis (Kurs nicht abrufbar) wird als „—" gezeigt.
-                const eur = m.final_eur != null ? s(m.final_eur) + "€" : "—";
+                const eur = m.final_eur != null ? s(m.final_eur) + "$" : "—";
                 return [base, `${m.ticker} ${m.open ? "(offen)" : ""} ${eur} · ${m.strategy}`];
               } } },
           },
@@ -909,7 +912,7 @@
                  ticks: { maxTicksLimit: 6, maxRotation: 0, autoSkip: true, callback: (v) => fmtWhen(v) },
                  grid: { color: cssVar("--grid") } },
             y: { type: "linear",
-                 ticks: { callback: (v) => (v >= 0 ? "+" : "") + v + "€" },
+                 ticks: { callback: (v) => (v >= 0 ? "+" : "") + v + "$" },
                  grid: { color: cssVar("--grid") } }
           }
         }
