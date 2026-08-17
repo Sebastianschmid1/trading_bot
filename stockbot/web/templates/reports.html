@@ -85,8 +85,8 @@
 </div>
 
 {% if not matrix %}
-  <p class="muted">Noch keine Reports vorhanden. Erzeuge sie mit
-    <code>python -m tools.sweep_report</code> (sie werden bei jedem Deploy mitgeliefert).</p>
+  <p class="muted">Noch keine Reports vorhanden. Sie werden automatisch bei jedem Deploy
+    neu erzeugt — schau später wieder vorbei.</p>
 {% else %}
 <p class="muted">Vollständiges {{ matrix.region }}-Universum ({{ matrix.n_tickers }} Werte, {{ matrix.years }} Jahre,
   Stand {{ matrix.generated_at }}). Fester Kapitalpool
@@ -192,7 +192,7 @@
   <tr class="matrow" data-key="{{ r.key }}" data-lev="{{ r.leverage }}" data-mode="{{ r.mode }}">
     <td data-sort="{{ r.label }}"><button type="button" class="row-open">{{ r.label }}</button></td>
     <td class="r" data-sort="{{ r.leverage }}">{{ r.leverage }}×</td>
-    <td data-sort="{{ r.mode }}">{{ r.mode }}</td>
+    <td data-sort="{{ r.mode }}">{{ glossary.sl_tp_mode_label(r.mode) }}</td>
     <td class="r" data-sort="{{ r.trades }}">{{ r.trades }}</td>
     <td class="r {{ 'pos' if (r.total_pnl_eur or 0) >= 0 else 'neg' }}" data-sort="{{ r.total_pnl_eur or 0 }}">{{ '{:+,.0f}$'.format(r.total_pnl_eur or 0) }}</td>
     <td class="r {{ 'pos' if (r.return_pct or 0) >= 0 else 'neg' }}" data-sort="{{ r.return_pct if r.return_pct is not none else -1e9 }}">{{ '%+.1f'|format(r.return_pct) ~ '%' if r.return_pct is not none else '—' }}</td>

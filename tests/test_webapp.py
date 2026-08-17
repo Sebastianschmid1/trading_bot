@@ -843,6 +843,34 @@ def test_reports_overall_and_matrix_columns(tmp_path, monkeypatch):
     assert 'class="sortable-table"' in r.text and "data-sort=" in r.text   # sortierbare Spalten
 
 
+def test_reports_matrix_translates_sl_tp_mode_not_raw_code(tmp_path, monkeypatch):
+    """r.mode ist der SL/TP-Modus (tools/sweep_report.py MODES), NICHT der Trading-Modus aus
+    glossary.MODE_LABELS — die Matrix-Zeile muss glossary.sl_tp_mode_label() zeigen."""
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    _write_reports(tmp_path)
+    r = _client().get("/app/reports")
+    assert r.status_code == 200
+    assert '<td data-sort="passiv">Passiv</td>' in r.text
+    assert '<td data-sort="normal">Normal</td>' in r.text
+    # der frühere Defekt war die rohe Zellwahl — die Matrix-Zelle darf den Code nicht mehr
+    # unübersetzt zeigen (der Filter-Chip-Wortlaut daneben ist nicht Teil dieses Befunds).
+    assert '<td data-sort="passiv">passiv</td>' not in r.text
+    assert '<td data-sort="normal">normal</td>' not in r.text
+
+
+def test_reports_tab_without_data_hint_has_no_shell_command(tmp_path, monkeypatch):
+    """Der Leerzustand richtet sich an Kunden ohne Serverzugriff — keine Kommandozeile."""
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    r = _client().get("/app/reports")
+    assert r.status_code == 200
+    assert "python -m tools" not in r.text
+    assert "<code>" not in r.text.split("Noch keine Reports")[1].split("</p>")[0]
+
+
 def test_reports_three_multiselect_filters(tmp_path, monkeypatch):
     fresh()
     from stockbot import paths
