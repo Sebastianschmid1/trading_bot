@@ -483,6 +483,65 @@ def test_backtest_editor_supports_single_compare_and_portfolio(monkeypatch):
     assert "Take-Profit" in portfolio.text
 
 
+def test_backtest_form_ships_wait_dialog_for_the_slow_post():
+    # Befund „Formular startet spürbar langen POST ohne jede Rückmeldung" — der Warte-Dialog
+    # (components.html#wait_dialog) muss verdrahtet sein, bevor überhaupt ein Ergebnis da ist.
+    fresh()
+    r = _client().get("/app/backtest")
+    assert r.status_code == 200
+    assert 'id="backtestForm"' in r.text
+    assert 'id="btOverlay"' in r.text
+    assert 'class="wait-dialog"' in r.text
+    assert "Backtest läuft" in r.text
+
+
+def test_backtest_trades_table_notes_the_25_row_cap_with_true_total(monkeypatch):
+    # 1b: N kommt aus result.trades|length, NICHT aus result.metrics.trades (getrennt berechnet).
+    fresh()
+    c = _client()
+    trades = [{"ticker": "AAPL", "entry_date": "2024-01-01", "exit_date": "2024-01-02",
+               "pnl_pct": 1.0, "pnl_eur": 1.0, "reason": "Take-Profit"} for _ in range(30)]
+    monkeypatch.setattr(
+        backtest_engine, "run_backtest",
+        lambda *args, **kwargs: {
+            "label": "Single", "n_tickers": 1, "years": 1,
+            "metrics": {"trades": 999, "profit_factor": 1.2, "win_rate": 55.0,
+                        "total_pnl_eur": 30.0, "max_drawdown_pct": 2.0, "avg_win": 1.0, "avg_loss": -1.0},
+            "trades": trades,
+        })
+    r = c.post("/app/backtest", data={
+        "mode": "single", "strategy": "high52_wide", "tickers": "AAPL", "years": "1",
+        "trade_size": "100.0", "top_n": "10", "leverage": "1.0", "max_concurrent": "10",
+        "max_hold": "20", "q": "",
+    })
+    assert r.status_code == 200
+    assert "Zeigt die ersten 25 von 30 Trades." in r.text
+    assert "aus allen 30 Trades berechnet" in r.text
+    assert r.text.count("Take-Profit") == 25          # Tabelle bleibt auf 25 Zeilen gekappt
+
+
+def test_backtest_shows_empty_state_for_zero_trades(monkeypatch):
+    # 1c: kein Fehler, kein leeres Loch — erklärender Text statt einer leeren/fehlenden Karte.
+    fresh()
+    c = _client()
+    monkeypatch.setattr(
+        backtest_engine, "run_backtest",
+        lambda *args, **kwargs: {
+            "label": "Single", "n_tickers": 1, "years": 1,
+            "metrics": {"trades": 0, "profit_factor": None, "win_rate": None,
+                        "total_pnl_eur": None, "max_drawdown_pct": None, "avg_win": None, "avg_loss": None},
+            "trades": [],
+        })
+    r = c.post("/app/backtest", data={
+        "mode": "single", "strategy": "high52_wide", "tickers": "AAPL", "years": "1",
+        "trade_size": "100.0", "top_n": "10", "leverage": "1.0", "max_concurrent": "10",
+        "max_hold": "20", "q": "",
+    })
+    assert r.status_code == 200
+    assert "Keine Trades in diesem Zeitraum" in r.text
+    assert "<table>" not in r.text.split("<h2>Trades</h2>")[1]
+
+
 # ── Einstellungen & Watchlist ───────────────────────────────────────────────
 
 def test_settings_and_notify_channel_via_web():
@@ -589,7 +648,30 @@ def test_lab_page_explains_manual_start_admin_only(monkeypatch):
     monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", 999999)
     r = _client().get("/app/lab")
     assert r.status_code == 200
-    assert "▶ Manueller Start nur für Admin" in r.text
+    # war ein disabled-<button title="…">: nicht fokussierbar, title erreicht Tastatur/
+    # Screenreader nie — reiner Text im vorhandenen .muted-Muster statt toter Steuerung.
+    assert "Laborläufe startet der Betreiber." in r.text
+    assert "<button disabled" not in r.text
+
+
+def test_lab_page_shows_plainspeak_intro_for_non_admins(monkeypatch):
+    """Variante B (design-lead): die Nav bleibt sichtbar, GET bleibt ungegatet — aber
+    Nicht-Admins bekommen einen Klartext-Vorspann, WAS die Seite ist und dass sie nichts
+    tun müssen."""
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", 999999)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "Wozu diese Seite da ist" in r.text
+    assert "es wird kein Geld bewegt und keine Order ausgelöst" in r.text
+
+
+def test_lab_page_hides_plainspeak_intro_for_admins(monkeypatch):
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", CHAT)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "Wozu diese Seite da ist" not in r.text
 
 
 # ── On-Demand-Signal-Scan + 7-Tage-Chart ────────────────────────────────────
@@ -782,6 +864,34 @@ def test_reports_overall_and_matrix_columns(tmp_path, monkeypatch):
         assert col in r.text
     assert "8 von 8 Analysen" in r.text          # 2 Strat × 2 Hebel × 2 Modi
     assert 'class="sortable-table"' in r.text and "data-sort=" in r.text   # sortierbare Spalten
+
+
+def test_reports_matrix_translates_sl_tp_mode_not_raw_code(tmp_path, monkeypatch):
+    """r.mode ist der SL/TP-Modus (tools/sweep_report.py MODES), NICHT der Trading-Modus aus
+    glossary.MODE_LABELS — die Matrix-Zeile muss glossary.sl_tp_mode_label() zeigen."""
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    _write_reports(tmp_path)
+    r = _client().get("/app/reports")
+    assert r.status_code == 200
+    assert '<td data-sort="passiv">Passiv</td>' in r.text
+    assert '<td data-sort="normal">Normal</td>' in r.text
+    # der frühere Defekt war die rohe Zellwahl — die Matrix-Zelle darf den Code nicht mehr
+    # unübersetzt zeigen (der Filter-Chip-Wortlaut daneben ist nicht Teil dieses Befunds).
+    assert '<td data-sort="passiv">passiv</td>' not in r.text
+    assert '<td data-sort="normal">normal</td>' not in r.text
+
+
+def test_reports_tab_without_data_hint_has_no_shell_command(tmp_path, monkeypatch):
+    """Der Leerzustand richtet sich an Kunden ohne Serverzugriff — keine Kommandozeile."""
+    fresh()
+    from stockbot import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+    r = _client().get("/app/reports")
+    assert r.status_code == 200
+    assert "python -m tools" not in r.text
+    assert "<code>" not in r.text.split("Noch keine Reports")[1].split("</p>")[0]
 
 
 def test_reports_three_multiselect_filters(tmp_path, monkeypatch):
@@ -1022,6 +1132,27 @@ def test_admin_only_action_returns_styled_html_403_for_browser():
     assert r.headers["content-type"].startswith("text/html")
     assert "Kein Zugriff" in r.text
     assert "Nur der Admin darf das Labor starten." in r.text   # sachlicher Originalgrund bleibt sichtbar
+
+
+def test_error_page_has_no_inline_style_attributes():
+    """Befund: error.html trug Inline-style="..." statt Utility-Klassen (card2--narrow/
+    --center, btn-row--center) aus components.css."""
+    fresh()
+    c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
+    r = c.get("/gibtesnicht")
+    assert r.status_code == 404
+    assert 'style="' not in r.text
+    assert "card2--narrow" in r.text and "card2--center" in r.text
+    assert "btn-row btn-row--center" in r.text
+
+
+def test_index_page_has_no_inline_style_attributes():
+    fresh()
+    r = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app).get("/")
+    assert r.status_code == 200
+    assert 'style="' not in r.text
+    assert "card2--narrow" in r.text and "card2--center" not in r.text   # Prosa bleibt linksbündig
+    assert "btn-row" in r.text
 
 
 def test_api_routes_keep_raw_json_on_404_and_403():

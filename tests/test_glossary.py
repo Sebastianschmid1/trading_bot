@@ -118,3 +118,26 @@ def test_mode_label_accepts_enum():
     from stockbot.core.domain import Mode
     assert glossary.mode_label(Mode.PAPER) == "Paper"
     assert glossary.mode_label(Mode.SHADOW) == "Shadow"
+
+
+# ── SL/TP-Modus — eigene Domäne, KEIN Trading-Modus (Reports-Matrix §UI-PLAINSPEAK) ──
+
+@pytest.mark.parametrize("mode,label", [
+    ("aus", "Aus"),
+    ("passiv", "Passiv"),
+    ("normal", "Normal"),
+    ("aggressiv", "Aggressiv"),
+])
+def test_sl_tp_mode_labels(mode, label):
+    assert glossary.sl_tp_mode_label(mode) == label
+
+
+def test_sl_tp_mode_label_falls_back_for_unknown_value():
+    assert glossary.sl_tp_mode_label("mystery") == "Mystery"
+
+
+def test_sl_tp_mode_labels_cover_config_domain():
+    """Jeder Schlüssel aus config.SL_TP_MODES hat ein Label (Domäne = Reports-Matrix/Settings)."""
+    from stockbot.config import SL_TP_MODES
+    for key in SL_TP_MODES:
+        assert key in glossary.SL_TP_MODE_LABELS

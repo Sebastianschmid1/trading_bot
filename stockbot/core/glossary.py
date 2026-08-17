@@ -114,3 +114,24 @@ def mode_label(mode) -> str:
     """Betriebsmodus (``Mode``-Enum oder String) → deutsches Label (§5)."""
     key = getattr(mode, "value", mode)
     return MODE_LABELS.get(str(key).lower(), str(key).title())
+
+
+# ── SL/TP-Modus (§25.2) ─────────────────────────────────────────────────────
+#: Schlüssel = ``core.config.SL_TP_MODES`` (aus/passiv/normal/aggressiv) — eine EIGENE
+#: Domäne, KEIN Trading-Modus (siehe ``MODE_LABELS`` oben). Die Reports-Matrix
+#: (`/app/reports`, `tools/sweep_report.py MODES`) und die Einstellungsseite
+#: (`settings.html sl_tp_modes`) zeigen dieselben SL/TP-Varianten, nicht
+#: Backtest/Shadow/Demo/Paper/Live — deshalb hier ein eigenes Label-Paar statt
+#: `mode_label()` auf einer fachlich falschen Domäne anzuwenden.
+SL_TP_MODE_LABELS = {
+    "aus":       "Aus",
+    "passiv":    "Passiv",
+    "normal":    "Normal",
+    "aggressiv": "Aggressiv",
+}
+
+
+def sl_tp_mode_label(mode) -> str:
+    """SL/TP-Modus (String) → deutsches Label; unbekannte Werte lesbar gemacht."""
+    key = getattr(mode, "value", mode)
+    return SL_TP_MODE_LABELS.get(str(key).lower(), str(key).title())
