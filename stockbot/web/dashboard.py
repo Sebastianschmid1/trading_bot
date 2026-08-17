@@ -121,6 +121,11 @@ async def security_headers(request, call_next):
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     # Fonts und Styles bleiben vollständig lokal; Inline-Styles werden noch von
     # bestehenden Templates verwendet.
+    # cdn.jsdelivr.net bleibt in script-src: templates/dashboard.html laedt Chart.js
+    # seit agent/UI-HARDENING-2 lokal (/static/chart.umd.js), aber static/dashboard.html
+    # (Legacy-Seite, ueber denselben /static-Mount erreichbar, ausserhalb des Scopes
+    # dieses Tasks) laedt es weiterhin vom CDN — grep -rn "jsdelivr" stockbot/ zeigt
+    # diesen verbleibenden Verweis. Erst entfernen, wenn auch diese Seite vendoriert ist.
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; style-src 'self' 'unsafe-inline'; "
