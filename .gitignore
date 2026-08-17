@@ -24,3 +24,5 @@ data/polymarket_archive/
 *.egg-info/
 # Temporaere Git-Worktrees fuer isolierte Subagenten
 .claude/worktrees/
+# Test-Temp auf der Platte statt im RAM (/tmp ist tmpfs mit Quota)
+.pytmp/
