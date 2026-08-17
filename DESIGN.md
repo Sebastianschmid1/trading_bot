@@ -590,3 +590,43 @@ doesn't require 4.5:1 for (deactivated controls are exempt from the text-contras
 criterion); it's set to sit clearly below `muted` (3.7–3.8:1 vs. 7.5–7.9:1 — visibly dimmer at a
 glance) while staying above the 3:1 non-text-UI floor, so "disabled" reads as *present but
 inactive* rather than invisible.
+
+## Layout-Utilities und Warte-Dialog (agent/UI-PLAINSPEAK)
+
+Drei Design-Entscheidungen vor dem Handoff, damit Inline-Styles und ein zweiter
+Overlay-Klon gar nicht erst entstehen.
+
+### `.card2--narrow` / `.card2--center` — die schmale, zentrierte Seitenkarte
+
+`error.html` und `index.html` sind Vollseiten mit einer einzelnen Karte und trugen dafür
+Inline-Styles (`max-width:520px` bzw. `640px`, `margin:3rem auto`). Neu als Modifier auf dem
+bestehenden Block, additiv in `components.css`:
+
+| Klasse | Werte | Zweck |
+|---|---|---|
+| `.card2--narrow` | `max-width: 560px; margin-inline: auto; margin-block: var(--space-8);` | Box-Breite + Zentrierung der Karte |
+| `.card2--center` | `text-align: center;` | nur wo der Inhalt zentriert gehört (Fehlerseite) |
+| `.card2__header--center` | `justify-content: center;` | Kopfzeile der zentrierten Variante |
+| `.card2__title--lg` | `font-size: var(--font-size-h2);` | Karten-Titel, der als Seiten-`h1` dient |
+
+**Eine Breite statt zweier.** 520px und 640px waren nicht begründet unterschiedlich, sondern
+gewachsen. 560px liegt bei 16px-Fließtext bei ~70 Zeichen je Zeile und damit im Lesemaß-Fenster
+45–75 — für die kurze Fehlermeldung wie für die zwei Absätze der Startseite. Kein
+Breiten-Modifier, solange kein Inhalt einen zweiten Wert erzwingt.
+
+### `.btn-row` — Buttonreihe unter einer Karte
+
+`display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-5);`, Modifier
+`.btn-row--center { justify-content: center; }`. Ersetzt die Inline-Flex-Zeilen in `error.html`
+und `index.html`; `.6rem`/`1.4rem` rasten dabei auf den 4px-Rhythmus (12px/20px) ein.
+`.dialog2__actions` bleibt getrennt — das ist die Aktionszeile *im* Dialog (rechtsbündig), keine
+Seiten-Utility.
+
+### `wait_dialog()` — ein Warte-Overlay für alle langsamen POST-Formulare
+
+Das native `<dialog>` aus `app.html` (Scan) wird als Makro nach `components.html` gezogen und
+von `app.html` und `backtest.html` genutzt. Grund: der Timeout-Zweig ist Sicherheitsverhalten
+(kein Endlos-Spinner, immer ein Ausweg per Schließen-Button) und darf zwischen zwei Kopien
+nicht auseinanderlaufen. Optik unverändert — das Makro rendert weiterhin einen transparenten
+Dialog mit `.card` darin; die beiden bisher id-gebundenen Regeln (`background:transparent`,
+`::backdrop` mit `--overlay-strong` + Blur) leben als `.wait-dialog` in `components.css`.
