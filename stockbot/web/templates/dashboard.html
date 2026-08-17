@@ -144,10 +144,19 @@
     .grid { display:grid; grid-template-columns:1.45fr 1fr; gap:20px; align-items:start; }
     .col { display:flex; flex-direction:column; gap:20px; min-width:0; }
     .span-2 { grid-column:1 / -1; }
-    .panel { background:linear-gradient(155deg, var(--lg-glass-hi), var(--lg-glass) 46%, var(--lg-glass-lo));
+    /* .panel trägt Fließtext (.desc, .empty, Chart-Ausfallhinweise aus replaceCanvas) —
+       braucht deshalb die dichte --lg-glass-solid-Rezeptur statt der durchsichtigen
+       Drei-Stufen-Tönung (--lg-glass-hi/--lg-glass/--lg-glass-lo). Mit der Tönung lief der
+       viewport-verankerte Mesh-Grund (body.lg-body, background-attachment:fixed) beim
+       Scrollen durch die Schrift und der Kontrast von --lg-ink-muted fiel je nach
+       Scroll-Position auf 3,49–4,97:1 (siehe DESIGN.md „Kontrast-Härtung: .panel"). Gleiche
+       Rezeptur wie .card/.table-scroll/dialog#modal/.ck-chip/.pill/.tab — deckungsgleich mit
+       .lg-glass--solid aus liquid-glass.css (Radius/Schatten bleiben die von .panel, nur
+       Fläche + Kante wechseln auf die Solid-Variante). */
+    .panel { background:var(--lg-glass-solid);
              -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
              backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-saturate));
-             border:1px solid var(--lg-edge); border-radius:var(--lg-r-xl);
+             border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-xl);
              box-shadow:var(--lg-cast-3), var(--lg-facet); overflow:hidden; }
     .panel-head { display:flex; align-items:center; gap:.6rem; padding:16px 20px 4px; cursor:pointer;
                   user-select:none; }

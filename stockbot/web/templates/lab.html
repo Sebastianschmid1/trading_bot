@@ -48,7 +48,10 @@
   .kind.decision { color:var(--lg-violet); border-color:var(--lg-violet); }
   .ok { color:var(--status-ink-success); } .bad { color:var(--lg-ink-muted); }
   .empty { color:var(--lg-ink-muted); text-align:center; padding:1.6rem; border:1px dashed var(--lg-edge-soft); border-radius:var(--lg-r-md); }
-  .note { color:var(--lg-ink-muted); font-size:.82rem; line-height:1.5; }
+  /* .note sitzt teils in .card (Solid-Glas), teils direkt auf dem nackten Mesh-Grund
+     (z. B. „So arbeitet das Labor" unten) — --ink-muted-ground statt --lg-ink-muted,
+     siehe base.html/DESIGN.md „Kontrast-Härtung: nackter Grund". */
+  .note { color:var(--ink-muted-ground); font-size:.82rem; line-height:1.5; }
 </style>
 
 {% set st = state %}
