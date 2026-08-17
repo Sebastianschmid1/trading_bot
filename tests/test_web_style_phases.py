@@ -433,18 +433,23 @@ def test_no_jsdelivr_references_left_in_web_templates():
     assert not offenders, f"jsdelivr-Referenzen in Templates gefunden: {offenders}"
 
 
-def test_csp_keeps_jsdelivr_only_because_the_legacy_static_dashboard_still_needs_it():
-    """`grep -rn jsdelivr stockbot/` darf den CSP-Eintrag nur behalten, solange
-    wirklich noch etwas von dort lädt. Aktuell ist das ausschließlich die
-    Legacy-Seite stockbot/web/static/dashboard.html (außerhalb dieses Tasks) — wird
-    sie migriert, MUSS dieser Test angepasst und der CSP-Eintrag entfernt werden."""
+def test_csp_no_longer_allows_jsdelivr():
+    """Die verwaiste, öffentlich (ohne Login) ausgelieferte Legacy-Seite
+    stockbot/web/static/dashboard.html wurde entfernt (agent/WEB-LEGACY-CLEANUP) —
+    sie war der einzige Grund für cdn.jsdelivr.net in der CSP. Chart.js lädt
+    seit agent/UI-HARDENING-2 überall lokal (/static/chart.umd.js)."""
     dashboard_py = Path("stockbot/web/dashboard.py").read_text(encoding="utf-8")
-    assert "https://cdn.jsdelivr.net" in dashboard_py       # (noch) absichtlich vorhanden
-    legacy_static = Path("stockbot/web/static/dashboard.html")
-    assert legacy_static.exists()
-    assert "cdn.jsdelivr.net" in legacy_static.read_text(encoding="utf-8"), (
-        "Legacy-Seite laedt kein Chart.js mehr vom CDN — CSP-Eintrag jsdelivr jetzt entfernen"
-    )
+    assert "jsdelivr" not in dashboard_py
+    r = _client().get("/app/dashboard")
+    assert "jsdelivr" not in r.headers["content-security-policy"]
+
+
+def test_legacy_static_dashboard_is_gone():
+    """Die Alt-Kopie unter static/ war ohne Anmeldung über /static/... erreichbar
+    und wich vom gepflegten templates/dashboard.html ab — entfernt, siehe oben."""
+    assert not Path("stockbot/web/static/dashboard.html").exists()
+    r = _client().get("/static/dashboard.html")
+    assert r.status_code == 404
 
 
 # ── W3.4 / RES-002: Modus-Report-Panel ───────────────────────────────────────
