@@ -428,9 +428,14 @@
     // Chart.js kommt jetzt lokal aus /static/chart.umd.js (kein CDN mehr) — bleibt die
     // Datei aus irgendeinem Grund trotzdem aus (Netzwerk/Cache/CSP), darf das nicht mehr
     // die ganze Seite mitreißen: Kennzahlen, Tabellen und Panels stehen unabhängig von
-    // Chart.js; an jeder Diagramm-Stelle erscheint dann nur ein ruhiger Hinweis
-    // ("Diagramm nicht verfügbar", siehe upsertChart/replaceCanvas weiter unten).
+    // Chart.js; an jeder Diagramm-Stelle erscheint dann nur der ruhige Hinweis aus
+    // CHART_UNAVAILABLE_MSG (siehe upsertChart/replaceCanvas weiter unten). Der Text
+    // nennt kurz den wahrscheinlichen Grund (blockiertes Skript) und beruhigt explizit,
+    // dass die Zahlen daneben (Kennzahlen/Tabellen) davon unberührt und korrekt sind —
+    // ohne Alarmton, keine Fehler-/Rot-Optik (bleibt in .empty, wie zuvor).
     const chartAvailable = typeof Chart !== "undefined";
+    const CHART_UNAVAILABLE_MSG = "Diagramm nicht verfügbar — ein Skript wurde blockiert " +
+      "(z. B. Adblocker, Proxy oder Netzwerk). Die Zahlen daneben stimmen weiterhin.";
 
     const rootStyle = () => getComputedStyle(document.documentElement);
     const cssVar = (name) => rootStyle().getPropertyValue(name).trim();
@@ -518,7 +523,7 @@
       // Ohne Chart.js gibt es hier nichts zu zeichnen — statt eines leeren/toten Canvas
       // erscheint der ruhige Hinweis aus replaceCanvas(); Kennzahlen/Tabellen sind davon
       // unabhängig und rendern in render() unverändert weiter.
-      if (!chartAvailable) { replaceCanvas(id, "Diagramm nicht verfügbar"); return null; }
+      if (!chartAvailable) { replaceCanvas(id, CHART_UNAVAILABLE_MSG); return null; }
       const c = document.getElementById(id); if (!c) return null;
       showCanvas(id);
       let ch = charts[id];
@@ -1139,7 +1144,7 @@
       if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
       // Auch im Detail-Modal gilt: ohne Chart.js ein Hinweis statt eines toten Canvas,
       // die Faktor-Tabelle darüber (bereits gesetzt) bleibt in jedem Fall lesbar.
-      if (!chartAvailable) { replaceCanvas("factorChart", "Diagramm nicht verfügbar"); return; }
+      if (!chartAvailable) { replaceCanvas("factorChart", CHART_UNAVAILABLE_MSG); return; }
       showCanvas("factorChart");
       factorChartObj = new Chart(document.getElementById("factorChart"), {
         type: "line",

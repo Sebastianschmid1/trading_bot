@@ -43,6 +43,13 @@ from stockbot.web import webapp
 
 CHAT = 8802
 NODE = shutil.which("node")
+# Muss wortgleich mit CHART_UNAVAILABLE_MSG in dashboard.html sein (Aufgabe 3,
+# agent/UI-POLISH-DASH): nennt den wahrscheinlichen Grund (blockiertes Skript) und
+# beruhigt, dass die Zahlen daneben weiterhin stimmen — kein Alarmton.
+CHART_UNAVAILABLE_MSG = (
+    "Diagramm nicht verfügbar — ein Skript wurde blockiert "
+    "(z. B. Adblocker, Proxy oder Netzwerk). Die Zahlen daneben stimmen weiterhin."
+)
 
 pytestmark = pytest.mark.skipif(
     NODE is None,
@@ -320,12 +327,18 @@ def test_chart_library_failure_does_not_take_down_kpis_and_active_trades(tmp_pat
     assert "ZALT" in result["activeInnerHTML"]
     # Die Fehlerbox oben ist NICHT der richtige Ort für einen Chart-Ausfall (kein Absturz).
     assert result["errorDisplay"] != "block"
-    # An jeder Diagramm-Stelle: Canvas versteckt, ruhiger Hinweis sichtbar.
+    # An jeder Diagramm-Stelle: Canvas versteckt, ruhiger Hinweis sichtbar — der Hinweis
+    # nennt jetzt auch kurz den Grund (blockiertes Skript) und beruhigt, dass die Zahlen
+    # daneben weiterhin stimmen (Aufgabe 3, agent/UI-POLISH-DASH).
     for chart_id in ("equityChart", "tickerChart", "strengthChart", "priceChartSingle"):
         info = result[chart_id]
         assert info["canvasDisplay"] == "none", f"{chart_id}: Canvas müsste versteckt sein"
-        assert info["msgText"] == "Diagramm nicht verfügbar", f"{chart_id}: falscher/fehlender Hinweistext"
+        assert info["msgText"] == CHART_UNAVAILABLE_MSG, f"{chart_id}: falscher/fehlender Hinweistext"
         assert info["msgDisplay"] != "none", f"{chart_id}: Hinweis müsste sichtbar sein"
+        # Erklärt WARUM (blockiertes Skript/Netzwerk) UND dass die übrigen Zahlen
+        # weiterhin vertrauenswürdig sind — nicht nur der reine "nicht verfügbar"-Satz.
+        assert "blockiert" in info["msgText"]
+        assert "stimmen weiterhin" in info["msgText"]
 
 
 def test_chart_library_present_renders_unchanged(tmp_path):
@@ -340,7 +353,7 @@ def test_chart_library_present_renders_unchanged(tmp_path):
     for chart_id in ("equityChart", "tickerChart", "strengthChart", "priceChartSingle"):
         info = result[chart_id]
         assert info["canvasDisplay"] != "none", f"{chart_id}: sollte mit Chart.js sichtbar bleiben"
-        assert info["msgText"] != "Diagramm nicht verfügbar", f"{chart_id}: sollte keinen Fallback zeigen"
+        assert info["msgText"] != CHART_UNAVAILABLE_MSG, f"{chart_id}: sollte keinen Fallback zeigen"
 
 
 def test_dashboard_script_guards_every_top_level_chart_access():
