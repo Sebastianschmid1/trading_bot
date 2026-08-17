@@ -976,8 +976,13 @@
             <td class="num">${t.entry != null ? "$" + t.entry.toFixed(2) : "—"}</td>
             <td class="num">${t.current != null ? "$" + t.current.toFixed(2) : "—"}</td>
             <td class="num ${t.pnl_eur != null && t.pnl_eur >= 0 ? "green" : "red"}" title="${t.leverage > 1 && t.pnl_pct != null ? "Kurs " + (t.pnl_pct >= 0 ? "+" : "") + t.pnl_pct.toFixed(1) + "% · Hebel " + (+t.leverage) + "× → Rendite auf Margin" : "Rendite"}">${t.pnl_eur != null ? fmt(t.pnl_eur) + " (" + ((t.roi_pct != null ? t.roi_pct : t.pnl_pct) >= 0 ? "+" : "") + (t.roi_pct != null ? t.roi_pct : t.pnl_pct).toFixed(1) + "%)" : "—"}</td>
-            <td class="num red">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
-            <td class="num green">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
+            <!-- Stop-Loss/Take-Profit sind PREIS-NIVEAUS, kein Ergebnis — die Money-Only-
+                 Color-Regel (DESIGN.md: "Grün und Rot heißen Geld, sonst nichts") gilt nur
+                 für tatsächliche Gewinn/Verlust-Spalten (P&L oben bleibt gefärbt). Bedeutung
+                 kommt hier über die Spaltenüberschrift ("Stop-Loss"/"Take-Profit"), nicht
+                 über die Farbe. -->
+            <td class="num">${t.stop_loss != null ? "$" + t.stop_loss.toFixed(2) : "—"}</td>
+            <td class="num">${t.take_profit != null ? "$" + t.take_profit.toFixed(2) : "—"}</td>
           </tr>`).join("")}</tbody></table></div>`;
       host.querySelectorAll("th.sortable .th-sort").forEach(btn => btn.addEventListener("click", () => {
         const k = btn.dataset.sort;

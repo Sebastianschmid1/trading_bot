@@ -368,6 +368,32 @@ def test_chart_library_present_renders_unchanged(tmp_path):
         assert info["msgText"] != CHART_UNAVAILABLE_MSG, f"{chart_id}: sollte keinen Fallback zeigen"
 
 
+def test_active_trades_sl_tp_columns_are_neutral_but_pnl_stays_colored(tmp_path):
+    """Stop-Loss/Take-Profit sind Preis-NIVEAUS, kein Ergebnis — die Money-Only-Color-
+    Regel (DESIGN.md: "Grün und Rot heißen Geld, sonst nichts") verbietet die
+    Gewinn/Verlust-Färbung dort; die Spaltenüberschrift trägt die Bedeutung stattdessen.
+    Die tatsächliche P&L-Spalte bleibt unverändert gefärbt (Aufgabe 5,
+    agent/UI-POLISH-DASH). Prüft das echte, von renderActive() erzeugte Markup (per
+    Node-Harness), nicht nur den Skript-Quelltext."""
+    script = _extract_dashboard_script()
+    result = _run_harness(script, chart_available=True, tmp_path=tmp_path)
+    assert not result["threw"], f"Inline-Skript abgebrochen:\n{result.get('error')}"
+
+    # Spaltenreihenfolge der Zeile (COLS): Ticker, Richtung (kein class="num"),
+    # Einsatz, Einstieg, Aktuell, P&L, Stop-Loss, Take-Profit.
+    num_classes = re.findall(r'<td class="([^"]*)"', result["activeInnerHTML"])
+    assert len(num_classes) == 6, f"unerwartete Anzahl num-Spalten: {num_classes}"
+    invested_cls, entry_cls, current_cls, pnl_cls, sl_cls, tp_cls = num_classes
+
+    # Testfixture: pnl_eur=10.0 (>=0) => P&L-Spalte bleibt outcome-gefärbt (grün).
+    assert pnl_cls == "num green", f"P&L-Spalte sollte weiterhin gefärbt sein, war: {pnl_cls!r}"
+    # Stop-Loss/Take-Profit: keine Outcome-Farbe mehr, nur die neutrale .num-Klasse.
+    assert sl_cls == "num", f"Stop-Loss sollte neutral sein, war: {sl_cls!r}"
+    assert tp_cls == "num", f"Take-Profit sollte neutral sein, war: {tp_cls!r}"
+    for cls in (invested_cls, entry_cls, current_cls):
+        assert "red" not in cls and "green" not in cls
+
+
 def test_btn_pause_aria_pressed_follows_autorefresh_state(tmp_path):
     """`btnPause` ist ein Toggle-Button (⏸ läuft / ▶ pausiert) — aria-pressed muss den
     tatsächlichen Zustand tragen, sonst bleibt der Accessible Name generisch und
