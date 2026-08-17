@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}📊 Trading Cockpit — Stock Signal Bot{% endblock %}
 {% block content %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/chart.umd.js"></script>
   <style>
     /* ── Liquid-Glass-Cockpit ──────────────────────────────────────────────
        Nur Komposition (Grid, Zeilen, Kennzahlen). Alle Materialien kommen aus
@@ -405,47 +405,57 @@
     // dem DOM (getComputedStyle), damit Gitter/Achsen/Serien dem aktiven Theme
     // folgen. Bei jedem Aufruf frisch gelesen (kein Caching), damit ein
     // Theme-Wechsel sofort greift, sobald neu gezeichnet wird.
+    // Chart.js kommt jetzt lokal aus /static/chart.umd.js (kein CDN mehr) — bleibt die
+    // Datei aus irgendeinem Grund trotzdem aus (Netzwerk/Cache/CSP), darf das nicht mehr
+    // die ganze Seite mitreißen: Kennzahlen, Tabellen und Panels stehen unabhängig von
+    // Chart.js; an jeder Diagramm-Stelle erscheint dann nur ein ruhiger Hinweis
+    // ("Diagramm nicht verfügbar", siehe upsertChart/replaceCanvas weiter unten).
+    const chartAvailable = typeof Chart !== "undefined";
+
     const rootStyle = () => getComputedStyle(document.documentElement);
     const cssVar = (name) => rootStyle().getPropertyValue(name).trim();
     const cssVarRgb = (name, alpha) => `rgb(${cssVar(name)} / ${alpha})`;
 
     function applyChartTheme() {
+      if (!chartAvailable) return;
       Chart.defaults.maintainAspectRatio = false;
       Chart.defaults.color = cssVar("--lg-ink-muted");
       Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif";
     }
     applyChartTheme();
 
-    // Crosshair: vertikale Linie am aktiven Punkt (leichtgewichtiges Inline-Plugin)
-    Chart.register({
-      id: "crosshair",
-      afterDraw(chart) {
-        if (chart.config.options.plugins && chart.config.options.plugins.crosshair === false) return;
-        const act = chart.getActiveElements ? chart.getActiveElements() : [];
-        if (!act.length || !chart.chartArea) return;
-        const x = act[0].element.x, a = chart.chartArea, ctx = chart.ctx;
-        ctx.save(); ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom);
-        ctx.lineWidth = 1; ctx.strokeStyle = cssVar("--chart-crosshair"); ctx.stroke(); ctx.restore();
-      }
-    });
+    if (chartAvailable) {
+      // Crosshair: vertikale Linie am aktiven Punkt (leichtgewichtiges Inline-Plugin)
+      Chart.register({
+        id: "crosshair",
+        afterDraw(chart) {
+          if (chart.config.options.plugins && chart.config.options.plugins.crosshair === false) return;
+          const act = chart.getActiveElements ? chart.getActiveElements() : [];
+          if (!act.length || !chart.chartArea) return;
+          const x = act[0].element.x, a = chart.chartArea, ctx = chart.ctx;
+          ctx.save(); ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom);
+          ctx.lineWidth = 1; ctx.strokeStyle = cssVar("--chart-crosshair"); ctx.stroke(); ctx.restore();
+        }
+      });
 
-    // Trades-Chart-Deko: Break-even-Linie (0%) als Gewinn/Verlust-Grenze.
-    Chart.register({
-      id: "tradesDecor",
-      beforeDatasetsDraw(chart) {
-        if (!(chart.config.options.plugins && chart.config.options.plugins.tradesDecor)) return;
-        const y = chart.scales.y, a = chart.chartArea, ctx = chart.ctx;
-        if (!y || !a) return;
-        const py = y.getPixelForValue(0);
-        ctx.save();
-        ctx.strokeStyle = cssVar("--chart-breakeven-line"); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
-        ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = cssVar("--chart-breakeven-label"); ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
-        ctx.fillText("Break-even", a.left + 5, py - 3);
-        ctx.restore();
-      }
-    });
+      // Trades-Chart-Deko: Break-even-Linie (0%) als Gewinn/Verlust-Grenze.
+      Chart.register({
+        id: "tradesDecor",
+        beforeDatasetsDraw(chart) {
+          if (!(chart.config.options.plugins && chart.config.options.plugins.tradesDecor)) return;
+          const y = chart.scales.y, a = chart.chartArea, ctx = chart.ctx;
+          if (!y || !a) return;
+          const py = y.getPixelForValue(0);
+          ctx.save();
+          ctx.strokeStyle = cssVar("--chart-breakeven-line"); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+          ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = cssVar("--chart-breakeven-label"); ctx.font = "10px system-ui"; ctx.textBaseline = "bottom";
+          ctx.fillText("Break-even", a.left + 5, py - 3);
+          ctx.restore();
+        }
+      });
+    }
 
     const token = {{ dashboard_token|tojson }};
     const REFRESH_SEC = 30;
@@ -485,6 +495,10 @@
       const m = document.getElementById(id + "_msg"); if (m) m.style.display = "none";
     }
     function upsertChart(id, config) {
+      // Ohne Chart.js gibt es hier nichts zu zeichnen — statt eines leeren/toten Canvas
+      // erscheint der ruhige Hinweis aus replaceCanvas(); Kennzahlen/Tabellen sind davon
+      // unabhängig und rendern in render() unverändert weiter.
+      if (!chartAvailable) { replaceCanvas(id, "Diagramm nicht verfügbar"); return null; }
       const c = document.getElementById(id); if (!c) return null;
       showCanvas(id);
       let ch = charts[id];
@@ -1102,7 +1116,11 @@
         </table>
         <div class="desc">Verlauf der Faktor-Scores (0–100) über die letzten ${pts.length} Handelstage:</div>`;
       const labels = pts.map(p => p.date.slice(5));
-      if (factorChartObj) factorChartObj.destroy();
+      if (factorChartObj) { factorChartObj.destroy(); factorChartObj = null; }
+      // Auch im Detail-Modal gilt: ohne Chart.js ein Hinweis statt eines toten Canvas,
+      // die Faktor-Tabelle darüber (bereits gesetzt) bleibt in jedem Fall lesbar.
+      if (!chartAvailable) { replaceCanvas("factorChart", "Diagramm nicht verfügbar"); return; }
+      showCanvas("factorChart");
       factorChartObj = new Chart(document.getElementById("factorChart"), {
         type: "line",
         data: { labels, datasets: [
