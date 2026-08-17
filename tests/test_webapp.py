@@ -648,7 +648,30 @@ def test_lab_page_explains_manual_start_admin_only(monkeypatch):
     monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", 999999)
     r = _client().get("/app/lab")
     assert r.status_code == 200
-    assert "▶ Manueller Start nur für Admin" in r.text
+    # war ein disabled-<button title="…">: nicht fokussierbar, title erreicht Tastatur/
+    # Screenreader nie — reiner Text im vorhandenen .muted-Muster statt toter Steuerung.
+    assert "Laborläufe startet der Betreiber." in r.text
+    assert "<button disabled" not in r.text
+
+
+def test_lab_page_shows_plainspeak_intro_for_non_admins(monkeypatch):
+    """Variante B (design-lead): die Nav bleibt sichtbar, GET bleibt ungegatet — aber
+    Nicht-Admins bekommen einen Klartext-Vorspann, WAS die Seite ist und dass sie nichts
+    tun müssen."""
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", 999999)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "Wozu diese Seite da ist" in r.text
+    assert "es wird kein Geld bewegt und keine Order ausgelöst" in r.text
+
+
+def test_lab_page_hides_plainspeak_intro_for_admins(monkeypatch):
+    fresh()
+    monkeypatch.setattr(webapp.config, "ADMIN_CHAT_ID", CHAT)
+    r = _client().get("/app/lab")
+    assert r.status_code == 200
+    assert "Wozu diese Seite da ist" not in r.text
 
 
 # ── On-Demand-Signal-Scan + 7-Tage-Chart ────────────────────────────────────

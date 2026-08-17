@@ -76,10 +76,16 @@
       <button class="on" {{ 'disabled' if running }}>▶ Manuellen KI-Lauf starten</button>
     </form>
     {% else %}
-      <button disabled title="Nur der Admin kann Laborläufe starten">▶ Manueller Start nur für Admin</button>
+      <span class="muted">Laborläufe startet der Betreiber.</span>
     {% endif %}
   </div>
 </div>
+
+{% from "components.html" import alert %}
+{% if not is_admin %}
+{{ alert("Diese Seite ist der Blick in die Werkstatt: Sie zeigt, wie die KI-Strategie hinter deinen Signalen laufend nachjustiert und geprüft wird. Du musst hier nichts tun — es wird kein Geld bewegt und keine Order ausgelöst; eine Änderung wird erst wirksam, wenn der Betreiber sie ausdrücklich freigibt. Alle Zahlen stammen aus Backtests auf historischen Kursen und beschreiben die Vergangenheit der Strategie, nicht deinen künftigen Ertrag; die Fachbegriffe darunter richten sich an den Betreiber.",
+         tone='info', title='Wozu diese Seite da ist') }}
+{% endif %}
 
 <div class="card">
   <h2>Automatische KI-Prüfung</h2>
