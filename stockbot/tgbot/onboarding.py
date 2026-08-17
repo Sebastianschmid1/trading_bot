@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 
 from stockbot.core import db
+from stockbot.core import glossary
 from stockbot.config import TRADE_SIZE_EUR, SIGNAL_TIME_HOUR, SIGNAL_TIME_MIN
 from stockbot.tgbot.menu import main_menu_keyboard
 
@@ -36,7 +37,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👋 *Willkommen beim Stock Signal Bot!*\n\n"
-        f"1/3: Wie groß soll dein Demo-Trade in € sein? (Standard: {TRADE_SIZE_EUR:.0f}€)\n"
+        f"1/3: Wie groß soll dein Demo-Trade in $ sein? (Standard: {TRADE_SIZE_EUR:.0f}$)\n"
+        f"_{glossary.BROKER_CURRENCY_NOTE}_\n"
         "Antworte einfach mit einer Zahl, z. B. `25`.\n"
         "Mit /cancel kannst du jederzeit abbrechen.",
         parse_mode="Markdown"
@@ -47,7 +49,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── 1. Demo-Trade-Größe ─────────────────────────────────────────────────────
 
 async def ask_trade_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().replace(",", ".").replace("€", "")
+    # agent/CURRENCY-HONEST: Prompt zeigt jetzt "$" statt "€" — Nutzer koennten das
+    # Symbol mittippen, deshalb wird neben "€" (Alttext/Copy-Paste) auch "$" entfernt.
+    text = update.message.text.strip().replace(",", ".").replace("€", "").replace("$", "")
     try:
         size = float(text)
         if size <= 0:
@@ -141,7 +145,7 @@ async def finish_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE,
     broker_line = f"🔌 Plattform: *{broker_platform}* (verschlüsselt gespeichert)" if broker_platform else "🔌 Keine Plattform verbunden (nur Demo-Modus)"
     await update.message.reply_text(
         "✅ *Setup abgeschlossen!*\n\n"
-        f"💶 Demo-Trade-Größe: *{trade_size:.0f}€*\n"
+        f"💵 Demo-Trade-Größe: *{trade_size:.0f}$*\n"
         f"{broker_line}\n\n"
         f"Du erhältst ab jetzt täglich um {SIGNAL_TIME_HOUR:02d}:{SIGNAL_TIME_MIN:02d} Uhr Signale.",
         parse_mode="Markdown",
