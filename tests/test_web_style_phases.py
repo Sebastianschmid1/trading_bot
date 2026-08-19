@@ -388,6 +388,69 @@ def test_kill_switch_activation_needs_no_confirm_dialog():
     assert 'id="killSwitchOffConfirm"' not in text
 
 
+# ── agent/UI-KILLSWITCH-VISIBLE: Kill-Switch-Chip in der geteilten appbar ────
+
+def test_active_kill_switch_shows_appbar_chip_on_every_shared_page():
+    """Bei aktivem Kill-Switch ist der Hinweis auf JEDER Seite sichtbar, die die
+    gemeinsame appbar nutzt (nicht nur auf /app/settings) — Kern-Akzeptanzkriterium."""
+    c = _client()
+    r = c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Marktvolatilität"},
+               follow_redirects=False)
+    assert r.status_code in (302, 303, 307, 308)
+    for path in ("/app", "/app/watchlist", "/app/history"):
+        text = c.get(path).text
+        assert "Kill-Switch aktiv" in text, f"kein Kill-Switch-Hinweis auf {path}"
+        # Beide Fakten in Klartext (§ Acceptance Criteria 3): keine neuen Positionen,
+        # Schutz-Verkäufe laufen unveraendert weiter.
+        assert "keine neuen Positionen" in text
+        assert "Schutz-Verkäufe laufen weiter" in text
+        assert 'href="/app/settings"' in text          # verlinkt zur Abschalt-Stelle
+        assert "Marktvolatilität" in text               # kurzer Grund steht im Chip selbst
+
+
+def test_inactive_kill_switch_shows_no_appbar_chip():
+    """Ohne aktiven Kill-Switch bleibt die appbar unveraendert — kein Dauer-Hinweis."""
+    text = _client().get("/app").text
+    assert "Kill-Switch aktiv" not in text
+
+
+def test_kill_switch_chip_disappears_after_deactivation():
+    c = _client()
+    c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Test"}, follow_redirects=False)
+    assert "Kill-Switch aktiv" in c.get("/app/watchlist").text
+    c.post("/app/settings/killswitch", data={"enabled": "0"}, follow_redirects=False)
+    assert "Kill-Switch aktiv" not in c.get("/app/watchlist").text
+
+
+def test_kill_switch_long_reason_stays_in_title_not_inline_label():
+    """Der Grund gehört mindestens als title dazu; nur ein KURZER Grund landet zusaetzlich
+    sichtbar im Chip-Text selbst (sonst sprengt er die Pille in der appbar)."""
+    c = _client()
+    long_reason = "Ungewöhnlich hohe Volatilität an mehreren Märkten gleichzeitig beobachtet"
+    assert len(long_reason) > 40
+    c.post("/app/settings/killswitch", data={"enabled": "1", "reason": long_reason},
+           follow_redirects=False)
+    text = c.get("/app").text
+    assert f"Grund: {long_reason}" in text              # title-Attribut traegt den vollen Grund
+    assert f"· {long_reason}" not in text                # aber nicht zusaetzlich im Chip-Label
+
+
+def test_dashboard_page_still_renders_with_active_kill_switch():
+    """Regressions-Check: dashboard.html ist bewusst nicht angefasst (eigene .ck-bar,
+    siehe DESIGN.md) — die Seite muss trotzdem weiter fehlerfrei rendern."""
+    c = _client()
+    c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Test"}, follow_redirects=False)
+    assert c.get("/app/dashboard").status_code == 200
+
+
+def test_kill_switch_chip_reuses_existing_chip_component_not_a_new_one():
+    """§ Scope: keine neue Komponente — derselbe chip()/chip--warn wie in settings.html."""
+    c = _client()
+    c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Test"}, follow_redirects=False)
+    text = c.get("/app").text
+    assert 'class="chip chip--warn"' in text
+
+
 def test_token_rotate_form_uses_dialog2_not_native_confirm():
     text = re.sub(r"\s+", " ", _client().get("/app/settings").text)
     assert 'onsubmit="return confirm(' not in text
