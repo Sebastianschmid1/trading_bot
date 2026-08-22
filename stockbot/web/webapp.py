@@ -358,10 +358,20 @@ def _kill_switch_banner_status(user: dict | None):
     hier nur für die appbar-weite Sichtbarkeit (agent/UI-KILLSWITCH-VISIBLE)."""
     if not user:
         return None
-    status = kill_switch_service.global_status
-    if status is not None and status.active:
-        return status
-    return kill_switch_service.user_status(user["user_id"])
+    # Der Lesezugriff geht ungecacht in die DB (`_load_active` bei jedem Property-Zugriff) und
+    # sitzt hier im Render-Pfad JEDER Seite. Ohne Auffangnetz nimmt ein DB-Schluckauf die ganze
+    # Web-App mit — auch die Einstellungsseite, auf der man den Kill-Switch abschalten wuerde.
+    # Die Anzeige darf ausfallen, die Bedienbarkeit nicht; die Order-Freigabe selbst haengt
+    # unveraendert an `is_new_position_allowed` und wird davon nicht beruehrt.
+    try:
+        status = kill_switch_service.global_status
+        if status is not None and status.active:
+            return status
+        return kill_switch_service.user_status(user["user_id"])
+    except Exception as exc:
+        log.warning("Kill-Switch-Anzeige nicht lesbar (%s: %s) — Chip wird ausgelassen.",
+                    type(exc).__name__, exc)
+        return None
 
 
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
