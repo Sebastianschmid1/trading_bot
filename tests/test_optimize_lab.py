@@ -606,3 +606,42 @@ def test_fires_cache_hits_second_call(lab_tmp, monkeypatch):
     assert calls["n"] == 1 and second == first
     lab._fires_by_date(data, {"tp_mult": 12.0}, jobs=1)   # andere Parameter → neu rechnen
     assert calls["n"] == 2
+
+
+# ── Universum: das Labor folgt den real gehandelten Regionen ────────────────
+#
+# Befund 23.08.2026: `run_cycle` lud hart `DEFAULT_REGION` ('sp500'), waehrend der Handel
+# `sp500,msci_world,emerging` fuhr. Die Backtest-Erwartung entstand damit an anderen Titeln
+# als die Live-Trades — der Reality-Check meldete `divergent` (live 0 % Treffer gegen
+# erwartete 41,8 %), ohne dass die Ursache sichtbar war.
+
+def test_live_regions_follow_the_users_that_actually_trade(monkeypatch):
+    from stockbot.optimize import lab
+
+    monkeypatch.setattr("stockbot.core.db.list_active_users", lambda: [
+        {"broker_exec": True,  "market_regions": ["sp500", "msci_world"]},
+        {"broker_exec": True,  "market_regions": ["msci_world", "emerging"]},
+        {"broker_exec": False, "market_regions": ["nasdaq100"]},   # handelt nicht → zaehlt nicht
+    ])
+    # Reihenfolge stabil, Ueberschneidung (msci_world) nur einmal.
+    assert lab._live_regions() == ["sp500", "msci_world", "emerging"]
+
+
+def test_live_regions_fall_back_to_default_without_trading_users(monkeypatch):
+    from stockbot.optimize import lab
+
+    monkeypatch.setattr("stockbot.core.db.list_active_users", lambda: [
+        {"broker_exec": False, "market_regions": ["emerging"]},
+    ])
+    assert lab._live_regions() == [lab.DEFAULT_REGION]
+
+
+def test_live_regions_survive_a_broken_database(monkeypatch):
+    """Ein Labor ohne DB darf nicht scheitern, nur enger messen."""
+    from stockbot.optimize import lab
+
+    def _boom():
+        raise RuntimeError("keine DB")
+
+    monkeypatch.setattr("stockbot.core.db.list_active_users", _boom)
+    assert lab._live_regions() == [lab.DEFAULT_REGION]

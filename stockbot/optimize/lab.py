@@ -778,16 +778,49 @@ def _set_status(status: str, **extra):
 
 # ── Ein Optimierungszyklus ───────────────────────────────────────────────────
 
+def _live_regions() -> list[str]:
+    """Die Marktbereiche, die live tatsaechlich gehandelt werden.
+
+    Bis 23.08.2026 optimierte das Labor hart gegen `DEFAULT_REGION` ('sp500'), waehrend der
+    Handel laengst mehrere Koerbe fuhr (zusaetzlich 'msci_world', 'emerging'). Die
+    Backtest-Erwartung entstand damit an anderen Titeln als die Live-Trades: der eigene
+    Reality-Check meldete am 20.08. `divergent` (live 0 % Treffer gegen erwartete 41,8 %),
+    ohne dass die Ursache sichtbar war. Faellt die Abfrage aus, bleibt DEFAULT_REGION der
+    sichere Rueckfall — ein Labor ohne DB darf nicht scheitern, nur enger messen."""
+    try:
+        from stockbot.core import db
+        regions: list[str] = []
+        for user in db.list_active_users():
+            if not user.get("broker_exec"):
+                continue                      # nur wer wirklich Orders schickt, praegt die Realitaet
+            for region in (user.get("market_regions") or []):
+                if region and region not in regions:
+                    regions.append(region)
+        if regions:
+            return regions
+        log.info("[lab] kein Nutzer mit Broker-Ausfuehrung — Universum bleibt %s", DEFAULT_REGION)
+    except Exception as e:
+        log.warning("[lab] Live-Regionen nicht lesbar (%s: %s) — Rueckfall auf %s",
+                    type(e).__name__, e, DEFAULT_REGION)
+    return [DEFAULT_REGION]
+
+
 def run_cycle(data: dict | None = None, limit: int | None = None, jobs=None,
               log=print) -> dict:
     """Führt einen vollständigen Walk-Forward-Zyklus aus, schreibt Zustand/Log/Pending und gibt
     eine Zusammenfassung zurück. `data` (vorab geladen) überspringt den Download (für Tests)."""
     t0 = time.time()
     if data is None:
-        tickers = universes.get_tickers(DEFAULT_REGION, auto=True)
+        regions = _live_regions()
+        tickers, seen = [], set()
+        for region in regions:                # Reihenfolge stabil, Ueberschneidungen nur einmal
+            for ticker in universes.get_tickers(region, auto=True):
+                if ticker not in seen:
+                    seen.add(ticker)
+                    tickers.append(ticker)
         if limit:
             tickers = tickers[:limit]
-        log(f"[lab] lade {len(tickers)} Ticker ({YEARS+1}J Historie) ...")
+        log(f"[lab] lade {len(tickers)} Ticker aus {','.join(regions)} ({YEARS+1}J Historie) ...")
         data = engine._download_daily(tickers, YEARS)
     if not data:
         raise RuntimeError("keine Kursdaten geladen")
