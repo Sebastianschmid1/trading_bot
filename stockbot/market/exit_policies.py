@@ -18,6 +18,7 @@ dependency boundary.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -239,4 +240,10 @@ def evaluate_strategy_exit(
             reason="Für diese Strategie-Familie ist keine Produktions-Exit-Policy definiert.",
             code="no_policy",
         )
-    return policy(**inputs)
+    # Die drei Policies haben absichtlich unterschiedliche Eingaben (nur die Trailing-Familien
+    # kennen `atr`/`highest_price_since_entry`, nur `momentum_exit` kennt `minutes_to_close`).
+    # Der Aufrufer schickt einen gemeinsamen Satz; ungenutzte Felder werden hier verworfen statt
+    # als TypeError im Exception-Handler des Aufrufers zu verschwinden — dort waere ein
+    # unpassender Parameter als "kein Exit" durchgegangen, nicht als Fehler.
+    accepted = inspect.signature(policy).parameters
+    return policy(**{name: value for name, value in inputs.items() if name in accepted})

@@ -1271,6 +1271,13 @@ def _strategy_exit_reason(trade: dict, price: float | None) -> str | None:
             strategy_key,
             current_price=price,
             entry_price=trade.get("entry"),
+            # Ohne diese beiden Eingaben faellt `_trailing_stop` immer auf HOLD zurueck — der
+            # ATR-Trailing-Stop war dadurch strukturell tot, obwohl das Labor `trail_mult`
+            # optimiert und die Backtest-Erwartung ihn einrechnet. Das ATR stammt aus dem
+            # Einstiegssignal und bleibt fest; das ist die konservative Variante, weil ein
+            # spaeter steigendes ATR den Stop sonst nachtraeglich weiter wegschieben wuerde.
+            highest_price_since_entry=trade.get("high_water"),
+            atr=sig.get("atr"),
             bars=bars,
             opened_at=opened_at,
             now=now,
@@ -1581,6 +1588,9 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
                 continue
             price, strength = info["price"], info["strength"]
             db.add_tick(uid, trade["ticker"], price, strength)   # Verlauf für die Charts
+            # Hoechstkurs seit Einstieg fortschreiben, BEVOR der Exit bewertet wird — sonst
+            # rechnet der ATR-Trailing-Stop diesen Tick noch gegen das Hoch des vorherigen.
+            trade["high_water"] = db.update_high_water(uid, trade["ticker"], price)
 
             reason = evaluate_active_trade(trade, price, strength)
             if price is None:

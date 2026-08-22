@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS trades (
     broker_filled_qty        REAL,
     broker_filled_avg_price  REAL,
     broker_updated_at        TEXT,
+    high_water               REAL,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, trade_date, ticker)
 );
@@ -142,6 +143,7 @@ CREATE TABLE IF NOT EXISTS trades_archive (
     broker_filled_qty        REAL,
     broker_filled_avg_price  REAL,
     broker_updated_at        TEXT,
+    high_water               REAL,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     archived_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     archive_reason TEXT   NOT NULL
@@ -593,10 +595,22 @@ def _migrate(conn: sqlite3.Connection | None = None):
         "broker_filled_qty": "ALTER TABLE trades ADD COLUMN broker_filled_qty REAL",
         "broker_filled_avg_price": "ALTER TABLE trades ADD COLUMN broker_filled_avg_price REAL",
         "broker_updated_at": "ALTER TABLE trades ADD COLUMN broker_updated_at TEXT",
+        # Hoechstkurs seit Einstieg — Grundlage des ATR-Trailing-Stops (market/exit_policies).
+        # Bewusst eine eigene Spalte statt einer Auswertung von `trade_ticks`: die Tick-Tabelle
+        # ist nach `trade_date` partitioniert und wird beim Archivieren geleert, taugt also
+        # nicht als Grundlage fuer einen Exit, der echtes Geld bewegt.
+        "high_water": "ALTER TABLE trades ADD COLUMN high_water REAL",
     }.items():
         if name not in trade_cols:
             conn.execute(ddl)
             log.info(f"Migration: Spalte trades.{name} ergänzt.")
+
+    # Die Archivtabelle spiegelt `trades` spaltengleich (Reihenfolge inklusive) — die
+    # Archivierungs-Query listet die Spalten einzeln auf und bricht sonst.
+    archive_cols = {row["name"] for row in conn.execute("PRAGMA table_info(trades_archive)").fetchall()}
+    if archive_cols and "high_water" not in archive_cols:
+        conn.execute("ALTER TABLE trades_archive ADD COLUMN high_water REAL")
+        log.info("Migration: Spalte trades_archive.high_water ergänzt.")
 
     # Status-Event-Log (Teil A): Tabelle anlegen und für Alt-Trades einmalig backfillen,
     # damit auch historische Trades grobe Status-Dauern haben.
@@ -1876,12 +1890,12 @@ def reset_user_trades(user_id: int) -> int:
             """INSERT INTO trades_archive
                (id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
                 entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
-                broker_filled_qty, broker_filled_avg_price, broker_updated_at, created_at,
-                archived_at, archive_reason)
+                broker_filled_qty, broker_filled_avg_price, broker_updated_at, high_water,
+                created_at, archived_at, archive_reason)
                SELECT id, user_id, trade_date, ticker, direction, signal_json, message_id, status,
                       entry, exit, pnl_eur, pnl_pct, broker_order_id, broker_status,
-                      broker_filled_qty, broker_filled_avg_price, broker_updated_at, created_at,
-                      :archived_at, 'user_reset'
+                      broker_filled_qty, broker_filled_avg_price, broker_updated_at, high_water,
+                      created_at, :archived_at, 'user_reset'
                  FROM trades WHERE user_id = :user_id""",
             {"user_id": user_id, "archived_at": archived_at},
         )
@@ -2066,7 +2080,7 @@ def _trade_to_dict(row) -> dict:
     }
     keys = set(row.keys())
     for key in ("broker_order_id", "broker_status", "broker_filled_qty",
-                "broker_filled_avg_price", "broker_updated_at"):
+                "broker_filled_avg_price", "broker_updated_at", "high_water"):
         out[key] = row[key] if key in keys else None
     return out
 
@@ -3139,6 +3153,32 @@ def add_tick(user_id: int, ticker: str, price: float | None, strength: float | N
             {"user_id": user_id, "trade_date": _today(), "ticker": ticker,
              "ts": _utc_timestamp(), "price": price, "strength": strength},
         )
+
+
+def update_high_water(user_id: int, ticker: str, price: float | None) -> float | None:
+    """Schreibt den Hoechstkurs seit Einstieg fort und gibt den gueltigen Wert zurueck.
+
+    Monoton steigend ueber die WHERE-Bedingung statt einer skalaren Funktion: SQLite kennt
+    `MAX(a, b)`, Postgres nur `GREATEST` — die Bedingung laeuft auf beiden Backends gleich
+    und kann den Wert nicht zurueckdrehen. Ein leerer Ausgangswert wird mit dem aktuellen
+    Kurs initialisiert — der Trailing-Stop liegt dann eine ATR-Spanne darunter und kann
+    nicht verfrueht ausloesen.
+    Betrifft nur den aktiven Trade des Tages-Schluessels (user_id, ticker, status='active')."""
+    if price is None:
+        return None
+    with _database().transaction() as transaction:
+        transaction.execute(
+            """UPDATE trades SET high_water = :price
+               WHERE user_id = :user_id AND ticker = :ticker AND status = 'active'
+                 AND (high_water IS NULL OR high_water < :price)""",
+            {"user_id": user_id, "ticker": ticker, "price": float(price)},
+        )
+        row = transaction.one(
+            """SELECT high_water FROM trades
+               WHERE user_id = :user_id AND ticker = :ticker AND status = 'active'""",
+            {"user_id": user_id, "ticker": ticker},
+        )
+    return float(row["high_water"]) if row and row["high_water"] is not None else None
 
 
 def get_today_ticks(user_id: int) -> dict:
