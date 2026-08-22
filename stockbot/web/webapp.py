@@ -350,6 +350,30 @@ def _execute_broker_close_for_web(user: dict, trade: dict) -> dict:
     return {"ok": True, "status": "broker_closing", "msg": f"Broker-Verkauf angenommen ({status})."}
 
 
+def _kill_switch_banner_status(user: dict | None):
+    """Liest den Kill-Switch-Zustand NUR zur Anzeige (kein Eingriff in TSAFE-Pfade,
+    keine neue Sperrlogik): globaler Kill-Switch zuerst (betrifft alle Nutzer), sonst
+    der persönliche Kill-Switch dieses Nutzers — dieselbe ODER-Verknüpfung, die
+    `KillSwitchService.is_new_position_allowed` bereits für die Order-Freigabe nutzt,
+    hier nur für die appbar-weite Sichtbarkeit (agent/UI-KILLSWITCH-VISIBLE)."""
+    if not user:
+        return None
+    # Der Lesezugriff geht ungecacht in die DB (`_load_active` bei jedem Property-Zugriff) und
+    # sitzt hier im Render-Pfad JEDER Seite. Ohne Auffangnetz nimmt ein DB-Schluckauf die ganze
+    # Web-App mit — auch die Einstellungsseite, auf der man den Kill-Switch abschalten wuerde.
+    # Die Anzeige darf ausfallen, die Bedienbarkeit nicht; die Order-Freigabe selbst haengt
+    # unveraendert an `is_new_position_allowed` und wird davon nicht beruehrt.
+    try:
+        status = kill_switch_service.global_status
+        if status is not None and status.active:
+            return status
+        return kill_switch_service.user_status(user["user_id"])
+    except Exception as exc:
+        log.warning("Kill-Switch-Anzeige nicht lesbar (%s: %s) — Chip wird ausgelassen.",
+                    type(exc).__name__, exc)
+        return None
+
+
 def _render(name: str, request: Request, user: dict, active: str = "", msg: str = "", **ctx):
     if user and user.get("broker_exec"):
         trade_mode = "paper" if config.ALPACA_PAPER else "live"
@@ -357,7 +381,8 @@ def _render(name: str, request: Request, user: dict, active: str = "", msg: str 
         trade_mode = "demo"
     return templates.TemplateResponse(request, name, {
         "user": user, "active": active, "msg": msg,
-        "is_admin": _is_admin(user), "trade_mode": trade_mode, **ctx,
+        "is_admin": _is_admin(user), "trade_mode": trade_mode,
+        "kill_switch_status": _kill_switch_banner_status(user), **ctx,
     })
 
 

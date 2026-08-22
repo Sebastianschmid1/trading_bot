@@ -189,6 +189,17 @@ This is the local expression of the upstream One-Iris-Surface rule.
 - **Icon buttons** (`.iconbtn`): glass discs for pause/refresh, same disc for the theme toggle
   (`.theme-toggle`, sun/moon, see "Dark Mode").
 - **Logout**: the vendored `lg-btn lg-btn--glass lg-btn--sm`.
+- **Kill-Switch chip** (agent/UI-KILLSWITCH-VISIBLE, base.html's `.appbar` only — every page
+  except the dashboard, which keeps its own richer `.ck-bar`): reuses the existing
+  `chip(label, 'warn', href, title)` component unchanged, the same tone settings.html already
+  uses for its own kill-switch chip (`--danger` on `--danger-soft`, already ≥4.5:1 in both
+  themes per "Kontrast-Härtung" below — no new token). Renders **only** while a kill-switch is
+  active (global, or this user's own); silent otherwise, per the "no silent/false status"
+  rule. States both required facts in the visible label ("keine neuen Positionen, Schutz-
+  Verkäufe laufen weiter"), links to `/app/settings` (where it's switched off), and carries
+  the stored `reason` as `title` (plus inline, appended after `·`, when short enough to fit
+  the pill). Sourced from `webapp.py::_render` via `_kill_switch_banner_status` — read-only,
+  same public `KillSwitchService` getters `settings.html`'s route already calls.
 
 ### Signature — Rohscore Gauge
 
@@ -361,11 +372,15 @@ because SVG presentation attributes lose to a CSS declaration — no JS needed f
   itself does it.
 - **Don't** color a glass fill for status; the color belongs in the chip's dot.
 - **Don't** lay out many small glass tiles; hold dense data on one solid-glass surface.
-- **Don't** re-introduce a static "Kill-Switch" status chip on the dashboard. The comp
-  carried one (`Kill-Switch · Scharf`); it was **deliberately not shipped** because there is
-  no data hook behind it — a hardcoded chip would assert a false safety status, violating
-  the product's "no silent/false status" principle. A kill-switch indicator returns only
-  when wired to real state.
+- **Don't** hardcode a "Kill-Switch" status chip. This bullet used to justify leaving one out
+  entirely (the original comp's `Kill-Switch · Scharf` chip had no data hook — a hardcoded
+  chip would have asserted a false safety status). **That reasoning is now overtaken:**
+  agent/UI-KILLSWITCH-VISIBLE wired a real hook (`webapp.py::_render` →
+  `_kill_switch_banner_status`, reading `KillSwitchService.global_status`/`.user_status` —
+  display-only, no new TSAFE logic) and the base-`.appbar` chip (`chip(..., 'warn', href=...)`,
+  see "Command Bar & Status Chips" below) now shows *only* while a kill-switch is actually
+  active, sourced from that same real state. The rule stands only in its literal form now:
+  never fake the chip from a static value.
 
 ## Kontrast-Härtung (agent/UI-CONTRAST)
 
@@ -444,6 +459,7 @@ exact regardless of backdrop.
 | 3 | `.chip--caution`, Light | `--lg-warning` on `--warning-soft` → **2.84:1** | `--tone-warning-fg`/`-bg` (shared with Paper-Badge, same pair) → **7.00:1** | ≥4.5:1 |
 | 3 | `.chip--caution`, Dark | ok-ish per review, hardened anyway for consistency | `--tone-warning-fg`/`-bg` dark → **8.55:1** | ≥4.5:1 |
 | 3 | `.chip--warn`, both themes (unchanged) | `--danger` on `--danger-soft` → **5.71:1 / ok** | unchanged | ≥4.5:1 ✓ already |
+| — | `.chip--warn` reused for the appbar Kill-Switch chip (agent/UI-KILLSWITCH-VISIBLE), computed precisely | `--danger` `#A5122B` on `--danger-soft` (12% over solid-glass `rgb(247 244 243)`) → **5.71:1 Light**; `--danger` `#FF7A8E` on `--danger-soft` (14% over solid-glass `rgb(30 26 45)`) → **5.40:1 Dark** | unchanged (same token, no new spot) | ≥4.5:1 ✓ both |
 | 4 | `--lg-success`/`--lg-error` as text, Light (`#error`, `.pill.live/.offline`, `.ck-chip.is-live/.is-armed`, `button.red`, `.win/.lose`, `.kind.applied/.rejected`, `.ok`) | `#3E9E6E` / `#C6455C` on light solid glass → **3.04:1 / 4.35:1** | `--status-ink-success` `#2E7552` / `--status-ink-error` `#9C3043` on same bg → **5.07:1 / 6.58:1** | ≥4.5:1 |
 | 4 | same, Dark (unchanged, already ok) | `--lg-success`/`--lg-error` dark on dark solid glass → **9.29:1 / 7.08:1** (existing Dark-Mode table) | unchanged (`--status-ink-*` dark = `var(--lg-success/-error)`) | ≥4.5:1 ✓ already |
 

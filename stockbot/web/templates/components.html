@@ -26,8 +26,12 @@
           {% if disabled %}disabled{% endif %}{% if loading %} aria-busy="true"{% endif %} {{ extra|safe }}>{{ label }}</button>
 {%- endmacro %}
 
-{% macro chip(label, tone='neutral') -%}
-  <span class="chip chip--{{ tone }}"><span class="chip__dot" aria-hidden="true"></span>{{ label }}</span>
+{% macro chip(label, tone='neutral', href=None, title=None) -%}
+  {%- if href -%}
+  <a class="chip chip--{{ tone }}" href="{{ href }}"{% if title %} title="{{ title }}"{% endif %}><span class="chip__dot" aria-hidden="true"></span>{{ label }}</a>
+  {%- else -%}
+  <span class="chip chip--{{ tone }}"{% if title %} title="{{ title }}"{% endif %}><span class="chip__dot" aria-hidden="true"></span>{{ label }}</span>
+  {%- endif -%}
 {%- endmacro %}
 
 {% macro alert(message, tone='info', title=None) -%}

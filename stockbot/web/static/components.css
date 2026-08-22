@@ -153,6 +153,10 @@
 .chip--caution { color: var(--tone-warning-fg, #6B430A); border-color: color-mix(in srgb, var(--tone-warning-fg, #6B430A) 35%, transparent); background: var(--tone-warning-bg, #F5E6C8); }
 .chip--warn { color: var(--danger); border-color: var(--danger-border); background: var(--danger-soft); }
 .chip--neutral { color: var(--text-muted); }
+/* .chip kann optional ein Link sein (components.html chip(href=...), z. B. der Kill-Switch-Chip
+   in der appbar) — keine Fließtext-Unterstreichung auf einer Pille, Fokus/Hover bleiben über die
+   globalen a:hover/:focus-visible-Regeln in base.html sichtbar (Rahmen/Hintergrund/Outline). */
+a.chip:hover, a.chip:focus { text-decoration: none; }
 
 /* ── Tabelle ───────────────────────────────────────────────────────────── */
 .table2 { width: 100%; border-collapse: collapse; font-size: 14px; }

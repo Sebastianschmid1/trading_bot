@@ -1,5 +1,5 @@
 <!doctype html>
-{% from "components.html" import mode_badge %}
+{% from "components.html" import mode_badge, chip %}
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -442,6 +442,14 @@
     <a href="/app/history"{% if active=='history' %} aria-current="page"{% endif %}>Verlauf</a>
   </nav>
   <span class="appbar__spacer"></span>
+  {% if kill_switch_status and kill_switch_status.active %}
+  {%- set ks_reason = (kill_switch_status.reason or '')|trim -%}
+  {%- set ks_title = 'Grund: ' ~ ks_reason ~ ' — zum Abschalten: Einstellungen.' if ks_reason
+                      else 'Zum Abschalten: Einstellungen.' -%}
+  {%- set ks_label = 'Kill-Switch aktiv — keine neuen Positionen, Schutz-Verkäufe laufen weiter'
+                      ~ (' · ' ~ ks_reason if ks_reason and ks_reason|length <= 40 else '') -%}
+  {{ chip(ks_label, 'warn', href='/app/settings', title=ks_title) }}
+  {% endif %}
   {% if trade_mode == 'live' %}
   {{ mode_badge('live', title='Echtgeld — Orders werden mit echtem Kapital an Alpaca übermittelt') }}
   {% elif trade_mode == 'paper' %}
