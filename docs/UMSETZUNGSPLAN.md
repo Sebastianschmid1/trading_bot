@@ -363,7 +363,7 @@ bleibt zusätzlich hinter `STRATEGY_EXITS_ENABLED` (Default AUS) — Einschalten
 |---|---|---|
 | T0 | ~~nach ~3–5 Markttagen~~ | ✅ **abgenommen 2026-07-19** (Postgres ~4 Markttage stabil seit Cutover) → Scheibe 9 (W3.1) freigegeben+erledigt |
 | T1 | W0.3 | VPS-Migration auf Nicht-Root-User durchführen/abnehmen |
-| T2 | W3.6 | Freigabe Exit-Policies (ändert Live-Trade-Verhalten). **Code fertig, hinter `STRATEGY_EXITS_ENABLED`=false** — Tor T2 = Flag einschalten + deployen. |
+| T2 | W3.6 | Freigabe Exit-Policies (ändert Live-Trade-Verhalten), hinter `STRATEGY_EXITS_ENABLED`=false. **Korrektur 2026-08-23:** „Code fertig" stimmte nicht — der ATR-Trailing-Stop war strukturell tot (`_strategy_exit_reason` übergab weder `highest_price_since_entry` noch `atr`, `_trailing_stop` fiel immer auf HOLD), und `mean_reversion_exit` scheiterte am gemeinsamen Eingabesatz still im Exception-Handler. Beides behoben (`trades.high_water` + Fortschreibung im Monitor + Signatur-Filter im Dispatch, Alembic `a2b3c4d5e6f7`). Tor T2 = Flag einschalten + deployen — **jetzt erst wirksam**. |
 | T3 | laufend ab W6 | Jede Strategie-Promotion (Gate P8) |
 | T4 | **jetzt anstoßen** | **Regulatorische Einordnung** (extern, lange Vorlaufzeit — blockiert P11/P12) |
 | T5 | Ende W8 | Paper-Go/No-Go-Abzeichnung |
@@ -631,6 +631,30 @@ zur Öffnung frisch neu und kaufen dann automatisch. Nicht-`auto_accept`-Nutzer 
 
 W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
 2026-07-20 aktiv (PLAT-009 zu).
+
+### Labor-Divergenz: warum `ai_adaptive` live verliert (Befund 2026-08-23)
+
+Der Reality-Check des Labors meldete am 20.08. `divergent`: live 0 % Trefferquote und −6,6 %
+je Trade gegen eine Backtest-Erwartung von 41,8 % und +2,27 %. Die Bilanz aller geschlossenen
+Trades bestätigt das — `ai_adaptive` ist mit Ø −6,03 % (1 Gewinner aus 13, −19,61 $) die mit
+Abstand schlechteste Strategie, während `breakout`/`standard` bei ±0 liegen.
+
+Drei Ursachen, alle am Code belegt, keine davon ein Fehler des Gates:
+
+1. **Universum-Mismatch.** `run_cycle` lud hart `DEFAULT_REGION` ('sp500'), gehandelt wurde
+   `sp500,msci_world,emerging`. Die geschlossenen Trades waren fast durchweg EM-ADRs (VALE,
+   BSBR, CIG, ZTO, UMC, PAGS, STNE, …). Behoben: `lab._live_regions()` folgt den Regionen der
+   Nutzer mit `broker_exec`, Rückfall auf `DEFAULT_REGION`.
+2. **Toter Trailing-Stop.** Das Labor optimiert `trail_mult` und rechnet den Trailing-Stop in
+   die Erwartung ein; live existierte er nicht (siehe Tor T2). Behoben.
+3. **Folge aus 1+2:** Praktisch jeder Verlust wurde exakt am Stop-Loss geschlossen, kein
+   einziges Take-Profit erreicht (STNE 9,43/9,52 · BSBR 5,61/5,607 · GRAB 3,52/3,524 ·
+   TCOM 44,50/44,498 · ZTO 22,32/22,355 · VALE 13,73/13,7316 · ABEV 2,88/2,8826).
+   `tp_mult` 10,0 ATR entspricht bei diesen Titeln +29 % bis +86 % — in der Haltedauer
+   unerreichbar, während 3,0 ATR nach unten regelmäßig getroffen werden.
+
+Das Gate selbst arbeitete korrekt (`pending.json` leer, letzte Entscheidung „gewinnt nur 1/3
+OOS-Folds"). Der Reality-Check hat die Divergenz selbst gemeldet — sie wurde nur nicht gelesen.
 
 ## Kritische Dateien für die Umsetzung
 
