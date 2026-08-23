@@ -54,7 +54,7 @@ belegbar ist (grep = 0, gerendertes HTML unverändert, Test war vorher rot).
 | # | Inhalt | Erfolgskriterium |
 |---|---|---|
 | **E0** | ✅ **erledigt 2026-08-23**: toter Code raus (`.table2`, `.select2`, `.textarea2`, `.tabs__tab`, `.tooltip*`, `.text-*`, `.numeric`, `.font-mono`) — je Selektor 0 Verwendungen belegt; `.tabs` blieb (dashboard.html nutzt es). Ladereihenfolge gestrichen, siehe oben. 68 Zeilen weniger, 118 Web-Tests grün. |
-| **E1** | `tokens.css` entkernen, `.mode-badge*` nach `components.css` | jedes entfernte Token hat eine Definition in `.lg-body`; Parity-Test grün |
+| **E1** | `tokens.css` entkernen, `.mode-badge*` nach `components.css` | jedes entfernte Token hat eine Definition in `.lg-body`; Parity-Test grün. **⚠️ Falle vorab geprüft, siehe unten** |
 | **E2** | Karte: `card2*` → `card*`, `dashboard.html:106` → `.card--tile` | `grep card2` = 0; `app.html` mit nur **einem** Kartenmaterial |
 | **E3** | Meldungen: `.flash` + `alert2*` → `.alert*` auf **solider** Fläche | vier Kontrastzahlen ≥ 4,5:1 in beiden Themes im Report |
 | **E4** | Chips + Kollisions-Guard (neuer Test) | Test vorher rot, nachher grün; `feed_status.py` unverändert |
@@ -66,6 +66,23 @@ belegbar ist (grep = 0, gerendertes HTML unverändert, Test war vorher rot).
 vereinheitlicht (`--lg-r-pill`), `btn--primary` bekommt das violette Gel. Der Design-Lead hat das
 ausdrücklich als Änderung angesagt statt es als Aufräumen zu verkaufen — **E6 ist ohne seine
 Sichtprüfung nicht abgenommen** (9 Seiten × 2 Themes × 2 Breiten).
+
+## ⚠️ Vorarbeit für E1: „verwaist laut grep" heißt nicht ungenutzt
+
+Nach E0 sehen **39 der 84 Tokens** in `tokens.css` verwaist aus (keine `var(--x)`-Referenz in
+CSS, Templates oder Python). **Mindestens 7 davon sind trotzdem in Benutzung**, über einen Pfad,
+den ein `var()`-Grep nicht sieht:
+
+`--bg-base`, `--cat-1`, `--cat-2`, `--cat-3`, `--cat-4`, `--cat-5`, `--cat-6`
+
+Sie stehen in `stockbot/core/chart_palette.py::TOKEN_HEX` als **Wertekopie** (CSS und Python
+können keine Datei teilen) und werden von `tests/test_chart_palette_parity.py` gegen `tokens.css`
+geprüft. Wer sie mechanisch löscht, macht den Parity-Test rot — und die naheliegende „Reparatur"
+wäre, den Test anzupassen. Genau das darf nicht passieren.
+
+**Auflage für E1:** Vor dem Löschen eines Tokens gegen `chart_palette.TOKEN_HEX` **und** gegen
+`var()`-Referenzen prüfen. Die vollständige Liste der 39 Kandidaten steht nicht hier — sie ist in
+einem Durchlauf reproduzierbar und veraltet sonst still.
 
 ## `.chip` — Namensauflösung
 
