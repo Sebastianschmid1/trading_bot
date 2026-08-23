@@ -30,11 +30,21 @@ vier Alert-Tonlagen, `.sr-only` — deshalb gewinnt sie als API.
 **Drift-Beleg:** `class="btn2"` erbt auf einem `<button>` das Glasmaterial aus der Element-Regel,
 auf einem `<a>` (`error.html`, `index.html`) aber nicht — dieselbe Klasse, zwei Erscheinungsbilder.
 
-## Voraussetzung, ohne die nichts greift
+## Die angebliche Voraussetzung — widerlegt (2026-08-23)
 
-Ladereihenfolge in `base.html`: **`tokens.css` → `liquid-glass.css` → `components.css`**.
-Heute steht `components.css` in der Mitte; `.lg-body input` (Spezifität 0,1,1) schlägt sonst
-jede Element-Regel in `components.css` (0,0,1).
+Der Plan verlangte, die Ladereihenfolge auf **`tokens.css` → `liquid-glass.css` → `components.css`**
+zu drehen. **Nachgemessen am Stand vom 23.08.2026 ist das wirkungslos** und deshalb gestrichen:
+
+- **0** Regelpaare mit gleicher Spezifität, gemeinsamem Ziel und gemeinsamer Eigenschaft
+  (90 Selektoren in `components.css` gegen 71 in `liquid-glass.css`, maschinell verglichen).
+- **0** identische Selektoren in beiden Dateien.
+- **0** überschneidende Custom Properties zwischen `components.css` (6) und `liquid-glass.css` (63);
+  auch `tokens.css` (84) überschneidet sich mit dem Vendor nicht. Einzige Überschneidung
+  `--primary` zwischen `tokens.css` und `components.css` — dort ist die Reihenfolge schon heute richtig.
+
+Der Beleg im alten Text (`.lg-body input` 0,1,1 gegen eine Element-Regel 0,0,1) trägt nicht:
+bei **unterschiedlicher** Spezifität entscheidet die Spezifität, nicht die Reihenfolge. Die
+Reihenfolge bleibt deshalb unverändert — eine Änderung ohne heutigen Anlass wäre reines Risiko.
 
 ## Die sieben Etappen
 
@@ -43,7 +53,7 @@ belegbar ist (grep = 0, gerendertes HTML unverändert, Test war vorher rot).
 
 | # | Inhalt | Erfolgskriterium |
 |---|---|---|
-| **E0** | Ladereihenfolge + toter Code (`.table2`, `.select2`, `.textarea2`, `.tabs*`, `.tooltip*`, `.text-*`, `.numeric`, `.font-mono`) | grep je Selektor = 0; HTML bis auf die Link-Zeilen identisch |
+| **E0** | ✅ **erledigt 2026-08-23**: toter Code raus (`.table2`, `.select2`, `.textarea2`, `.tabs__tab`, `.tooltip*`, `.text-*`, `.numeric`, `.font-mono`) — je Selektor 0 Verwendungen belegt; `.tabs` blieb (dashboard.html nutzt es). Ladereihenfolge gestrichen, siehe oben. 68 Zeilen weniger, 118 Web-Tests grün. |
 | **E1** | `tokens.css` entkernen, `.mode-badge*` nach `components.css` | jedes entfernte Token hat eine Definition in `.lg-body`; Parity-Test grün |
 | **E2** | Karte: `card2*` → `card*`, `dashboard.html:106` → `.card--tile` | `grep card2` = 0; `app.html` mit nur **einem** Kartenmaterial |
 | **E3** | Meldungen: `.flash` + `alert2*` → `.alert*` auf **solider** Fläche | vier Kontrastzahlen ≥ 4,5:1 in beiden Themes im Report |

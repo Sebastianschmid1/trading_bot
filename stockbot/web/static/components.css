@@ -75,28 +75,27 @@
 .btn2--sm { padding: 6px 10px; font-size: 13px; }
 .btn2--block { display: flex; width: 100%; }
 
-/* ── Input / Select / Textarea ─────────────────────────────────────────── */
+/* ── Input ─────────────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: var(--space-2); }
 .field__label {
   font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--text-muted);
 }
-.input2, .select2, .textarea2 {
+.input2 {
   font-family: var(--font-ui); font-size: 14px; color: var(--text-primary);
   background: var(--bg-surface-1); border: 1px solid var(--border-default);
   border-radius: var(--radius-md); padding: 10px 12px; width: 100%;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
 .input2::placeholder { color: var(--text-muted); }
-.input2:hover, .select2:hover, .textarea2:hover { border-color: var(--border-strong); }
-.input2:focus-visible, .select2:focus-visible, .textarea2:focus-visible {
+.input2:hover { border-color: var(--border-strong); }
+.input2:focus-visible {
   outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
 }
 .input2[aria-invalid="true"], .field--error .input2 {
   border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);
 }
-.input2[disabled], .select2[disabled] { opacity: .5; cursor: not-allowed; }
-.textarea2 { min-height: 96px; resize: vertical; font-family: var(--font-mono); }
+.input2[disabled] { opacity: .5; cursor: not-allowed; }
 .field__hint { font-size: 12px; color: var(--text-muted); }
 .field__error { font-size: 12px; color: var(--danger); }
 
@@ -158,38 +157,11 @@
    globalen a:hover/:focus-visible-Regeln in base.html sichtbar (Rahmen/Hintergrund/Outline). */
 a.chip:hover, a.chip:focus { text-decoration: none; }
 
-/* ── Tabelle ───────────────────────────────────────────────────────────── */
-.table2 { width: 100%; border-collapse: collapse; font-size: 14px; }
-.table2 th {
-  text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--text-muted);
-  padding: 10px 12px; border-bottom: 1px solid var(--border-default);
-}
-.table2 td { padding: 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
-.table2 tbody tr:hover td, .table2 tbody tr:hover td { background: var(--bg-hover); }
-.table2 .num, .table2 .r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* Nur `.tabs` bleibt: dashboard.html rendert eigene #tabs/#ranges-Container mit
+   class="tabs". Das BEM-Kind `.tabs__tab` war ungenutzt und ist entfernt (E0) —
+   die Reiter dort sind <button>-Elemente ohne diese Klasse. */
 .tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
-.tabs__tab {
-  appearance: none; background: none; border: none; cursor: pointer;
-  font-family: var(--font-ui); font-size: 14px; font-weight: 560; color: var(--text-muted);
-  padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.tabs__tab:hover { color: var(--text-secondary); }
-.tabs__tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--primary); }
-.tabs__tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius-sm); }
-
-/* ── Tooltip (CSS-only, mit aria-describedby am Trigger) ────────────────── */
-.tooltip { position: relative; display: inline-flex; }
-.tooltip__bubble {
-  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  background: var(--bg-elevated); color: var(--text-primary); font-size: 12px;
-  padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
-  white-space: nowrap; box-shadow: var(--shadow-sm); opacity: 0; pointer-events: none;
-  transition: opacity .12s ease;
-}
-.tooltip:hover .tooltip__bubble, .tooltip:focus-within .tooltip__bubble { opacity: 1; }
 
 /* ── Dialog (Modal) ────────────────────────────────────────────────────── */
 .dialog2::backdrop { background: rgba(0, 0, 0, .55); }
