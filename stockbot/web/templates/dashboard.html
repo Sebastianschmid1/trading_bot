@@ -131,7 +131,12 @@
 
     /* ── Steuerleiste (Tabs / Zeitraum) — Glas-Pills ────────────────────── */
     .controls { display:flex; gap:1.2rem; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
-    .tabs { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    /* Vollstaendige Definition an einer Stelle: `.tabs` stand frueher zusaetzlich in
+       components.css, von wo nur `border-bottom` durchschlug (der Rest wurde hier
+       ueberschrieben). Die Regel dort ist entfernt, die Linie hier uebernommen —
+       optisch unveraendert, aber nur noch eine Quelle. */
+    .tabs { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;
+            border-bottom:1px solid var(--border-default); }
     .tabs .lbl { color:var(--lg-ink-muted); font-size:.78rem; font-weight:500; }
     /* .tab ist jetzt ein <button> (Tastaturzugriff) — appearance:none/font/margin
        neutralisieren den Browser-Button-Chrome, alle sichtbaren Werte bleiben gleich. */

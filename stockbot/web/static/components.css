@@ -157,12 +157,6 @@
    globalen a:hover/:focus-visible-Regeln in base.html sichtbar (Rahmen/Hintergrund/Outline). */
 a.chip:hover, a.chip:focus { text-decoration: none; }
 
-/* ── Tabs ──────────────────────────────────────────────────────────────── */
-/* Nur `.tabs` bleibt: dashboard.html rendert eigene #tabs/#ranges-Container mit
-   class="tabs". Das BEM-Kind `.tabs__tab` war ungenutzt und ist entfernt (E0) —
-   die Reiter dort sind <button>-Elemente ohne diese Klasse. */
-.tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
-
 /* ── Dialog (Modal) ────────────────────────────────────────────────────── */
 .dialog2::backdrop { background: rgba(0, 0, 0, .55); }
 .dialog2 {

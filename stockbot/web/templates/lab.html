@@ -16,11 +16,13 @@
   .cell .v { font-family:var(--font-mono); font-size:1.5rem; font-weight:700; margin-top:.15rem;
              font-variant-numeric:tabular-nums; color:var(--lg-ink); }
   .cell .sub { color:var(--lg-ink-muted); font-size:.78rem; margin-top:.15rem; }
-  .chips { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.3rem; }
-  .chip { font-family:var(--font-mono); font-size:.8rem; background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
+  .lab-params { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.3rem; }
+  /* Eigener Name statt `.chip` — siehe reports.html: `.chip` gehoert dem Statuschip in
+     components.css, und dieses <style> steht spaeter in der Kaskade. */
+  .lab-param { font-family:var(--font-mono); font-size:.8rem; background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
           border-radius:var(--lg-r-pill); padding:.24rem .6rem; color:var(--lg-ink); box-shadow:var(--lg-cast-1); }
-  .chip b { color:var(--lg-violet); font-weight:700; }
-  .chip.changed { border-color:var(--lg-success); background:color-mix(in srgb, var(--lg-success) 12%, transparent); }
+  .lab-param b { color:var(--lg-violet); font-weight:700; }
+  .lab-param.changed { border-color:var(--lg-success); background:color-mix(in srgb, var(--lg-success) 12%, transparent); }
   .proposal { border:1px solid var(--lg-warning); }
   .proposal.none { border:1px solid var(--lg-edge-soft); }
   .bigchange { font-family:var(--font-mono); font-size:1.15rem; font-weight:700; color:var(--lg-ink); }
@@ -136,8 +138,8 @@
   </div>
   <div style="margin-top:.7rem">
     <span class="marklabel">Live-Parameter (nutzt der Bot)</span>
-    <div class="chips">
-      {% for k, v in st.live_params.items() %}<span class="chip"><b>{{ k }}</b> {{ v }}</span>{% endfor %}
+    <div class="lab-params">
+      {% for k, v in st.live_params.items() %}<span class="lab-param"><b>{{ k }}</b> {{ v }}</span>{% endfor %}
     </div>
   </div>
   {% if ch and ch.fold_mars %}

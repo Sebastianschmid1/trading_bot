@@ -57,7 +57,7 @@ belegbar ist (grep = 0, gerendertes HTML unverändert, Test war vorher rot).
 | **E1** | `tokens.css` entkernen, `.mode-badge*` nach `components.css` | jedes entfernte Token hat eine Definition in `.lg-body`; Parity-Test grün. **⚠️ Falle vorab geprüft, siehe unten** |
 | **E2** | Karte: `card2*` → `card*`, `dashboard.html:106` → `.card--tile` | `grep card2` = 0; `app.html` mit nur **einem** Kartenmaterial |
 | **E3** | Meldungen: `.flash` + `alert2*` → `.alert*` auf **solider** Fläche | vier Kontrastzahlen ≥ 4,5:1 in beiden Themes im Report |
-| **E4** | Chips + Kollisions-Guard (neuer Test) | Test vorher rot, nachher grün; `feed_status.py` unverändert |
+| **E4** | ✅ **erledigt 2026-08-24**: `.chip`-Look-alikes umbenannt (`reports.html` → `.rp-filter`, `lab.html` → `.lab-param`), `.tabs`-Doppelbelegung pixelgleich aufgelöst, Guard-Test `tests/test_css_class_collisions.py`. Test gegen den Vorstand belegt rot (3 Kollisionen), jetzt grün; `feed_status.py` unverändert. |
 | **E5** | Dialoge: `dialog2` → `dialog` (38 Stellen, reiner Rename) | §18.1-Tests unverändert grün (greifen über IDs) |
 | **E6** | Buttons (~70 Stellen, 10 Templates) | grep = 0; `test_web_style_phases.py` grün **ohne** gelockerte Assertion |
 | **E7** | Felder + Schlussputz, `DESIGN.md` | grep `--space-`/`--radius-`/`input2` = 0 |
@@ -83,6 +83,22 @@ wäre, den Test anzupassen. Genau das darf nicht passieren.
 **Auflage für E1:** Vor dem Löschen eines Tokens gegen `chart_palette.TOKEN_HEX` **und** gegen
 `var()`-Referenzen prüfen. Die vollständige Liste der 39 Kandidaten steht nicht hier — sie ist in
 einem Durchlauf reproduzierbar und veraltet sonst still.
+
+## Warum E4 ein Bugfix war, keine Kosmetik (2026-08-24)
+
+Die `.chip`-Mehrfachbelegung saß nicht in `components.css`, sondern als Inline-`<style>` in
+`reports.html` und `lab.html`. Beide Seiten erben von `base.html`, und deren `<style>` steht im
+`{% block content %}` — in der Kaskade also **nach** `components.css`.
+
+`base.html` rendert in der appbar den Statuschip, unter anderem für den **Kill-Switch**
+(`chip` + `chip--warn`). Bei gleicher Spezifität (0,1,0) gewinnt die spätere Seitenregel für
+`color` und `background`: Auf `/app/reports` und `/app/lab` hätte die Kill-Switch-Warnung ihre
+Rotfärbung verloren — also genau auf zwei von neun Seiten und genau dann, wenn sie zählt.
+
+Nebenbefund: `.tabs` stand in `components.css` **und** in `dashboard.html`. Von der
+Komponentenregel schlug nur `border-bottom` durch (der Rest wurde überschrieben) — eine
+Zusatzlinie, die niemand vorgesehen hatte. Aufgelöst, indem die Linie in `dashboard.html`
+übernommen und die Komponentenregel entfernt wurde: optisch unverändert, eine Quelle statt zwei.
 
 ## `.chip` — Namensauflösung
 
