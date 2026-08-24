@@ -632,6 +632,17 @@ zur Öffnung frisch neu und kaufen dann automatisch. Nicht-`auto_accept`-Nutzer 
 W0-Rest (menschlich): VPS-Migration stockbot-User (Tor T1). Der Backup-Timer ist seit
 2026-07-20 aktiv (PLAT-009 zu).
 
+### Nachtrag 2026-08-24: vierte Ursache — Pre-Market im Hoechstkurs
+
+Der `high_water`-Fix vom 23.08. wirkte am ersten Handelstag (15/15 gesetzt, Werte plausibel,
+Trailing-Schwellen sicher unter dem jeweiligen Hoch). Dabei fiel eine vierte Modell-Abweichung
+derselben Art auf: `monitor_trades` laeuft mit `EXTENDED_HOURS=true` (Default) auch
+**4:00–20:00 ET**, der Backtest rechnet aber mit Tages-Bars (`engine._download_daily`,
+`interval="1d"`) und kennt kein Pre-/After-Market. Duenne Ausreisser ausserhalb der Sitzung
+haetten das Hoch angehoben und den Trailing-Stop hoeher gelegt als im Modell — er waere
+frueher ausgeloest als die Erwartung, gegen die optimiert wird. Behoben: die Fortschreibung
+haengt an `_us_market_open(extended=False)`. Aendert kein Handelsverhalten (Tor T2 weiterhin zu).
+
 ### Labor-Divergenz: warum `ai_adaptive` live verliert (Befund 2026-08-23)
 
 Der Reality-Check des Labors meldete am 20.08. `divergent`: live 0 % Trefferquote und −6,6 %

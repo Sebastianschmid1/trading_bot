@@ -1581,6 +1581,15 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
     # Strategie bewertet (blockierende yfinance-Aufrufe → Thread)
     data = await asyncio.to_thread(strategies.live_scores, pairs)
 
+    # Der Hoechstkurs wird NUR waehrend der regulaeren Sitzung fortgeschrieben. Der Monitor
+    # laeuft mit EXTENDED_HOURS auch 4:00-20:00 ET, der Backtest, gegen den das Labor
+    # optimiert, rechnet aber mit Tages-Bars (`engine._download_daily`, interval="1d") und
+    # kennt kein Pre-/After-Market. Duenne Ausreisser ausserhalb der Sitzung wuerden das Hoch
+    # anheben und den ATR-Trailing-Stop damit hoeher legen als im Modell — er loeste frueher
+    # aus als die Erwartung, gegen die optimiert wurde. Einmal pro Tick statt je Trade,
+    # weil `exchange_calendar` je Aufruf den Handelskalender auswertet.
+    regulaere_sitzung = _us_market_open(extended=False)
+
     for uid, (user, act) in active_by_user.items():
         for trade in act:
             info = data.get((trade["ticker"], _trade_strategy_key(trade)))
@@ -1590,7 +1599,9 @@ async def monitor_trades(context: ContextTypes.DEFAULT_TYPE):
             db.add_tick(uid, trade["ticker"], price, strength)   # Verlauf für die Charts
             # Hoechstkurs seit Einstieg fortschreiben, BEVOR der Exit bewertet wird — sonst
             # rechnet der ATR-Trailing-Stop diesen Tick noch gegen das Hoch des vorherigen.
-            trade["high_water"] = db.update_high_water(uid, trade["ticker"], price)
+            # Ausserhalb der Sitzung bleibt der gespeicherte Wert stehen (siehe oben).
+            if regulaere_sitzung:
+                trade["high_water"] = db.update_high_water(uid, trade["ticker"], price)
 
             reason = evaluate_active_trade(trade, price, strength)
             if price is None:

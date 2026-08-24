@@ -149,3 +149,47 @@ def test_dispatch_still_reaches_the_trailing_families(strategy_key, expected_fam
     )
     # 120 − 3,0 × 2,0 = 114 > 100 → der Trailing-Stop greift und meldet seinen Code.
     assert (decision.code == "trailing_stop") is expected_family_reached
+
+
+# ── Der Hoechstkurs folgt der regulaeren Sitzung, nicht den Extended Hours ──
+#
+# Befund 2026-08-24: `monitor_trades` laeuft mit EXTENDED_HOURS auch 4:00-20:00 ET, der
+# Backtest rechnet aber mit Tages-Bars (`engine._download_daily`, interval="1d") und kennt
+# kein Pre-/After-Market. Wuerde das Hoch ausserhalb der Sitzung mitwandern, laege der
+# Trailing-Stop hoeher als im Modell — er loeste frueher aus als die Erwartung, gegen die
+# das Labor optimiert.
+
+@pytest.mark.parametrize("sitzung,erwartet_fortgeschrieben", [(True, True), (False, False)])
+def test_high_water_folgt_nur_der_regulaeren_sitzung(monkeypatch, sitzung, erwartet_fortgeschrieben):
+    aufrufe = []
+    monkeypatch.setattr(bot.db, "update_high_water",
+                        lambda uid, ticker, price: aufrufe.append((ticker, price)) or price)
+
+    # Die Entscheidung faellt an genau einer Stelle: _us_market_open(extended=False).
+    gesehen = {}
+
+    def _fake_market_open(extended=None):
+        gesehen["extended"] = extended
+        return sitzung if extended is False else True
+
+    monkeypatch.setattr(bot, "_us_market_open", _fake_market_open)
+
+    # Nachbau der Entscheidungszeile aus monitor_trades — der Aufruf selbst ist async und
+    # zieht Scheduler/Provider mit; geprueft wird die Bedingung, die daran haengt.
+    regulaere_sitzung = bot._us_market_open(extended=False)
+    if regulaere_sitzung:
+        bot.db.update_high_water(1, "AAPL", 100.0)
+
+    assert gesehen["extended"] is False, "muss ausdruecklich ohne Extended Hours fragen"
+    assert bool(aufrufe) is erwartet_fortgeschrieben
+
+
+def test_monitor_bindet_die_fortschreibung_an_die_sitzung():
+    """Regressionsschutz am Quelltext: die Bedingung darf nicht wieder wegfallen."""
+    import inspect
+    quelle = inspect.getsource(bot.monitor_trades)
+    assert "regulaere_sitzung = _us_market_open(extended=False)" in quelle
+    assert "if regulaere_sitzung:" in quelle
+    # Die Fortschreibung steht innerhalb der Bedingung, nicht davor.
+    vor_bedingung = quelle.split("if regulaere_sitzung:")[0]
+    assert "db.update_high_water" not in vor_bedingung
