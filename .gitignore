@@ -26,3 +26,5 @@ data/polymarket_archive/
 .claude/worktrees/
 # Test-Temp auf der Platte statt im RAM (/tmp ist tmpfs mit Quota)
 .pytmp/
+# Arbeitsverzeichnis des impeccable-Design-Werkzeugs (Screenshots, Cache)
+.impeccable/
