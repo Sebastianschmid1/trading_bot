@@ -718,6 +718,50 @@ Access-Log-Zeile. Bleibt der Klartext in der DB und das GET-Formular in `login.h
 beim Abruf) macht alle bestehenden Links ungültig und braucht eine Migration — Entscheidung
 des Betreibers, nicht Beifang eines Aufräumtasks.
 
+### Systematischer Nachschlag 2026-08-27: welche Module haben KEINEN Produktions-Aufrufer
+
+Weil das Muster „grüner Test, wirkungsloser Code" sich inzwischen achtmal wiederholt hat, habe
+ich es einmal **systematisch** statt anlassbezogen gesucht: für jedes Modul unter `stockbot/`
+geprüft, ob es außerhalb von `tests/` überhaupt importiert wird. Acht Treffer, davon **sechs
+harmlos** und **zwei echte Befunde**.
+
+**Harmlos, weil erklärt oder von außen aufgerufen:**
+
+| Modul | warum in Ordnung |
+|---|---|
+| `ops/backup_retention.py` | wird von `scripts/pg_backup.sh:62` per `python -m` aufgerufen |
+| `core/burn_in.py` | ist bewusst ein manuelles Auswertungswerkzeug (Go/No-Go) |
+| `core/allocator.py` | Docstring sagt es ausdrücklich: „bewusst noch an keinen Signal-, Accept- oder Order-Pfad angebunden". Der Positions-Cap wirkt trotzdem — `risk.py:157` prüft `max_open_positions` selbst |
+| `research/polymarket_scheduler.py` | PM-0-Scope, im Docstring als „bewusst noch nicht registriert" festgehalten |
+| `execution/broker_oauth.py` | bekannt (Audit-Punkt 4), hängt an PLAT-007/Tor T4 |
+| `core/db_migrate.py` | Werkzeug für den SQLite→Postgres-Cutover, der am 2026-07-15 vollzogen wurde — historisch, nicht defekt |
+
+**Befund 9 — `backtest/validation.py` ist vollständig tot.** Keine einzige seiner sechs
+Funktionen (`walk_forward_splits`, `nested_walk_forward`, `HoldoutGuard`,
+`bootstrap_confidence_interval`, `regime_performance`, `sensitivity_analysis`) wird irgendwo
+außerhalb der Tests aufgerufen. Das Labor bringt stattdessen eine **eigene, einfachere**
+Walk-Forward-Logik mit (`optimize/lab.py:223-247`: `_split`, `_fold_bounds`) — **ohne Purging,
+ohne Embargo, ohne HoldoutGuard**. Gate P7 verbucht aber „finaler Holdout technisch gesperrt"
+und den Look-ahead-Proof als geschlossen. Solange `HoldoutGuard` niemand aufruft, ist der
+finale Holdout **nicht** gesperrt, und das Labor optimiert ohne die Leakage-Schutzmaßnahmen,
+die für ihn gebaut wurden. **Bewusst nicht nebenbei repariert:** das Labor an `validation.py`
+anzuschließen verändert, wie Strategien bewertet und promotet werden — das ist Tor T3, keine
+Aufräumarbeit.
+
+**Befund 10 — das Rohdatenarchiv wird nie geschrieben.** `core/raw_data_archive.py`
+(`write_bars`, `write_and_record`) hat null Aufrufer; die Tabelle `raw_data_archive`
+(`db.py:406`) und die Schreibfunktion `db.record_raw_data_archive_entry` (`db.py:2250`)
+existieren, werden aber von niemandem benutzt. W3.5 ist damit halb erledigt: der
+`shadow_scheduler` füllt `shadow_snapshots`, das Rohdatenarchiv bleibt leer. Folge für die
+Checkliste: „Datenherkunft gespeichert" (Produkt-/Datenkriterien am Ende von
+`PLAN_CHECKLIST.md`) ist **nicht** erfüllt. **Bewusst nicht nebenbei verdrahtet:** ein
+Parquet-Schreibvorgang bei jedem Bar-Abruf ist eine Entscheidung über Speicherplatz und
+Laufzeit im Signalpfad, keine Kleinigkeit.
+
+**Lehre für die nächste Sitzung:** dieser Scan kostet zwei Minuten und findet in einer Runde,
+wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
+mit „wirkt" gleichsetzt.
+
 ## Kritische Dateien für die Umsetzung
 
 - `stockbot/execution/oms.py` — Risk-Context-Einspeisung, Kern von W1
