@@ -243,8 +243,8 @@ DEFAULT_AUTO_UNIVERSE = True
 WATCHLIST = UNIVERSE_SP500
 
 # ── Trade-Parameter ─────────────────────────────────────────────────────────
-TRADE_SIZE_EUR   = 25.0    # Demo-Tradegröße in Euro
-TRADE_SIZE_CHOICES = [25, 50, 100, 250, 500, 1000]   # Schnellauswahl im /settings-Menü (€)
+TRADE_SIZE_EUR   = 25.0    # Demo-Tradegröße in USD (Feldname historisch "EUR", siehe evaluator.py)
+TRADE_SIZE_CHOICES = [25, 50, 100, 250, 500, 1000]   # Schnellauswahl im /settings-Menü ($)
 TOP_N_SIGNALS    = 5       # Standard-Anzahl Signale pro Tag
 SIGNAL_COUNT_CHOICES = [1, 3, 5, 8, 10]   # Auswahlmöglichkeiten im /settings-Menü
 MAX_SIGNALS      = 20      # harte Obergrenze

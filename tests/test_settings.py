@@ -364,9 +364,9 @@ def test_settings_view_shows_size_and_multiple_regions():
     assert not any("€" in t for t in flat)                  # kein € mehr in der Größen-Auswahl
     size_line = text.splitlines()[1]                        # "Trade-Größe *100$*  ·  Hebel …"
     assert "$" in size_line and "€" not in size_line         # Trade-Größe im Text ebenfalls in $
-    # Der einordnende Hinweis (Broker-Konto in USD) nennt € bewusst zum Kontrast
-    # ("…, nicht in €.") — das ist kein Betrag, sondern erklärender Text.
-    assert "US-Dollar" in text and "nicht in €" in text
+    # Der einordnende Hinweis (Broker-Konto in USD) nennt Euro bewusst zum Kontrast
+    # ("…, nicht in Euro.") — das ist kein Betrag, sondern erklärender Text.
+    assert "US-Dollar" in text and "nicht in Euro" in text
     # zwei Körbe markiert
     assert sum(1 for t in flat if "✅" in t and ("S&P 500" in t or "MSCI" in t)) == 2
 

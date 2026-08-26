@@ -8,7 +8,7 @@ Bewusste v1-Vereinfachungen (dokumentiert in docs/STRATEGIE_ROADMAP.md):
 - nur Tages-Timeframe (yfinance liefert 5m/15m nur ~60 Tage; lange Historie nur als 1d).
 - pro Ticker max. eine offene Position gleichzeitig (kein Pyramiding, keine Überlappung).
 - Ausstieg über SL/TP (intrabar via High/Low) oder Zeitlimit `max_hold`.
-- feste €-Tradegröße; Profitfaktor ist davon unabhängig (Verhältnis).
+- feste $-Tradegröße; Profitfaktor ist davon unabhängig (Verhältnis).
 
 Es gibt bewusst kein Resampling: Der Backtest verarbeitet ausschließlich vom Provider gelieferte
 1d-Bars. Deren Index (und eine etwaige Zeitzone) wird unverändert an den `BarClock` gereicht.

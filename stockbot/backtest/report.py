@@ -6,7 +6,7 @@ Lauf:
   python backtest_report.py adx_trend 3 8 2       # key years top_n leverage
 
 Erzeugt eine PNG unter docs/ und druckt eine Kennzahlen-Übersicht.
-Hinweis: Demo-Modell — Tages-Timeframe, ohne Gebühren/Slippage, feste €-Margin pro Position.
+Hinweis: Demo-Modell — Tages-Timeframe, ohne Gebühren/Slippage, feste $-Margin pro Position.
 """
 
 import sys
@@ -102,7 +102,7 @@ def compare_report(keys=("standard", "rsi_revert", "breakout", "ma_trend"),
                  label=f"{r['label']} ({r['ret']:+.0f}%)")
     ax1.plot(bdates, bench_eq, color=chart_palette.BENCHMARK, lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
     ax1.axhline(E0, color=chart_palette.BENCHMARK, lw=0.8, alpha=0.5)
-    ax1.set_title("Equity-Kurven (Start 10.000 €)"); ax1.set_ylabel("€")
+    ax1.set_title("Equity-Kurven (Start $10.000)"); ax1.set_ylabel("$")
     ax1.legend(loc="upper left", fontsize=8); ax1.grid(alpha=0.15)
     for lbl in ax1.get_xticklabels():
         lbl.set_rotation(30); lbl.set_ha("right")
@@ -233,11 +233,11 @@ def main(strategy_key="standard", years=2, top_n=10, leverage=5.0,
         f"{m['profit_factor']:.2f}" if m["profit_factor"] is not None else "—")
 
     # ── Konsolen-Übersicht ──
-    print(f"\nZeitraum {res['start']} → {res['end']} · {res['n_tickers']} Aktien · Margin {res['trade_size']:.0f}€/Position")
+    print(f"\nZeitraum {res['start']} → {res['end']} · {res['n_tickers']} Aktien · Margin {res['trade_size']:.0f}$/Position")
     print(f"{'':22}{'Strategie':>14}{'S&P 500':>14}")
     print(f"{'Gesamt-Rendite':22}{strat_ret:>13.1f}%{bench_ret:>13.1f}%")
     print(f"{'Max. Drawdown':22}{strat_dd.min():>13.1f}%{bench_dd.min():>13.1f}%")
-    print(f"{'End-Equity (10k€)':22}{strat_eq[-1]:>13.0f}€{bench_eq[-1]:>13.0f}€")
+    print(f"{'End-Equity (10k$)':22}{strat_eq[-1]:>13.0f}${bench_eq[-1]:>13.0f}$")
     print(f"Trades={m['trades']}  Winrate={m['win_rate']:.1f}%  Profitfaktor={pf}  Liquidationen={res['liquidations']}")
 
     # ── Grafiken ──
@@ -252,7 +252,7 @@ def main(strategy_key="standard", years=2, top_n=10, leverage=5.0,
     ax1.plot(bdates, strat_eq, color=chart_palette.PRIMARY, lw=2, label=f"{res['label']} (+{strat_ret:.0f}%)")
     ax1.plot(bdates, bench_eq, color=chart_palette.BENCHMARK, lw=1.6, ls="--", label=f"S&P 500 ({bench_ret:+.0f}%)")
     ax1.axhline(E0, color=chart_palette.BENCHMARK, lw=0.8, alpha=0.5)
-    ax1.set_title("Equity-Kurve (Start 10.000 €)"); ax1.set_ylabel("€")
+    ax1.set_title("Equity-Kurve (Start $10.000)"); ax1.set_ylabel("$")
     ax1.legend(loc="upper left"); ax1.grid(alpha=0.15)
 
     ax2 = fig.add_subplot(gs[1, 0])

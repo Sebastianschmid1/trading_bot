@@ -261,7 +261,7 @@ def compute_metrics(trades: list[dict], initial_capital: float = 1000.0) -> dict
 
     profit_factor = (gross_profit / abs(gross_loss)) if gross_loss != 0 else None
 
-    # Equity-Kurve & maximaler Drawdown (auf Basis kumuliertem €-P&L)
+    # Equity-Kurve & maximaler Drawdown (auf Basis kumuliertem $-P&L)
     equity = initial_capital
     peak = equity
     max_dd = 0.0
@@ -393,7 +393,7 @@ def format_metrics(m: dict, title: str = "") -> str:
 
     agent/CURRENCY-HONEST: `total_pnl_eur`/`avg_win`/`avg_loss`/`expectancy` sind
     historisch "eur"-benannt, tragen aber USD (Alpaca liefert nur USD, keine
-    EUR/USD-Umrechnung im Repo) — Anzeige entsprechend als $ statt €.
+    EUR/USD-Umrechnung im Repo) — Anzeige entsprechend als $ statt Euro.
     """
     pf = "∞" if m["profit_factor"] is None and m["trades"] else (
         f"{m['profit_factor']:.2f}" if m["profit_factor"] is not None else "—")

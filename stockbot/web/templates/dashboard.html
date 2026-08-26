@@ -512,7 +512,7 @@
     };
 
     // agent/CURRENCY-HONEST: Alpaca liefert Kurse/Kontowerte ausschließlich in USD, keine
-    // EUR/USD-Umrechnung im Repo — fmt/eur0 zeigen deshalb $ statt €, obwohl die Backend-Felder
+    // EUR/USD-Umrechnung im Repo — fmt/eur0 zeigen deshalb $ statt Euro, obwohl die Backend-Felder
     // (pnl_eur, trade_size_eur) historisch "eur" heißen. Zahlen/Rundung bleiben unverändert.
     const fmt  = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "$";
     const cls  = (n) => n >= 0 ? "green" : "red";

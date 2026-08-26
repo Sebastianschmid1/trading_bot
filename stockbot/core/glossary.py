@@ -52,7 +52,7 @@ MODE_LABELS = {
 #: Vergleich mit der rohen Konstante auseinanderlaufen.
 BROKER_CURRENCY_NOTE = (
     "Das Alpaca-Konto läuft in US-Dollar — alle Beträge hier (Trade-Größe, Gewinn/Verlust, "
-    "Kontowert) stehen deshalb in $, nicht in €."
+    "Kontowert) stehen deshalb in $, nicht in Euro."
 )
 
 # ── Trade-Status (§25.2) ────────────────────────────────────────────────────

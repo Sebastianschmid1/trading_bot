@@ -2,7 +2,7 @@
 docs/PLAN_CHECKLIST.md Phase 3).
 
 Reine, IO-freie Sizing-Formel — bewusst getrennt von `stockbot/broker/sizing.py` (das plant
-eine Order für ein bereits FESTES Euro-Budget je Trade; hier wird die Positionsgröße erst aus
+eine Order für ein bereits FESTES USD-Budget je Trade; hier wird die Positionsgröße erst aus
 dem Kontorisiko berechnet, bevor überhaupt ein Budget feststeht). Nutzt `domain.RiskProfile`
 (RISK-001) für die Caps.
 

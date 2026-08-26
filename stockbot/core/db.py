@@ -1592,7 +1592,7 @@ def toggle_region(user_id: int, key: str) -> list[str]:
 
 
 def set_trade_size(user_id: int, eur: float) -> float:
-    """Setzt die Demo-Trade-Größe in € (auf 1..1.000.000 begrenzt). Gibt den gespeicherten Wert zurück."""
+    """Setzt die Demo-Trade-Größe in $ (auf 1..1.000.000 begrenzt). Gibt den gespeicherten Wert zurück."""
     eur = max(1.0, min(1_000_000.0, float(eur)))
     _update_user("UPDATE users SET trade_size_eur = :value, updated_at = :updated_at "
                  "WHERE user_id = :user_id", value=eur, user_id=user_id)
@@ -2525,7 +2525,7 @@ def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
     """Korrigiert abgeschlossene AKTIEN-Trades mit unplausiblem Einstieg (Glitch-Fill).
 
     Signatur: geschlossener Trade, dessen `entry` außerhalb 0,5–2,0× des Signalkurses liegt
-    (z. B. KHC @ 0,26 statt Signalkurs 23,95 → +9.182 % / +53.810 € Fake-P&L). Setzt
+    (z. B. KHC @ 0,26 statt Signalkurs 23,95 → +9.182 % / +53.810 $ Fake-P&L). Setzt
     `entry` = Signalkurs und rechnet pnl_pct/pnl_eur konsistent neu — die Geld-Skala des
     Trades bleibt erhalten (K = pnl_eur/pnl_pct, unabhängig von der aktuellen Trade-Größe).
 
@@ -2571,7 +2571,7 @@ def heal_absurd_closed_pnl(user_id: int) -> list[dict]:
                           "old_eur": r["pnl_eur"], "new_eur": new_eur})
     if fixed:
         log.warning("[%s] %d absurde(r) geschlossene(r) Trade(s) korrigiert: %s", user_id, len(fixed),
-                    ", ".join(f"{x['ticker']} {x['old_eur']:+.0f}€→{x['new_eur']:+.2f}€" for x in fixed))
+                    ", ".join(f"{x['ticker']} {x['old_eur']:+.0f}$→{x['new_eur']:+.2f}$" for x in fixed))
     return fixed
 
 
@@ -2615,7 +2615,7 @@ def mark_broker_filled(user_id: int, ticker: str, *, broker_status: str = "fille
             return False
         # Fill-Preis nur dann als Einstieg übernehmen, wenn er plausibel ist. Ein absurder
         # Broker-Fill (z. B. KHC @ 0,26 statt Signalkurs 23,95) überschrieb sonst den korrekten
-        # Einstieg und erzeugte gigantische Fake-P&L (+53.810 €). Außerhalb des 0,5–2,0-Bands
+        # Einstieg und erzeugte gigantische Fake-P&L (+53.810 $). Außerhalb des 0,5–2,0-Bands
         # um den erwarteten Einstieg (Signalkurs) behalten wir diesen und protokollieren den Fill.
         expected = float(row["entry"] or 0)
         fp = float(filled_avg_price or 0)

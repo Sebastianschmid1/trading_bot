@@ -584,7 +584,7 @@ def test_settings_page_shows_trade_size_in_dollar_not_euro():
     r = c.get("/app/settings")
     assert r.status_code == 200
     # Nur die Betrags-/Eingabezeile prüfen (bis </form>) — der einordnende Hinweis
-    # danach nennt € bewusst zum Kontrast ("…, nicht in €.") und ist kein Betrag.
+    # danach nennt Euro bewusst zum Kontrast ("…, nicht in Euro.") und ist kein Betrag.
     size_form = r.text.split('<h2>Trade-Größe</h2>')[1].split('</form>')[0]
     assert "$ pro Position" in size_form
     assert "€" not in size_form

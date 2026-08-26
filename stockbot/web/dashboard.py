@@ -247,7 +247,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
         """Aktueller Kurs: letzter 60s-Tick, sonst Live-Abruf. ``None`` ⇔ nicht abrufbar.
 
         §32.5: Frueher fiel der Live-Abruf still auf den **Einstiegskurs** zurueck — die
-        Oberflaeche zeigte dann den Einstieg als „aktuell" und 0 € P&L, also einen
+        Oberflaeche zeigte dann den Einstieg als „aktuell" und 0 $ P&L, also einen
         Ersatzwert, der wie ein belastbarer Kurs aussah. `get_current_price` faengt den
         Abruffehler selbst ab (fail-open, bleibt unveraendert), deshalb wird das Scheitern
         hier ueber einen NaN-Sentinel als Fallback sichtbar gemacht statt geraten."""
@@ -280,7 +280,7 @@ def build_dashboard_data(user: dict, strategy: str | None = None, days: int | No
             "invested":    round(size, 2),                    # eingesetzte Margin (dein Geld)
             "exposure":    round(size * leverage, 2),         # Positionsgröße im Markt (Margin × Hebel)
             "pnl_pct":     round(pnl_pct, 2) if pnl_pct is not None else None,   # reine Kursbewegung
-            # Rendite auf die Margin (inkl. Hebel) = passt zum €
+            # Rendite auf die Margin (inkl. Hebel) = passt zum $
             "roi_pct":     round(pnl_eur / size * 100, 2) if pnl_eur is not None else None,
             "pnl_eur":     round(pnl_eur, 2) if pnl_eur is not None else None,
             "stop_loss":   t["signal"].get("stop_loss"),

@@ -2045,9 +2045,11 @@ async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Ändern mit z. B. `/tradesize 250` — oder Schnellauswahl in /settings.",
             parse_mode="Markdown")
         return
-    # agent/CURRENCY-HONEST: Anzeige nennt jetzt "$" statt "€" — Nutzer koennten das
-    # Symbol mittippen, deshalb wird neben "€" (Alttext/Copy-Paste) auch "$" entfernt.
-    raw = context.args[0].strip().replace(",", ".").replace("€", "").replace("$", "")
+    # agent/CURRENCY-HONEST: Anzeige nennt jetzt "$" statt dem Euro-Zeichen — Nutzer koennten
+    # das Euro-Zeichen aus Gewohnheit mittippen (Alttext/Copy-Paste), deshalb wird es neben
+    # "$" weiterhin aus der Eingabe entfernt (reine Sanitization, keine Anzeige; als
+    # Unicode-Escape geschrieben, damit im Quelltext kein Euro-Zeichen mehr vorkommt).
+    raw = context.args[0].strip().replace(",", ".").replace("\u20ac", "").replace("$", "")
     try:
         val = float(raw)
         if val <= 0:
@@ -3056,7 +3058,7 @@ def main():
     app.add_error_handler(error_handler)
 
     # Einmalige Datenreparatur beim Start: abgeschlossene Trades mit unplausiblem Einstieg
-    # (Glitch-Fills wie KHC @ 0,26 → +53.810 € Fake-P&L) korrigieren. Idempotent.
+    # (Glitch-Fills wie KHC @ 0,26 → +53.810 $ Fake-P&L) korrigieren. Idempotent.
     for _u in db.list_active_users():
         try:
             db.heal_absurd_closed_pnl(_u["user_id"])

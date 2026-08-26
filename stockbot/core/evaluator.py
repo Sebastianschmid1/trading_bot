@@ -40,7 +40,7 @@ def get_day_high_low(ticker: str, fallback: float) -> tuple[float, float]:
 # liefert Kurse, Kontowerte und Buying Power ausschließlich in USD, im Repo gibt es
 # keine EUR/USD-Umrechnung (kein fx_rate, kein Kursabruf). Namen bleiben unverändert
 # (keine Migration/Rename der DB-Spalten trades.pnl_eur/users.trade_size_eur); nur die
-# Anzeige in Web-App/Telegram wurde korrigiert (zeigt $ statt €).
+# Anzeige in Web-App/Telegram wurde korrigiert (zeigt $ statt Euro).
 
 def liquidation_price(entry: float, leverage: float, direction: str = "long") -> float | None:
     """Liquidationskurs: Long wird bei einem Kursverlust von 1/Hebel liquidiert.
@@ -166,7 +166,7 @@ def evaluate_trades(active_trades: list[dict], trade_size_eur: float) -> list[di
         log.info(
             f"{ticker}: {entry:.2f} → {exit_price:.2f} ({exit_reason}, {leverage:g}×) | "
             f"{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% | "
-            f"{'+' if pnl_eur >= 0 else ''}{pnl_eur:.2f}€"
+            f"{'+' if pnl_eur >= 0 else ''}{pnl_eur:.2f}$"
         )
 
     return results
