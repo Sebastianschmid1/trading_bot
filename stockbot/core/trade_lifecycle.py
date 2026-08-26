@@ -53,7 +53,7 @@ def compute_durations(events: list[dict], now: datetime | None = None) -> dict:
              "hold_sec": None, "total_lifetime_sec": None, "is_open": False}
     if not events:
         return empty
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
 
     # (start_ts, status) je Segment aufbauen.
     points = []

@@ -143,3 +143,46 @@ def test_auto_accept_skipped_outside_regular_session(monkeypatch):
     fake_bot.send_message.assert_not_awaited()
     # Und KEIN Auto-Start: es entsteht auch kein Trade im Hintergrund.
     assert db.get_trade(CHAT, "NVDA") is None
+
+
+# ── Regression AUDIT-7A: `datetime.utcnow()` → naiv-UTC-Ersatz in tgbot/bot.py ──
+
+def test_broker_update_age_sec_is_naive_utc(monkeypatch):
+    """`_broker_update_age_sec` rechnet gegen einen naiven, aus `_parse_ts` geparsten Zeitstempel.
+    Bliebe der `datetime.utcnow()`-Ersatz tz-aware, würde die Subtraktion mit TypeError crashen —
+    dieser Test ginge dann rot statt nur eine falsche Sekundenzahl zu liefern."""
+    from datetime import datetime, timezone
+    from stockbot.tgbot import bot
+
+    frozen = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(bot, "datetime", _FrozenDatetime)
+    assert bot._broker_update_age_sec("2026-03-01 11:59:00") == 60
+
+
+def test_process_queued_order_age_is_naive_utc(monkeypatch):
+    """Gleiche Regression für `_process_queued_order` (zweite `datetime.utcnow()`-Stelle in
+    bot.py): die Altersberechnung darf mit dem naiven Ersatz nicht crashen. Die Order ist frisch
+    (60 s, weit unter der 24h-Verfallsgrenze) und der Markt ist geschlossen — die Funktion kehrt
+    danach folgenlos zurück, ohne DB oder Telegram anzufassen."""
+    import asyncio
+    from datetime import datetime, timezone
+    from stockbot.tgbot import bot
+
+    frozen = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(bot, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(bot, "_us_market_open", lambda extended=False: False)
+    trade = {"ticker": "AAPL", "broker_updated_at": "2026-03-01 11:59:00"}
+    user = {"user_id": 999}
+    asyncio.run(bot._process_queued_order(None, user, trade))   # darf nicht raisen

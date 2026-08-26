@@ -1331,7 +1331,7 @@ async def _process_queued_order(bot: Bot, user: dict, trade: dict):
     bei regulärem Börsenstart senden, oder nach 24 h als veraltet verfallen lassen."""
     chat_id, ticker = user["user_id"], trade["ticker"]
     queued_at = reconcile_mod._parse_ts(trade.get("broker_updated_at") or trade.get("created_at"))
-    age = (datetime.utcnow() - queued_at).total_seconds() if queued_at else 0.0
+    age = (datetime.now(timezone.utc).replace(tzinfo=None) - queued_at).total_seconds() if queued_at else 0.0
     if age > BROKER_QUEUE_MAX_AGE_SEC:
         db.mark_broker_failed(chat_id, ticker, broker_status="queue_expired")
         await _tg_status(
@@ -1395,7 +1395,7 @@ def _broker_update_age_sec(updated_at: str | None) -> int:
     parsed = reconcile_mod._parse_ts(updated_at)
     if parsed is None:
         return 0
-    return max(0, int((datetime.utcnow() - parsed).total_seconds()))
+    return max(0, int((datetime.now(timezone.utc).replace(tzinfo=None) - parsed).total_seconds()))
 
 
 async def monitor_broker_closing(bot: Bot):

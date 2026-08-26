@@ -11,6 +11,7 @@ Lauf:  pytest tests/test_orphan_adopt.py   (offline; Alpaca wird gefälscht)
 """
 
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from stockbot.core import db
@@ -419,3 +420,60 @@ def test_ensure_buying_power_allows_when_enough(monkeypatch):
     plan = {"kind": "shares", "qty": 5, "notional": None, "fractional": False}
     assert webapp._ensure_buying_power(db.get_user(CHAT), "NVDA", client=object(),
                                        plan=plan, entry=1000.0) is None
+
+
+# ── Regression AUDIT-7A: `datetime.utcnow()` → naiv-UTC-Ersatz ───────────────
+
+def test_sweep_missing_positions_now_is_naive_utc(monkeypatch):
+    """`now` in sweep_missing_positions muss naiv-UTC bleiben (Zeitvertrag, AGENTS.md) — `updated`
+    kommt naiv aus `_parse_ts`. Wäre `now` tz-aware (z. B. bliebe das `.replace(tzinfo=None)` beim
+    Ersatz von `datetime.utcnow()` weg), würde `now - updated` mit TypeError crashen; dieser Test
+    ginge dann rot statt nur einen falschen Wert zu liefern."""
+    _fresh_db()
+    _seed_active(["AAA"])
+    frozen = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(reconcile, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(reconcile.broker, "list_positions", lambda *a, **k: [])  # AAA fehlt komplett
+    with db._connect() as conn:
+        conn.execute("UPDATE trades SET broker_updated_at=? WHERE user_id=? AND ticker=?",
+                     ("2026-03-01 11:59:00", CHAT, "AAA"))
+
+    res = reconcile.sweep_missing_positions({"user_id": CHAT, "trade_size_eur": 1000.0},
+                                            client=object(), grace_sec=300)
+    assert res["skipped"] == [{"ticker": "AAA", "symbol": "AAA", "age_sec": 60}]
+
+
+def test_recently_closed_tickers_now_is_naive_utc(monkeypatch):
+    """Korrektheits-Regression für die zweite `datetime.utcnow()`-Stelle in reconcile.py
+    (`_recently_closed_tickers`): das Grace-Fenster [now-grace_sec, now] muss weiterhin exakt
+    gegen die naiv gespeicherten Trade-Events matchen. Anders als bei `sweep_missing_positions`
+    gibt es hier keine Arithmetik zwischen naiv und aware (nur `strftime`, tzinfo-unabhängig) —
+    dieser Test kann die naiv/aware-Unterscheidung also nicht allein beweisen; die dafür
+    entscheidende Regression liefert `test_sweep_missing_positions_now_is_naive_utc`."""
+    _fresh_db()
+    frozen = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(reconcile, "datetime", _FrozenDatetime)
+    db.add_pending(CHAT, {"ticker": "ZZZ", "direction": "long", "price": 10.0,
+                          "leverage": 1.0, "strength": 50.0}, 1)
+    db.activate_trade(CHAT, "ZZZ")
+    db.close_all(CHAT, [{"ticker": "ZZZ", "exit": 10.0, "pnl_eur": 0.0, "pnl_pct": 0.0}])
+    # Event-Zeitstempel auf einen Punkt INNERHALB des erwarteten Grace-Fensters um `frozen` legen
+    # (das reale `close_all` schreibt die echte Systemzeit, nicht `frozen`).
+    with db._connect() as conn:
+        conn.execute("UPDATE trade_events SET ts=? WHERE user_id=? AND ticker=? AND to_status='closed'",
+                     ("2026-03-01 11:58:00", CHAT, "ZZZ"))
+
+    closed = reconcile._recently_closed_tickers(CHAT, grace_sec=300)
+    assert closed == {"ZZZ"}

@@ -11,7 +11,7 @@ Lauf:  pytest tests/test_tracking_export.py   (offline)
 """
 
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from starlette.testclient import TestClient
@@ -106,6 +106,28 @@ def test_compute_durations_accepts_postgres_aware_event_timestamps():
     assert durations["pending_sec"] == 60
     assert durations["hold_sec"] == 120
     assert durations["total_lifetime_sec"] == 180
+
+
+def test_compute_durations_default_now_is_naive_utc(monkeypatch):
+    """Regression AUDIT-7A: ohne übergebenes `now` fällt `compute_durations` auf
+    `datetime.now(timezone.utc).replace(tzinfo=None)` zurück (Ersatz für `datetime.utcnow()`).
+    Die Event-Zeitstempel (`parse_ts`) sind naiv — bliebe der Ersatz tz-aware, würde `end - start`
+    mit TypeError crashen; dieser Test ginge dann rot statt nur eine falsche Dauer zu liefern."""
+    frozen = datetime(2026, 6, 22, 10, 5, 40, tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(tl, "datetime", _FrozenDatetime)
+    evs = [
+        {"to_status": "pending", "ts": "2026-06-22 10:00:00"},
+        {"to_status": "broker_pending", "ts": "2026-06-22 10:00:10"},
+        {"to_status": "active", "ts": "2026-06-22 10:00:40"},
+    ]
+    d = tl.compute_durations(evs)   # kein now= → Default-Zweig
+    assert d["time_to_fill_sec"] == 30 and d["hold_sec"] == 300 and d["is_open"] is True
 
 
 # ── filter_log_lines ─────────────────────────────────────────────────────────

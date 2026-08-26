@@ -129,7 +129,7 @@ def sweep_missing_positions(user: dict, client, *, grace_sec: int = 300) -> dict
                 "skipped": [{"ticker": t["ticker"], "symbol": bot_symbol(t),
                              "reason": "broker_list_unreliable"} for t in missing]}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     closed: list[dict] = []
     skipped: list[dict] = []
 
@@ -191,7 +191,7 @@ def _recently_closed_tickers(user_id: int, *, grace_sec: int) -> set[str]:
     Grace-Phase analog zu `sweep_missing_positions`: eine Position, die der Bot gerade erst
     geschlossen hat, aber am Broker (z. B. bei geschlossener Börse) noch offen steht, ist kein
     verwaister Kauf, sondern die eigene, noch nicht gefüllte Verkaufsorder."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     ts_from = (now - timedelta(seconds=grace_sec)).strftime("%Y-%m-%d %H:%M:%S")
     ts_to = now.strftime("%Y-%m-%d %H:%M:%S")
     events = db.get_trade_events_between(user_id, ts_from=ts_from, ts_to=ts_to)
