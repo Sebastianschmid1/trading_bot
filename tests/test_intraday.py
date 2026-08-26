@@ -165,13 +165,16 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # neun wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale,
-    # Callback-Token-Purge (W7) und Outbox-Zustellung (W4.5)
-    assert jq.run_repeating.call_count == 9
+    # zehn wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale,
+    # Callback-Token-Purge (W7), Outbox-Zustellung (W4.5) und Alarmauswertung (OBS-ALERTS)
+    assert jq.run_repeating.call_count == 10
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     # Ohne diesen Job bliebe die Outbox für immer liegen — sie war bis 2026-07-21 nie verdrahtet.
     assert by_name["outbox_delivery"].args[0] is bot.outbox_delivery_job
     assert by_name["outbox_delivery"].kwargs["interval"] == bot.OUTBOX_DELIVERY_SEC
+    # Ohne diesen Job feuerte core/alerts.py nie — er wurde bis 2026-08 nur vom Test importiert.
+    assert by_name["alert_evaluation"].args[0] is bot.alert_evaluation_job
+    assert by_name["alert_evaluation"].kwargs["interval"] == bot.ALERT_EVALUATION_SEC
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["shadow_signals"].args[0] is bot.run_shadow_signals
     assert by_name["shadow_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
@@ -201,6 +204,79 @@ def test_register_jobs_schedules_monitor_every_interval():
     assert lab_job.args[0] is bot.run_daily_lab_optimization
     assert lab_job.kwargs["days"] == config.LAB_DAILY_DAYS
     assert bot.run_weekly_lab_optimization is bot.run_daily_lab_optimization
+
+
+# ── alert_evaluation_job: Alarmpfad verdrahtet (OBS-ALERTS) ─────────────────────────
+
+def _kill_switch_snapshot(active: bool):
+    """Minimaler Metrik-Snapshot mit genau einer (der einfachsten) Regel aus DEFAULT_RULES."""
+    return {"stockbot_kill_switch_active": {"type": "gauge", "samples": [
+        {"labels": {}, "value": 1.0 if active else 0.0, "last_delta": 0.0},
+    ]}}
+
+
+def test_alert_evaluation_job_notifies_admin_end_to_end_and_does_not_repeat(monkeypatch):
+    """AC 5: Metrik über den Schwellwert setzen → Job laufen lassen → Benachrichtigung enthält
+    den Alarm. Zweiter Lauf mit unverändertem Zustand meldet NICHT erneut."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    monkeypatch.setattr(bot, "ADMIN_CHAT_ID", 999)
+    monkeypatch.setattr(bot, "_ALERT_NOTIFIER", bot.AlertNotifier())
+    monkeypatch.setattr(bot.metrics, "snapshot", lambda: _kill_switch_snapshot(active=True))
+
+    ctx = MagicMock()
+    ctx.bot = AsyncMock()
+
+    asyncio.run(bot.alert_evaluation_job(ctx))
+    ctx.bot.send_message.assert_awaited_once()
+    kwargs = ctx.bot.send_message.await_args.kwargs
+    assert kwargs["chat_id"] == 999
+    assert "stockbot_kill_switch_active" in kwargs["text"]
+
+    # zweiter Lauf, Zustand unveraendert: keine erneute Meldung
+    ctx.bot.send_message.reset_mock()
+    asyncio.run(bot.alert_evaluation_job(ctx))
+    ctx.bot.send_message.assert_not_awaited()
+
+
+def test_alert_evaluation_job_is_fail_open_when_notifier_raises(caplog):
+    """AC 2: eine Ausnahme im Alarmpfad darf den Bot nie beeinträchtigen — abfangen, mit
+    Kontext loggen, weiterlaufen."""
+    import pytest
+    from unittest.mock import MagicMock
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(bot, "ADMIN_CHAT_ID", 999)
+        monkeypatch.setattr(bot, "_ALERT_NOTIFIER", bot.AlertNotifier())
+        monkeypatch.setattr(bot.metrics, "snapshot", lambda: _kill_switch_snapshot(active=True))
+
+        ctx = MagicMock()
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("Telegram down")
+        ctx.bot.send_message = _boom
+
+        with caplog.at_level("WARNING", logger="stockbot.tgbot.bot"):
+            asyncio.run(bot.alert_evaluation_job(ctx))  # darf NICHT werfen
+
+        assert any("Alarm-Auswertung fehlgeschlagen" in r.message for r in caplog.records)
+
+
+def test_alert_evaluation_job_logs_missing_admin_exactly_once(caplog, monkeypatch):
+    """AC 3: ohne konfigurierten Admin wird sauber und EINMALIG geloggt, nicht bei jedem Lauf."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(bot, "ADMIN_CHAT_ID", None)
+    monkeypatch.setattr(bot, "_alert_admin_missing_logged", False)
+    ctx = MagicMock()
+
+    with caplog.at_level("WARNING", logger="stockbot.tgbot.bot"):
+        asyncio.run(bot.alert_evaluation_job(ctx))
+        asyncio.run(bot.alert_evaluation_job(ctx))
+
+    warnings = [r for r in caplog.records if "ADMIN_CHAT_ID" in r.message]
+    assert len(warnings) == 1
+    ctx.bot.send_message.assert_not_called()
 
 
 # ── _session_scheduler_tick: Signale/Auswertung relativ zu Open/Close (DATA-002) ─────

@@ -115,23 +115,41 @@ def evaluate_alerts(
 
 
 class AlertNotifier:
-    """Synchron aufrufbarer Adapter; meldet nur neu hinzugekommene Alarme."""
+    """Synchron aufrufbarer Adapter; meldet nur neu hinzugekommene Alarme.
 
-    def __init__(self, notifier: Callable[[str], Any]):
+    `notifier` ist optional: Aufrufer, die den Versand selbst übernehmen (z. B. ein async
+    Scheduler-Job, der `context.bot.send_message` awaiten will), nutzen nur `new_alerts()` +
+    `format_message()` und rufen `notify()` nie auf — sonst würde ein awaitable-Notifier
+    innerhalb eines bereits laufenden Event-Loops per `create_task` nur „fire-and-forget"
+    verschickt, und ein Fehler darin wäre für den Aufrufer nicht mehr synchron fassbar.
+    """
+
+    def __init__(self, notifier: Callable[[str], Any] | None = None):
         self._notifier = notifier
         self._previous: set[tuple[str, str, float, str]] = set()
 
-    def notify(self, alerts: Iterable[FiredAlert]) -> list[FiredAlert]:
+    def new_alerts(self, alerts: Iterable[FiredAlert]) -> list[FiredAlert]:
+        """Filtert auf neu hinzugekommene Alarme und schreibt den Zustand fort — ohne zu senden."""
         alerts = list(alerts)
         current = {alert.key for alert in alerts}
         new_alerts = [alert for alert in alerts if alert.key not in self._previous]
         self._previous = current
+        return new_alerts
+
+    @staticmethod
+    def format_message(alerts: Iterable[FiredAlert]) -> str:
+        return "\n".join(
+            f"[{alert.rule.severity}] {alert.rule.metric}: {alert.value:g} {alert.rule.comparator} {alert.rule.threshold:g}"
+            for alert in alerts
+        )
+
+    def notify(self, alerts: Iterable[FiredAlert]) -> list[FiredAlert]:
+        new_alerts = self.new_alerts(alerts)
         if not new_alerts:
             return []
-        message = "\n".join(
-            f"[{alert.rule.severity}] {alert.rule.metric}: {alert.value:g} {alert.rule.comparator} {alert.rule.threshold:g}"
-            for alert in new_alerts
-        )
+        if self._notifier is None:
+            return new_alerts
+        message = self.format_message(new_alerts)
         result = self._notifier(message)
         if inspect.isawaitable(result):
             try:

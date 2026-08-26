@@ -42,6 +42,8 @@ from stockbot.market import provider_factory
 from stockbot.research import shadow_scheduler
 from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
+from stockbot.core import alerts
+from stockbot.core.alerts import AlertNotifier
 from stockbot.core import outbox
 from stockbot.core.event_consumers import ObservabilityConsumer
 from stockbot.core.settings import validate_config, assert_postgres_backend
@@ -104,6 +106,9 @@ TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch g
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 OUTBOX_DELIVERY_SEC = 60          # Zustell-Takt der Domain-Event-Outbox (W4.5)
 _OUTBOX_CONSUMER = ObservabilityConsumer()
+ALERT_EVALUATION_SEC = 60         # Takt der Alarmauswertung (OBS-ALERTS)
+_ALERT_NOTIFIER = AlertNotifier()  # nur Dedup-Zustand; der Versand läuft direkt über context.bot
+_alert_admin_missing_logged = False  # verhindert Log-Spam ohne konfigurierten ADMIN_CHAT_ID
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
 
@@ -2943,6 +2948,31 @@ async def outbox_delivery_job(context):
         log.warning(f"Outbox-Zustellung fehlgeschlagen: {e}")
 
 
+async def alert_evaluation_job(context: ContextTypes.DEFAULT_TYPE):
+    """Wertet `alerts.DEFAULT_RULES` gegen den aktuellen Metrik-Snapshot aus und meldet neu
+    gefeuerte Alarme an den Admin (W4.2) — fail-open, analog `outbox_delivery_job`.
+
+    Ohne diesen Job war der Alarmpfad gebaut, aber nirgends verdrahtet: `core/alerts.py` wurde
+    ausschließlich vom Test importiert, sodass Go/No-Go 3.2 („Alarme haben im Burn-in nachweislich
+    gefeuert") strukturell nie erfüllt werden konnte.
+    """
+    global _alert_admin_missing_logged
+    if ADMIN_CHAT_ID is None:
+        if not _alert_admin_missing_logged:
+            log.warning("Alarm-Auswertung: kein ADMIN_CHAT_ID konfiguriert — Alarme verhallen ungemeldet.")
+            _alert_admin_missing_logged = True
+        return
+    try:
+        fired = alerts.evaluate_alerts(metrics.snapshot())
+        new_alerts = _ALERT_NOTIFIER.new_alerts(fired)
+        if new_alerts:
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID, text=AlertNotifier.format_message(new_alerts),
+            )
+    except Exception as e:
+        log.warning(f"Alarm-Auswertung fehlgeschlagen: {e}")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -2999,6 +3029,10 @@ def _register_jobs(app):
     job_queue.run_repeating(
         outbox_delivery_job, interval=OUTBOX_DELIVERY_SEC, first=OUTBOX_DELIVERY_SEC,
         name="outbox_delivery",
+    )
+    job_queue.run_repeating(
+        alert_evaluation_job, interval=ALERT_EVALUATION_SEC, first=ALERT_EVALUATION_SEC,
+        name="alert_evaluation",
     )
 
 
