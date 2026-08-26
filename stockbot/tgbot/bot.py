@@ -2045,11 +2045,10 @@ async def cmd_tradesize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Ändern mit z. B. `/tradesize 250` — oder Schnellauswahl in /settings.",
             parse_mode="Markdown")
         return
-    # agent/CURRENCY-HONEST: Anzeige nennt jetzt "$" statt dem Euro-Zeichen — Nutzer koennten
-    # das Euro-Zeichen aus Gewohnheit mittippen (Alttext/Copy-Paste), deshalb wird es neben
-    # "$" weiterhin aus der Eingabe entfernt (reine Sanitization, keine Anzeige; als
-    # Unicode-Escape geschrieben, damit im Quelltext kein Euro-Zeichen mehr vorkommt).
-    raw = context.args[0].strip().replace(",", ".").replace("\u20ac", "").replace("$", "")
+    # agent/CURRENCY-HONEST: Anzeige nennt jetzt "$" — Nutzer tippen aus Gewohnheit aber
+    # weiter "€" mit (Alttext/Copy-Paste), deshalb wird es neben "$" aus der Eingabe entfernt.
+    # Das Zeichen steht hier bewusst literal: es ist Eingabe-Sanitization, keine Anzeige.
+    raw = context.args[0].strip().replace(",", ".").replace("€", "").replace("$", "")
     try:
         val = float(raw)
         if val <= 0:

@@ -49,11 +49,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── 1. Demo-Trade-Größe ─────────────────────────────────────────────────────
 
 async def ask_trade_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # agent/CURRENCY-HONEST: Prompt zeigt jetzt "$" statt dem Euro-Zeichen — Nutzer koennten
-    # das Euro-Zeichen aus Gewohnheit mittippen (Alttext/Copy-Paste), deshalb wird es neben
-    # "$" weiterhin aus der Eingabe entfernt (reine Sanitization, keine Anzeige; als
-    # Unicode-Escape geschrieben, damit im Quelltext kein Euro-Zeichen mehr vorkommt).
-    text = update.message.text.strip().replace(",", ".").replace("\u20ac", "").replace("$", "")
+    # agent/CURRENCY-HONEST: Prompt zeigt jetzt "$" — Nutzer tippen aus Gewohnheit aber
+    # weiter "€" mit (Alttext/Copy-Paste), deshalb wird es neben "$" aus der Eingabe entfernt.
+    # Das Zeichen steht hier bewusst literal: es ist Eingabe-Sanitization, keine Anzeige.
+    text = update.message.text.strip().replace(",", ".").replace("€", "").replace("$", "")
     try:
         size = float(text)
         if size <= 0:
