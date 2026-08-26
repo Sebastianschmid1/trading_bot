@@ -459,6 +459,67 @@ def test_run_backtest_surfaces_survivorship_warning(monkeypatch):
     assert res2["universe_warning"] is None
 
 
+# ── compare_strategies-Sortierung (Audit AUDIT-7A, Befund 2) ─────────────────
+
+def _result_for(trades: list[dict]) -> dict:
+    """Minimales `compare_strategies`-Ergebnis-Dict, wie `_pf_sort_key` es braucht."""
+    return {"metrics": metrics.compute_metrics(trades)}
+
+
+def _wins(n: int, pnl: float = 10.0) -> list[dict]:
+    return [{"pnl_eur": pnl} for _ in range(n)]
+
+
+def _mixed(n_wins: int, win_pnl: float, n_losses: int, loss_pnl: float) -> list[dict]:
+    return _wins(n_wins, win_pnl) + [{"pnl_eur": loss_pnl} for _ in range(n_losses)]
+
+
+def test_pf_sort_key_uses_real_profit_factor_when_finite():
+    r = _result_for(_mixed(15, 30.0, 5, -10.0))          # gross 450 / 50 → pf 9.0
+    assert r["metrics"]["profit_factor"] == 9.0
+    assert backtest._pf_sort_key(r) == 9.0
+
+
+def test_pf_sort_key_no_longer_returns_infinity_for_none_profit_factor():
+    """Kern des Befunds: `profit_factor is None` darf nicht mehr blind auf +inf gesetzt werden."""
+    r = _result_for(_wins(1))
+    assert r["metrics"]["profit_factor"] is None
+    assert backtest._pf_sort_key(r) != float("inf")
+
+
+def test_pf_sort_key_orders_single_trade_no_loss_below_solid_many_trade_strategy():
+    """AC4, Teil 1: eine None-PF-Strategie mit nur 1 Trade steht unter einer mit vielen Trades
+    und einem guten, endlichen Profitfaktor — genau der Audit-Fall (1 Zufallstreffer schlägt
+    bislang 200 solide Trades)."""
+    one_trade_no_loss = _result_for(_wins(1))
+    solid_many_trades = _result_for(_mixed(150, 30.0, 50, -10.0))   # pf = 4500/500 = 9.0, 200 Trades
+    assert solid_many_trades["metrics"]["profit_factor"] == 9.0
+    assert backtest._pf_sort_key(one_trade_no_loss) < backtest._pf_sort_key(solid_many_trades)
+
+
+def test_pf_sort_key_still_rates_many_trade_no_loss_strategy_strongly():
+    """AC4, Teil 2: eine None-PF-Strategie mit VIELEN Trades (die trotzdem nie verloren hat) wird
+    weiterhin stark bewertet — anders als der Einzeltreffer oben landet sie oberhalb einer
+    soliden, aber nicht überragenden endlichen Strategie."""
+    many_trades_no_loss = _result_for(_wins(150))
+    modest_finite_pf = _result_for(_mixed(60, 15.0, 40, -10.0))     # pf = 900/400 = 2.25
+    assert backtest._pf_sort_key(many_trades_no_loss) > backtest._pf_sort_key(modest_finite_pf)
+
+
+def test_pf_sort_key_preserves_relative_order_of_finite_profit_factors():
+    """AC5: unter Strategien mit endlichem PF ändert der Fix nichts — dieselbe Reihenfolge wie
+    ein reiner Sort nach `profit_factor`."""
+    results = [
+        _result_for(_mixed(10, 10.0, 10, -10.0)),   # pf 1.0
+        _result_for(_mixed(20, 10.0, 5, -10.0)),    # pf 4.0
+        _result_for(_mixed(15, 10.0, 15, -10.0)),   # pf 1.0 (gleich wie erstes → Stable-Sort-Reihenfolge zählt)
+        _result_for(_mixed(30, 10.0, 3, -10.0)),    # pf 10.0
+    ]
+    by_pf_key = sorted(results, key=backtest._pf_sort_key, reverse=True)
+    by_raw_pf = sorted(results, key=lambda r: r["metrics"]["profit_factor"], reverse=True)
+    assert by_pf_key == by_raw_pf
+
+
 # ── Gap-blinde Exits (Part B): Fill am Open statt am Level ────────────────────
 
 def _walk_df(rows):

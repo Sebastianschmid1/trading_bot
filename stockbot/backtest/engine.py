@@ -417,6 +417,20 @@ def _total_cost_breakdown(trades: list[dict]) -> dict:
     return totals
 
 
+def _pf_sort_key(result: dict) -> float:
+    """Sortier-Schlüssel für `compare_strategies` (absteigend = beste Strategie zuerst).
+
+    `profit_factor` ist None, wenn der Backtest keine Verlust-Trades hatte (Profitfaktor wäre
+    unendlich) — das darf aber NICHT automatisch jede Strategie mit nur 1-2 zufälligen
+    Gewinntrades vor eine solide Strategie mit vielen Trades und gutem, endlichem PF stellen
+    (Audit AUDIT-7A, Befund 2: „kein Verlust" heißt bei winzigem Sample gar nichts). Ersatzwert
+    ist die Trade-Anzahl selbst: sie bemisst, wie tragfähig die „nie verloren"-Aussage ist —
+    wenige Trades landen weit unten, viele Trades (die trotzdem nie verloren haben) werden
+    weiterhin stark bewertet."""
+    pf = result["metrics"]["profit_factor"]
+    return pf if pf is not None else float(result["metrics"]["trades"])
+
+
 def compare_strategies(keys: list[str], tickers: list[str] | None = None, years: int = 2,
                        trade_size: float = TRADE_SIZE_EUR, allow_short: bool = False,
                        data: dict | None = None, jobs: int | None = None,
@@ -451,11 +465,7 @@ def compare_strategies(keys: list[str], tickers: list[str] | None = None, years:
         results.append(_assemble_result(strat_mod.get(k), T, years, allow_short, trade_size, trades,
                                         cost_pct=cost_pct, universe_warning=universe_warning))
 
-    def pf_key(r):
-        pf = r["metrics"]["profit_factor"]
-        return pf if pf is not None else float("inf")   # „kein Verlust" ganz nach oben
-
-    results.sort(key=pf_key, reverse=True)
+    results.sort(key=_pf_sort_key, reverse=True)
     return results
 
 
