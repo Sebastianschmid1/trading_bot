@@ -667,6 +667,57 @@ Drei Ursachen, alle am Code belegt, keine davon ein Fehler des Gates:
 Das Gate selbst arbeitete korrekt (`pending.json` leer, letzte Entscheidung „gewinnt nur 1/3
 OOS-Folds"). Der Reality-Check hat die Divergenz selbst gemeldet — sie wurde nur nicht gelesen.
 
+### Stand 2026-08-27 — Tor-T5-Belege erhoben, zwei neue Befunde
+
+**Burn-in-Zwischenreport gefahren** (am VPS, `build_burn_in_report("2026-07-21", "2026-08-27")`):
+43 Orders eingereicht, **0 abgelehnt** (Fehlerquote 0,00 %), 0 doppelte Orders, 0 doppelte
+Broker-Events, 0 Dead-Letter, 0 Reconciliation-Befunde → **`report.clean == True`**. Damit sind
+die Go/No-Go-Kriterien **2.2–2.6 belegt**. Alle 43 Orders stehen auf `filled`. Offen bleiben
+**2.1** (≥ 1 Feiertag — Labor Day 2026-09-07 ist der nächste Kandidat), **2.7** (Budgettreue,
+braucht eine DB-Abfrage, die der Betreiber per `!` selbst fährt — der Classifier blockt sie
+hier) und **2.8** (Regimeabdeckung, menschlich).
+
+**Volle Suite auf `main` grün:** 1461 passed, 29 skipped, 0 failed (`TMPDIR=…/.pytmp
+BACKTEST_JOBS=1 .venv/bin/python -m pytest -q`, 155 s) → Kriterium **1.1 belegt**. Achtung für
+die nächste Sitzung: das System-Python hat kein pytest, die Umgebung liegt in `.venv/`.
+
+**Runbook geschrieben** (`b19f6f7`, `docs/RUNBOOK.md`) → Kriterium **3.3** war schlicht
+unbelegt, es gab kein Incident-Dokument. Inhalt: Kill-Switch als sicherer Zustand zuerst
+(er sperrt den Einstieg, nicht den Ausstieg), Diagnosekommandos der Produktion, vier
+Eskalationsstufen, und was im Störungsfall ausdrücklich **nicht** passiert. Kriterium **3.4**
+ist ebenfalls erfüllt (Web „Verbindung entfernen" `settings.html:196/211` +
+`/disconnectalpaca` `bot.py:3049`); **3.1** bleibt offen, solange Tor T1 offen ist.
+
+**TLS ist längst fertig — die Notiz „es fehlt eine Domain" war überholt.** Am VPS verifiziert:
+Caddy bedient stockbot unter `https://217-160-103-25.sslip.io` (sslip.io löst die IP ohne
+Registrierung auf), Zertifikat gültig, `COOKIE_SECURE=true`, `DASHBOARD_BASE_URL` auf https,
+HTTP→HTTPS als 308, und die Header sitzen: HSTS `max-age=31536000; includeSubDomains`, CSP,
+`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. **Restbefund:** Port 8000 antwortet
+weiterhin direkt per HTTP (200), also parallel unverschlüsselt — das unterläuft HSTS.
+Gegenmittel `DASHBOARD_HOST=127.0.0.1` + Restart (oder Firewall); Eingriff in die Produktion,
+**freigabepflichtig**.
+
+**Neuer Befund — der Alarmpfad aus W4.2 ist tot (achter Fall des Musters).**
+`stockbot/core/alerts.py` (`evaluate_alerts`, `AlertNotifier`, neun `DEFAULT_RULES`) wird von
+**keiner** Produktionsstelle aufgerufen — der einzige Import außerhalb der Datei steht in
+`tests/test_monitoring_metrics.py`. Die Metriken selbst werden real befüllt (`oms.py:150/158/
+202/228/432/434/453`, `broker_poll.py:129`, `post_trade_scan.py:61`, `bot.py:2780`), und
+`metrics.snapshot()` liefert genau die Form, die `evaluate_alerts` erwartet — es fehlt nur der
+Aufrufer. Folge: **Go/No-Go-Kriterium 3.2 („Alarme haben im Burn-in nachweislich gefeuert") ist
+strukturell unerfüllbar**, exakt wie damals `burn_in.dead_letter_events` vor der
+Outbox-Verdrahtung. Wird nach dem Vorbild von `0104d94` als Scheduler-Job verdrahtet.
+
+**Zweiter Befund — `dashboard_token` liegt im Klartext in der DB.** `users.dashboard_token`
+(`db.py:1776-1809`) ist ein **dauerhafter** Token im Klartext, während Web-Sessions bewusst nur
+als SHA-256-Hash liegen (`db.py:1813-1817` dokumentiert die Begründung selbst). Der
+URL-Teil des alten Audit-Befunds „Token in URLs" ist dagegen entschärft: `Referrer-Policy:
+no-referrer` ist gesetzt, `_SECRET_RE` in `logging_setup.py:23` schwärzt `token=…`
+formatunabhängig, und uvicorn läuft mit `log_level="warning"`, erzeugt also gar keine
+Access-Log-Zeile. Bleibt der Klartext in der DB und das GET-Formular in `login.html:18`.
+**Bewusst nicht nebenbei gefixt:** das ist ein HIGH-RISK-Auth-Pfad, der Fix (Hash + Rotation
+beim Abruf) macht alle bestehenden Links ungültig und braucht eine Migration — Entscheidung
+des Betreibers, nicht Beifang eines Aufräumtasks.
+
 ## Kritische Dateien für die Umsetzung
 
 - `stockbot/execution/oms.py` — Risk-Context-Einspeisung, Kern von W1
