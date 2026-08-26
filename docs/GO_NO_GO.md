@@ -42,7 +42,7 @@ Burn-in-Zeitraum; Ausgabe via `format_burn_in_report`.
 |---|-------|
 | 3.1 | Kein Dienst läuft als Root-Anwendung mit Broker-Vollzugriff; Secrets nicht im Repo |
 | 3.2 | Alarme (W4.2) haben im Burn-in nachweislich gefeuert — mindestens einmal getestet |
-| 3.3 | Incident-Prozess beschrieben: wer schaltet den Kill-Switch, wie wird eskaliert |
+| 3.3 | Incident-Prozess beschrieben: wer schaltet den Kill-Switch, wie wird eskaliert — [RUNBOOK.md](RUNBOOK.md) |
 | 3.4 | Nutzer kann den Brokerzugriff sofort widerrufen (Einstellungen → Verbindung entfernen) |
 
 ## 4. Entscheidung
