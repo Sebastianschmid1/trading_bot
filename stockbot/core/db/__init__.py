@@ -1,26 +1,48 @@
 """
-Laufzeit-Persistenz für Multi-User-Betrieb (SQLite/PostgreSQL).
+Laufzeit-Persistenz für den Multi-User-Betrieb (SQLite/PostgreSQL).
 
-Trade-Lifecycle-Übergänge setzen zunächst READ COMMITTED voraus und schützen den Zustand
-mit Compare-and-set-Updates (statusbewachtes ``UPDATE`` + ``rowcount``). Statusänderung und
+Aufbau: Dieses Modul ist das **Fundament** — der Datenbank-Seam (`_database()`), der
+Zeitvertrag (`_utc_timestamp()`, `today_utc()`) und die Verschlüsselung. Die Fachlogik
+liegt in Untermodulen und wird hier vollständig re-exportiert; Aufrufer schreiben
+unverändert `from stockbot.core import db` und `db.irgendwas(...)`:
+
+    schema.py         Tabellen (`SCHEMA_SQL`) und additive Alt-Migrationen
+    users.py          Nutzer, Profil, Einstellungen, Zugangsdaten, Benachrichtigungen
+    sessions.py       Dashboard-Token und Web-Sessions
+    trades.py         Trade-Zustandsmaschine — der Schreibpfad
+    trade_queries.py  Trade-Abfragen — der Lesepfad
+    ticks.py          Intraday-Kursticks und Höchstkurs
+    orders.py         OMS-Orders, Order-Events, Schutzorders
+    safety.py         Audit-Log, Kill-Switch, Risikoprofile
+    messaging.py      Outbox und Telegram-Callback-Tokens
+    strategies.py     Strategie-Konfigurationen und -Versionen
+    research.py       Rohdatenarchiv, Shadow-Snapshots, Polymarket
+
+Zwei Verträge gelten überall und sind der Grund für den Seam:
+
+*Zugriff* läuft ausschließlich über `with db._database().transaction() as transaction:`
+mit **benannten** Parametern (`:name`). Rohes `_connect()` in einer Laufzeitfunktion
+öffnet immer SQLite und ignoriert `DB_BACKEND` — auf PostgreSQL schriebe es still in eine
+veraltete Datei.
+
+*Zeit* ist naives UTC. Zeitstempel-Spalten werden explizit mit `_utc_timestamp()`
+gebunden, nie über `server_default=CURRENT_TIMESTAMP`: PostgreSQL lieferte dort einen
+tz-bewussten Wert, SQLite einen naiven, und die Differenz zweier solcher Werte wirft.
+
+Trade-Übergänge setzen READ COMMITTED voraus und schützen den Zustand mit
+Compare-and-set (statusbewachtes ``UPDATE`` + ``rowcount``). Statusänderung und
 Trade-Event teilen stets dieselbe Seam-Transaktion; Row Locks werden nicht eingesetzt, wo
 CAS den einzigen Gewinner bereits eindeutig bestimmt.
 
-SQLite-Persistenz für Multi-User-Betrieb
-Ersetzt tracker.py — speichert Nutzerprofile (inkl. verschlüsselter
-Broker-Zugangsdaten) und Demo-Trades, jeweils pro user_id (== Telegram chat_id).
+Alles ist pro `user_id` (== Telegram-`chat_id`) getrennt.
 """
 
-import sqlite3
-import json
-import hashlib
 import logging
-import secrets
-from contextlib import contextmanager, nullcontext
-from datetime import date, datetime, timedelta, timezone
+import sqlite3
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
 
 from cryptography.fernet import Fernet
-from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 
 from stockbot import config
 from stockbot.config import ENCRYPTION_KEY, MAX_LEVERAGE
@@ -28,6 +50,8 @@ from stockbot.core import db_backend
 from stockbot.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
+
+
 DB_FILE = DATA_DIR / "bot.db"
 
 
@@ -55,7 +79,9 @@ class _SignalQuoteSource:
 # auf das yfinance-Modul, sondern auf den Alpaca-gestützten Signalprovider (Leitplanke W3.2).
 yf = _SignalQuoteSource()
 
+
 _fernet = Fernet(ENCRYPTION_KEY.encode())
+
 
 @contextmanager
 def _connect():
@@ -114,50 +140,22 @@ def _database():
     return db_backend.get_database(config.DB_BACKEND, _connect)
 
 
-from . import strategies   # init_db setzt den Strategieversions-Cache zurück
+# ── Re-Export der Fachmodule ─────────────────────────────────────────────────
+#
+# Die Untermodule werden ERST HIER importiert: sie greifen ihrerseits über
+# ``from stockbot.core import db`` auf das Fundament oben zu, das zu diesem Zeitpunkt
+# fertig definiert ist. Damit bleibt das Paket die eine Test-Naht — wer in einem Test
+# ``db.DB_FILE`` oder ``db._today`` ersetzt, trifft weiterhin jede Fachfunktion.
+#
+# Die Listen unten sind der vollständige Oberflächen-Vertrag: ein hier vergessener Name
+# lässt den Import scheitern, und `tests/test_db_package_surface.py` prüft zusätzlich,
+# dass kein Fachmodul einen nicht re-exportierten Namen definiert.
 
-# Strategie-Konfigurationen und -Versionen.
-# `_STRATEGY_VERSIONS_BOOTSTRAPPED` ist ein modulinterner Cache-Schalter; maßgeblich ist
-# immer `strategies._STRATEGY_VERSIONS_BOOTSTRAPPED`, der Wert hier ist nur eine Kopie.
-from .strategies import (                                                      # noqa: E402
-    _strategy_config_to_dict, list_strategy_configs, get_strategy_config,
-    upsert_strategy_config, search_strategy_configs, _STRATEGY_VERSION_CACHE,
-    _STRATEGY_VERSIONS_BOOTSTRAPPED, _current_code_commit, _strategy_content_hash,
-    publish_strategy_version, get_strategy_version, _latest_strategy_version_id,
-    ensure_strategy_versions_published, resolve_strategy_version_id, _with_strategy_version,
+# Tabellen und Alt-Migrationen
+from .schema import (                                                          # noqa: E402
+    SCHEMA_SQL, init_db, _EXPECTED_POSTGRES_TABLES, _check_postgres_schema_readiness,
+    _migrate, _migrate_leverage_values,
 )
-
-# Rohdatenarchiv, Shadow-Snapshots, Polymarket
-from .research import (                                                        # noqa: E402
-    record_raw_data_archive_entry, list_raw_data_archive_entries, record_shadow_snapshot,
-    get_shadow_snapshots, _polymarket_timestamp, upsert_polymarket_market,
-    record_polymarket_snapshot, polymarket_snapshot_history, list_polymarket_markets,
-    list_polymarket_snapshots,
-)
-
-
-# OMS-Orders, Order-Events, Schutzorders
-from .orders import (                                                          # noqa: E402
-    get_order_by_idempotency_key, get_oms_order, get_open_oms_orders,
-    get_active_protective_orders, record_protective_order, get_oms_trade_intent,
-    create_oms_order, transition_oms_order, record_oms_order_event, get_oms_order_events,
-    burn_in_order_stats,
-)
-
-# Audit-Log, Kill-Switch, Risikoprofile
-from .safety import (                                                          # noqa: E402
-    _audit_timestamp, append_audit_event, _as_audit_event, audit_events_for_entity,
-    all_audit_events, _kill_switch_timestamp, activate_kill_switch, deactivate_kill_switch,
-    get_active_kill_switches, get_post_trade_risk_rows, get_risk_profile, save_risk_profile,
-)
-
-# Outbox und Callback-Tokens
-from .messaging import (                                                       # noqa: E402
-    enqueue_outbox_event, fetch_due_outbox_events, mark_outbox_delivered, mark_outbox_retry,
-    mark_outbox_dead, outbox_backlog_count, issue_callback_token, resolve_callback_token,
-    purge_expired_callback_tokens,
-)
-
 
 # Nutzer, Profil, Einstellungen, Zugangsdaten, Benachrichtigungen
 from .users import (                                                           # noqa: E402
@@ -179,7 +177,6 @@ from .sessions import (                                                        #
     _is_token_hash, create_session, user_id_for_session, delete_session,
     delete_user_sessions, delete_expired_sessions,
 )
-
 
 # Trade-Zustandsmaschine (Schreibpfad)
 from .trades import (                                                          # noqa: E402
@@ -204,9 +201,43 @@ from .ticks import (                                                           #
     add_tick, update_high_water, get_today_ticks,
 )
 
+# OMS-Orders, Order-Events, Schutzorders
+from .orders import (                                                          # noqa: E402
+    get_order_by_idempotency_key, get_oms_order, get_open_oms_orders,
+    get_active_protective_orders, record_protective_order, get_oms_trade_intent,
+    create_oms_order, transition_oms_order, record_oms_order_event, get_oms_order_events,
+    burn_in_order_stats,
+)
 
-# Tabellen und Alt-Migrationen
-from .schema import (                                                          # noqa: E402
-    SCHEMA_SQL, init_db, _EXPECTED_POSTGRES_TABLES, _check_postgres_schema_readiness,
-    _migrate, _migrate_leverage_values,
+# Audit-Log, Kill-Switch, Risikoprofile
+from .safety import (                                                          # noqa: E402
+    _audit_timestamp, append_audit_event, _as_audit_event, audit_events_for_entity,
+    all_audit_events, _kill_switch_timestamp, activate_kill_switch, deactivate_kill_switch,
+    get_active_kill_switches, get_post_trade_risk_rows, get_risk_profile, save_risk_profile,
+)
+
+# Outbox und Callback-Tokens
+from .messaging import (                                                       # noqa: E402
+    enqueue_outbox_event, fetch_due_outbox_events, mark_outbox_delivered, mark_outbox_retry,
+    mark_outbox_dead, outbox_backlog_count, issue_callback_token, resolve_callback_token,
+    purge_expired_callback_tokens,
+)
+
+# Strategie-Konfigurationen und -Versionen.
+# `_STRATEGY_VERSIONS_BOOTSTRAPPED` ist ein modulinterner Cache-Schalter; maßgeblich ist
+# immer `strategies._STRATEGY_VERSIONS_BOOTSTRAPPED`, der Wert hier ist nur eine Kopie.
+from .strategies import (                                                      # noqa: E402
+    _strategy_config_to_dict, list_strategy_configs, get_strategy_config,
+    upsert_strategy_config, search_strategy_configs, _STRATEGY_VERSION_CACHE,
+    _STRATEGY_VERSIONS_BOOTSTRAPPED, _current_code_commit, _strategy_content_hash,
+    publish_strategy_version, get_strategy_version, _latest_strategy_version_id,
+    ensure_strategy_versions_published, resolve_strategy_version_id, _with_strategy_version,
+)
+
+# Rohdatenarchiv, Shadow-Snapshots, Polymarket
+from .research import (                                                        # noqa: E402
+    record_raw_data_archive_entry, list_raw_data_archive_entries, record_shadow_snapshot,
+    get_shadow_snapshots, _polymarket_timestamp, upsert_polymarket_market,
+    record_polymarket_snapshot, polymarket_snapshot_history, list_polymarket_markets,
+    list_polymarket_snapshots,
 )
