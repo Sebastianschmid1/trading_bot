@@ -758,6 +758,41 @@ Checkliste: „Datenherkunft gespeichert" (Produkt-/Datenkriterien am Ende von
 Parquet-Schreibvorgang bei jedem Bar-Abruf ist eine Entscheidung über Speicherplatz und
 Laufzeit im Signalpfad, keine Kleinigkeit.
 
+**Zweiter Scan, andere Variante (2026-08-27):** der Modul-Scan findet nur *unbenutzte
+Module*. Die zweite Variante ist *unbefüllte Eingaben* — der Aufrufer existiert, übergibt den
+Wert aber nie. Dafür habe ich alle 27 Parameter von `risk.pretrade_check` gegen die vier
+Stellen geprüft, die den Risk-Kontext befüllen (`execution/risk_context.py`,
+`execution/oms.py`, `web/webapp.py`, `tgbot/bot.py`). **Vier Parameter werden von niemandem
+gesetzt** — und jeder davon schaltet einen Sicherheitscheck stumm:
+
+| Parameter | Folge | Status |
+|---|---|---|
+| `average_dollar_volume` | Liquiditätscheck (Schritt 9) läuft nie | fünfter Fall, Verdrahtung beauftragt |
+| `min_average_dollar_volume` | dito (Gegenstück) | Default `0.0`, bleibt bewusst inert |
+| `allowed_strategies` | Strategie-Whitelist wirkt nie | **Befund 11**, s. u. |
+| `candidate_sector` | Sektor-Exposure-Check wird übersprungen | **Befund 12**, s. u. |
+
+**Befund 11 — die Strategie-Whitelist liegt in der DB und wird nie gelesen.**
+`RiskProfile.allowed_strategies` existiert (`core/domain.py:102`), hat eine eigene Spalte
+(`db.py:401` `allowed_strategies_json`) und wird beim Laden korrekt deserialisiert
+(`db.py:3018`). Aber `pretrade_check` prüft sie als **eigenen Parameter** (`risk.py:120`),
+**nicht** aus dem übergebenen `risk_profile` — und der Kontext-Loader liefert diesen Parameter
+nicht. Ein Betreiber, der eine Whitelist speichert, bekommt also stillschweigend keinen
+Schutz. Der Fix gehört in den Kontext-Loader (`signal_context`), **nicht** in `risk.py`
+(TSAFE): der Default ist ein leeres Tupel, und `risk.py:120` prüft `and allowed_strategies` —
+leer blockiert nichts, die Verdrahtung ist also inert-by-default.
+
+**Befund 12 — der Sektor-Exposure-Check hat gar keine Datenquelle.**
+`exposure.py:67` steigt bei `candidate_sector is None` sofort aus, und der einzige Aufrufer,
+der einen Sektor übergibt, ist `core/allocator.py:210` — das bewusst nicht verdrahtete Modul.
+Schlimmer: **im ganzen Repo setzt niemand `ExposurePosition.sector`**, es gibt keine
+Sektor-Zuordnung für Ticker. `RiskProfile.max_sector_exposure_pct` ist damit nicht bloß
+unverdrahtet, sondern ohne Datengrundlage wirkungslos. Das ist **kein Verdrahtungsschritt**,
+sondern ein Feature (Sektor-Zuordnung beschaffen, z. B. aus den Alpaca-Asset-Stammdaten) —
+Entscheidung des Betreibers. Anmerkung zur Historie: die Reparatur der Exposure-Checks
+(`8022bc9`) hat den Korrelationsgruppen-Pfad verdrahtet, den Sektor-Pfad aber nicht — es war
+eine halbe Reparatur, was beim damaligen Review niemandem auffiel.
+
 **Lehre für die nächste Sitzung:** dieser Scan kostet zwei Minuten und findet in einer Runde,
 wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
 mit „wirkt" gleichsetzt.
