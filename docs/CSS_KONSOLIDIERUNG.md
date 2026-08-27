@@ -55,12 +55,29 @@ belegbar ist (grep = 0, gerendertes HTML unverändert, Test war vorher rot).
 |---|---|---|
 | **E0** | ✅ **erledigt 2026-08-23**: toter Code raus (`.table2`, `.select2`, `.textarea2`, `.tabs__tab`, `.tooltip*`, `.text-*`, `.numeric`, `.font-mono`) — je Selektor 0 Verwendungen belegt; `.tabs` blieb (dashboard.html nutzt es). Ladereihenfolge gestrichen, siehe oben. 68 Zeilen weniger, 118 Web-Tests grün. |
 | **E1** | `tokens.css` entkernen, `.mode-badge*` nach `components.css` | jedes entfernte Token hat eine Definition in `.lg-body`; Parity-Test grün. **⚠️ Falle vorab geprüft, siehe unten** |
-| **E2** | Karte: `card2*` → `card*`, `dashboard.html:106` → `.card--tile` | `grep card2` = 0; `app.html` mit nur **einem** Kartenmaterial |
-| **E3** | Meldungen: `.flash` + `alert2*` → `.alert*` auf **solider** Fläche | vier Kontrastzahlen ≥ 4,5:1 in beiden Themes im Report |
+| **E2** | ✅ **erledigt 2026-08-27** (`47b0c92`): `card2*` → `card*`, eine `.card`-Regel in `components.css`, `.card`-Regel aus `base.html:290-294` gelöscht (Pflicht — sonst laufen die Varianten ins Leere, ohne dass ein Test es meldet), Kachel als `.card--tile` an 8 Stellen inkl. **beider JS-Stellen**. `.card--tile`s Basisregel bleibt bewusst dashboard-lokal: in `components.css` **und** dort kollidiert der Guard erneut. `grep card2` = 0 (außer dem Token `--card2` in `base.html:55`, gehört zu E1). |
+| **E3** | ✅ **erledigt 2026-08-27** (`e053d8e` + `c183bdf`): war ein **Kontrast-Bugfix**, keine Kosmetik — die Banner lagen auf dem nackten Mesh, **sieben von acht** gerechneten Werten unter 4,5:1, darunter die Feed-Warnungen „Daten unsicher" und „Kursdaten veraltet". Jetzt auf `--lg-glass-solid`, Ton in Rand + eingefärbtem Titel. Vom design-lead live nachgemessen: Fließtext 13,65:1 / 14,36:1, alle vier Titel darüber. Das Icon wurde nach der Sichtprüfung wieder gestrichen — ein für alle Töne gleiches Ausrufezeichen kodiert nichts und stand bei ruhigen Hinweisen falsch. |
 | **E4** | ✅ **erledigt 2026-08-24**: `.chip`-Look-alikes umbenannt (`reports.html` → `.rp-filter`, `lab.html` → `.lab-param`), `.tabs`-Doppelbelegung pixelgleich aufgelöst, Guard-Test `tests/test_css_class_collisions.py`. Test gegen den Vorstand belegt rot (3 Kollisionen), jetzt grün; `feed_status.py` unverändert. |
-| **E5** | Dialoge: `dialog2` → `dialog` (38 Stellen, reiner Rename) | §18.1-Tests unverändert grün (greifen über IDs) |
+| **E5** | ✅ **erledigt 2026-08-27** (`8f6230b`): `dialog2*` → `dialog*`. **Die Annahme „Tests greifen über IDs" war falsch** — `test_web_style_phases.py:369/461` nennen die Klasse wörtlich; das Mitziehen ist ein Rename, keine gelockerte Assertion. `:461` war nach dem Rename tautologisch (`"dialog" in tag` bei `<dialog …>`) und prüft jetzt `class="dialog"`. |
 | **E6** | Buttons (~70 Stellen, 10 Templates) | grep = 0; `test_web_style_phases.py` grün **ohne** gelockerte Assertion |
 | **E7** | Felder + Schlussputz, `DESIGN.md` | grep `--space-`/`--radius-`/`input2` = 0 |
+
+**Zusätzlich zur ursprünglichen Serie erledigt (2026-08-27):**
+
+- **Dashboard-Hierarchie** (`a0311c4`) — `.card-hero` ersatzlos entfernt, die neun KPI-Kacheln nach
+  Risiko → Status → Performance → Historie umsortiert. Anlass: `PLAN_CHECKLIST.md:695` fordert
+  „Gewinn nicht größte Fläche", `dashboard.html:640` machte die P&L-Kachel zum einzigen gesättigten
+  Farbblock der Ansicht. Der design-lead hat die Prämisse dabei korrigiert — die Kachel war nie
+  *größer*, sie war der einzige Fixationspunkt. Bewusst **keine** Risiko-Kachel als Ersatz: eine
+  Anzeige, die 95 % der Zeit „alles in Ordnung" sagt, trainiert das Übersehen; Risiko läuft
+  ereignisgetrieben über Kill-Switch-Chip und Warnbanner. Die Verlustfärbung (`cls`) blieb bindend
+  unangetastet.
+- **CSS-Kommentar-Bug** (`7fc3b94`) — bei der Sichtprüfung gefunden, **vorbestehend und schwer**:
+  `base.html:118` schrieb `--bg-surface-*/--bg-elevated` in einen Kommentar; das `*/` beendete ihn
+  mittendrin, der Parser verwarf alles bis zum nächsten `;` — und das war das `;` von
+  `--text-primary`. Die Rolle wurde nie deklariert und fiel auf den Dunkel-Wert zurück. Im
+  Hellmodus stand der Text des **Pflicht-Bestätigungsdialogs bei 1,18:1**, „Abbrechen" bei 1,00:1.
+  Guard: `tests/test_css_comment_integrity.py`.
 
 **E6 ist die einzige app-weite optische Änderung** der Serie: Die Buttonform wird auf die Pille
 vereinheitlicht (`--lg-r-pill`), `btn--primary` bekommt das violette Gel. Der Design-Lead hat das
