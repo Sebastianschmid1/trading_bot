@@ -614,7 +614,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 - [ ] **PLAT-008** Systemd-Härtung je Dienst: eigener Nutzer (kein Root), `NoNewPrivileges`, `PrivateTmp`,
       `ProtectSystem=strict`, `ProtectHome`, `RestrictAddressFamilies`, nur nötige Schreibpfade, Restart-Policy, Resource Limits *(→ todo.md A1)*
-- [~] **PLAT-006** Dependencies pinnen (Lockfile/Constraints), `pip-audit`, Dependabot, Upgrade-Tests *(→ todo.md A2, inkl. yfinance-FD-Leck-Fix)* — *Stand 2026-08-27: Lock existiert, aber ohne Hashes — und `deploy.sh:16` installiert weiter das ungepinnte `requirements.txt`.*
+- [~] **PLAT-006** Dependencies pinnen (Lockfile/Constraints), `pip-audit`, Dependabot, Upgrade-Tests *(→ todo.md A2, inkl. yfinance-FD-Leck-Fix)* — *Stand 2026-08-27: Lock existiert, aber ohne Hashes (`requirements.lock` fordert `pip-compile --generate-hashes` selbst ein). Die Skripte nehmen durchgehend den Lock — der frühere Befund „installiert `requirements.txt`" traf nur noch die Härtungsanleitung und ist behoben (`1816f7c`).*
 - [~] **PLAT-006** Secrets: `.env` nur lokal; Staging/Prod systemd-Credentials/Secret Store; Rotation; getrennte Schlüssel; kein Secret in Logs/Exceptions — *Stand 2026-08-27: nur ALPACA key/secret als systemd-Credential verdrahtet; TELEGRAM_TOKEN/ENCRYPTION_KEY/POSTGRES_DSN/ANTHROPIC_API_KEY stehen in den Units auskommentiert.*
 - [ ] **PLAT-007** Alpaca OAuth (minimale Scopes, Token verschlüsselt, Disconnect + Revoke, Paper/Live getrennt)
 - [x] **PLAT-004** Strukturiertes JSON-Logging (timestamp, service, severity, trace_id, user_id pseudonymisiert, entity_id, event_type) — keine Keys/PII

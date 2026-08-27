@@ -8,7 +8,7 @@ Stand: 2026-07-09. Repo-Root: `c:\Users\sebas\OneDrive\trading_bot` (Windows, Po
 - `deploy/stockbot.service` und `deploy/dashboard.service` laufen mit `User=root` unter `/root/stockbot`.
 - Ziel: dedizierter Nutzer (`useradd -r stockbot`), Repo z. B. nach `/opt/stockbot`, `.env` mit `chmod 600`.
 - systemd-Härtung ergänzen: `NoNewPrivileges=true`, `ProtectSystem=strict` (+ `ReadWritePaths` für `data/` und `logs/`), `ProtectHome=true`, `PrivateTmp=true`.
-- Achtung: Pfade in `upload.ps1`/`deploy/*.sh` (`/root/stockbot`) müssen mitziehen; Migration auf dem VPS nötig (Daten/venv umziehen).
+- Achtung: Pfade in `deploy/upload.ps1`/`deploy/*.sh` (`/root/stockbot`) müssen mitziehen; Migration auf dem VPS nötig (Daten/venv umziehen).
 
 ### A2 — Dependencies pinnen
 - `requirements.txt` ist komplett ungepinnt — jedes Deploy installiert blind die neuesten Versionen (Breaking Changes / Supply-Chain-Risiko direkt auf dem VPS).

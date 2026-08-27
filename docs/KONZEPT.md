@@ -147,7 +147,7 @@ stockbot/
 
 - **Speicher:** SQLite (`core/db.py`), Migrationen inline; Broker-Keys Fernet-verschlüsselt.
 - **Deploy:** Ubuntu-VPS via systemd (`deploy/*.service`), TLS-Reverse-Proxy (Caddy),
-  Update per `upload.ps1` / `deploy/deploy.sh` (git pull + deps + restart).
+  Update per `deploy/upload.ps1` / `deploy/deploy.sh` (git pull + deps + restart).
 - **Sicherheit:** Session-Cookies (httponly/secure), CSP/HSTS, CSRF (Origin-Abgleich),
   Login-Rate-Limit, Session-Cleanup, Session-Hashing, Dashboard-Token-Rotation, XSS-Escaping.
 - **Tests:** Offline-Suite mit pytest (kein Netz/Telegram) vom Repo-Root.
@@ -163,7 +163,7 @@ stockbot/
 
 ---
 
-## 10. Offene Punkte (Sicherheits-Audit, siehe `todo.md`)
+## 10. Offene Punkte (Sicherheits-Audit, siehe `docs/todo.md`)
 
 - **A1:** systemd-Dienste nicht mehr als root (dedizierter Nutzer, Härtung `NoNewPrivileges` etc.).
 - **A2:** Dependencies pinnen (`requirements.txt` ungepinnt); dabei yfinance-FD-Leck-Fix wählen

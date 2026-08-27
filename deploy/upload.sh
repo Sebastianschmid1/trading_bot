@@ -18,7 +18,9 @@ SERVER="root@217.160.103.25"
 APP_DIR="stockbot"
 MSG="${1:-deploy $(date '+%Y-%m-%d %H:%M')}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Das Skript liegt seit dem Aufraeumen in deploy/, arbeitet aber weiterhin im
+# Repo-Wurzelverzeichnis (dort liegen .env und das Git-Arbeitsverzeichnis).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── .env → LOCAL_PASSWORD (Key-Passphrase); Wert nie ausgeben ────────────────

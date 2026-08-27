@@ -19,11 +19,14 @@
 $ErrorActionPreference = "Stop"
 $Server = "root@217.160.103.25"
 $AppDir = "stockbot"
-Set-Location -LiteralPath $PSScriptRoot
+# Das Skript liegt seit dem Aufraeumen in deploy/, arbeitet aber weiterhin im
+# Repo-Wurzelverzeichnis (dort liegen .env und das Git-Arbeitsverzeichnis).
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location -LiteralPath $RepoRoot
 
 # --- .env -> LOCAL_PASSWORD (Wert wird nie ausgegeben) ----------------------
-$envFile = Join-Path $PSScriptRoot ".env"
-if (-not (Test-Path $envFile)) { Write-Error ".env nicht gefunden in $PSScriptRoot"; exit 1 }
+$envFile = Join-Path $RepoRoot ".env"
+if (-not (Test-Path $envFile)) { Write-Error ".env nicht gefunden in $RepoRoot"; exit 1 }
 $pw = $null
 foreach ($line in Get-Content $envFile) {
     if ($line -match '^\s*LOCAL_PASSWORD\s*=\s*(.*)$') { $pw = $matches[1].Trim().Trim('"').Trim("'") }
