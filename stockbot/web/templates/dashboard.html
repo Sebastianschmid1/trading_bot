@@ -105,7 +105,7 @@
                    color:var(--tone-warning-fg); padding:.8rem 1rem;
                    border-radius:var(--lg-r-md); margin-bottom:20px; box-shadow:var(--lg-cast-1); }
 
-    /* ── KPI-Kacheln: Glas, EINE Iris-Fläche (card-hero) ────────────────── */
+    /* ── KPI-Kacheln: Glas ────────────────────────────────────────────────── */
     .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; margin-bottom:20px; }
     .card { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
             border-radius:var(--lg-r-md); padding:14px 16px; box-shadow:var(--lg-cast-1), var(--lg-facet);
@@ -114,16 +114,6 @@
                    letter-spacing:.06em; font-weight:600; }
     .card .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums;
                    color:var(--lg-ink); }
-    /* Die EINE Iris-Fläche der Ansicht: dunkle Tinte, P&L-Zahl auf einem Solid-Plättchen */
-    .card-hero { background:
-                   radial-gradient(90% 120% at 8% 0%,  rgb(var(--lg-pink-rgb) / .85), transparent 60%),
-                   radial-gradient(90% 120% at 95% 90%, rgb(var(--lg-teal-rgb) / .85), transparent 62%),
-                   linear-gradient(140deg, var(--lg-iris-1), var(--lg-iris-2));
-                 border-color:rgb(255 255 255 / .5); }
-    .card-hero .label { color:var(--lg-ink-on-iris); }
-    .card-hero .value { font-size:1.6rem; align-self:flex-start; margin-top:.45rem;
-                        padding:5px 12px; border-radius:var(--lg-r-pill);
-                        background:var(--lg-glass-solid); box-shadow:var(--lg-cast-1), var(--lg-facet); }
     .card.flash-up { animation:flashUp .9s ease-out; }
     .card.flash-down { animation:flashDown .9s ease-out; }
     @keyframes flashUp { 0%{box-shadow:0 0 0 2px var(--lg-success)} 100%{box-shadow:var(--lg-cast-1), var(--lg-facet)} }
@@ -277,7 +267,7 @@
       main { padding:14px !important; }
       .ck-bar { top:0; padding:10px 12px; }
       .hero { grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:10px; }
-      .card .value { font-size:1.25rem; } .card-hero .value { font-size:1.4rem; }
+      .card .value { font-size:1.25rem; }
       .panel canvas, .span-2 .panel canvas { height:230px !important; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -628,30 +618,34 @@
       const s = d.summary, ba = d.broker_account;
       const pf = (s.profit_factor === null || s.profit_factor === undefined)
         ? (s.total_closed ? "∞" : "—") : s.profit_factor.toFixed(2);
+      // Reihenfolge folgt der Dashboard-Hierarchie (design-lead, Nachtrag 2026-08-27):
+      // Risiko (aktive Exponierung) → Status (verfügbares Kapital) → Performance → Historie.
+      // Keine Hero-Kachel mehr: die P&L-Zahl bekommt keinen optischen Vorrang, `cls` (Rot/Grün
+      // bei Verlust/Gewinn) bleibt trotzdem unverändert an der pnl-Kachel.
       const kpis = [];
+      kpis.push({ key: "active", label: "Aktiv", num: s.active_count, fmt: (v) => "" + Math.round(v) });
+      kpis.push({ key: "size", label: "Trade-Größe", num: d.trade_size_eur, fmt: (v) => Math.round(v) + "$" });
       if (ba) {
         kpis.push({ key: "bp", label: "Buying Power" + (ba.paper ? " (Paper)" : ""), num: ba.buying_power, fmt: usd0 });
         kpis.push({ key: "cash", label: "Cash", num: ba.cash, fmt: usd0 });
       }
-      kpis.push({ key: "pnl", label: "Gesamt P&L", num: s.total_pnl, fmt: fmt, cls: cls(s.total_pnl), big: true });
+      kpis.push({ key: "pnl", label: "Gesamt P&L", num: s.total_pnl, fmt: fmt, cls: cls(s.total_pnl) });
       kpis.push({ key: "pf", label: "Profitfaktor", text: pf });
       kpis.push({ key: "wr", label: "Trefferquote", num: s.win_rate, fmt: (v) => v.toFixed(1) + "%" });
       kpis.push({ key: "wl", label: "Gewinner / Verlierer", html: `<span class="green">${s.wins}</span> / <span class="red">${s.losses}</span>` });
       kpis.push({ key: "closed", label: "Abgeschlossen", num: s.total_closed, fmt: (v) => "" + Math.round(v) });
-      kpis.push({ key: "active", label: "Aktiv", num: s.active_count, fmt: (v) => "" + Math.round(v) });
-      kpis.push({ key: "size", label: "Trade-Größe", num: d.trade_size_eur, fmt: (v) => Math.round(v) + "$" });
 
       const host = document.getElementById("cards");
       const keys = kpis.map(k => k.key).join(",");
       if (host.dataset.keys !== keys) {                  // Kachelsatz geändert (z. B. Broker an/aus) → neu aufbauen
         host.dataset.keys = keys;
         host.innerHTML = kpis.map(k =>
-          `<div class="card${k.big ? " card-hero" : ""}" data-key="${k.key}"><div class="label">${k.label}</div><div class="value"></div></div>`
+          `<div class="card card--tile" data-key="${k.key}"><div class="label">${k.label}</div><div class="value"></div></div>`
         ).join("");
         state.lastKpis = {};
       }
       kpis.forEach(k => {
-        const card = host.querySelector(`.card[data-key="${k.key}"]`);
+        const card = host.querySelector(`.card--tile[data-key="${k.key}"]`);
         const valEl = card.querySelector(".value");
         valEl.className = "value " + (k.cls || "");
         const prev = state.lastKpis[k.key];
