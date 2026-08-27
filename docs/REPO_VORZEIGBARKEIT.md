@@ -1,6 +1,6 @@
 # Plan: das Repository vorzeigbar machen (Bewerbungsmappe)
 
-> **Status: A1/A2 freigegeben und umgesetzt (2026-08-27), B1/B2 freigegeben und in Arbeit.**
+> **Status: A1, A2, B1 und B2 freigegeben und umgesetzt (2026-08-27). B3 und C2 nicht freigegeben.**
 > Die Entscheidung zur Urheberschaft ist gefallen: **offen lassen** (siehe A3/C1).
 > Ursprünglicher Hinweis: Jeder Punkt trägt eine eigene Freigabe-Zeile.
 > Erst nach deinem „ja" zu einem Punkt wird daran gearbeitet.
@@ -174,14 +174,21 @@ Formatierung hat keine Seiteneffekte. Die Handler bleiben, wo sie sind.
 **Aufwand:** ein halber Tag. **Risiko:** geringer als B1, weil die Job-Registrierung an einer
 Stelle sitzt und die Tests sie zählen.
 
-> **Freigabe B2:** 🔄 **neu zugeschnitten, in Arbeit.** Der erste Anlauf ist gescheitert und war
+> **Freigabe B2:** ✅ **erledigt** (`273ded6`), zweiter Zuschnitt. Der erste Anlauf ist gescheitert und war
 > lehrreich: von dreizehn Scheduler-Jobs ließen sich nur **drei** entkoppeln (die übrigen rufen
 > Handler auf, die in `bot.py` bleiben), macht 243 Zeilen — die Datei wäre bei 2.893 geblieben, das
 > Leseproblem also ungelöst. Zusätzlich brach das Auslagern einen Test, der per `inspect.getsource`
 > den Quelltext prüft: einzeln grün, im Gesamtlauf rot. Neuer Zuschnitt: **nur die reine
 > Nachrichtenformatierung heraus, plus eine echte Navigationshilfe** (Modul-Docstring mit
 > Inhaltsverzeichnis, einheitliche Abschnittsmarker im vorhandenen Stil). Die Datei bleibt groß,
-> wird aber navigierbar — bei einem Bruchteil des Risikos.
+> wird aber navigierbar — bei einem Bruchteil des Risikos. Ergebnis: Modul-Docstring mit den fünf
+> Einstiegspunkten, 16 Abschnittsmarker, `stockbot/tgbot/messages.py` für die reine Formatierung,
+> und ein ausdrücklicher Warnhinweis auf die `inspect.getsource`-Falle, damit der nächste Anlauf
+> nicht dieselbe Runde dreht. Suite unverändert bei 1529.
+>
+> **Ehrlich zum Ergebnis:** die Datei ist dabei nicht kleiner geworden. Wer sie wirklich
+> aufteilen will, muss die Handler mitziehen — das ist ein echtes Refactoring im Hochrisiko-Pfad
+> und war für diesen Zweck nicht verhältnismäßig.
 
 ### B3. `stockbot/web/webapp.py` — 1.368 Zeilen
 
