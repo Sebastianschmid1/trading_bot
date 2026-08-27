@@ -36,7 +36,7 @@
     {% endfor %}
     <option value="all" {{ 'selected' if asset_pref == 'all' }}>Alle</option>
   </select>
-  <button class="on" title="Live-Analyse für die gewählte Anlageklasse ausführen">🔄 Signale anfordern</button>
+  <button class="btn btn--primary" title="Live-Analyse für die gewählte Anlageklasse ausführen">🔄 Signale anfordern</button>
 </form>
 
 {{ wait_dialog('scanOverlay', 'scanForm', 'Signale werden berechnet …',
@@ -108,7 +108,7 @@
     <input type="hidden" name="ticker" value="{{ s.ticker }}">
     {# §32.3: veraltete Kursdaten sperren neue Einstiege sichtbar — serverseitig gerendert,
        nicht per JS nachgezogen. #}
-    <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
+    <button class="btn btn--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
   </form>
 </div>
 {% endfor %}
@@ -137,11 +137,11 @@
           data-price="{{ s.price }}" data-sl="{{ s.stop_loss or '' }}" data-tp="{{ s.take_profit or '' }}"
           data-leverage="{{ s.leverage or 1 }}">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="btn2 btn2--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
+      <button class="btn btn--primary" type="submit" {{ 'disabled' if entries_blocked }}>{{ glossary.ACTION_REVIEW_TRADE }}</button>
     </form>
     <form class="inline" method="post" action="/app/reject">
       <input type="hidden" name="ticker" value="{{ s.ticker }}">
-      <button class="btn2 btn2--secondary" type="submit">Ablehnen</button>
+      <button class="btn" type="submit">Ablehnen</button>
     </form>
   </div>
 </div>
@@ -197,9 +197,9 @@
 <h2>Aktive Trades ({{ active_trades|length }})</h2>
 <div class="row" style="margin:.2rem 0 .6rem; gap:.3rem">
   <span class="muted">Filter:</span>
-  <a class="btn {{ 'on' if not trade_filter }}" href="/app">Alle</a>
+  <a class="btn"{% if not trade_filter %} aria-current="true"{% endif %} href="/app">Alle</a>
   {% for a in asset_classes %}
-  <a class="btn {{ 'on' if trade_filter == a.key }}" href="/app?atf={{ a.key }}">{{ a.label }}</a>
+  <a class="btn"{% if trade_filter == a.key %} aria-current="true"{% endif %} href="/app?atf={{ a.key }}">{{ a.label }}</a>
   {% endfor %}
 </div>
 {% if not active_trades %}<p class="muted">Keine aktiven Trades in dieser Anlageklasse.</p>{% endif %}
@@ -229,7 +229,7 @@
     {# §32.3: KEIN `disabled` — Exits bleiben immer bedienbar. Ein blockierter Ausstieg wäre
        gefährlicher als ein Einstieg auf altem Kurs. Zudem passt die Datenbasis nicht: der
        Feed-Status stammt aus dem Scan-Cache, das Alter der Trade-Kurse ist davon unabhängig. #}
-    <button class="btn2 btn2--destructive" type="submit">Position schließen</button>
+    <button class="btn btn--destructive" type="submit">Position schließen</button>
   </form>
 </div>
 {% endfor %}
@@ -258,10 +258,10 @@
     </dl>
     <p class="muted" id="tcNote" style="margin:.6rem 0 0"></p>
     <div class="dialog__actions">
-      <button type="button" class="btn2 btn2--secondary" id="tcCancel" autofocus>Abbrechen</button>
+      <button type="button" class="btn" id="tcCancel" autofocus>Abbrechen</button>
       {# §32.4 Anti-Fehlklick: Initialfokus liegt auf „Abbrechen", der Bestätigen-Button ist
          nicht per Enter auslösbar — ein versehentliches Enter darf keine Order auslösen. #}
-      <button type="button" class="btn2 {{ 'btn2--live' if trade_mode == 'live' else 'btn2--primary' }}" id="tcOk">
+      <button type="button" class="btn {{ 'btn--live' if trade_mode == 'live' else 'btn--primary' }}" id="tcOk">
         {% if trade_mode == 'live' %}Echtes Geld: Order jetzt ausführen{% else %}Trade bestätigen{% endif %}
       </button>
     </div>
@@ -386,7 +386,7 @@
       if (btn.dataset.busy === "1") return;
       btn.dataset.busy = "1";
       btn.disabled = true;
-      btn.classList.remove("btn2--primary", "btn2--success", "btn2--destructive");
+      btn.classList.remove("btn--primary", "btn--success", "btn--destructive");
       btn.textContent = "Wird ausgeführt …";
       var card = form.closest(".card");
       var others = card ? Array.prototype.slice.call(card.querySelectorAll("button")).filter(function (b) { return b !== btn; }) : [];
@@ -399,7 +399,7 @@
             // Nur DIESE Karte abschließen — die übrigen Signale bleiben unverändert (kein Reload).
             var pending = d.status === "broker_pending";
             var filled = d.status === "filled";
-            btn.classList.add("btn2--success");
+            btn.classList.add("btn--success");
             btn.textContent = pending ? "Broker-Order wartet" : (filled ? "Ausgeführt" : "Angenommen");
             others.forEach(function (b) { b.style.display = "none"; });   // Ablehnen/Hebel ausblenden
             if (card) card.style.opacity = pending ? ".85" : ".6";
@@ -409,7 +409,7 @@
             note.textContent = d.msg || (pending ? "Broker-Order wartet auf Ausführung." : "Gestartet.");
             btn.parentNode.appendChild(note);
           } else {
-            btn.classList.add("btn2--destructive");
+            btn.classList.add("btn--destructive");
             btn.textContent = d.msg || "{{ glossary.RISK_BLOCKED }}";
             others.forEach(function (b) { b.disabled = false; });
             btn.disabled = false;
@@ -417,7 +417,7 @@
           }
         })
         .catch(function () {
-          btn.classList.add("btn2--destructive");
+          btn.classList.add("btn--destructive");
           btn.textContent = "Fehler — bitte erneut versuchen";
           others.forEach(function (b) { b.disabled = false; });
           btn.disabled = false;

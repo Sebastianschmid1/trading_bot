@@ -75,7 +75,7 @@
   <div style="display:flex; gap:.45rem; flex-wrap:wrap; justify-content:flex-end">
     {% if is_admin %}
     <form method="post" action="/app/lab/run" class="inline">
-      <button class="on" {{ 'disabled' if running }}>▶ Manuellen KI-Lauf starten</button>
+      <button class="btn btn--primary" {{ 'disabled' if running }}>▶ Manuellen KI-Lauf starten</button>
     </form>
     {% else %}
       <span class="muted">Laborläufe startet der Betreiber.</span>
@@ -226,9 +226,9 @@
   {% if is_admin %}
   <div class="row" style="margin-top:.8rem">
     <form method="post" action="/app/lab/apply" class="inline" data-confirm-dialog="labApplyConfirm">
-      <button class="btn2 btn2--destructive">Als Live-Override übernehmen</button></form>
+      <button class="btn btn--destructive">Als Live-Override übernehmen</button></form>
     <form method="post" action="/app/lab/reject" class="inline">
-      <button class="btn2 btn2--secondary">Verwerfen</button></form>
+      <button class="btn">Verwerfen</button></form>
     <span class="note">Übernehmen schreibt die Parameter als Live-Override — der Bot nutzt sie binnen ~20 s.</span>
   </div>
   {# Blocker 8 (agent/UI-CONTRAST, §18.1): Live-Override der Handelsparameter bestätigt
@@ -248,8 +248,8 @@
         <li>Der bisherige Champion-Wert lässt sich danach nicht automatisch wiederherstellen</li>
       </ul>
       <div class="dialog__actions">
-        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
-        <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Als Live-Override übernehmen</button>
+        <button type="button" class="btn" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn btn--destructive" data-confirm-ok>Als Live-Override übernehmen</button>
       </div>
     </div>
   </dialog>

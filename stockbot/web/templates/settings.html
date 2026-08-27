@@ -35,7 +35,7 @@
       {% for n in [1,3,5,8,10] %}
       <form class="inline" method="post" action="/app/settings/set">
         <input type="hidden" name="action" value="set_count"><input type="hidden" name="value" value="{{ n }}">
-        <button class="{{ 'on' if n == user.top_n_signals }}" aria-pressed="{{ 'true' if n == user.top_n_signals else 'false' }}"
+        <button class="btn" aria-pressed="{{ 'true' if n == user.top_n_signals else 'false' }}"
                 aria-label="{{ n }} Signale pro Tag">{{ n }}</button>
       </form>
       {% endfor %}
@@ -52,7 +52,7 @@
       {% set active = key in user.market_regions %}
       <form class="inline" method="post" action="/app/settings/set">
         <input type="hidden" name="action" value="set_region"><input type="hidden" name="value" value="{{ key }}">
-        <button class="{{ 'on' if active }}" aria-pressed="{{ 'true' if active else 'false' }}">{% if active %}<span aria-hidden="true">✅ </span>{% endif %}{{ label }}</button>
+        <button class="btn" aria-pressed="{{ 'true' if active else 'false' }}">{% if active %}<span aria-hidden="true">✅ </span>{% endif %}{{ label }}</button>
       </form>
       {% endfor %}
     </div>
@@ -68,7 +68,7 @@
       {% set active = s.key in user.strategies %}
       <form class="inline" method="post" action="/app/settings/set">
         <input type="hidden" name="action" value="set_strat"><input type="hidden" name="value" value="{{ s.key }}">
-        <button class="{{ 'on' if active }}" aria-pressed="{{ 'true' if active else 'false' }}">{% if active %}<span aria-hidden="true">✅ </span>{% endif %}{{ s.label }}</button>
+        <button class="btn" aria-pressed="{{ 'true' if active else 'false' }}">{% if active %}<span aria-hidden="true">✅ </span>{% endif %}{{ s.label }}</button>
       </form>
       {% endfor %}
     </div>
@@ -83,7 +83,7 @@
       {% for m in sl_tp_modes %}
       <form class="inline" method="post" action="/app/settings/set">
         <input type="hidden" name="action" value="set_mode"><input type="hidden" name="value" value="{{ m }}">
-        <button class="{{ 'on' if m == user.sl_tp_mode }}" aria-pressed="{{ 'true' if m == user.sl_tp_mode else 'false' }}">{{ m }}</button>
+        <button class="btn" aria-pressed="{{ 'true' if m == user.sl_tp_mode else 'false' }}">{{ m }}</button>
       </form>
       {% endfor %}
     </div>
@@ -99,7 +99,7 @@
       <span id="tglLabel-{{ action }}" style="min-width:230px">{{ label }}</span>
       <form class="inline" method="post" action="/app/settings/set">
         <input type="hidden" name="action" value="{{ action }}"><input type="hidden" name="value" value="{{ '0' if on else '1' }}">
-        <button id="tglBtn-{{ action }}" class="{{ 'on' if on }}" aria-pressed="{{ 'true' if on else 'false' }}"
+        <button id="tglBtn-{{ action }}" class="btn" aria-pressed="{{ 'true' if on else 'false' }}"
                 aria-labelledby="tglLabel-{{ action }} tglBtn-{{ action }}">{{ 'an' if on else 'aus' }}</button>
       </form>
     </div>
@@ -122,7 +122,7 @@
     <input class="input2" style="max-width:18rem" type="text" name="reason" required
            placeholder="Grund (wird protokolliert)" aria-label="Grund für die Aktivierung">
     {% endif %}
-    <button class="btn2 {{ 'btn2--secondary' if ks_active else 'btn2--destructive' }}">
+    <button class="btn{{ '' if ks_active else ' btn--destructive' }}">
       {{ 'Kill-Switch abschalten' if ks_active else 'Kill-Switch aktivieren' }}
     </button>
     {% if ks_active %}<span class="muted">Grund: {{ kill_switch.reason }}</span>{% endif %}
@@ -138,8 +138,8 @@
         <li>Schutz-Verkäufe (Stop-Loss/Take-Profit o.&nbsp;ä.) waren durchgehend erlaubt und bleiben es unverändert — daran ändert der Kill-Switch nichts</li>
       </ul>
       <div class="dialog__actions">
-        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
-        <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Kill-Switch abschalten</button>
+        <button type="button" class="btn" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn btn--destructive" data-confirm-ok>Kill-Switch abschalten</button>
       </div>
     </div>
   </dialog>
@@ -154,7 +154,7 @@
       {% for ch, label in [('both','Beide'),('web','Nur Web'),('telegram','Nur Telegram')] %}
       <form class="inline" method="post" action="/app/settings/notify">
         <input type="hidden" name="value" value="{{ ch }}">
-        <button class="{{ 'on' if ch == user.notify_channel }}" aria-pressed="{{ 'true' if ch == user.notify_channel else 'false' }}">{{ label }}</button>
+        <button class="btn" aria-pressed="{{ 'true' if ch == user.notify_channel else 'false' }}">{{ label }}</button>
       </form>
       {% endfor %}
     </div>
@@ -188,12 +188,12 @@
       <input id="alpacaApiKey" type="text" name="api_key" placeholder="API-Key" style="min-width:240px" autocomplete="off">
       <label for="alpacaApiSecret" class="sr-only">Alpaca API-Secret</label>
       <input id="alpacaApiSecret" type="password" name="api_secret" placeholder="API-Secret" style="min-width:240px" autocomplete="new-password">
-      <button class="btn2 btn2--primary">Speichern</button>
+      <button class="btn btn--primary">Speichern</button>
     </div>
   </form>
   {% if has_alpaca %}
   <form class="inline" method="post" action="/app/settings/alpaca/clear" data-confirm-dialog="alpacaClearConfirm">
-    <button class="btn2 btn2--destructive">Verbindung entfernen</button>
+    <button class="btn btn--destructive">Verbindung entfernen</button>
   </form>
   {# Blocker 8 (agent/UI-CONTRAST, §18.1): entfernt echte Broker-Zugangsdaten und deaktiviert
      damit sofort die echte Order-Ausführung — abgesichert über den vorhandenen dialog statt
@@ -207,8 +207,8 @@
         <li>Bereits offene Alpaca-Positionen bleiben unverändert bestehen, sind hier aber nicht mehr steuerbar, bis neue Zugangsdaten hinterlegt werden</li>
       </ul>
       <div class="dialog__actions">
-        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
-        <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Verbindung entfernen</button>
+        <button type="button" class="btn" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn btn--destructive" data-confirm-ok>Verbindung entfernen</button>
       </div>
     </div>
   </dialog>
@@ -219,7 +219,7 @@
   <h2>Sicherheit</h2>
   <p class="muted">Meldet dich auf allen Geräten/Browsern ab (beendet alle aktiven Sitzungen).</p>
   <form class="inline" method="post" action="/logout/all">
-    <button class="btn2 btn2--destructive">Überall abmelden</button>
+    <button class="btn btn--destructive">Überall abmelden</button>
   </form>
   <p class="muted" style="margin-top:1rem">Erzeugt einen neuen privaten Dashboard-Link. Der alte
     Link (z.&nbsp;B. aus Telegram oder dem Browser-Verlauf) wird sofort ungültig — nützlich, wenn
@@ -237,8 +237,8 @@
         <li>Nützlich, wenn er versehentlich geteilt wurde</li>
       </ul>
       <div class="dialog__actions">
-        <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
-        <button type="button" class="btn2 btn2--primary" data-confirm-ok>🔄 Dashboard-Link erneuern</button>
+        <button type="button" class="btn" data-confirm-cancel autofocus>Abbrechen</button>
+        <button type="button" class="btn btn--primary" data-confirm-ok>🔄 Dashboard-Link erneuern</button>
       </div>
     </div>
   </dialog>
@@ -249,7 +249,7 @@
   <p class="muted">Setzt deinen Trade-Verlauf komplett zurück. Das kann nicht rückgängig gemacht werden —
     die Folgen stehen im Bestätigungsdialog.</p>
   <form class="inline" method="post" action="/app/reset" data-confirm-dialog="resetConfirm">
-    <button class="btn2 btn2--destructive">🗑️ Zurücksetzen</button>
+    <button class="btn btn--destructive">🗑️ Zurücksetzen</button>
   </form>
 </div>
 {# Blocker 8 (agent/UI-CONTRAST, §18.1): löscht Trades/Verlauf und schließt ggf. echte
@@ -264,8 +264,8 @@
       <li>Einstellungen und die Alpaca-Verbindung bleiben erhalten</li>
     </ul>
     <div class="dialog__actions">
-      <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
-      <button type="button" class="btn2 btn2--destructive" data-confirm-ok>🗑️ Zurücksetzen</button>
+      <button type="button" class="btn" data-confirm-cancel autofocus>Abbrechen</button>
+      <button type="button" class="btn btn--destructive" data-confirm-ok>🗑️ Zurücksetzen</button>
     </div>
   </div>
 </dialog>

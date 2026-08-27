@@ -77,7 +77,7 @@ def test_signal_card_asks_to_review_instead_of_offering_a_buy_button():
     assert r.status_code == 200
     assert "Trade prüfen" in r.text                  # §11.2 — prüfen, nicht kaufen
     assert "Top Pick" not in r.text
-    assert "btn2--primary" in r.text
+    assert "btn--primary" in r.text
     assert "button class=\"green\"" not in r.text    # kein grüner Kaufbutton mehr
 
 

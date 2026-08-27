@@ -20,60 +20,90 @@
    übernommen werden müssen (z. B. font-weight, padding, display, width). */
 .btn-reset { all: unset; box-sizing: border-box; cursor: pointer; color: inherit; font: inherit; }
 
-/* ── Button ────────────────────────────────────────────────────────────── */
-.btn2 {
-  --btn-bg: var(--bg-surface-3);
-  --btn-fg: var(--text-primary);
-  --btn-bd: var(--border-default);
-  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
-  font-family: var(--font-ui); font-size: 14px; font-weight: 560; line-height: 1;
-  padding: 10px 16px; border-radius: var(--radius-md);
-  background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-bd);
-  cursor: pointer; text-decoration: none; user-select: none;
-  transition: background .12s ease, border-color .12s ease, filter .12s ease;
+/* ── Button ────────────────────────────────────────────────────────────────
+   E6: aus base.html verschoben und mit der alten 2-Suffix-Style-Phase-2-
+   Komponente zu EINER `.btn` vereinigt (Ein-Namen-Regel, siehe DESIGN.md). Die
+   bisherige, fuer JEDES <button> geltende Vendor-Glasscheibe (durchscheinender
+   Verlauf auf --lg-glass-hi/--lg-glass) liess das Label im Dark Mode an der
+   hellen Verlaufskante (--lg-bg-1, oben links, wo die Buttons stehen) auf
+   3,32:1 fallen — --lg-glass-solid traegt an jedem Mesh-Punkt beider Themes
+   >=13,64:1 (Messwerte: DESIGN.md). liquid-glass.css selbst bleibt
+   unangetastet, diese Regel legt nur darueber. Selektor bleibt bewusst
+   `button, .btn` (Element UND Klasse): ~40 blanke <button> ohne eigene Klasse
+   profitieren vom Kontrastfix, ohne dass ein Template etwas aendern muss. */
+button, .btn {
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  min-height: 40px; padding: 0 16px; border-radius: var(--lg-r-pill);
+  border: 1px solid var(--lg-edge-soft); background: var(--lg-glass-solid);
+  color: var(--lg-ink); font: inherit; font-size: .9rem; font-weight: 600; text-decoration: none;
+  box-shadow: var(--lg-cast-1), var(--lg-facet); transition: transform .14s, box-shadow .14s;
   position: relative;
 }
-.btn2:hover { filter: brightness(1.08); }
-.btn2:active { filter: brightness(.94); }
-.btn2:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.btn2[disabled], .btn2[aria-disabled="true"] {
-  opacity: .5; cursor: not-allowed; filter: none;
+/* Eine Bewegungssprache: nur translateY, kein filter:brightness mehr (das
+   frühere Style-Phase-2-Pendant tat das für Hover/Active). */
+button:hover, .btn:hover { transform: translateY(-1px); text-decoration: none; }
+button[disabled], .btn[disabled], .btn[aria-disabled="true"] {
+  cursor: not-allowed; opacity: .55; filter: grayscale(.4); transform: none;
 }
-
-.btn2--primary { --btn-bg: var(--primary); --btn-fg: var(--text-inverse); --btn-bd: var(--primary); }
-.btn2--primary:hover { --btn-bg: var(--primary-hover); }
-.btn2--primary:active { --btn-bg: var(--primary-active); }
-
-.btn2--secondary { --btn-bg: transparent; --btn-fg: var(--text-primary); --btn-bd: var(--border-strong); }
-
-.btn2--destructive { --btn-bg: transparent; --btn-fg: var(--danger); --btn-bd: var(--danger-border); }
-.btn2--destructive:hover { --btn-bg: var(--danger-soft); }
-
-/* Live-Order: unverwechselbar, rot, „echtes Geld" — höchste Warnstufe */
-.btn2--live {
-  /* --danger-ink: eigenes Kontrast-Token statt hartem #fff — Money-Loss-Rot ist im
-     Dark Mode hell (#FF7A8E), weiße Schrift darauf fiele auf 2,5:1 (siehe DESIGN.md).
-     Fällt auf #fff zurück, falls die Variable fehlt (z. B. außerhalb von .lg-body). */
-  --btn-bg: var(--danger); --btn-fg: var(--danger-ink, #fff); --btn-bd: var(--danger);
+/* Ausgewählter Zustand über das ARIA-Attribut statt einer eigenen Klasse —
+   `.on` war zweifach belegt (primäre Aktion vs. Auswahlzustand, siehe
+   `.btn--primary` unten); optisch deckungsgleich mit `.tab.active`
+   (dashboard.html), dem im Haus abgenommenen Muster. `<a>`-Filterlinks haben
+   keinen Toggle-Zustand und tragen deshalb aria-current statt aria-pressed. */
+.btn[aria-pressed="true"], .btn[aria-current] {
+  color: var(--lg-ink); font-weight: 600;
+  box-shadow: var(--lg-cast-1), inset 0 0 0 1px var(--lg-violet);
+  border-color: var(--lg-violet);
+}
+/* Primäre Aktion: violettes Gel — wortgleiche Rezeptur wie zuvor button.on/.btn.on */
+.btn--primary {
+  border: 0; color: var(--lg-ink-on-violet);
+  background:
+    radial-gradient(122% 100% at 50% 126%, rgb(255 255 255 / .88) 0%, rgb(255 255 255 / .28) 36%, rgb(255 255 255 / 0) 66%),
+    linear-gradient(180deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / 0) 44%),
+    var(--lg-violet);
+  box-shadow: 0 14px 26px -10px rgb(var(--lg-violet-rgb) / .70), var(--lg-cast-1), var(--lg-facet);
+}
+/* Destruktiv: Solid-Glas + Fehler-Rand (ein Rahmen braucht nur 3:1) — Tinte
+   --status-ink-error statt der Vendor-Semantikfarbe (Blocker 4, DESIGN.md).
+   Ersetzt die durchsichtige Grundflaeche der frueheren destruktiven Variante
+   (auf nacktem Grund nur 2,91:1 Light gewesen). */
+.btn--destructive {
+  background: var(--lg-glass-solid); border: 1px solid var(--lg-error); color: var(--status-ink-error);
+}
+/* Live-Order: unverwechselbar, volle Danger-Fläche, höchste Warnstufe.
+   --danger-ink statt hartem #fff: Money-Loss-Rot ist im Dark Mode hell
+   (#FF7A8E), weiße Schrift darauf fiele auf 2,5:1 (siehe DESIGN.md). Fällt
+   auf #fff zurück, falls die Variable fehlt (z. B. außerhalb von .lg-body). */
+.btn--live {
+  border: 0; color: var(--danger-ink, #fff); background: var(--danger);
   font-weight: 700; letter-spacing: .02em;
-  box-shadow: 0 0 0 1px var(--danger-border), 0 6px 18px var(--danger-soft);
+  box-shadow: 0 0 0 1px var(--danger-border), 0 6px 18px var(--danger-soft), var(--lg-cast-1);
 }
-.btn2--live:hover { --btn-bg: var(--danger-hover); }
-
-.btn2--success { --btn-bg: var(--success); --btn-fg: var(--text-inverse); --btn-bd: var(--success); }
-
-/* Loading: blockiert Doppelausführung (Zeiger + aria-busy setzt der Aufrufer) */
-.btn2.is-loading { color: transparent !important; pointer-events: none; }
-.btn2.is-loading::after {
+/* Erfolg: türkises Gel — wortgleiche Rezeptur wie zuvor button.green/.btn.green */
+.btn--success {
+  border: 0; color: var(--lg-ink-on-teal);
+  background:
+    radial-gradient(122% 100% at 50% 126%, rgb(255 255 255 / .88) 0%, rgb(255 255 255 / .28) 36%, rgb(255 255 255 / 0) 66%),
+    linear-gradient(180deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / 0) 44%),
+    var(--lg-teal);
+  box-shadow: 0 14px 26px -10px rgb(var(--lg-teal-rgb) / .70), var(--lg-cast-1), var(--lg-facet);
+}
+/* Loading: blockiert Doppelausführung (Zeiger + aria-busy setzt der Aufrufer).
+   Kein Aufrufer im Bestand nutzt aktuell `loading` (button()-Makro ist von
+   keinem Template importiert) — der Vorzugswert für die Spinner-Tinte bleibt
+   deshalb bewusst auf --lg-ink statt einer variantenbewussten Umschaltung. */
+.btn.is-loading { color: transparent !important; pointer-events: none; }
+.btn.is-loading::after {
   content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%;
   border: 2px solid currentColor; border-top-color: transparent;
-  color: var(--btn-fg); animation: btn2-spin .6s linear infinite;
+  color: var(--lg-ink); animation: btn-spin .6s linear infinite;
 }
-@keyframes btn2-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .btn2.is-loading::after { animation-duration: 1.6s; } }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.is-loading::after { animation-duration: 1.6s; } }
 
-.btn2--sm { padding: 6px 10px; font-size: 13px; }
-.btn2--block { display: flex; width: 100%; }
+.btn--sm { padding: 0 12px; font-size: .82rem; }
+.btn--block { display: flex; width: 100%; }
 
 /* ── Input ─────────────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: var(--space-2); }

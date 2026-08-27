@@ -19,9 +19,9 @@
 
 {# ── Style-Phase 2 Kernkomponenten (W7) — nutzen components.css ────────────── #}
 
-{% macro button(label, variant='secondary', type='button', name=None, value=None,
+{% macro button(label, variant=None, type='button', name=None, value=None,
                 disabled=False, loading=False, block=False, small=False, extra='') -%}
-  <button type="{{ type }}" class="btn2 btn2--{{ variant }}{{ ' btn2--block' if block }}{{ ' btn2--sm' if small }}{{ ' is-loading' if loading }}"
+  <button type="{{ type }}" class="btn{{ ' btn--' ~ variant if variant }}{{ ' btn--block' if block }}{{ ' btn--sm' if small }}{{ ' is-loading' if loading }}"
           {% if name %}name="{{ name }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}
           {% if disabled %}disabled{% endif %}{% if loading %} aria-busy="true"{% endif %} {{ extra|safe }}>{{ label }}</button>
 {%- endmacro %}
@@ -65,7 +65,7 @@
     <div style="font-size:1.6rem; margin-bottom:.4rem" aria-hidden="true">⏳</div>
     <strong id="{{ id }}Title">{{ title }}</strong>
     <p class="muted" id="{{ id }}Msg" role="status" style="margin:.5rem 0 0">{{ message }}</p>
-    <button type="button" id="{{ id }}Close" class="btn2 btn2--secondary" style="display:none; margin-top:.8rem">{{ close_label }}</button>
+    <button type="button" id="{{ id }}Close" class="btn" style="display:none; margin-top:.8rem">{{ close_label }}</button>
   </div>
 </dialog>
 <script>

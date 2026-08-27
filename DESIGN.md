@@ -47,7 +47,7 @@ colors:
   # Glass edge highlight, sibling of --lg-edge (white at .5) — deliberately theme-invariant,
   # see "Dark Mode · What stays fixed on purpose".
   glass-edge-half: "rgb(255 255 255 / .5)"
-  # .btn2--live text-on-fill ink. Light danger (#A5122B) is dark enough for white text;
+  # .btn--live text-on-fill ink. Light danger (#A5122B) is dark enough for white text;
   # dark danger (#FF7A8E) is light and needs a dark ink instead (see contrast numbers below).
   danger-ink: "#fff"
   danger-ink-dark: "#2A0F14"
@@ -169,16 +169,10 @@ where the filter is unsupported — do not ship glass without that fallback).
 
 ## Components
 
-Only the project-specific compositions are documented here; the button/input/tab/switch/
-toast primitives are the vendored ones (`lg-btn`, `lg-input`, …) — see upstream.
-
-### KPI Hero — the one iris surface
-
-The **Gesamt-P&L tile** (`.card-hero`, the `big` KPI) is the single iris (colored) surface
-of the view — an iris gradient tile, **not** a full-width band. Its label and text carry
-dark iris ink (`--lg-ink-on-iris`). Its P&L **value** sits on a solid-glass plate
-(`--lg-glass-solid` pill) so the darkened green/red reads at contrast against the color.
-This is the local expression of the upstream One-Iris-Surface rule.
+Project-specific compositions are documented here. `.btn` (below) is **not** a vendored
+primitive — it is this project's own components.css rule, built on top of vendored materials
+(`--lg-*` tokens); the remaining input/tab/switch/toast look-and-feel still comes straight from
+the vendored classes (`lg-*`) — see upstream.
 
 ### Command Bar & Status Chips
 
@@ -188,7 +182,9 @@ This is the local expression of the upstream One-Iris-Surface rule.
 - **Live pill** (`.pill`): JS toggles live / paused / offline; success/muted/error dot.
 - **Icon buttons** (`.iconbtn`): glass discs for pause/refresh, same disc for the theme toggle
   (`.theme-toggle`, sun/moon, see "Dark Mode").
-- **Logout**: the vendored `lg-btn lg-btn--glass lg-btn--sm`.
+- **Logout**: `.btn .btn--sm` (E6 — previously the vendored `lg-btn lg-btn--glass lg-btn--sm`,
+  which carried the same translucent-glass contrast problem as every other blank `<button>`,
+  see "Buttons — eine solide Glasfläche statt der Vendor-Scheibe" further down).
 - **Kill-Switch chip** (agent/UI-KILLSWITCH-VISIBLE, base.html's `.appbar` only — every page
   except the dashboard, which keeps its own richer `.ck-bar`): reuses the existing
   `chip(label, 'warn', href, title)` component unchanged, the same tone settings.html already
@@ -646,3 +642,65 @@ von `app.html` und `backtest.html` genutzt. Grund: der Timeout-Zweig ist Sicherh
 nicht auseinanderlaufen. Optik unverändert — das Makro rendert weiterhin einen transparenten
 Dialog mit `.card` darin; die beiden bisher id-gebundenen Regeln (`background:transparent`,
 `::backdrop` mit `--overlay-strong` + Blur) leben als `.wait-dialog` in `components.css`.
+
+## Komponenten-Konsolidierung E5–E7 (Ein-Namen-Regel)
+
+Fünf Etappen (E5 Dialoge, E3 Meldungen, E2 Karte, E6 Buttons, E7 Felder + Schlussputz) führen
+die zwei parallel gewachsenen Komponentenwelten — die dunkle Style-Phase-2-Welt mit `2`-Suffix
+(`btn2`, `input2`, `card2`, `alert2`, `dialog2`) und die helle Liquid-Glass-Welt aus `base.html`
+— zu je **einer** Regel pro Komponente in `components.css` zusammen. E6 macht `.btn` fertig
+(dieser Abschnitt); `.input2` folgt in E7 (siehe „Felder" weiter unten, danach ist keine
+`*2`-Klasse mehr im Bestand außer dem Token-Namen `--card2` in `base.html`, E1).
+
+### Buttons — eine solide Glasfläche statt der Vendor-Scheibe (E6)
+
+Jedes `<button>` und `.btn` bekam bis E6 die durchscheinende Vendor-Standardfläche
+(`linear-gradient` über `--lg-glass-hi`/`--lg-glass` mit Backdrop-Blur). Gerechnet mit
+`--lg-ink` als Beschriftung, gegen den jeweils ungünstigsten Mesh-Punkt:
+
+| Mesh | Light Kante/Mitte | Dark Kante/Mitte |
+|---|---|---|
+| `--lg-bg-1` | 14,08 / 13,41 | **3,32** / 6,32 |
+| `--lg-bg-2` | 12,15 / 10,91 | **3,95** / 8,22 |
+| `--lg-bg-3` | 9,08 / 7,19 | **4,61** / 10,21 |
+
+Im Dark Mode fällt die Beschriftung an der hellen Verlaufskante (`--lg-bg-1`, die Radiale bei
+12 % 8 % — oben links, wo die Buttons stehen) auf **3,32:1**. Button-Labels sind normaler Text
+(14,4px/600), die Schwelle liegt bei 4,5:1 — das war ein Bestandsbefund auf ~40 blanken
+`<button>`-Elementen ohne eigene Klasse. Die Fläche wechselt deshalb auf `--lg-glass-solid`:
+13,64:1 (Light) / 14,32:1 (Dark), an jedem Mesh-Punkt. `liquid-glass.css` bleibt dabei
+unverändert — die neue Regel legt nur darüber (Selektor bleibt bewusst `button, .btn`, damit
+alle 40 Bestandsstellen den Kontrastfix ohne Template-Änderung bekommen).
+
+Die Varianten `.btn--primary` (violettes Gel) und `.btn--success` (türkises Gel) übernehmen die
+Rezeptur der früheren `.on`/`.green`-Gel-Klassen wortgleich; `.btn--destructive` (Solid-Glas +
+`--lg-error`-Rand, Tinte `--status-ink-error`) übernimmt die frühere `.red`-Rezeptur.
+`.btn--live` bleibt die volle Danger-Fläche mit Schriftgewicht 700 (Live-Bestätigungsdialog,
+§18.1) — das ändert sich durch die Konsolidierung nicht.
+
+### `[aria-pressed]`/`[aria-current]` als Ausgewählt-Zustand
+
+`.on` war **zweifach belegt** — einmal für die primäre Aktion (z. B. „Signale anfordern") und
+einmal für den ausgewählten Zustand eines Toggle-Buttons (z. B. „Top N Signale: 5"). Dieselbe
+Krankheit wie `.chip` in E4. Aufgelöst über zwei getrennte Bedeutungen:
+
+- **Primäre Aktion** → `.btn--primary` (eine echte Variante, kein Zustand).
+- **Ausgewählter Zustand** → keine neue Klasse, sondern das ARIA-Attribut, das die Buttons
+  ohnehin schon tragen (`aria-pressed` für Toggle-Buttons, `aria-current` für `<a>`-Filterlinks,
+  die kein `aria-pressed` tragen dürfen):
+  ```css
+  .btn[aria-pressed="true"], .btn[aria-current] {
+    color: var(--lg-ink); font-weight: 600;
+    box-shadow: var(--lg-cast-1), inset 0 0 0 1px var(--lg-violet);
+    border-color: var(--lg-violet);
+  }
+  ```
+  Optisch deckungsgleich mit `.tab.active` (dashboard.html) — dem im Haus bereits abgenommenen
+  Auswahl-Muster. Die beiden `<a>`-Filterlinks in `app.html` („Alle" / Anlageklassen-Filter)
+  hatten vorher **gar keinen** programmatischen Ausgewählt-Zustand — nur die Klasse `.on`, die
+  weder Screenreader noch Assistive Technology auswerten. `aria-current="true"` schließt diese
+  Lücke nebenbei.
+
+`.rp-filter.on` (reports.html, Jahres-Filter) ist davon **nicht** betroffen — das ist eine
+eigene, seitenlokale Komponente mit eigenem Präfix (siehe `tests/test_css_class_collisions.py`),
+keine `.btn`-Variante, und trägt `.on` nur für genau einen Zweck (kein Doppelbelegungsproblem).

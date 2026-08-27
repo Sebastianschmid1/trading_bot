@@ -58,7 +58,7 @@
   </div>
 
   <div class="row" style="margin-top:.7rem; gap:.5rem; flex-wrap:wrap;">
-    <a class="btn green" id="dl-trades-csv" href="/app/backtest/export?format=csv">Trades CSV</a>
+    <a class="btn" id="dl-trades-csv" href="/app/backtest/export?format=csv">Trades CSV</a>
     <a class="btn" id="dl-trades-json" href="/app/backtest/export?format=json">Trades JSON</a>
     <a class="btn" id="dl-events-csv" href="/app/backtest/export?kind=events&format=csv">Status-Events CSV</a>
     {% if is_admin %}
@@ -159,7 +159,7 @@
     {% endfor %}
   </fieldset>
   <div class="actions">
-    <button class="on">Anwenden</button>
+    <button class="btn btn--primary">Anwenden</button>
     <a class="btn" href="/app/reports">Zurücksetzen</a>
     <span class="muted">{{ rows|length }} von {{ matrix.rows|length }} Analysen</span>
   </div>
