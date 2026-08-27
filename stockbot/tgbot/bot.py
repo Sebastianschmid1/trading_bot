@@ -64,6 +64,7 @@ from stockbot.broker import reconcile as reconcile_mod
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.tgbot import menu
 from stockbot.tgbot import callback_security
+from stockbot.tgbot.messages import format_strength as _fmt_strength, strategy_label as _strategy_label
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
@@ -224,12 +225,6 @@ def _interleave_strategy_rankings(rankings: dict[str, list[dict]],
             if limit is not None and len(merged) >= limit:
                 return merged
     return merged
-
-
-def _strategy_label(signal_or_key) -> str:
-    key = signal_or_key if isinstance(signal_or_key, str) else (signal_or_key or {}).get("strategy")
-    key = key or strategies.DEFAULT_STRATEGY
-    return strategies.get(key).label
 
 
 def _llm_enabled(user: dict) -> bool:
@@ -1204,11 +1199,6 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
 
 
 # ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────
-
-def _fmt_strength(v) -> str:
-    """Kompatiblen Strategie-Rohscore formatieren; '—' wenn unbekannt."""
-    return f"{v:.0f}" if v is not None else "—"
-
 
 # Einmalige „SL/TP aus"-Warnung pro Trade & Tag: (uid, ticker, datum)
 _weak_warned: set = set()
