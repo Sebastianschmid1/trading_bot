@@ -52,12 +52,9 @@ colors:
   danger-ink: "#fff"
   danger-ink-dark: "#2A0F14"
 components:
-  # Project-specific compositions built ON the vendored primitives.
-  kpi-hero-iris:
-    backgroundColor: "{colors.iris-violet}"
-    textColor: "{colors.ink-on-iris}"
-    rounded: "{rounded.md}"
-    padding: "14px 16px"
+  # Project-specific compositions built ON the vendored primitives. No permanent iris/hero
+  # tile anymore (design-lead-Nachtrag, 2026-08-27) — see "Kein Dauerakzent auf einer
+  # Kennzahl" further down.
   status-chip:
     backgroundColor: "{colors.ink}"
     textColor: "{colors.ink-muted}"
@@ -169,10 +166,28 @@ where the filter is unsupported — do not ship glass without that fallback).
 
 ## Components
 
-Project-specific compositions are documented here. `.btn` (below) is **not** a vendored
-primitive — it is this project's own components.css rule, built on top of vendored materials
-(`--lg-*` tokens); the remaining input/tab/switch/toast look-and-feel still comes straight from
-the vendored classes (`lg-*`) — see upstream.
+Project-specific compositions are documented here. `.btn`/`.input` (below) are **not**
+vendored primitives — they are this project's own components.css rules, built on top of
+vendored materials (`--lg-*` tokens); the remaining tab/switch/toast look-and-feel comes
+straight from the vendored classes (`lg-*`) — see upstream.
+
+### Kein Dauerakzent auf einer Kennzahl (design-lead-Nachtrag, 2026-08-27)
+
+Es gibt bewusst **keine** dauerhaft eingefärbte KPI-Kachel mehr (die frühere P&L-„Hero"-Kachel
+ist ersatzlos entfernt, nicht verschoben). Unter den neun Dashboard-Kacheln ist keine eine
+Risikokachel — sie zeigen Broker-Liquidität, P&L, Performance-Statistik. Eine dauerhaft
+gesättigte Fläche auf einer meist unauffälligen Zahl würde Alarmgewicht suggerieren, das dort
+nicht hingehört, und auf neun sonst gleich ruhigen Glaskacheln ist ein einzelner Farbblock der
+einzige Fixationspunkt der Ansicht — der Blick würde zuerst auf den Gewinn fallen, nicht auf
+das, was tatsächlich Aufmerksamkeit braucht. Risiko ist hier stattdessen **ereignisgetrieben**
+kodiert und bleibt es: Kill-Switch-Chip in der appbar/`.ck-bar`, Modus-Badge, `#error`- und
+`#sizing-hint`-Banner — sie erscheinen, wenn etwas ist, statt eine 95-%-der-Zeit-„alles in
+Ordnung"-Fläche einzuüben. Der Rohscore-Gauge bleibt die größte Fläche der Ansicht (unverändert,
+siehe "Signature — Rohscore Gauge") — er zeigt aber den Strategie-Rohscore, nicht den Gewinn,
+und ist von der Anti-Gamification-Regel deshalb nicht betroffen. Die Verlustfärbung selbst
+(`cls()` in dashboard.html, `.pos`/`.green`/`.neg`/`.red`) bleibt unverändert an jeder KPI, mit
+oder ohne Hero-Optik — das Entfernen der Hero-Fläche darf nie die Rot/Grün-Kodierung eines
+Verlusts mitnehmen.
 
 ### Command Bar & Status Chips
 
@@ -184,7 +199,7 @@ the vendored classes (`lg-*`) — see upstream.
   (`.theme-toggle`, sun/moon, see "Dark Mode").
 - **Logout**: `.btn .btn--sm` (E6 — previously the vendored `lg-btn lg-btn--glass lg-btn--sm`,
   which carried the same translucent-glass contrast problem as every other blank `<button>`,
-  see "Buttons — eine solide Glasfläche statt der Vendor-Scheibe" further down).
+  see "Buttons — solid glass, one component" below).
 - **Kill-Switch chip** (agent/UI-KILLSWITCH-VISIBLE, base.html's `.appbar` only — every page
   except the dashboard, which keeps its own richer `.ck-bar`): reuses the existing
   `chip(label, 'warn', href, title)` component unchanged, the same tone settings.html already
@@ -326,11 +341,6 @@ because SVG presentation attributes lose to a CSS declaration — no JS needed f
 - **`--cat-1..6`** — the CVD-safe categorical palette. A data-encoding contract, not a
   material; shifting it with the theme would break the accessibility guarantee it exists for.
   Unchanged, and `tests/test_chart_palette_parity.py` still couples it to `chart_palette.py`.
-- **The iris hero tile** (`.card-hero`) and its white `rgb(255 255 255 / .5)` edge — the
-  vendored `--lg-iris-1/-2`/`--lg-pink`/`--lg-pink-rgb` tokens are not redefined in
-  `liquid-glass.css`'s dark blocks either, so the one colored gel surface in the view stays
-  the same vivid gradient in both modes; only the money figure sitting on its solid-glass
-  plate (`.card-hero .value`) needs — and gets — the mode's own money color.
 - **`stockbot/backtest/report.py`** (Matplotlib PNGs) and **`stockbot/core/chart_palette.py`**
   — untouched, out of scope, and not theme-driven (server-rendered images, not the live app).
 
@@ -343,8 +353,9 @@ because SVG presentation attributes lose to a CSS declaration — no JS needed f
 - **Do** use each mode's own money pair (`--money-gain`/`--money-loss`, light `#0A6B3C`/
   `#A5122B`, dark `#4FDC9E`/`#FF7A8E`) for P&L on any solid surface; the vendored
   `--lg-success/--lg-error` are tuned for status dots, not money text, in either mode.
-- **Do** keep exactly one iris surface per view (the P&L tile) and put its number on a
-  solid-glass plate.
+- **Do** keep the dashboard's KPI row a flat scan surface — no permanent saturated accent on
+  any one tile (see "Kein Dauerakzent auf einer Kennzahl" above); code risk through
+  event-driven chips/banners instead.
 - **Do** keep the CVD-safe `--cat-*` palette for multi-series charts as-is, identical in
   both modes.
 - **Do** read Chart.js/canvas/SVG colors via `getComputedStyle` at draw time, never bake a
@@ -608,18 +619,19 @@ inactive* rather than invisible.
 Drei Design-Entscheidungen vor dem Handoff, damit Inline-Styles und ein zweiter
 Overlay-Klon gar nicht erst entstehen.
 
-### `.card2--narrow` / `.card2--center` — die schmale, zentrierte Seitenkarte
+### `.card--narrow` / `.card--center` — die schmale, zentrierte Seitenkarte
 
 `error.html` und `index.html` sind Vollseiten mit einer einzelnen Karte und trugen dafür
 Inline-Styles (`max-width:520px` bzw. `640px`, `margin:3rem auto`). Neu als Modifier auf dem
-bestehenden Block, additiv in `components.css`:
+bestehenden Block, additiv in `components.css` (Klassennamen seit E2 ohne `2`-Suffix, siehe
+"Ein-Namen-Regel" weiter unten):
 
 | Klasse | Werte | Zweck |
 |---|---|---|
-| `.card2--narrow` | `max-width: 560px; margin-inline: auto; margin-block: var(--space-8);` | Box-Breite + Zentrierung der Karte |
-| `.card2--center` | `text-align: center;` | nur wo der Inhalt zentriert gehört (Fehlerseite) |
-| `.card2__header--center` | `justify-content: center;` | Kopfzeile der zentrierten Variante |
-| `.card2__title--lg` | `font-size: var(--font-size-h2);` | Karten-Titel, der als Seiten-`h1` dient |
+| `.card--narrow` | `max-width: 560px; margin-inline: auto; margin-block: var(--lg-space-7);` | Box-Breite + Zentrierung der Karte |
+| `.card--center` | `text-align: center;` | nur wo der Inhalt zentriert gehört (Fehlerseite) |
+| `.card__header--center` | `justify-content: center;` | Kopfzeile der zentrierten Variante |
+| `.card__title--lg` | `font-size: var(--lg-size-title);` | Karten-Titel, der als Seiten-`h1` dient |
 
 **Eine Breite statt zweier.** 520px und 640px waren nicht begründet unterschiedlich, sondern
 gewachsen. 560px liegt bei 16px-Fließtext bei ~70 Zeichen je Zeile und damit im Lesemaß-Fenster
@@ -628,11 +640,11 @@ Breiten-Modifier, solange kein Inhalt einen zweiten Wert erzwingt.
 
 ### `.btn-row` — Buttonreihe unter einer Karte
 
-`display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-5);`, Modifier
-`.btn-row--center { justify-content: center; }`. Ersetzt die Inline-Flex-Zeilen in `error.html`
-und `index.html`; `.6rem`/`1.4rem` rasten dabei auf den 4px-Rhythmus (12px/20px) ein.
-`.dialog2__actions` bleibt getrennt — das ist die Aktionszeile *im* Dialog (rechtsbündig), keine
-Seiten-Utility.
+`display: flex; gap: var(--lg-space-3); flex-wrap: wrap; margin-top: var(--lg-space-5);`,
+Modifier `.btn-row--center { justify-content: center; }`. Ersetzt die Inline-Flex-Zeilen in
+`error.html` und `index.html`; `.6rem`/`1.4rem` rasten dabei auf den 4px-Rhythmus (12px/20px)
+ein. `.dialog__actions` bleibt getrennt — das ist die Aktionszeile *im* Dialog (rechtsbündig),
+keine Seiten-Utility.
 
 ### `wait_dialog()` — ein Warte-Overlay für alle langsamen POST-Formulare
 
@@ -647,10 +659,14 @@ Dialog mit `.card` darin; die beiden bisher id-gebundenen Regeln (`background:tr
 
 Fünf Etappen (E5 Dialoge, E3 Meldungen, E2 Karte, E6 Buttons, E7 Felder + Schlussputz) führen
 die zwei parallel gewachsenen Komponentenwelten — die dunkle Style-Phase-2-Welt mit `2`-Suffix
-(`btn2`, `input2`, `card2`, `alert2`, `dialog2`) und die helle Liquid-Glass-Welt aus `base.html`
-— zu je **einer** Regel pro Komponente in `components.css` zusammen. E6 macht `.btn` fertig
-(dieser Abschnitt); `.input2` folgt in E7 (siehe „Felder" weiter unten, danach ist keine
-`*2`-Klasse mehr im Bestand außer dem Token-Namen `--card2` in `base.html`, E1).
+(`btn2`, `input2`, `card2`, `alert2`, `dialog2`) und die helle Liquid-Glass-Welt aus
+`base.html` — zu je **einer** Regel pro Komponente zusammen. **`components.css` ist seitdem die
+einzige Komponentendatei**; `base.html` definiert keine Button-, Feld-, Karten-, Meldungs- oder
+Dialog-Grundregel mehr, sondern nur noch die Token-Aliasierung in die Glaswelt, layoutbezogene
+Regeln (appbar, Tabellen, Richtungs-Pillen, …) und die beiden Text-Utilities `.pos`/`.green` und
+`.neg`/`.red`, die bewusst **nicht** Teil dieser Konsolidierung sind (siehe unten). Es gibt keine
+`*2`-Klasse mehr im Bestand: `grep -rn "btn2\|input2\|card2\|dialog2\|alert2" stockbot/web/`
+liefert nur noch den Token-Namen `--card2` in `base.html` (E1, kein Klassenname).
 
 ### Buttons — eine solide Glasfläche statt der Vendor-Scheibe (E6)
 
@@ -704,3 +720,47 @@ Krankheit wie `.chip` in E4. Aufgelöst über zwei getrennte Bedeutungen:
 `.rp-filter.on` (reports.html, Jahres-Filter) ist davon **nicht** betroffen — das ist eine
 eigene, seitenlokale Komponente mit eigenem Präfix (siehe `tests/test_css_class_collisions.py`),
 keine `.btn`-Variante, und trägt `.on` nur für genau einen Zweck (kein Doppelbelegungsproblem).
+
+### Die vier Alert-Tonpaare (E3)
+
+`.alert` liegt auf `--lg-glass-solid` statt einer Flächentönung — der Rand trägt als 1px-Linie
+allein nicht überall 4,5:1, deshalb steht der Ton **dreifach**: Rand + eingefärbter Titel +
+`.alert__icon` in derselben Titelfarbe. Fließtext bleibt auf `--lg-ink` (13,64:1 / 14,32:1).
+
+| Ton | Titel-Token | Light | Dark | Rand |
+|---|---|---|---|---|
+| info | `--tone-violet-fg` | 8,31:1 | 10,83:1 | `--lg-violet` |
+| success | `--status-ink-success` | 4,77:1 | 8,93:1 | `--lg-success` |
+| warning | `--tone-warning-fg` | 7,42:1 | 11,90:1 | `--lg-warning` |
+| danger | `--status-ink-error` | 6,18:1 | 6,80:1 | `--lg-error` |
+
+Ohne den eingefärbten Titel wäre der Ton für farbfehlsichtige Nutzer:innen im Light Mode nicht
+sicher lesbar (die Randfarben allein liegen dort nur bei 2,83–4,09:1) — der Titeltext selbst
+benennt den Ton außerdem in jedem gerenderten Fall bereits in Worten (z. B. „Kursdaten
+veraltet"). Der titellose, tonlose Fall (der neutrale Flash in `base.html`) bleibt bewusst ohne
+Ton-Anspruch.
+
+### Felder (E7)
+
+`.input` ersetzt `.input2` und wird mit der Element-Regel aus `base.html`
+(`select`/`textarea`/`input[type=…]`) zu einer Selektorliste in `components.css`
+zusammengeführt — `.input2`s eigene Flächen-/Rand-/Radius-/Padding-Deklarationen waren dort
+bereits tot (Spezifität 0,1,0 verlor immer gegen 0,1,1, unabhängig von der Ladereihenfolge).
+Zustände mit echter Spezifität (`.input:focus-visible`, `.input[aria-invalid="true"]`,
+`.field--error .input`, `.input[disabled]`) gewinnen weiterhin über die Basisregel. Der globale
+Tastatur-Outline aus `base.html` „Zugänglichkeit" (`select:focus-visible`, `input:focus-visible`,
+`textarea:focus-visible`, …) bleibt unabhängig davon für **jedes** Feld bestehen, auch ohne
+`.input`-Klasse.
+
+### Token-Umbenennung (E7)
+
+`--space-1..6` → `--lg-space-1..6` und `--radius-xl` → `--lg-r-md` sind wertgleich. Zwei
+Zuordnungen sind es **nicht** an derselben Nummer: `--space-8` (32px) landet nicht bei
+`--lg-space-8` (40px, eine andere Zahl!), sondern bei **`--lg-space-7`** (ebenfalls 32px);
+`--space-10` (40px) landet dagegen korrekt bei `--lg-space-8` (40px). `--radius-sm` bleibt
+unverändert bestehen — es gehört ausschließlich `.mode-badge` (E1, nicht Teil dieser Etappen).
+`--space-1/2/3` bleiben ebenfalls in `tokens.css` definiert, weil `.mode-badge` sie noch
+referenziert; alle anderen `--space-*`/`--radius-*`/`--shadow-*`-Tokens sind gelöscht, nachdem
+geprüft wurde, dass kein `var()` mehr darauf zeigt (die neun an `chart_palette.TOKEN_HEX`
+gekoppelten Werte sind davon nicht betroffen — sie stehen literal, nicht als `--space-*`/
+`--radius-*`).

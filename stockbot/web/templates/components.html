@@ -43,7 +43,7 @@
 {% macro field(label, name, value='', type='text', hint=None, error=None, placeholder='') -%}
   <div class="field{{ ' field--error' if error }}">
     <label class="field__label" for="f-{{ name }}">{{ label }}</label>
-    <input class="input2" id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"
+    <input class="input" id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"
            placeholder="{{ placeholder }}"{% if error %} aria-invalid="true"{% endif %}>
     {% if hint and not error %}<span class="field__hint">{{ hint }}</span>{% endif %}
     {% if error %}<span class="field__error">{{ error }}</span>{% endif %}

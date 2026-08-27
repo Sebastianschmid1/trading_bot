@@ -119,7 +119,7 @@
         {% if ks_active %}data-confirm-dialog="killSwitchOffConfirm"{% endif %}>
     <input type="hidden" name="enabled" value="{{ '0' if ks_active else '1' }}">
     {% if not ks_active %}
-    <input class="input2" style="max-width:18rem" type="text" name="reason" required
+    <input class="input" style="max-width:18rem" type="text" name="reason" required
            placeholder="Grund (wird protokolliert)" aria-label="Grund für die Aktivierung">
     {% endif %}
     <button class="btn{{ '' if ks_active else ' btn--destructive' }}">

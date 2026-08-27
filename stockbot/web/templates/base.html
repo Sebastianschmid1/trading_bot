@@ -287,19 +287,10 @@
   .pos, .green { color:var(--money-gain); } .neg, .red { color:var(--money-loss); }
   form.inline { display:inline; }
 
-  /* Button-Grundregeln sind nach components.css umgezogen (E6, Ein-Namen-Regel —
-     components.css ist die einzige Komponentendatei). Hier bewusst NICHT erneut
-     definieren: dieses <style> steht nach den Links und würde jede gleichnamige
-     Regel dort sonst überschreiben. */
-
-  /* ── Felder ───────────────────────────────────────────────────────────── */
-  select, input[type=text], input[type=number], input[type=date], input[type=password], textarea {
-    background:var(--lg-glass-solid); color:var(--lg-ink);
-    border:1px solid var(--lg-edge-soft); border-radius:var(--lg-r-pill);
-    padding:.55rem .9rem; font-family:inherit; font-size:.9rem; box-shadow:var(--lg-trough); }
-  textarea { width:100%; min-height:7rem; border-radius:var(--lg-r-md); font-family:var(--font-mono); }
-  select:focus, input:focus, textarea:focus { outline:none; border-color:var(--lg-violet); }
-  input::placeholder, textarea::placeholder { color:var(--lg-ink-muted); }
+  /* Button- und Feld-Grundregeln sind nach components.css umgezogen (E6/E7,
+     Ein-Namen-Regel — components.css ist die einzige Komponentendatei). Hier
+     bewusst NICHT erneut definieren: dieses <style> steht nach den Links und
+     würde jede gleichnamige Regel dort sonst überschreiben. */
 
   /* ── Tabellen: Tinte auf Solid-Glas, dunkle Haarlinien ─────────────────── */
   table { width:100%; border-collapse:collapse; font-size:.9rem; }

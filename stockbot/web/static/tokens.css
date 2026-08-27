@@ -68,24 +68,17 @@
   --border-strong: #45515F;
   --focus-ring: rgba(91, 140, 255, 0.55);
 
+  /* E7: nur noch fuer .mode-badge (E1, unangetastet) — jede andere Stelle
+     benutzt die vendorierten Tokens `--lg-space-*` bzw. `--lg-r-*` direkt.
+     --space-4/5/6/8/10/12 und --radius-md/-lg/-xl sind seit der E6/E7-
+     Konsolidierung verwaist (kein var() mehr, siehe DESIGN.md) und deshalb
+     geloescht; --shadow-sm/-md/-dialog ebenso (immer schon von der
+     .lg-body-Aliasierung in base.html ueberschattet, siehe dort). */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
 
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
-
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.18);
-  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.28);
-  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.42);
 
   /* Offline-first font stacks: installed faces are used when available. */
   --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
