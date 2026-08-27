@@ -235,7 +235,7 @@ Kalibrierung gegen den echten Code (entscheidend für die Aufwandsschätzung):
 | **W3** Daten & Versionen | yfinance raus aus Prod-Pfad, Strategieversion je Signal, Mode-Dashboards, Scheibe 9 | **P2, P5, P6** | ✅ code-komplett (Tor T0 ✅; W3.1 ✅; **W3.2 ✅ [P2]; W3.3 ✅ [P5]; W3.4 ✅ [P6/RES-002]; W3.5 ✅; W3.6 Exit-Policies ✅ CODE [Flag Default AUS, Aktivierung = Tor T2]**) |
 | **W4** Observability & Platform | JSON-Logging, Metriken/Alarme, Secrets, OAuth | **P9** Rest | ✅ erledigt (W4.1–W4.5); Secrets-Pfad und Outbox seit 2026-07-21 tatsächlich **in Betrieb**, nicht nur gebaut |
 | **W5** Backtest-Härtung | gemeinsamer Strategiecode, Kostenmodell, Validierung, Reproduzierbarkeit | **P7** | ✅ erledigt (W5.1–W5.6 komplett; Gate P7 im Wesentlichen erfüllt) |
-| **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ✅ erledigt (`research/lab.py` Framework, Gate P8; reale Promotion = Tor T3; Manager-implementiert) |
+| **W6** Labor begrenzen | Champion/Candidate, Promotion-Gates, Holdout-Schutz | **P8** | ⚠️ **zurückgestuft 27.08. (Befund 16)** — `research/lab.py` ist gebaut, hat aber null Produktionsimporteure; der Bot fährt täglich `optimize/lab.py` ohne Holdout-Sperre. Zusammenführung = Tor T3 |
 | **W7** UI/Design & Querschnitt | Style-Phasen 2–5, Web-/Telegram-Umbau, API v1 | **Gate Style** | ✅ **erledigt** (2026-07-20): Komponentensystem `bf4d593` + Callback-Sicherheit `85b160e` + API v1 `bb3f36e` (abgenommen 2026-07-18), Seams verdrahtet `1867469`, Style-Phasen 3–5 + Mode-Report-Panel `48fc42c`. **Stylekonzept-Audit v1.1 (2026-07-22, `docs/Stylekonzept.md` §32):** Tokens/Kernkomponenten bestätigt 1:1, Kontrast WCAG-AA verifiziert; Style-Rest-Tasks s. „Was jetzt" Punkt 1b |
 | **W8** Test & Paper-Freigabe | Testsuiten + Paper-Burn-in + Go/No-Go | **P10** | ✅ code-komplett (`5d38d5d`: Replay-, Failure-Injection-Suite, `core/burn_in.py`, `docs/GO_NO_GO.md`) — offen: **Burn-in-Kalenderzeit + Tor T5** |
 
@@ -739,14 +739,23 @@ harmlos** und **zwei echte Befunde**.
 **Befund 9 — `backtest/validation.py` ist vollständig tot.** Keine einzige seiner sechs
 Funktionen (`walk_forward_splits`, `nested_walk_forward`, `HoldoutGuard`,
 `bootstrap_confidence_interval`, `regime_performance`, `sensitivity_analysis`) wird irgendwo
-außerhalb der Tests aufgerufen. Das Labor bringt stattdessen eine **eigene, einfachere**
-Walk-Forward-Logik mit (`optimize/lab.py:223-247`: `_split`, `_fold_bounds`) — **ohne Purging,
-ohne Embargo, ohne HoldoutGuard**. Gate P7 verbucht aber „finaler Holdout technisch gesperrt"
-und den Look-ahead-Proof als geschlossen. Solange `HoldoutGuard` niemand aufruft, ist der
-finale Holdout **nicht** gesperrt, und das Labor optimiert ohne die Leakage-Schutzmaßnahmen,
-die für ihn gebaut wurden. **Bewusst nicht nebenbei repariert:** das Labor an `validation.py`
-anzuschließen verändert, wie Strategien bewertet und promotet werden — das ist Tor T3, keine
-Aufräumarbeit.
+außerhalb der Tests aufgerufen. Das Labor bringt stattdessen eine **eigene** Walk-Forward-Logik
+mit (`optimize/lab.py:223-247`: `_split`, `_fold_bounds`).
+
+**Korrektur am 2026-08-27, meine ursprüngliche Formulierung war falsch:** hier stand „ohne
+Purging, ohne Embargo, ohne HoldoutGuard". Die ersten beiden stimmen nicht. `optimize/lab.py`
+hat sehr wohl eine Embargo-Lücke (`EMBARGO_DAYS`, Default 56 Tage, `lab.py:77` und `:254-255`)
+und teilt das OOS-Fenster in Folds (`N_FOLDS`, Default 3) mit einem mehrstufigen Gate. Die
+statistische Härtung ist real und wird im Code auch als solche benannt.
+
+**Was tatsächlich fehlt, ist nur der dritte Punkt — und der wiegt schwer:** einen
+`HoldoutGuard` gibt es nicht im laufenden Weg. Gate P7 verbucht „finaler Holdout technisch
+gesperrt". Technisch gesperrt ist nichts. Das Labor läuft als **täglicher** Cron
+(`daily_lab_optimization`, `bot.py:2771/3057`) und wertet damit ein stark überlappendes
+OOS-Fenster jeden Tag neu aus — genau das wiederholte Testen gegen denselben Holdout, gegen das
+`HoldoutGuard` gebaut wurde. Der Kommentar in `lab.py:76` benennt die Gefahr sogar selbst
+(„Schutz vor Mehrfachtest-Overfitting auf dasselbe OOS") und begegnet ihr statistisch statt
+technisch.
 
 **Befund 10 — das Rohdatenarchiv wird nie geschrieben.** `core/raw_data_archive.py`
 (`write_bars`, `write_and_record`) hat null Aufrufer; die Tabelle `raw_data_archive`
@@ -873,6 +882,37 @@ am echten Browser bei echter Fensterbreite**. Ein Test auf die CSS-Regel allein 
 gesehen: die Regel ist ja korrekt geschrieben, sie wird nur von einem Elternteil ausgehebelt.
 Behoben auf `agent/UI-MOBILNAV` (Override im eigenen CSS, der Vendor bleibt unangetastet), mit
 Regressionstest.
+
+**Befund 16 — es gibt zwei Labore, und Gate P8 hängt am falschen.** Beim Nachfassen zu
+Befund 9 am 2026-08-27 aufgefallen:
+
+| Modul | Zeilen | Läuft in Produktion? | Enthält |
+|---|---|---|---|
+| `optimize/lab.py` | 1.110 | **ja**, täglich per `daily_lab_optimization` (`bot.py:2773`) | IS/OOS-Split, Embargo, Folds, mehrstufiges Gate — **kein** Holdout-Schloss |
+| `research/lab.py` | 247 | **nein — null Produktionsimporteure** | `HoldoutProtection`, Champion/Candidate, Promotion-Gates |
+| `backtest/validation.py` | — | **nein — null Aufrufer** (Befund 9) | `HoldoutGuard`, nested Walk-Forward, Bootstrap, Regime, Sensitivität |
+
+Verifiziert per `grep -rn "research.lab\|from stockbot.research" --include=*.py stockbot/`:
+das W6-Labor wird von `tests/test_lab.py` importiert und sonst von niemandem.
+
+**Die Folge für die Checkliste ist unangenehm.** `PLAN_CHECKLIST.md:600-601` hakt **RES-005
+Holdout-Schutz** mit der Begründung ab, `HoldoutProtection` protokolliere Zugriffe und blocke
+wiederholtes Testen; `UMSETZUNGSPLAN.md:238` verbucht **Gate P8** („Labor begrenzen") als
+erledigt. Beides stützt sich auf `research/lab.py` — ein Modul, das nie läuft. Der Bot
+optimiert täglich mit `optimize/lab.py`, und dort gibt es weder Zugriffsprotokoll noch
+Promotion-Gate noch Holdout-Sperre.
+
+Das ist derselbe Befund wie zehn andere in dieser Liste, aber an der teuersten Stelle: es ist
+genau das Labor, dessen Ergebnisse in [[project_labor-divergenz]] live −6 % je Trade gemacht
+haben. Ein Gate, das „begrenzt" behauptet, während das laufende System unbegrenzt ist, ist
+schlimmer als ein offenes Gate — es beendet die Suche.
+
+**Warum ich es nicht nebenbei repariere:** `HoldoutProtection` mit `max_accesses=1` in einen
+*täglichen* Job zu hängen, sperrt ihn am zweiten Tag. Die Zusammenführung braucht einen echten
+Entwurf (Was ist eine Holdout-Version? Wann entsteht eine neue? Zählt ein Lauf ohne Promotion
+als Zugriff?), und sie ändert, welche Strategien promotet werden — **Tor T3, Entscheidung des
+Betreibers.** Was ohne ihn geht und hiermit getan ist: die Gate-Behauptungen richtigstellen,
+damit die Checkliste nicht länger etwas als geschlossen führt, das offen ist.
 
 ## Deploy 2026-08-27 — Repo-Vorzeigbarkeit, Alarmpfad, Risiko-Verdrahtung, Mobil-Nav
 

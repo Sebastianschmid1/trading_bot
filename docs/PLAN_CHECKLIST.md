@@ -575,16 +575,22 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (W5.3: `backtest/cost_model.py` CostModel+CostBreakdown mit allen Komponenten, injizierbar; Default bitgleich zum alten 2×cost_pct.)
 - [x] Universen: historische Zusammensetzung (point-in-time), Delistings, Survivorship-Bias messen + dokumentieren, Universums-Version speichern
       (W5.4: `backtest/universe_history.py` UniverseSnapshot [versioniert] + `members_as_of` + `measure_survivorship_bias`. SEAM — echte Indexhistorie muss extern kommen [Datenlücke dokumentiert], Live-Universum unberührt.)
-- [x] Validierung: Nested Walk-forward, Purging, Embargo, finaler Holdout, Sensitivitätsanalyse, Bootstrap-Konfidenzintervalle, Regimeauswertung
-      (W5.6: `backtest/validation.py` walk_forward/nested [Train<Test], Embargo=Purging, HoldoutGuard [technisch gesperrt], geseedetes Bootstrap-KI, Regime, Sensitivität.)
+- [~] Validierung: Nested Walk-forward, Purging, Embargo, finaler Holdout, Sensitivitätsanalyse, Bootstrap-Konfidenzintervalle, Regimeauswertung
+      (W5.6: `backtest/validation.py` walk_forward/nested [Train<Test], Embargo=Purging, HoldoutGuard, geseedetes Bootstrap-KI, Regime, Sensitivität.
+      **Zurückgestuft 2026-08-27, Befund 16:** das Modul ist gebaut und getestet, hat aber
+      NULL Aufrufer außerhalb von `tests/`. Das laufende Labor `optimize/lab.py` bringt
+      eigenes Embargo + Folds mit — aber keinen HoldoutGuard. „Technisch gesperrt" war
+      falsch; gesperrt ist nichts.)
 - [x] **RES-003** Reproduzierbarkeit: je Run Run-ID, Git-Commit, Strategie-/Datenversion, Universum, Parameter, Kostenmodell, Zeitraum, Seed, Dependency-Versionen
       (W5.5: `backtest/reproducibility.py` RunMetadata + deterministische run_id + set_seed; opt-in in `run_backtest`.)
 
 **Gate P7 (Abnahme):** — ⏳ WEITGEHEND (W5-Bausteine ✅; „Report nennt #getesteter Kandidaten" → Lab/W6)
 - [x] Gleicher Run + gleiche Version → gleiches Ergebnis; kein Look-ahead in Tests
       (W5.5 deterministische run_id + gleiches Ergebnis; W5.2 Future-Perturbation + W5.6 walk_forward Train<Test.)
-- [~] Kosten/Slippage separat sichtbar; finaler Holdout technisch gesperrt; Report nennt #getesteter Kandidaten
-      (Kosten/Slippage separat: W5.3 CostBreakdown ✅. Finaler Holdout gesperrt: W5.6 HoldoutGuard ✅.
+- [~] Kosten/Slippage separat sichtbar; finaler Holdout technisch gesperrt (**NICHT erfüllt**, Befund 16); Report nennt #getesteter Kandidaten
+      (Kosten/Slippage separat: W5.3 CostBreakdown ✅. Finaler Holdout gesperrt: **NEIN** — W5.6
+      HoldoutGuard existiert, wird aber nie aufgerufen; der tägliche `daily_lab_optimization`
+      wertet dasselbe OOS-Fenster unbegrenzt oft aus (Befund 16).
       OFFEN: „Report nennt #getesteter Kandidaten" gehört zum Strategie-Labor [Phase 8 / W6].)
 
 ---
@@ -597,8 +603,11 @@ Ziel: Belastbares Zustands- und Datenmodell.
       (W6: `SearchSpace` [Grenzen + Zyklus-Budget], `validate_llm_hypothesis` lehnt code-/parameterartige Ausgaben ab.)
 - [x] Promotion-Gates: ausreichende Tradezahl, OOS-Mehrheit, keine starke DD-Verschlechterung, positive Netto-Performance, Sensitivitätsstabilität, Shadow-Bestätigung, **menschliche Freigabe**
       (W6: `evaluate_promotion_gates` [alle Quant-Kriterien] + `promote()` verlangt zusätzlich `human_approved_by` [Tor T3].)
-- [x] **RES-005** Holdout-Schutz: Zugriff protokollieren, Kandidaten nicht wiederholt am Holdout testen, neuer Holdout erst nach Releasezyklus
-      (W6: `HoldoutProtection` protokolliert Zugriffe + blockt wiederholtes Testen desselben Kandidaten; neuer Holdout je Releasezyklus = neue Instanz.)
+- [~] **RES-005** Holdout-Schutz: Zugriff protokollieren, Kandidaten nicht wiederholt am Holdout testen, neuer Holdout erst nach Releasezyklus
+      (W6: `HoldoutProtection` protokolliert Zugriffe + blockt wiederholtes Testen desselben Kandidaten; neuer Holdout je Releasezyklus = neue Instanz.
+      **Zurückgestuft 2026-08-27, Befund 16:** `research/lab.py` hat null Produktionsimporteure —
+      der Bot fährt `optimize/lab.py`. Der Schutz ist gebaut, aber nicht im laufenden Weg.
+      Zusammenführung ändert die Promotion → Tor T3, Entscheidung des Betreibers.)
 - [x] Pending-Workflow (generated→validated→backtested→shadow→pending_review→approved/rejected→archived); kein direkter Live-Parameter-Schreibzugriff
       (W6: `Candidate`-Zustandsmaschine; „live" ist KEIN Kandidatenzustand → Promotion ist der einzige, menschlich bestätigte Weg zum Champion.)
 
