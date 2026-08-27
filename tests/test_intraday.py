@@ -8,7 +8,7 @@ Lauf:  python test_intraday.py   oder   pytest test_intraday.py
 import asyncio
 import sys
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ import pandas as pd
 
 from stockbot.core import db
 from stockbot.core import exchange_calendar
+from stockbot.core.market_data import CorporateAction
 from stockbot.market import analyzer
 from stockbot.tgbot import bot
 from stockbot.web import dashboard
@@ -165,9 +166,10 @@ def test_register_jobs_schedules_monitor_every_interval():
     app = MagicMock()
     bot._register_jobs(app)
     jq = app.job_queue
-    # zehn wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale,
-    # Callback-Token-Purge (W7), Outbox-Zustellung (W4.5) und Alarmauswertung (OBS-ALERTS)
-    assert jq.run_repeating.call_count == 10
+    # elf wiederkehrende Jobs inkl. Risiko-Scan, OMS-Poll, Reconciliation, Shadow-Signale,
+    # Callback-Token-Purge (W7), Outbox-Zustellung (W4.5), Alarmauswertung (OBS-ALERTS) und
+    # Corporate-Action-Wächter (OBS-CORPACT, CORPACT_GUARD_ENABLED per Default an)
+    assert jq.run_repeating.call_count == 11
     by_name = {c.kwargs.get("name"): c for c in jq.run_repeating.call_args_list}
     # Ohne diesen Job bliebe die Outbox für immer liegen — sie war bis 2026-07-21 nie verdrahtet.
     assert by_name["outbox_delivery"].args[0] is bot.outbox_delivery_job
@@ -175,6 +177,10 @@ def test_register_jobs_schedules_monitor_every_interval():
     # Ohne diesen Job feuerte core/alerts.py nie — er wurde bis 2026-08 nur vom Test importiert.
     assert by_name["alert_evaluation"].args[0] is bot.alert_evaluation_job
     assert by_name["alert_evaluation"].kwargs["interval"] == bot.ALERT_EVALUATION_SEC
+    # Ohne diesen Job feuerten weder get_corporate_actions noch check_corporate_actions je
+    # außerhalb von Tests — Splits blieben bis zur nachträglichen Glitch-Fill-Heilung unsichtbar.
+    assert by_name["corporate_action_guard"].args[0] is bot.corporate_action_guard_job
+    assert by_name["corporate_action_guard"].kwargs["interval"] == config.CORPACT_GUARD_INTERVAL_SEC
     assert by_name["monitor_trades"].args[0] is bot.monitor_trades
     assert by_name["shadow_signals"].args[0] is bot.run_shadow_signals
     assert by_name["shadow_signals"].kwargs["interval"] == config.INTRADAY_SCAN_INTERVAL_SEC
@@ -275,6 +281,144 @@ def test_alert_evaluation_job_logs_missing_admin_exactly_once(caplog, monkeypatc
         asyncio.run(bot.alert_evaluation_job(ctx))
 
     warnings = [r for r in caplog.records if "ADMIN_CHAT_ID" in r.message]
+    assert len(warnings) == 1
+    ctx.bot.send_message.assert_not_called()
+
+
+# ── corporate_action_guard_job: Kursanpassungs-Wächter verdrahtet (OBS-CORPACT) ──────
+
+class _FakeCorpActProvider:
+    """Minimaler Fake für `MarketDataProvider.get_corporate_actions` — `raise_for` simuliert
+    einen Broker-Fehler für genau die dort genannten Ticker."""
+
+    def __init__(self, actions_by_ticker=None, raise_for=()):
+        self._actions_by_ticker = actions_by_ticker or {}
+        self._raise_for = set(raise_for)
+        self.calls = []
+
+    def get_corporate_actions(self, ticker, *, since=None):
+        self.calls.append((ticker, since))
+        if ticker in self._raise_for:
+            raise RuntimeError("Alpaca-Timeout")
+        return self._actions_by_ticker.get(ticker, [])
+
+
+def test_corpact_symbols_since_uses_entry_date_for_positions_and_window_for_watchlist():
+    """AC 1/2: offene Positionen + Watchlist, nicht das ganze Universum — Position bekommt ihr
+    Einstiegsdatum als `since`, ein reines Watchlist-Symbol das knappe Rückblick-Fenster."""
+    from stockbot import config as config_mod
+
+    fresh_db()
+    db.get_or_create_user(CHAT, "tester")
+    db.save_profile(CHAT, trade_size_eur=25.0)
+    db.add_watchlist_tickers(CHAT, ["NVDA"])
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO trades (user_id, trade_date, ticker, direction, signal_json, status) "
+            "VALUES (?, '2026-07-01', 'KHC', 'long', '{}', 'active')", (CHAT,),
+        )
+
+    symbols = bot._corpact_symbols_since()
+
+    assert symbols["KHC"] == datetime(2026, 7, 1, tzinfo=timezone.utc)
+    expected_watchlist_since = datetime.now(timezone.utc) - timedelta(
+        days=config_mod.CORPACT_WATCHLIST_LOOKBACK_DAYS)
+    assert abs((symbols["NVDA"] - expected_watchlist_since).total_seconds()) < 5
+
+
+def test_corporate_action_guard_job_notifies_admin_once_per_finding(monkeypatch):
+    """AC 3: ein erkannter Split löst GENAU EINE Meldung mit Symbol/Art/Datum aus; ein zweiter
+    Lauf mit unverändertem Fund meldet NICHT erneut (kein Wiederholungsspam)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    since = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    ex_date = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", True)
+    monkeypatch.setattr(bot, "ADMIN_CHAT_ID", 999)
+    monkeypatch.setattr(bot, "_CORPACT_NOTIFIER", bot.CorporateActionNotifier())
+    monkeypatch.setattr(bot, "_corpact_symbols_since", lambda: {"KHC": since})
+    fake_provider = _FakeCorpActProvider({
+        "KHC": [CorporateAction(ticker="KHC", action_type="split", ex_date=ex_date, value=3.0)],
+    })
+    monkeypatch.setattr(bot.provider_factory, "get_signal_provider", lambda: fake_provider)
+
+    ctx = MagicMock()
+    ctx.bot = AsyncMock()
+
+    asyncio.run(bot.corporate_action_guard_job(ctx))
+    ctx.bot.send_message.assert_awaited_once()
+    kwargs = ctx.bot.send_message.await_args.kwargs
+    assert kwargs["chat_id"] == 999
+    assert "KHC" in kwargs["text"] and "split" in kwargs["text"] and "2026-08-10" in kwargs["text"]
+
+    # zweiter Lauf, derselbe Fund: keine erneute Meldung
+    ctx.bot.send_message.reset_mock()
+    asyncio.run(bot.corporate_action_guard_job(ctx))
+    ctx.bot.send_message.assert_not_awaited()
+
+
+def test_corporate_action_guard_job_silent_on_clean_data(monkeypatch):
+    """AC 3 Gegenprobe: keine Kursanpassung im Fenster → keine Meldung."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    since = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", True)
+    monkeypatch.setattr(bot, "ADMIN_CHAT_ID", 999)
+    monkeypatch.setattr(bot, "_CORPACT_NOTIFIER", bot.CorporateActionNotifier())
+    monkeypatch.setattr(bot, "_corpact_symbols_since", lambda: {"AAPL": since})
+    monkeypatch.setattr(
+        bot.provider_factory, "get_signal_provider",
+        lambda: _FakeCorpActProvider({"AAPL": []}))
+
+    ctx = MagicMock()
+    ctx.bot = AsyncMock()
+    asyncio.run(bot.corporate_action_guard_job(ctx))
+    ctx.bot.send_message.assert_not_awaited()
+
+
+def test_corporate_action_guard_job_is_fail_open_on_broker_error(caplog, monkeypatch):
+    """AC 4: ein Broker-Fehler bei EINEM Symbol darf den Job weder abbrechen noch stumm
+    schlucken — er wird geloggt, die übrigen Symbole werden weiter geprüft."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    since = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    ex_date = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", True)
+    monkeypatch.setattr(bot, "ADMIN_CHAT_ID", 999)
+    monkeypatch.setattr(bot, "_CORPACT_NOTIFIER", bot.CorporateActionNotifier())
+    monkeypatch.setattr(bot, "_corpact_symbols_since", lambda: {"MSFT": since, "KHC": since})
+    fake_provider = _FakeCorpActProvider(
+        actions_by_ticker={
+            "KHC": [CorporateAction(ticker="KHC", action_type="split", ex_date=ex_date, value=3.0)],
+        },
+        raise_for={"MSFT"},
+    )
+    monkeypatch.setattr(bot.provider_factory, "get_signal_provider", lambda: fake_provider)
+
+    ctx = MagicMock()
+    ctx.bot = AsyncMock()
+    with caplog.at_level("WARNING", logger="stockbot.tgbot.bot"):
+        asyncio.run(bot.corporate_action_guard_job(ctx))  # darf NICHT werfen
+
+    assert any("Corporate-Action-Abruf für MSFT fehlgeschlagen" in r.message for r in caplog.records)
+    # KHC wurde trotz des MSFT-Fehlers weiter geprüft und gemeldet.
+    ctx.bot.send_message.assert_awaited_once()
+    assert "KHC" in ctx.bot.send_message.await_args.kwargs["text"]
+
+
+def test_corporate_action_guard_job_logs_missing_alpaca_creds_exactly_once(caplog, monkeypatch):
+    """AC 5: ohne Alpaca-Zugangsdaten macht der Job nichts und loggt das EINMALIG."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(bot, "ALPACA_ENABLED", False)
+    monkeypatch.setattr(bot, "_corpact_no_alpaca_logged", False)
+    ctx = MagicMock()
+
+    with caplog.at_level("WARNING", logger="stockbot.tgbot.bot"):
+        asyncio.run(bot.corporate_action_guard_job(ctx))
+        asyncio.run(bot.corporate_action_guard_job(ctx))
+
+    warnings = [r for r in caplog.records if "Alpaca-Zugangsdaten" in r.message]
     assert len(warnings) == 1
     ctx.bot.send_message.assert_not_called()
 

@@ -33,8 +33,10 @@ Abschnitte (Reihenfolge im Quelltext, siehe die `# ──`-Marker):
 
 Die Scheduler-Jobs sind der Ort, an dem die Nebenpfade hängen: Broker-Event-Poll,
 periodische Reconciliation, Post-Trade-Risikoscan, Shadow-Signale, Outbox-Zustellung
-(`outbox_delivery`) und die Alarmauswertung (`alert_evaluation`, wertet
-`core/alerts.py` gegen den Metrik-Snapshot aus). Alle sind fail-open: ein Fehler dort
+(`outbox_delivery`), die Alarmauswertung (`alert_evaluation`, wertet
+`core/alerts.py` gegen den Metrik-Snapshot aus) und der Corporate-Action-Wächter
+(`corporate_action_guard`, wertet `core/corporate_action_guard.py` gegen offene Positionen +
+Watchlist aus, OBS-CORPACT). Alle sind fail-open: ein Fehler dort
 darf den Handelspfad nie beeinträchtigen.
 
 Test-Hinweis: manche Tests lesen Architektur am Quelltext (`inspect.getsource`,
@@ -81,6 +83,7 @@ from stockbot.backtest import engine as backtest
 from stockbot.core import metrics
 from stockbot.core import alerts
 from stockbot.core.alerts import AlertNotifier
+from stockbot.core.corporate_action_guard import CorporateActionNotifier, find_corporate_actions
 from stockbot.core import outbox
 from stockbot.core.event_consumers import ObservabilityConsumer
 from stockbot.core.settings import validate_config, assert_postgres_backend
@@ -126,6 +129,7 @@ from stockbot.config import (
     ENTRY_CUTOFF_BEFORE_CLOSE_MIN,
     SIGNAL_CLOSE_THRESHOLD, MONITOR_INTERVAL_SEC, INTRADAY_SCAN_INTERVAL_SEC,
     POST_TRADE_SCAN_INTERVAL_SEC, BROKER_POLL_INTERVAL_SEC, RECONCILE_PERIODIC_SEC,
+    CORPACT_GUARD_ENABLED, CORPACT_GUARD_INTERVAL_SEC, CORPACT_WATCHLIST_LOOKBACK_DAYS,
     SL_TP_MODES, DEFAULT_SL_TP_MODE, DEFAULT_LEVERAGE, STRATEGY_EXITS_ENABLED,
     LLM_RANK_ENABLED, DEFAULT_EOD_CLOSE, HOLD_MAX_DAYS,
     EXTENDED_HOURS, ALPACA_ENABLED, ALPACA_PAPER, ADMIN_CHAT_ID,
@@ -153,6 +157,8 @@ _OUTBOX_CONSUMER = ObservabilityConsumer()
 ALERT_EVALUATION_SEC = 60         # Takt der Alarmauswertung (OBS-ALERTS)
 _ALERT_NOTIFIER = AlertNotifier()  # nur Dedup-Zustand; der Versand läuft direkt über context.bot
 _alert_admin_missing_logged = False  # verhindert Log-Spam ohne konfigurierten ADMIN_CHAT_ID
+_CORPACT_NOTIFIER = CorporateActionNotifier()  # nur Dedup-Zustand (OBS-CORPACT)
+_corpact_no_alpaca_logged = False  # verhindert Log-Spam ohne konfigurierte Alpaca-Zugangsdaten
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
 
@@ -3033,6 +3039,80 @@ async def alert_evaluation_job(context: ContextTypes.DEFAULT_TYPE):
         log.warning(f"Alarm-Auswertung fehlgeschlagen: {e}")
 
 
+def _corpact_symbols_since() -> dict[str, datetime]:
+    """Sammelt die für aktive Nutzer relevanten Symbole (offene Positionen + Watchlist) mit dem
+    jeweils sinnvollsten `since`: für eine offene Position das Einstiegsdatum (`trade_date`) —
+    jede Kursanpassung seit Eröffnung kann die bereits gebuchte P&L-Berechnung verfälschen,
+    genau der Schaden, den die Glitch-Fill-Heilung weiter oben nachträglich repariert. Für ein
+    reines Watchlist-Symbol ohne Position droht das noch nicht — dort reicht ein knappes
+    Rückblick-Fenster (`CORPACT_WATCHLIST_LOOKBACK_DAYS`) als Frühwarnung.
+
+    Hält dieselbe Symbolmenge klein wie `monitor_trades` (offene Positionen + Watchlist statt
+    des ganzen Universums) und dedupliziert über alle Nutzer hinweg auf das früheste `since` je
+    Ticker, damit ein Fund für JEDEN betroffenen Nutzer sichtbar wird."""
+    watchlist_since = datetime.now(timezone.utc) - timedelta(days=CORPACT_WATCHLIST_LOOKBACK_DAYS)
+    symbols: dict[str, datetime] = {}
+    for user in db.list_active_users():
+        for trade in db.get_active_trades(user["user_id"]):
+            try:
+                since = datetime.strptime(trade["trade_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            ticker = trade["ticker"]
+            if ticker not in symbols or since < symbols[ticker]:
+                symbols[ticker] = since
+        for ticker in user["watchlist"]:
+            if ticker not in symbols or watchlist_since < symbols[ticker]:
+                symbols[ticker] = watchlist_since
+    return symbols
+
+
+async def corporate_action_guard_job(context: ContextTypes.DEFAULT_TYPE):
+    """Prüft offene Positionen + Watchlist auf unverarbeitete Kursanpassungen (Splits) und
+    meldet neu gefundene an den Admin (OBS-CORPACT) — fail-open, analog `alert_evaluation_job`.
+
+    Verdrahtet zwei bislang tote Bausteine: `MarketDataProvider.get_corporate_actions`
+    (market/data_providers.py) und `check_corporate_actions` (core/data_quality.py) wurden
+    außerhalb von Tests von niemandem aufgerufen — der Bot reparierte den Schaden von
+    unerkannten Splits bislang nur nachträglich (Glitch-Fill-Heilung weiter oben, z. B.
+    KHC @ 0,26 → +53.810 $ Fake-P&L). Beobachtet nur, blockiert keine Order — der TSAFE-
+    Risk-Pfad (core/risk.py) bleibt unberührt.
+    """
+    global _corpact_no_alpaca_logged
+    if not ALPACA_ENABLED:
+        if not _corpact_no_alpaca_logged:
+            log.warning(
+                "Corporate-Action-Wächter: keine Alpaca-Zugangsdaten konfiguriert — "
+                "Prüfung ausgesetzt.")
+            _corpact_no_alpaca_logged = True
+        return
+    if ADMIN_CHAT_ID is None:
+        return
+    try:
+        since_by_ticker = await asyncio.to_thread(_corpact_symbols_since)
+        if not since_by_ticker:
+            return
+        provider = provider_factory.get_signal_provider()
+        actions_by_ticker: dict[str, list] = {}
+        for ticker, since in since_by_ticker.items():
+            try:
+                actions_by_ticker[ticker] = await asyncio.to_thread(
+                    provider.get_corporate_actions, ticker, since=since)
+            except Exception as e:
+                # Ein Broker-Fehler bei EINEM Symbol darf die Prüfung der übrigen nicht
+                # verhindern — mit Kontext loggen und weitermachen.
+                log.warning(f"Corporate-Action-Abruf für {ticker} fehlgeschlagen: {e}")
+        findings = find_corporate_actions(actions_by_ticker, since_by_ticker=since_by_ticker)
+        new_findings = _CORPACT_NOTIFIER.new_findings(findings)
+        if new_findings:
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=CorporateActionNotifier.format_message(new_findings),
+            )
+    except Exception as e:
+        log.warning(f"Corporate-Action-Wächter fehlgeschlagen: {e}")
+
+
 def _register_jobs(app):
     """Plant alle Hintergrund-Jobs: Tagessignale, Tagesauswertung, Smart-Money-Scan und
     den laufenden Trade-Monitor (Auto-Close alle MONITOR_INTERVAL_SEC, solange Markt offen)."""
@@ -3094,6 +3174,11 @@ def _register_jobs(app):
         alert_evaluation_job, interval=ALERT_EVALUATION_SEC, first=ALERT_EVALUATION_SEC,
         name="alert_evaluation",
     )
+    if CORPACT_GUARD_ENABLED:
+        job_queue.run_repeating(
+            corporate_action_guard_job, interval=CORPACT_GUARD_INTERVAL_SEC,
+            first=CORPACT_GUARD_INTERVAL_SEC, name="corporate_action_guard",
+        )
 
 
 # ── Bot-Start (main) ─────────────────────────────────────────────────────────
