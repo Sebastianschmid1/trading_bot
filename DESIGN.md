@@ -706,13 +706,20 @@ Krankheit wie `.chip` in E4. Aufgelöst über zwei getrennte Bedeutungen:
   die kein `aria-pressed` tragen dürfen):
   ```css
   .btn[aria-pressed="true"], .btn[aria-current] {
-    color: var(--lg-ink); font-weight: 600;
-    box-shadow: var(--lg-cast-1), inset 0 0 0 1px var(--lg-violet);
-    border-color: var(--lg-violet);
+    box-shadow: var(--lg-cast-1), inset 0 0 0 1px var(--tone-violet-fg);
+    border-color: var(--tone-violet-fg);
   }
   ```
-  Optisch deckungsgleich mit `.tab.active` (dashboard.html) — dem im Haus bereits abgenommenen
-  Auswahl-Muster. Die beiden `<a>`-Filterlinks in `app.html` („Alle" / Anlageklassen-Filter)
+  **Der Ton ist `--tone-violet-fg`, nicht `--lg-violet`** — und das ist der Punkt, an dem das
+  Vorbild `.tab.active` (dashboard.html) in die Irre führt. Dort ändert der aktive Zustand
+  **drei** Dinge, weil `.tab` eine schwächere Basis hat (`--lg-ink-muted`, Gewicht 500). `.btn`
+  trägt Farbe und Gewicht bereits in der Basis, also bleibt der Ring der **einzige**
+  Unterschied zwischen gewählt und nicht gewählt. Als `--lg-violet` trägt er im Light Mode nur
+  **2,83:1** und liegt damit unter der 3:1-Schwelle, die WCAG 1.4.11 für Zustände von
+  Bedienelementen verlangt; mit `--tone-violet-fg` sind es **8,32:1 / 10,86:1**. Eine reine
+  Tint-Füllung wäre kein Ersatz — durchgerechnet bei α 0,16/0,20/0,28 ergibt sie nur 1,16–1,65:1
+  Unterschied. Die vorher gesetzten `color`/`font-weight`-Deklarationen sind entfallen, weil sie
+  die Basis wortgleich wiederholten. Die beiden `<a>`-Filterlinks in `app.html` („Alle" / Anlageklassen-Filter)
   hatten vorher **gar keinen** programmatischen Ausgewählt-Zustand — nur die Klasse `.on`, die
   weder Screenreader noch Assistive Technology auswerten. `aria-current="true"` schließt diese
   Lücke nebenbei.
