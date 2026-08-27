@@ -1,6 +1,6 @@
 # Plan: das Repository vorzeigbar machen (Bewerbungsmappe)
 
-> **Status: A1, A2, B1 und B2 freigegeben und umgesetzt (2026-08-27). B3 und C2 nicht freigegeben.**
+> **Status: A1, A2, B1, B2 und B3 freigegeben und umgesetzt (2026-08-27). C2 nicht freigegeben.**
 > Die Entscheidung zur Urheberschaft ist gefallen: **offen lassen** (siehe A3/C1).
 > Ursprünglicher Hinweis: Jeder Punkt trägt eine eigene Freigabe-Zeile.
 > Erst nach deinem „ja" zu einem Punkt wird daran gearbeitet.
@@ -199,7 +199,22 @@ Router).
 
 **Aufwand:** ein halber Tag. **Wirkung:** gering bis mittel.
 
-> **Freigabe B3:** ⬜ offen — nicht freigegeben.
+> **Freigabe B3:** ✅ freigegeben und umgesetzt (2026-08-27, Merge `d451609`).
+> 1.368 → 391 Zeilen; fünf Fach-Router `webapp_auth.py` (64), `webapp_signals.py` (351),
+> `webapp_settings.py` (150), `webapp_reports.py` (406), `webapp_watchlist_lab.py` (133).
+> Geschnitten entlang der Abschnittsmarken, die schon in der Datei standen.
+>
+> Wie bei B1 war der Knackpunkt, dass `webapp.py` **selbst eine Test-Naht** ist: Tests
+> ersetzen Namen wie `_alpaca_ready` oder `_broker_will_execute` **auf dem Modul**, und
+> Python löst einen unqualifizierten Namen über die Globals des *definierenden* Moduls auf.
+> Ein naiver Schnitt hätte diese Nähte lautlos gekappt — grüner Test, wirkungsloser Patch.
+> Deshalb bleiben die ersetzten Helfer im Fundament, und die Fach-Router rufen sie bewusst
+> als `webapp.<name>` auf. Empirisch gegengeprüft: der Fach-Router löst `webapp` auf dasselbe
+> Modulobjekt auf und sieht einen Patch, und es existiert kein Direktimport, der das bräche.
+>
+> Abgesichert von `tests/test_webapp_router_split.py`: die Routentabelle ist eingefroren
+> (Pfad + Methode), **und** jede Route wird durch die echte `dashboard.py`-App gerufen — ein
+> Router mit Routen, der nirgends eingehängt ist, fällt damit auf. 1.533 grün.
 
 ---
 

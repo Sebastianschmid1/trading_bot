@@ -893,7 +893,7 @@ Kurzfassung der Befunde (Zahlen gemessen an `8134f48`):
 | **A3** | `CLAUDE.md`/`AGENTS.md` liegen offen — Entscheidung des Betreibers, keine Empfehlung von mir | Entscheidung |
 | **B1** | `core/db.py` mit 3.198 Zeilen; Inhalt gut, aber alles in einer Datei. Aufteilen berührt den DB-Zugriffspfad → nur mit Postgres-Lauf | 1 Tag |
 | **B2** | `tgbot/bot.py` mit 3.136 Zeilen (Handler + Formatierung + alle Scheduler-Jobs) | ½ Tag |
-| **B3** | `web/webapp.py` mit 1.368 Zeilen, alle Routen in einer Datei | ½ Tag |
+| **B3** | `web/webapp.py` mit 1.368 Zeilen, alle Routen in einer Datei | ✅ 27.08. (`d451609`) |
 | **C1** | 143 von 509 Commits tragen einen Agenten als Autor — sichtbar auf GitHub, Entscheidung des Betreibers | Entscheidung |
 | **C2** | 86 Commits ohne Nachrichtenkonvention — **Empfehlung: ablehnen**, das Umschreiben von 500 Commits bringt keinen sichtbaren Gewinn | — |
 
