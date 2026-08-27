@@ -614,16 +614,16 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 - [ ] **PLAT-008** Systemd-Härtung je Dienst: eigener Nutzer (kein Root), `NoNewPrivileges`, `PrivateTmp`,
       `ProtectSystem=strict`, `ProtectHome`, `RestrictAddressFamilies`, nur nötige Schreibpfade, Restart-Policy, Resource Limits *(→ todo.md A1)*
-- [ ] **PLAT-006** Dependencies pinnen (Lockfile/Constraints), `pip-audit`, Dependabot, Upgrade-Tests *(→ todo.md A2, inkl. yfinance-FD-Leck-Fix)*
-- [ ] **PLAT-006** Secrets: `.env` nur lokal; Staging/Prod systemd-Credentials/Secret Store; Rotation; getrennte Schlüssel; kein Secret in Logs/Exceptions
+- [~] **PLAT-006** Dependencies pinnen (Lockfile/Constraints), `pip-audit`, Dependabot, Upgrade-Tests *(→ todo.md A2, inkl. yfinance-FD-Leck-Fix)* — *Stand 2026-08-27: Lock existiert, aber ohne Hashes — und `deploy.sh:16` installiert weiter das ungepinnte `requirements.txt`.*
+- [~] **PLAT-006** Secrets: `.env` nur lokal; Staging/Prod systemd-Credentials/Secret Store; Rotation; getrennte Schlüssel; kein Secret in Logs/Exceptions — *Stand 2026-08-27: nur ALPACA key/secret als systemd-Credential verdrahtet; TELEGRAM_TOKEN/ENCRYPTION_KEY/POSTGRES_DSN/ANTHROPIC_API_KEY stehen in den Units auskommentiert.*
 - [ ] **PLAT-007** Alpaca OAuth (minimale Scopes, Token verschlüsselt, Disconnect + Revoke, Paper/Live getrennt)
 - [x] **PLAT-004** Strukturiertes JSON-Logging (timestamp, service, severity, trace_id, user_id pseudonymisiert, entity_id, event_type) — keine Keys/PII
-- [x] **PLAT-005** Monitoring-Metriken (Verfügbarkeit, Feed-Latenz, Quote-Alter, Orderlatenz, Reject/Fill-Rate, Reconciliation-Fehler, Queue-Lag, Positionen ohne Stop, Kill-Switch-Status) + Alarmregeln
+- [x] **PLAT-005** Monitoring-Metriken (Verfügbarkeit, Feed-Latenz, Quote-Alter, Orderlatenz, Reject/Fill-Rate, Reconciliation-Fehler, Queue-Lag, Positionen ohne Stop, Kill-Switch-Status) + Alarmregeln — *Korrektur 2026-08-27: war zu Unrecht abgehakt. Die Metriken werden erhoben, aber die deklarativen Alarmregeln hatten bis `471903e` **keinen einzigen Aufrufer**; ausgeleitet (`/metrics`) werden die Werte weiterhin nicht.*
 - [x] **PLAT-009** Verschlüsselte PostgreSQL-Backups, Aufbewahrungsplan, regelmäßiger Restore-Test, Recovery-Ziele — `pg-backup.timer` seit 2026-07-20 auf dem VPS aktiv (age-verschlüsselt), Restore gegen ein echtes Backup verifiziert
 
 **Gate P9 (Abnahme):**
 - [ ] Kein Dienst läuft als Root; keine Prod-Secrets in `.env`; kritische Fehler → Alarm
-- [ ] Restore-Test erfolgreich; Nutzer kann Brokerzugriff sofort widerrufen; Position ohne Schutz wird erkannt
+- [~] Restore-Test erfolgreich; Nutzer kann Brokerzugriff sofort widerrufen; Position ohne Schutz wird erkannt — *Stand 2026-08-27: Revoke + Erkennung ungeschützter Positionen sind verdrahtet; die Restore-Test-Durchführung ist ein Betriebsvorgang.*
 
 ---
 
@@ -638,7 +638,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 **Gate P10 (Abnahme):**
 - [x] Keine doppelten Orders in allen Wiederholungstests; keine unkontrollierte Order bei Feed-/Brokerfehler — belegt durch Replay- + Failure-Injection-Suite
-- [ ] Alle kritischen Failure-Fälle dokumentiert; keine ungeklärten Positionsabweichungen; Kill-Switch in Integrationstests bestätigt
+- [~] Alle kritischen Failure-Fälle dokumentiert; keine ungeklärten Positionsabweichungen; Kill-Switch in Integrationstests bestätigt — *Stand 2026-08-27: Suiten vorhanden; „keine ungeklärten Positionsabweichungen" ist eine Burn-in-Aussage.*
 
 ---
 
@@ -646,7 +646,7 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 - [ ] Voraussetzungen: regulatorische Einordnung, alle P0/P1/P2 fertig, Paper-Burn-in dokumentiert, OAuth funktioniert, Kill-Switches + Reconciliation getestet, Incident-Prozess definiert
 - [ ] Begrenzungen: nur freigegebenes Konto, sehr kleines Risikobudget, max. 1 Strategie, 1–2 Positionen, nur liquide Aktien/ETFs, keine Overnight-Position, keine Auto-Skalierung
-- [ ] Canary-Metriken erfassen (Signal→Order/Order→Fill-Latenz, Slippage, Fill/Reject-Rate, Spread, Positionsabweichungen, Schutzorderstatus, manuelle Eingriffe, Incidents)
+- [~] Canary-Metriken erfassen (Signal→Order/Order→Fill-Latenz, Slippage, Fill/Reject-Rate, Spread, Positionsabweichungen, Schutzorderstatus, manuelle Eingriffe, Incidents) — *Stand 2026-08-27: Latenz/Reject/Reconciliation/Quote-Alter instrumentiert; Slippage, Spread, manuelle Eingriffe und die Ausleitung fehlen.*
 - [ ] Abbruchkriterien scharf schalten (doppelte Order, falsche Größe, fehlende Schutzorder, unerklärte Abweichung, Verlustlimit, veraltete Daten, falsche Handelszeit, nicht-auditierbare Aktion → Sofort-Stop)
 - [ ] Deliverables: Canary-Konfig + Risk-Profil, täglicher Report, Incident-Log, Abschlussentscheidung
 
@@ -662,14 +662,14 @@ Ziel: Belastbares Zustands- und Datenmodell.
 
 ## Querschnitts-Arbeitspakete (parallel, wo passend)
 
-- [ ] **Paket A – Konfig/Flags:** zentrale typisierte Settings-Klasse, sichere Defaults, Modusvalidierung beim Start, Start verweigern bei riskanter Fehlkonfig
-- [ ] **Paket B – Domain Events:** versioniertes Event-Set (SignalGenerated…KillSwitchActivated), Schema dokumentiert, Consumer idempotent, Trace-ID durchgängig
-- [ ] **Paket C – Outbox:** Outbox-Tabelle, atomare Speicherung mit Domänenänderung, Auslieferungs-Worker, Retry, Dead-Letter, Rückstand-Monitoring
+- [x] **Paket A – Konfig/Flags:** zentrale typisierte Settings-Klasse, sichere Defaults, Modusvalidierung beim Start, Start verweigern bei riskanter Fehlkonfig *(belegt 2026-08-27)*
+- [~] **Paket B – Domain Events:** versioniertes Event-Set (SignalGenerated…KillSwitchActivated), Schema dokumentiert, Consumer idempotent, Trace-ID durchgängig — *Stand 2026-08-27: 5 von 9 Event-Typen haben einen Emitter; **verdrahtet ist der nackte `ObservabilityConsumer`, nicht der `DedupConsumer` — der Test wrappt, die Produktion nicht**.*
+- [~] **Paket C – Outbox:** Outbox-Tabelle, atomare Speicherung mit Domänenänderung, Auslieferungs-Worker, Retry, Dead-Letter, Rückstand-Monitoring — *Stand 2026-08-27: Tabelle, Worker, Retry, Dead-Letter und Zustelljob laufen; **Rückstand-Monitoring hat keinen Aufrufer, und das Enqueue läuft ausserhalb der Transition-Transaktion** (fail-open).*
 - [ ] **Paket D – Notifications:** Telegram + Web-SSE als Consumer, keine Handelslogik im Notification-Code, Templates (Signal/Fill/Reject/Kill-Switch), Retry + Dedup
 - [ ] **DB-Migrationsmapping:** trades→positions+position_events · signals→signals+signal_candidates · broker keys→broker_connections · strategy name→strategies+strategy_versions · status text→Enums · P&L→fills+performance_snapshots
-- [ ] **API v1** (siehe Plan §23): Idempotency-Header bei mutierenden Trade-Aktionen, rollenbasierte Autorisierung, Pydantic-Schemas, Trace-ID je Antwort
-- [ ] **Telegram-Umbau:** direkte Brokeraufrufe/Hebel/Optionen/komplexe Settings raus; behalten: Signale, Annehmen/Ablehnen, Positionen, Kill-Switch, Web-Link; Callback-Sicherheit (opaque ID, serverseitige Auflösung, Ablauf, Nutzerbindung, Einmal-/idempotent) — Nachrichtenaufbau nach [Stylekonzept.md](Stylekonzept.md) §26 (Modus-Präfix, `LIVE · ECHTES GELD`, keine Raketen/Feuer-Emojis)
-- [ ] **Web-App-Umbau:** Signalansicht (Entry-Zone/Stop/Risiko/Größe/Kosten/Regime/Datenstatus), Pflicht-Bestätigungsdialog, Risikoübersicht, deutliche Moduskennzeichnung (BACKTEST/SHADOW/PAPER/LIVE, LIVE mit Warnung) — visuelle Umsetzung nach Design-System (siehe unten)
+- [~] **API v1** (siehe Plan §23): Idempotency-Header bei mutierenden Trade-Aktionen, rollenbasierte Autorisierung, Pydantic-Schemas, Trace-ID je Antwort — *Stand 2026-08-27: Router gemountet, RBAC/Pydantic/Trace-ID da; **es gibt keine mutierende Trade-Aktion in v1** (Annehmen/Ablehnen/Verkaufen bleiben Form-POSTs), Idempotency-Store nur in-Prozess.*
+- [~] **Telegram-Umbau:** direkte Brokeraufrufe/Hebel/Optionen/komplexe Settings raus; behalten: Signale, Annehmen/Ablehnen, Positionen, Kill-Switch, Web-Link; Callback-Sicherheit (opaque ID, serverseitige Auflösung, Ablauf, Nutzerbindung, Einmal-/idempotent) — Nachrichtenaufbau nach [Stylekonzept.md](Stylekonzept.md) §26 (Modus-Präfix, `LIVE · ECHTES GELD`, keine Raketen/Feuer-Emojis) — *Stand 2026-08-27: Callback-Sicherheit fertig; Hebel-/Options-Oberfläche ist nicht entfernt, §26 (Modus-Präfix, `LIVE · ECHTES GELD`) nicht umgesetzt.*
+- [~] **Web-App-Umbau:** Signalansicht (Entry-Zone/Stop/Risiko/Größe/Kosten/Regime/Datenstatus), Pflicht-Bestätigungsdialog, Risikoübersicht, deutliche Moduskennzeichnung (BACKTEST/SHADOW/PAPER/LIVE, LIVE mit Warnung) — visuelle Umsetzung nach Design-System (siehe unten) — *Stand 2026-08-27: Bestätigungsdialog, Moduskennzeichnung und Datenstatus fertig; der Signalkarte fehlen Entry-Zone, Kosten, Regime und Risiko/Größe — die stehen nur im Dialog.*
 
 ---
 
@@ -693,44 +693,44 @@ Reihenfolge = Stylekonzept §29. Läuft parallel zu Phase 5/6 und den Web-/Teleg
 
 **Style-Phase 3 — Hauptseiten:**
 - [ ] Dashboard/Übersicht mit Info-Hierarchie Risiko→Status→Aktionen→Performance→Historie (Gewinn nicht größte Fläche)
-- [ ] Signale (Signalkarte §11.2: „Trade prüfen" statt grüner Kaufen-Button, keine „Top Pick"/Dringlichkeit)
-- [ ] Positionen, Orders, Performance (Modi getrennt, nie in einer Linie), Einstellungen
+- [x] Signale (Signalkarte §11.2: „Trade prüfen" statt grüner Kaufen-Button, keine „Top Pick"/Dringlichkeit) *(belegt 2026-08-27)*
+- [~] Positionen, Orders, Performance (Modi getrennt, nie in einer Linie), Einstellungen — *Stand 2026-08-27: Positionen, Orderzustände, Performance und Einstellungen sind da; keine eigenständige Orders-Seite.*
 
 **Style-Phase 4 — Risikointeraktionen:**
-- [ ] Trade-Bestätigungsdialog (feste Reihenfolge §18.1; Live: roter Hinweis + „Echtes Geld" + Volltext-Button)
-- [ ] Kill-Switch-UI, Brokerstatus, Risk-Profile-Editor (Slider/Presets statt freier Limits), Fehler-/Unsicherheitszustände
-- [ ] Microcopy nach §25 (sachlich; „Durch Risikoregel blockiert" statt „Jetzt zuschlagen")
+- [x] Trade-Bestätigungsdialog (feste Reihenfolge §18.1; Live: roter Hinweis + „Echtes Geld" + Volltext-Button) *(belegt 2026-08-27)*
+- [~] Kill-Switch-UI, Brokerstatus, Risk-Profile-Editor (Slider/Presets statt freier Limits), Fehler-/Unsicherheitszustände — *Stand 2026-08-27: Kill-Switch-UI und Brokerstatus fertig; **der Risk-Profile-Editor fehlt** (`settings.html:165` ist wörtlich „schreibgeschützt", keine POST-Route).*
+- [x] Microcopy nach §25 (sachlich; „Durch Risikoregel blockiert" statt „Jetzt zuschlagen") *(belegt 2026-08-27)*
 
 **Style-Phase 5 — Responsive & Accessibility:**
-- [ ] Mobile Layout (Bottom-Nav; Signal-Freigabe §23.4 ohne Horizontal-Scroll: Modus/Ticker/Entry/Stop/Risiko/Größe/Ablauf)
-- [ ] Tastaturbedienung + sichtbarer Fokus, Screenreader/semantisches HTML, Touch-Ziele ≥ 44×44 px
-- [ ] Kontrastprüfung (WCAG 2.1 AA), `prefers-reduced-motion` respektiert, Charts mit textlicher Alternative
+- [x] Mobile Layout (Bottom-Nav; Signal-Freigabe §23.4 ohne Horizontal-Scroll: Modus/Ticker/Entry/Stop/Risiko/Größe/Ablauf) *(belegt 2026-08-27)*
+- [x] Tastaturbedienung + sichtbarer Fokus, Screenreader/semantisches HTML, Touch-Ziele ≥ 44×44 px *(belegt 2026-08-27)*
+- [~] Kontrastprüfung (WCAG 2.1 AA), `prefers-reduced-motion` respektiert, Charts mit textlicher Alternative — *Stand 2026-08-27: `prefers-reduced-motion` überall; Badge-auf-Soft liegt laut eigener Notiz bei 2,15–2,84:1, und Charts haben nur `aria-label` statt einer Datentabelle.*
 
 **Gate Style (DoD Style-System, §30):**
-- [ ] Alle Hauptseiten nutzen dieselben Tokens; Dark Mode durchgängig
-- [ ] Keine kritische Info nur farblich; Betriebsmodus auf jeder relevanten Seite sichtbar; Live-Aktionen eindeutig gekennzeichnet
-- [ ] Kernkomponenten dokumentiert; Desktop/Tablet/Mobile unterstützt; Fokus sichtbar; Kontrast geprüft
-- [ ] Telegram-Nachrichten nutzen dieselbe Terminologie wie die Web-App
+- [x] Alle Hauptseiten nutzen dieselben Tokens; Dark Mode durchgängig *(belegt 2026-08-27)*
+- [x] Keine kritische Info nur farblich; Betriebsmodus auf jeder relevanten Seite sichtbar; Live-Aktionen eindeutig gekennzeichnet *(belegt 2026-08-27)*
+- [~] Kernkomponenten dokumentiert; Desktop/Tablet/Mobile unterstützt; Fokus sichtbar; Kontrast geprüft — *Stand 2026-08-27: dokumentiert und responsiv; „Kontrast geprüft" nur manuell, mit den bekannten Unterschreitungen aus dem Punkt darüber.*
+- [~] Telegram-Nachrichten nutzen dieselbe Terminologie wie die Web-App — *Stand 2026-08-27: gemeinsame Quelle `core/glossary.py` existiert, aber Telegram teilt nur 2 Symbole — die Signalnachricht formuliert eigenständig, Modusbezeichnung fehlt dort ganz.*
 
 ---
 
 ## Definition of Done — Version 1
 
-- [ ] **Produkt:** nur US-Aktien + US-Aktien-ETFs, Long-only, 1×, keine Optionen, Paper Standard, ≤ 3 Strategiefamilien
-- [ ] **Daten:** Exchange-Kalender integriert, Datenprovider abstrahiert, Produktionssignale nicht von yfinance abhängig, Datenherkunft gespeichert
-- [ ] **Risiko:** zentraler Risk Service, risikobasiertes Sizing, Tagesverlustlimit, Exposure-Limits, Kill-Switches, keine Budgetüberschreitung
-- [ ] **Execution:** zentrales OMS, Idempotency, Broker-Event-Verarbeitung, Partial-Fill-Logik, Reconciliation, vollständiges Audit
-- [ ] **Research:** Backtest/Shadow/Paper/Live getrennt, Strategieversionierung, reproduzierbare Backtests, Labor ohne direkte Live-Änderungen
-- [ ] **Betrieb:** PostgreSQL, dedizierte Systemnutzer, gepinnte Dependencies, sichere Secrets, Monitoring, Backups, Restore-Test
-- [ ] **Qualität:** Unit-/Integrations-/Replay-/Failure-Tests, Paper-Burn-in erfolgreich, keine offenen P0/P1, dokumentiertes Go/No-Go
+- [~] **Produkt:** nur US-Aktien + US-Aktien-ETFs, Long-only, 1×, keine Optionen, Paper Standard, ≤ 3 Strategiefamilien — *Stand 2026-08-27: Long-only, 1×, keine Optionen, Paper-Standard und genau 3 Produktionsstrategien belegt; `config.py:231` führt weiterhin Krypto-Symbole für Demo/Website.*
+- [~] **Daten:** Exchange-Kalender integriert, Datenprovider abstrahiert, Produktionssignale nicht von yfinance abhängig, Datenherkunft gespeichert — *Stand 2026-08-27: Exchange-Kalender, Provider-Abstraktion und yfinance-Freiheit des Signalpfads belegt; **„Datenherkunft gespeichert" ist nicht erfüllt** — die `data_*`-Felder werden nie befüllt, das Rohdatenarchiv nie geschrieben.*
+- [x] **Risiko:** zentraler Risk Service, risikobasiertes Sizing, Tagesverlustlimit, Exposure-Limits, Kill-Switches, keine Budgetüberschreitung *(belegt 2026-08-27)*
+- [x] **Execution:** zentrales OMS, Idempotency, Broker-Event-Verarbeitung, Partial-Fill-Logik, Reconciliation, vollständiges Audit *(belegt 2026-08-27)*
+- [x] **Research:** Backtest/Shadow/Paper/Live getrennt, Strategieversionierung, reproduzierbare Backtests, Labor ohne direkte Live-Änderungen *(belegt 2026-08-27)*
+- [~] **Betrieb:** PostgreSQL, dedizierte Systemnutzer, gepinnte Dependencies, sichere Secrets, Monitoring, Backups, Restore-Test — *Stand 2026-08-27: Postgres erzwungen, Backups laufen; Nicht-Root-Nutzer, Dependency-Pinning und Secrets siehe oben, Metriken werden nicht ausgeleitet.*
+- [~] **Qualität:** Unit-/Integrations-/Replay-/Failure-Tests, Paper-Burn-in erfolgreich, keine offenen P0/P1, dokumentiertes Go/No-Go — *Stand 2026-08-27: 110 Testdateien, Replay-/Failure-Injection-Suiten und CI vorhanden; Burn-in und Abzeichnung sind menschlich.*
 
 ---
 
 ## Dauerhafte Leitplanken (immer gültig)
 
-- [ ] Paper-Modus bleibt Standard · Live nur mit separater Freigabe
-- [ ] Neue Positionen brauchen Human Gate · Schutz-Exits dürfen nach Zustimmung automatisch laufen
-- [ ] Kein Hebel/keine Optionen in V1 · kein yfinance im Produktionssignalpfad · keine Budgetüberschreitung
-- [ ] Keine direkte Order aus Telegram/Web · keine Vermischung von Backtest/Shadow/Paper/Live
-- [ ] Keine direkte Live-Änderung durch den Optimizer · jede Entscheidung reproduzierbar · jede Brokeraktion auditierbar
-- [ ] Bei unklarer Daten-/Brokerlage werden keine neuen Positionen eröffnet
+- [x] Paper-Modus bleibt Standard · Live nur mit separater Freigabe *(belegt 2026-08-27)*
+- [x] Neue Positionen brauchen Human Gate · Schutz-Exits dürfen nach Zustimmung automatisch laufen *(belegt 2026-08-27)*
+- [~] Kein Hebel/keine Optionen in V1 · kein yfinance im Produktionssignalpfad · keine Budgetüberschreitung — *Stand 2026-08-27: Deckel greift (Hebel 1×, Optionen abgelehnt, Budget über `plan_order`); **Hebel-Route `/app/lev` und Options-Selektor sind nicht entfernt, nur wirkungslos**.*
+- [x] Keine direkte Order aus Telegram/Web · keine Vermischung von Backtest/Shadow/Paper/Live *(belegt 2026-08-27)*
+- [x] Keine direkte Live-Änderung durch den Optimizer · jede Entscheidung reproduzierbar · jede Brokeraktion auditierbar *(belegt 2026-08-27)*
+- [~] Bei unklarer Daten-/Brokerlage werden keine neuen Positionen eröffnet — *Stand 2026-08-27: Frische-/Spread-Prüfung existiert, Web sperrt Einstiege bei degradierten Daten; **greift erst mit `RISK_FAIL_CLOSED_ON_QUOTE=true` — Default ist aus**.*
