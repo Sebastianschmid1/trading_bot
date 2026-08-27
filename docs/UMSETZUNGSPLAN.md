@@ -874,6 +874,28 @@ gesehen: die Regel ist ja korrekt geschrieben, sie wird nur von einem Elternteil
 Behoben auf `agent/UI-MOBILNAV` (Override im eigenen CSS, der Vendor bleibt unangetastet), mit
 Regressionstest.
 
+## Deploy 2026-08-27 — Repo-Vorzeigbarkeit, Alarmpfad, Risiko-Verdrahtung, Mobil-Nav
+
+GitHub-`main` `2e2e07c` → VPS-`main` `5c84d89` (`git merge --no-ff` aus `deploy-20260827`; der
+VPS-`main` trägt weiterhin bewusst die projektfremden Hochzeits-Commits, ein ff-Merge wäre
+falsch). Backup `stockbot_pre_repo_vorzeigbarkeit_20260827.dump` (6,1 MB).
+
+**Keine Migration.** Kette `d0e1f2a3b4c5 → e1f2a3b4c5d6 → a2b3c4d5e6f7`, DB-Head stand schon auf
+der Spitze; der Stapel bringt keine neue Revision mit.
+
+**Kein geändertes Handelsverhalten.** Unmittelbar vor dem Deploy in der Produktions-DB
+gegengeprüft: `risk_profiles` = `7178171574|[]|100|0` — leere Strategie-Whitelist, Sektorkappe
+100 %, Liquiditätsschwelle 0. Die mit Befund 11/12 verdrahteten Prüfungen bleiben damit untätig;
+sie können erst wirken, wenn der Betreiber Werte setzt.
+
+**Rauchtest grün.** `db.py` ist am VPS restlos durch das Paket `db/` ersetzt, Alt-Bytecode
+entfernt; Import von `db`, `webapp`, `dashboard` und `bot` mit der Dienst-venv fehlerfrei;
+41 webapp-Routen wie lokal. HTTP gegen den laufenden Dienst: `/api/v1/health` und `/login` 200,
+`/app`, `/app/reports`, `/app/settings`, `/app/watchlist`, `/app/lab`, `/dashboard` je 303 auf
+den Login — **kein einziger 404**, die Router-Aufteilung ist also real verdrahtet und nicht nur
+im Testprozess. 13 Scheduler-Jobs registriert, darunter das neue `alert_evaluation`. Journal
+ohne Fehler, Warnung oder Traceback.
+
 ## Offen: Repository für die Bewerbungsmappe vorzeigbar machen (2026-08-27)
 
 Neues Ziel des Betreibers: das **Repository** (nur der Git-Teil — nicht Betrieb, nicht Deploy)

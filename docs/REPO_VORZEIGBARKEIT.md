@@ -1,6 +1,7 @@
 # Plan: das Repository vorzeigbar machen (Bewerbungsmappe)
 
-> **Status: A1, A2, B1, B2 und B3 freigegeben und umgesetzt (2026-08-27). C2 nicht freigegeben.**
+> **Status: A1, A2, B1, B2 und B3 freigegeben, umgesetzt und deployt (2026-08-27,
+> GitHub `2e2e07c` → VPS `5c84d89`). C2 nicht freigegeben.**
 > Die Entscheidung zur Urheberschaft ist gefallen: **offen lassen** (siehe A3/C1).
 > Ursprünglicher Hinweis: Jeder Punkt trägt eine eigene Freigabe-Zeile.
 > Erst nach deinem „ja" zu einem Punkt wird daran gearbeitet.
