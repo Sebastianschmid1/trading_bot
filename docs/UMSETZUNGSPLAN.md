@@ -781,6 +781,23 @@ nicht. Ein Betreiber, der eine Whitelist speichert, bekommt also stillschweigend
 Schutz. Der Fix gehört in den Kontext-Loader (`signal_context`), **nicht** in `risk.py`
 (TSAFE): der Default ist ein leeres Tupel, und `risk.py:120` prüft `and allowed_strategies` —
 leer blockiert nichts, die Verdrahtung ist also inert-by-default.
+**Behoben `f5592ee`** — mit einem Zusatzbefund, den ich beim Beauftragen selbst übersehen
+hatte: **auch `strategy_key` war nirgends gesetzt**. Der Check war also doppelt tot; selbst mit
+verdrahteter Whitelist hätte `risk.py:120` (`if strategy_key is not None and allowed_strategies`)
+nie ausgelöst. Beide Werte kommen jetzt aus demselben persistierten Signal wie
+`average_dollar_volume`. Aktiviert ein Betreiber eine Whitelist, schreibt der Kontext-Loader eine
+`WARNING` mit `user_id` und der erlaubten Liste — die Aktivierung soll im Journal auffallen,
+nicht erst beim ersten abgelehnten Signal. **Vor dem nächsten Deploy prüfen, was in
+`risk_profiles.allowed_strategies_json` steht** (der Betreiber muss die Abfrage selbst fahren):
+steht dort etwas Nicht-Leeres, wirkt es ab dem Deploy.
+
+Ebenfalls geschlossen: die halbe Liquiditäts-Verdrahtung. `average_dollar_volume` stand zunächst
+nur für `standard` zur Verfügung (`analyzer.py`), weil `strategies.py::_make_signal` sein
+`avg_vol` nicht zurückgab — `bb_revert` und `ai_adaptive` wären still übersprungen worden. Jetzt
+liefern alle drei produktiven Strategien den Wert (`610c633`). **Ehrlich dazu:** die beiden
+Berechnungen sind nicht bitgleich — `analyzer.py` klammert die heutige, noch unvollständige
+Tageskerze aus, `_make_signal` mittelt über die letzten 20 Zeilen. Für einen Schwellenvergleich
+unerheblich, aber es ist keine identische Größe.
 
 **Befund 12 — der Sektor-Exposure-Check hat gar keine Datenquelle.**
 `exposure.py:67` steigt bei `candidate_sector is None` sofort aus, und der einzige Aufrufer,
