@@ -1172,8 +1172,13 @@ Datenstatus: aktuell
 Live-Nachrichten beginnen immer mit:
 
 ```text
-LIVE · ECHTES GELD
+LIVE – ECHTES GELD
 ```
+
+Die Zeichenkette ist **wörtlich** dieselbe wie in der Web-App (`components.html`, `app.html`)
+und in `core/glossary.MODE_MESSAGE_PREFIXES` — zwei Schreibweisen derselben Warnung wären nach
+§32.9 selbst ein Defekt. Maßgeblich ist der Code, nicht dieser Abschnitt: bis 2026-08-27 stand
+hier ein Mittelpunkt, während die abgenommene Web-App längst den Halbgeviertstrich führte.
 
 ## 26.3 Emojis
 
