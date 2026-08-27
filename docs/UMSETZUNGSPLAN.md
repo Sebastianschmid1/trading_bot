@@ -819,6 +819,16 @@ Entscheidung des Betreibers. Anmerkung zur Historie: die Reparatur der Exposure-
 (`8022bc9`) hat den Korrelationsgruppen-Pfad verdrahtet, den Sektor-Pfad aber nicht — es war
 eine halbe Reparatur, was beim damaligen Review niemandem auffiel.
 
+**Nachtrag zu Befund 12 am 2026-08-27 — warum das wirklich keine Verdrahtung ist.** Bei
+Befund 10 und 13 lag beides schon im Repo und es fehlte nur die Verbindung. Hier nicht: die
+einzige Sektor-Quelle, die überhaupt erreichbar wäre, ist yfinance — und yfinance ist mit W3.2
+ausdrücklich **aus dem Produktions-Signalweg entfernt** worden (Gate P2, Provider-Trennung).
+`market/lookup.py:58` benutzt `yf.Ticker(...).info`, holt aber nur Name und `quoteType`, und
+`lookup` ist selbst als research-tier eingestuft. Alpaca liefert im Asset-Endpunkt keinen
+Sektor. Es bleiben drei Wege, und die Wahl gehört dem Betreiber: eine gepflegte Sektor-Tabelle
+im Repo (klein, aber Pflegeaufwand), eine zusätzliche Datenquelle (Kosten), oder den Check
+bewusst untätig lassen (`max_sector_exposure_pct = 100`, der heutige Zustand).
+
 **Befund 13 — fünf von sieben Datenqualitäts-Prüfungen haben keinen Aufrufer.**
 Derselbe Eingaben-Scan auf `core/data_quality.py` angewandt: aus dem Modul werden **nur**
 `check_quote_age` und `check_spread` benutzt (beide aus `risk.py:136/140`).
