@@ -1,227 +1,285 @@
-# 📈 Stock Signal Telegram Bot
+# stockbot — Trading Research & Execution Assistant
 
-Tägliche Aktienempfehlungen per Telegram mit Demo-Trade-Tracking.
+Ein Handelsassistent für US-Aktien mit zwei Bedienoberflächen (Telegram-Bot und Web-App), der
+Signale aus technischer Analyse erzeugt, sie durch eine mehrstufige Risikoprüfung schickt und
+nach ausdrücklicher Freigabe durch den Nutzer als Order an den Broker (Alpaca) weitergibt.
 
-## Features
-- **15:35 Uhr** (nach US-Open): tägliche Aktienempfehlungen mit technischer Analyse (Bereich wählbar: S&P 500 / MSCI World / Emerging Markets)
-- **JA/NEIN Buttons**: Trade annehmen oder ablehnen
-- **22:15 Uhr**: Automatische Auswertung mit P&L-Berechnung (inkl. SL/TP)
-- **🐳 Smart-Money** (`/top5trade`): was große Trader (Insider + Institutionen) zuletzt gekauft haben; fließt auch ins Signal-Ranking ein
-- **Demo-Modus**: Kein echtes Geld, nur Tracking
+**Der Handel läuft im Paper-Modus. Live-Handel ist im Code hart gesperrt** und lässt sich nur
+über eine explizite Freigabe samt Konfigurationsschalter aktivieren — bis dahin verweigert der
+Start jede Konfiguration, die echtes Geld bewegen würde.
 
-## Analyse-Indikatoren
-| Indikator | Bedeutung |
-|-----------|-----------|
-| RSI | Über-/Unterkauft-Niveau (< 35 = bullish) |
-| MACD | Momentum und Trendwechsel |
-| MA50/MA200 | Kurz-/Langfristiger Trend |
-| Wochentrend | Übergeordneter Trend (Filter gegen Abwärtstrend) |
-| Volumen | Bestätigung durch Handelsinteresse |
-| Level | Support/Widerstand (wie oft getestet) |
-| 🐳 Smart-Money | Insider (Form 4) + Institutionen (13F): Netto-Käufe großer Trader |
+```
+Python 3.11+ · 25.000 Zeilen Produktionscode · 1.525 Tests · PostgreSQL (SQLite als Rückfall)
+```
 
 ---
 
-## Setup (5 Minuten)
+## Was daran technisch interessant ist
 
-### 1. Telegram Bot erstellen
-1. Öffne Telegram → suche `@BotFather`
-2. Sende `/newbot` → Namen vergeben
-3. Token kopieren
+Der Reiz des Projekts liegt nicht in der Signalberechnung — Indikatoren sind Handwerk. Er liegt
+darin, dass ein Fehler hier Geld kostet. Die vier Stellen, an denen sich das im Code
+niederschlägt:
 
-### 2. Installation
-```bash
-cd stockbot
-pip install -r requirements.txt
+**Keine Order kann die Risikoprüfung umgehen — und das ist nicht nur behauptet.**
+Sämtliche Order-Ausführung läuft durch ein zentrales Order-Management-System
+([`stockbot/execution/oms.py`](stockbot/execution/oms.py)); Telegram und Web rufen beide
+dieselbe Stelle auf. [`tests/test_no_order_bypasses_risk.py`](tests/test_no_order_bypasses_risk.py)
+prüft das **strukturell**: Der Test scannt die Bedienschichten und schlägt fehl, sobald dort ein
+direkter Broker-Aufruf auftaucht. Ein neuer Codepfad, der die Prüfung umgeht, macht die Suite
+rot — nicht die Produktion kaputt.
+
+**Doppelte Ausführung ist ausgeschlossen.**
+Jede Handelsabsicht trägt einen Idempotenzschlüssel; ein zweiter Klick auf „Kaufen" erzeugt
+keine zweite Order, sondern findet die erste wieder
+([`tests/test_double_submit_idempotency.py`](tests/test_double_submit_idempotency.py)).
+Ergänzt um eine Zustandsmaschine, die Rückschritte (`filled` → `partially_filled`) laut ablehnt,
+statt sie still zu übernehmen.
+
+**Die eigene Sicht wird laufend gegen die des Brokers abgeglichen.**
+Ein Reconciliation-Job vergleicht periodisch die Positionen in der Datenbank mit denen beim
+Broker und meldet Abweichungen, statt sie auszusitzen
+([`stockbot/execution/reconcile_scheduler.py`](stockbot/execution/reconcile_scheduler.py)).
+Dazu ein persistenter Kill-Switch, der neue Positionen sperrt, Schutz-Verkäufe aber weiter
+zulässt — und der einen Prozessneustart überlebt, weil er in der Datenbank steht.
+
+**Der Backtest darf nicht lügen.**
+Walk-Forward-Aufteilung mit Embargo gegen Label-Leakage, gap-realistische Ausstiege (eine
+Kurslücke über den Stop hinweg füllt zum Eröffnungskurs, nicht am Wunschpreis), Spread- und
+Slippage-Kosten in den Voreinstellungen, und ein sichtbarer Warnhinweis im Bericht, wenn das
+Universum mangels historischer Zusammensetzung auf die heutige Liste zurückfällt
+([`stockbot/backtest/`](stockbot/backtest/)).
+
+---
+
+## Architektur
+
+```mermaid
+flowchart LR
+    subgraph Daten
+        A[Marktdaten-Provider<br/>Alpaca]
+    end
+    subgraph Analyse
+        B[Analyzer<br/>Multi-Timeframe] --> C[Strategien]
+    end
+    subgraph Freigabe
+        D[Telegram-Bot]
+        E[Web-App]
+    end
+    subgraph Ausfuehrung
+        F{{Risk Service<br/>pretrade_check}}
+        G[OMS<br/>idempotent]
+        H[Broker Alpaca<br/>Paper]
+    end
+    A --> B
+    C --> D & E
+    D & E --> F
+    F -->|erlaubt| G
+    F -.->|blockiert| X[Ablehnung<br/>mit Grund]
+    G --> H
+    H -->|Events| I[Reconciliation]
+    I -.->|Abweichung| J[Alarm]
+    K[(PostgreSQL)] --- G
+    K --- I
 ```
 
-### 3. Konfiguration (`.env`)
+Daneben laufen drei Nebenpfade, die den Handelsweg nie berühren: die **Backtest-Engine**, ein
+**Strategie-Labor**, das Parameter optimiert und Kandidaten nur mit menschlicher Freigabe
+befördert, und ein **Shadow-Modus**, der Signale mitschreibt, ohne sie auszuführen.
 
-Kopiere `.env.example` zu `.env` und trage Token sowie einen Verschlüsselungs­schlüssel ein:
+---
+
+## Wo man am besten anfängt zu lesen
+
+Je nachdem, was dich interessiert:
+
+| Interesse | Datei |
+|---|---|
+| Wie eine Order entsteht und was sie aufhalten kann | [`stockbot/execution/oms.py`](stockbot/execution/oms.py) |
+| Die Risikoprüfungen selbst (Reihenfolge, Ablehngründe) | [`stockbot/core/risk.py`](stockbot/core/risk.py) |
+| Wie aus Kursen ein Signal wird | [`stockbot/market/analyzer.py`](stockbot/market/analyzer.py) |
+| Backtest ohne Look-ahead | [`stockbot/backtest/engine.py`](stockbot/backtest/engine.py) |
+| Datenbankzugriff über einen Seam (Postgres **und** SQLite) | [`stockbot/core/db.py`](stockbot/core/db.py) |
+| Der Test, der Architektur erzwingt statt sie zu dokumentieren | [`tests/test_no_order_bypasses_risk.py`](tests/test_no_order_bypasses_risk.py) |
+
+Wer lieber am Verhalten einsteigt: [`tests/test_failure_injection.py`](tests/test_failure_injection.py)
+zeigt, was das System tut, wenn der Feed ausfällt, der Broker nicht antwortet oder die Kursdaten
+veraltet sind.
+
+---
+
+## Setup
+
+### 1. Telegram-Bot anlegen
+
+In Telegram `@BotFather` öffnen, `/newbot` senden, Namen vergeben, Token kopieren.
+
+### 2. Installation
+
+```bash
+pip install -e .
+pip install -r requirements-dev.txt   # für die Tests
+```
+
+### 3. Konfiguration
+
+`.env.example` nach `.env` kopieren und eintragen:
 
 ```env
 TELEGRAM_TOKEN_ENV=dein_token_hier
-ENCRYPTION_KEY=generierten_schluessel_hier_einfuegen
+ENCRYPTION_KEY=generierter_schluessel
 ```
 
-Den `ENCRYPTION_KEY` einmalig generieren (er verschlüsselt die hinterlegten Broker-Zugangsdaten in der DB):
+Der `ENCRYPTION_KEY` verschlüsselt die hinterlegten Broker-Zugangsdaten in der Datenbank.
+Einmalig erzeugen:
+
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-### 4. Bot starten
+### 4. Starten
 
 ```bash
 python run_bot.py
 ```
 
-### 5. Registrieren (pro Nutzer)
+Die Web-App läuft im selben Prozess mit (Port 8000); ein zweiter Dienst ist nicht nötig.
 
-Der Bot ist **multi-user**: Jede Person registriert sich selbst per geführtem Setup-Dialog — eine zentrale Chat-ID gibt es nicht mehr.
+### 5. Registrieren
 
-1. Eigenen Chat mit dem Bot öffnen und `/start` senden
-2. Dem Dialog folgen:
-   - Demo-Trade-Größe in € festlegen (z. B. `25`)
-   - Optional eine echte Trading-Plattform verbinden (z. B. `alpaca`) — API-Key/-Secret werden verschlüsselt gespeichert (`ENCRYPTION_KEY`) und die Nachrichten danach automatisch gelöscht
-   - Mit `ja`/`nein`, `/skip` oder `/cancel` durch den Dialog steuern
-3. Ab sofort erhält dieser Account täglich eigene Signale mit der eingestellten Trade-Größe
+Der Bot ist mehrbenutzerfähig — jede Person registriert sich selbst. Eigenen Chat öffnen,
+`/start` senden, dem Dialog folgen: Trade-Größe festlegen, optional einen Broker-Zugang
+verbinden (die Zugangsdaten werden verschlüsselt gespeichert und die Nachricht danach gelöscht).
 
-### 6. Testen
-
-Die Offline-Test-Suite (kein Netz, kein Telegram) läuft mit **pytest** vom Repo-Root:
+### 6. Tests
 
 ```bash
-pip install -r requirements-dev.txt   # einmalig (zieht pytest)
-pytest                                 # alle Suiten
-pytest tests/test_settings.py          # einzelne Datei
+pytest                          # alle Suiten, ohne Netz und ohne Telegram
+pytest tests/test_risk.py       # einzelne Datei
 ```
 
-Einzelne Suite ohne pytest (nutzt den eingebauten Runner):
-
-```bash
-python -m tests.test_settings
-```
+Die Contract-Tests gegen PostgreSQL überspringen sich sauber, wenn keine Datenbank erreichbar
+ist — ein Skip ist dort kein bestandener Test, sondern ein ausgelassener.
 
 ---
 
-## 🌐 Web-App (parallel zum Telegram-Bot)
+## Bedienung
 
-Der Bot ist zusätzlich über eine **Website** bedienbar — sie läuft **parallel** zum Telegram-Bot und
-nutzt denselben Account/dieselbe DB (eine Aktion wirkt sofort in beiden Kanälen).
+### Telegram
 
-- **Anmelden:** `/login` — entweder per **„Login mit Telegram"** (setzt `TELEGRAM_BOT_USERNAME` + HTTPS
-  voraus) oder per **privatem Token** (der Teil nach `/dashboard/` aus dem `/dashboard`-Link im Bot).
-- **Seiten:** `/app` (Signale annehmen/ablehnen, Hebel, aktive Trades verkaufen), `/app/settings`
-  (Körbe, Strategien, SL/TP, Hebel, Schalter, Benachrichtigungs-Kanal, „Überall abmelden"),
-  `/app/watchlist` (mit „Meinten Sie?"), `/app/notifications` (In-App-Mitteilungen mit Live-Feed via SSE),
-  `/app/dashboard` (Kennzahlen/Charts; das Dashboard verlinkt zurück „➡ Zur Web-App").
-- **Signale on-demand:** Auf `/app` „🔄 Signale anfordern" rechnet live die Analyse (gleiche Engine wie der
-  Telegram-Tagesjob) und zeigt die vollen Begründungen **plus 7-Tage-Mini-Chart** je Treffer.
-- **Anlageklassen-Dropdown:** Aktien (Standard), **ETFs**, **Krypto** (yfinance, vorerst Demo/Tracking) und
-  **Rohstoffe** (über handelbare Rohstoff-ETFs). Jede Klasse hat ein eigenes Analyse-Profil
-  ([stockbot/market/asset_classes.py](stockbot/market/asset_classes.py)).
-- **Sicherheit:** Session-Cookies (httponly, `secure` bei HTTPS), Security-Header (CSP/HSTS/…),
-  CSRF-Schutz (Origin-Abgleich), Rate-Limit auf den Login-Endpunkten, Session-Cleanup. Für öffentlichen
-  Betrieb **hinter TLS** stellen — siehe [deploy/Caddyfile](deploy/Caddyfile) und `COOKIE_SECURE=true`.
-- Telegram-Bot und Web rufen **dieselbe Service-Schicht** (`stockbot/services/*`) auf → identisches Verhalten.
+Signalkarten mit Begründung und Freigabeknöpfen, Positionsübersicht, Kill-Switch
+(`/killswitch`), Dashboard-Link. Jede Nachricht, die zu einer Handelsentscheidung auffordert,
+trägt ihren Betriebsmodus in der ersten Zeile:
 
-Die Website wird vom **gleichen Server wie das Dashboard** ausgeliefert (`run_dashboard.py` bzw.
-`RUN_DASHBOARD_IN_BOT=true`) — kein zusätzlicher Dienst nötig. Konzept & Phasen: [docs/WEBSITE_KONZEPT.md](docs/WEBSITE_KONZEPT.md).
+```
+PAPER
 
-### Demo-Daten für die Design-Abnahme
-
-`data/bot.db` ist auf einem frischen Checkout leer — ohne Nutzer/Trades zeigt die App nur leere
-Seiten und man kommt nicht am Login vorbei. [tools/seed_design_data.py](tools/seed_design_data.py)
-befüllt eine **eigene** SQLite-Datei (`data/design_seed.db`, niemals `data/bot.db`) mit einem
-Demo-Nutzer und einem breiten Zustandsraum an Trades (offen in Gewinn/Verlust, geschlossen über
-mehrere Tage, abgelehnte Signale mit echten Ablehngründen, Layout-Randfälle, aktiver Kill-Switch)
-und gibt am Ende die Dashboard-Login-URL samt Token aus:
-
-```bash
-ENCRYPTION_KEY=<Fernet-Key, s. u.> python tools/seed_design_data.py
+NVDA — LONG
+Kurs: $875.40
+Signal-Stärke: 4/5
+  • RSI 32.1 — überverkauft
+  • MACD: bullishe Überkreuzung
+  • Trend (MA50/200): aufwärts
+  • Volumen: 1,8x Durchschnitt
+Take-Profit: $891.20  ·  Stop-Loss: $861.30
 ```
 
-Läuft ausschließlich gegen SQLite (bricht bei `DB_BACKEND=postgres` sofort ohne Schreibzugriff
-ab) und ist idempotent — mehrfaches Ausführen erzeugt denselben Zustand, keine Dubletten.
-`ENCRYPTION_KEY` braucht `stockbot/config.py` schon beim Import (verschlüsselt hier nur
-Wegwerf-Demodaten, der Demo-Nutzer bekommt keine Broker-Keys); einmalig erzeugen mit
-`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+### Web-App
 
-## 📊 Web-Dashboard
+Läuft parallel und teilt sich Konto und Datenbank mit dem Bot — eine Aktion wirkt sofort in
+beiden Kanälen, weil beide dieselbe Service-Schicht aufrufen.
 
-Zusätzlich zum Telegram-Bot gibt es ein Web-Dashboard mit Equity-Kurve, Trefferquote, P&L pro Ticker und aktiven Trades — pro Nutzer über einen privaten Token-Link.
+- **Anmeldung** über Telegram-Login oder einen privaten Token-Link
+- **`/app`** — Signale prüfen und freigeben (mit Pflicht-Bestätigungsdialog in fester
+  Feldreihenfolge), offene Positionen schließen
+- **`/app/settings`** — Strategien, Stop-/Take-Profit-Modus, Benachrichtigungen, Kill-Switch
+- **`/app/dashboard`** — Kennzahlen und Charts, Paper- und Shadow-Modus getrennt ausgewiesen
+- **`/app/backtest`**, **`/app/lab`**, **`/app/reports`**, **`/app/watchlist`**
 
-**Das Dashboard startet automatisch mit dem Bot** (`python run_bot.py`) — du brauchst lokal keinen zweiten Prozess. Im Telegram-Bot `/dashboard` senden → du bekommst deinen persönlichen Link.
+Sicherheit: Session-Cookies (httponly, `secure` unter HTTPS), Content-Security-Policy, HSTS,
+CSRF-Schutz über Origin-Abgleich, Rate-Limit auf den Login-Endpunkten. Für öffentlichen Betrieb
+hinter TLS stellen — siehe [`deploy/Caddyfile`](deploy/Caddyfile).
 
-Der Link nutzt automatisch die **LAN-IP** dieses Rechners (z. B. `http://192.168.x.x:8000/dashboard/<token>`), funktioniert also auch **vom Handy im selben WLAN**. (`localhost` würde auf dem Handy auf das Handy selbst zeigen — deshalb die LAN-IP.)
+### Demodaten für die Oberflächenarbeit
 
-Konfiguration über die `.env`:
-
-- `DASHBOARD_BASE_URL` — leer lassen für Auto-LAN-IP; auf dem VPS deine Domain/öffentliche IP eintragen.
-- `RUN_DASHBOARD_IN_BOT=false` — wenn das Dashboard als eigener Dienst laufen soll.
-
-Auf einem Server entweder gebündelt mit dem Bot lassen, oder getrennt per `deploy/dashboard.service` (dann `RUN_DASHBOARD_IN_BOT=false`) dauerhaft betreiben:
+Ein frisches Checkout hat eine leere Datenbank; ohne Daten zeigt die App nur den Login.
+[`tools/seed_design_data.py`](tools/seed_design_data.py) füllt eine **eigene** SQLite-Datei
+(`data/design_seed.db`, niemals die Betriebsdatenbank) mit einem breiten Zustandsraum: offene
+Positionen in Gewinn und Verlust, abgelehnte Signale mit echten Ablehngründen, Layout-Randfälle,
+aktiver Kill-Switch.
 
 ```bash
-python run_dashboard.py   # nur nötig, wenn separat vom Bot betrieben
+ENCRYPTION_KEY=<Fernet-Key> python tools/seed_design_data.py
 ```
+
+Idempotent, und bricht ab, wenn es versehentlich gegen PostgreSQL oder die Betriebsdatenbank
+laufen würde.
 
 ---
 
-## Beispiel-Nachricht
+## Analyse-Grundlage
 
-```
-📊 NVDA — 🟢 LONG
-━━━━━━━━━━━━━━━━━━
-💰 Kurs: $875.40
-📈 Signal-Stärke: ████░ (4/5)
-🔍 Begründung:
-  • RSI: 32.1 → Überverkauft 📉
-  • MACD: Bullish Crossover ✅
-  • Trend (MA50/200): Starker Aufwärtstrend 📈
-  • Volumen: 1.8x Durchschnitt — Hohes Interesse 🔥
-━━━━━━━━━━━━━━━━━━
-💶 Demo-Trade: 25€ LONG
-⏱ Schließung: 15:30 Uhr
+| Indikator | Bedeutung |
+|-----------|-----------|
+| RSI | Über-/Unterkauft-Niveau |
+| MACD | Momentum und Trendwechsel |
+| MA50 / MA200 | kurz- und langfristiger Trend |
+| Wochentrend | übergeordneter Filter gegen Abwärtsphasen |
+| Volumen | Bestätigung durch Handelsinteresse |
+| Support / Widerstand | wie oft ein Niveau getestet wurde |
+| Smart Money | Netto-Käufe von Insidern (Form 4) und Institutionen (13F) |
 
-[ ✅ JA — Demo-Trade starten ] [ ❌ NEIN ]
-```
-
-## Beispiel-Auswertung (nach US-Börsenschluss)
-
-```
-📋 Tagesauswertung Demo-Trades
-━━━━━━━━━━━━━━━━━━
-✅ Gewinner: 3 | ❌ Verlierer: 2
-🟢 Gesamt P&L: +1.87€
-━━━━━━━━━━━━━━━━━━
-🟢 NVDA: $875.40 → $891.20 | +1.8% (+0.45€)
-🟢 AAPL: $189.30 → $192.10 | +1.5% (+0.37€)
-🟢 AMD:  $142.50 → $145.80 | +2.3% (+0.58€)
-🔴 TSLA: $245.60 → $241.20 | -1.8% (-0.45€)
-🔴 META: $512.40 → $507.90 | -0.9% (-0.23€)
-```
+Die Gewichtung ist je Anlageklasse unterschiedlich
+([`stockbot/market/asset_classes.py`](stockbot/market/asset_classes.py)). Produktiv freigegeben
+sind drei Strategien; weitere laufen nur im Research-Modus.
 
 ---
 
-## Deployment auf einer Ubuntu-VM (z. B. Strato V-Server)
+## Betrieb
 
-Empfohlenes OS: **Ubuntu 24.04** (ohne Plesk/n8n).
+Produktiv läuft der Dienst auf PostgreSQL (der SQLite-Pfad bleibt als Rückfall bestehen; beide
+liegen hinter demselben Zugriffs-Seam und müssen identische Ergebnisse liefern). Schemaänderungen
+laufen über Alembic — der Wechsel des Backends wurde im laufenden Betrieb über zehn Migrationen
+vollzogen.
 
-**Einmalig einrichten** (als root auf der VM, nachdem du das Repo per SSH geklont hast):
+Einrichtung auf einem frischen Ubuntu-Server:
 
 ```bash
-git clone git@github.com:<dein-user>/trading_bot.git /root/stockbot
-cd /root/stockbot
-bash deploy/setup_server.sh
-# danach TELEGRAM_TOKEN_ENV in die .env eintragen und neu starten:
-nano .env
+git clone <repo> /root/stockbot && cd /root/stockbot
+bash deploy/setup_server.sh     # venv, Abhängigkeiten, .env, systemd-Dienst
+nano .env                       # TELEGRAM_TOKEN_ENV eintragen
 systemctl restart stockbot
 ```
 
-`setup_server.sh` installiert git/Python, legt das venv an, installiert die Dependencies,
-erzeugt die `.env` (inkl. automatisch generiertem `ENCRYPTION_KEY`) und richtet den
-`stockbot`-systemd-Dienst ein. Das **Dashboard läuft im Bot-Prozess mit** (Port 8000) —
-trage in der `.env` `DASHBOARD_BASE_URL=http://DEINE-SERVER-IP:8000` ein und öffne den Port
-(`ufw allow 8000`), damit der `/dashboard`-Link von außen erreichbar ist.
+Weiteres: [`docs/RUNBOOK.md`](docs/RUNBOOK.md) (Störungsfall, Eskalation, Kill-Switch),
+[`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) (verschlüsselte Backups, verifizierter
+Restore), [`docs/DEPLOY_HARDENING.md`](docs/DEPLOY_HARDENING.md).
 
-**Status & Logs:**
+---
 
-```bash
-systemctl status stockbot
-journalctl -u stockbot -f
-```
+## Projektdokumentation
 
-**Updates einspielen** .\deploy\upload.ps1 "deine commit message" or (vom lokalen PC, nach `git push`): `SERVER_HOST` in `deploy/deploy.sh`
-anpassen und `bash deploy/deploy.sh` ausführen — das macht auf dem Server `git pull` +
-Dependencies + `systemctl restart stockbot`.
-`git pull && bash deploy/setup_server.sh && systemctl restart stockbot` 
+| Dokument | Inhalt |
+|---|---|
+| [`docs/UMSETZUNGSPLAN.md`](docs/UMSETZUNGSPLAN.md) | Fahrplan, Stand und Befunde |
+| [`docs/GO_NO_GO.md`](docs/GO_NO_GO.md) | Freigabekriterien für den Paper-Betrieb |
+| [`docs/Stylekonzept.md`](docs/Stylekonzept.md) | Gestaltungsprinzipien der Oberflächen |
+| [`DESIGN.md`](DESIGN.md) | umgesetztes Designsystem, Tokens, Kontrastwerte |
+| [`PRODUCT.md`](PRODUCT.md) | Produktsicht und Zielgruppe |
 
+---
 
-> Dashboard als eigener Dienst gewünscht? `deploy/dashboard.service` installieren und in der
-> `.env` `RUN_DASHBOARD_IN_BOT=false` setzen (sonst Portkonflikt auf 8000).
+## Stand und Grenzen
 
-## Hinweis
-Dies ist ein **Demo-Bot** — es wird kein echtes Geld gehandelt.
-Für echte Trades später: hinterlegte Broker-API-Keys (Alpaca, per Onboarding verschlüsselt
-gespeichert) nutzen und die Order-Ausführung ergänzen.
+Ehrlich zum Reifegrad:
+
+- **Paper-Handel**, Live ist gesperrt und an eine dokumentierte Freigabe gebunden.
+- Einzelne Schutzmechanismen sind bewusst hinter Schaltern abgelegt und **standardmäßig aus** —
+  sie ändern das Handelsverhalten und werden erst nach einer bewussten Entscheidung aktiviert.
+  Welche das sind, steht im Umsetzungsplan.
+- Der Code enthält Bausteine, die gebaut, aber noch nicht angebunden sind. Sie sind als solche
+  gekennzeichnet, statt Vollständigkeit vorzutäuschen — im Umsetzungsplan gibt es dafür eine
+  eigene Befundliste samt der Methode, mit der sie gefunden wurden.
+- Kommentare und Commit-Nachrichten sind deutsch.
+
+**Dies ist kein Anlageprodukt und keine Anlageberatung.** Es ist ein privates Projekt zum
+Aufbau und Betrieb eines sicherheitsorientierten Handelssystems.
