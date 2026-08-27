@@ -8,7 +8,7 @@
    Nur solange das Konto leer ist (kein Trade, keine Alpaca-Verbindung — siehe
    `show_onboarding` in webapp.app_home): fehlender Erstkontakt war die Lücke, die
    Einzel-Leerzustände weiter unten sind bereits gut. Bewusst KEINE neue Komponentenwelt —
-   nur card2/alert2/chip aus components.css/components.html. #}
+   nur card2/alert/chip aus components.css/components.html. #}
 {% if show_onboarding %}
 <div class="card2" style="margin-bottom:1rem">
   <div class="card2__header"><h2 class="card2__title">Erste Schritte</h2></div>
@@ -62,13 +62,15 @@
    vom Fehler-/veraltet-Fall (--danger) und vom Loading-Skeleton. In diesem Zustand wird an
    den betroffenen Stellen KEIN Schätzwert gerendert, sondern „—". #}
 {% if feed_status and feed_status.state == "degraded" %}
-<div class="alert2 alert2--warning" role="alert" id="feedDegradedAlert">
-  <div><p class="alert2__title">Daten unsicher — aktuelle Kurse nicht abrufbar</p>
+<div class="alert alert--warning" role="alert" id="feedDegradedAlert">
+  <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
+  <div><p class="alert__title">Daten unsicher — aktuelle Kurse nicht abrufbar</p>
   <div>{{ feed_status.reason }}</div></div>
 </div>
 {% elif entries_blocked %}
-<div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">
-  <div><p class="alert2__title">Kursdaten veraltet — keine neuen Trades</p>
+<div class="alert alert--danger" role="alert" id="feedStaleAlert">
+  <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
+  <div><p class="alert__title">Kursdaten veraltet — keine neuen Trades</p>
   <div>{{ feed_status.reason }}</div></div>
 </div>
 {% endif %}
@@ -241,8 +243,9 @@
   <div class="dialog__body">
     <h2 class="dialog__title" id="tcTitle">Trade bestätigen</h2>
     {% if trade_mode == 'live' %}
-    <div class="alert2 alert2--danger" role="alert">
-      <div><p class="alert2__title">Echtes Geld</p>
+    <div class="alert alert--danger" role="alert">
+      <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
+      <div><p class="alert__title">Echtes Geld</p>
       <div>Diese Order wird mit echtem Kapital an den Broker übermittelt.</div></div>
     </div>
     {% endif %}

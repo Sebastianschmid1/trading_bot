@@ -41,7 +41,7 @@
   /* ── Token-Umzug in die Glaswelt (scoped auf .lg-body = jede Seite) ──────────
      Zwei Alias-Familien landen hier: die alten Avionik-Namen (--muted, --line …)
      und die tokens.css-Komponenten-Tokens (--primary, --bg-surface-* … für
-     btn2/alert2/dialog2/chip/mode-badge). Die CVD-Chartpalette --cat-* bleibt
+     btn2/alert/dialog/chip/mode-badge). Die CVD-Chartpalette --cat-* bleibt
      bewusst unangetastet. Trennlinien/Ränder sind auf hellem Glas dunkle
      Haarlinien (weiße --lg-edge wäre unsichtbar) — auf dunklem Glas kehrt sich das
      um (helle Haarlinien), siehe die zwei Dark-Blöcke weiter unten. Values, die
@@ -338,11 +338,6 @@
   select:focus, input:focus, textarea:focus { outline:none; border-color:var(--lg-violet); }
   input::placeholder, textarea::placeholder { color:var(--lg-ink-muted); }
 
-  /* ── Flash: Solid-Glaskarte mit 1px-Rand (kein fetter Seitenbalken) ─────── */
-  .flash { background:var(--lg-glass-solid); border:1px solid var(--lg-violet);
-           color:var(--lg-ink); padding:.7rem 1rem; border-radius:var(--lg-r-md);
-           margin:.7rem 0; box-shadow:var(--lg-cast-1); }
-
   /* ── Tabellen: Tinte auf Solid-Glas, dunkle Haarlinien ─────────────────── */
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
   th, td { padding:.5rem .4rem; border-bottom:1px solid var(--sep); text-align:left; color:var(--lg-ink); }
@@ -572,7 +567,7 @@
   });
 </script>
 <main id="main">
-  {% if msg %}<div class="flash" role="status">{{ msg }}</div>{% endif %}
+  {% if msg %}<div class="alert" role="status">{{ msg }}</div>{% endif %}
   {% block content %}{% endblock %}
 </main>
 </body>

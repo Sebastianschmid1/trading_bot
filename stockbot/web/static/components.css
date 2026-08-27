@@ -120,17 +120,28 @@
 .btn-row--center { justify-content: center; }
 
 /* ── Alert ─────────────────────────────────────────────────────────────── */
-.alert2 {
-  display: flex; gap: var(--space-3); padding: var(--space-4);
-  border-radius: var(--radius-md); border: 1px solid var(--border-default);
-  background: var(--bg-surface-2); color: var(--text-secondary); font-size: 14px;
+/* Liegt auf --lg-glass-solid statt einer Flaechentoenung: der Rand traegt als
+   1px-Linie in Light nur 2,83–4,09:1 (siehe DESIGN.md „Kontrast-Härtung"), deshalb
+   HARTE AUFLAGE — jeder Ton steht DREIFACH: Rand + eingefaerbter Titel + Icon in
+   Titelfarbe. Fliesstext bleibt auf --lg-ink (13,64:1 / 14,32:1), nicht auf der
+   Titelfarbe. Ohne Titel (z. B. der neutrale Flash in base.html) liest ein
+   Farbfehlsichtiger den Ton im Light Mode nicht sicher — deshalb nur fuer den
+   titellosen, tonlosen Fall vorgesehen. */
+.alert {
+  display: flex; gap: var(--lg-space-3); padding: var(--lg-space-4);
+  border-radius: var(--lg-r-md); border: 1px solid var(--lg-edge-soft);
+  background: var(--lg-glass-solid); color: var(--lg-ink); font-size: 14px;
 }
-.alert2__title { font-weight: 600; color: var(--text-primary); margin: 0 0 2px; }
-.alert2--info { border-color: var(--primary-border); background: var(--info-soft); }
-.alert2--success { border-color: var(--success-border); background: var(--success-soft); }
-.alert2--warning { border-color: var(--warning-border); background: var(--warning-soft); }
-.alert2--danger { border-color: var(--danger-border); background: var(--danger-soft); }
-.alert2__icon { flex: 0 0 auto; width: 18px; height: 18px; }
+.alert__title { font-weight: 600; margin: 0 0 2px; }
+.alert__icon { flex: 0 0 auto; width: 18px; height: 18px; }
+.alert--info { border-color: var(--lg-violet); }
+.alert--info .alert__title, .alert--info .alert__icon { color: var(--tone-violet-fg); }
+.alert--success { border-color: var(--lg-success); }
+.alert--success .alert__title, .alert--success .alert__icon { color: var(--status-ink-success); }
+.alert--warning { border-color: var(--lg-warning); }
+.alert--warning .alert__title, .alert--warning .alert__icon { color: var(--tone-warning-fg); }
+.alert--danger { border-color: var(--lg-error); }
+.alert--danger .alert__title, .alert--danger .alert__icon { color: var(--status-ink-error); }
 
 /* ── Status-Chip ───────────────────────────────────────────────────────── */
 .chip {

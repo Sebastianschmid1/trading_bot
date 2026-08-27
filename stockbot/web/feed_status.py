@@ -44,7 +44,7 @@ unterschiedliche Folgen:
   Schaetzwerte — die betroffene Stelle zeigt „—", keinen Ersatzwert.
 
 Visuell sind die drei Faelle klar getrennt: „Loading" ist ein Skeleton, ``degraded``
-ein ``alert2--warning``-Banner, der Fehler-/veraltet-Fall ein ``alert2--danger``-Banner.
+ein ``alert--warning``-Banner, der Fehler-/veraltet-Fall ein ``alert--danger``-Banner.
 """
 
 from __future__ import annotations

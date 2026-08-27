@@ -102,7 +102,7 @@
 </div>
 
 {% if st.status == 'error' and st.error %}
-  <div class="flash" style="border-color:var(--lg-error)">Letzter Lauf-Fehler: {{ st.error }}</div>
+  <div class="alert alert--danger" role="alert">Letzter Lauf-Fehler: {{ st.error }}</div>
 {% endif %}
 
 <!-- ── Champion (aktueller Live-Stand) ─────────────────────────────────────── -->
@@ -235,8 +235,9 @@
   <dialog id="labApplyConfirm" class="dialog dialog--live" role="dialog" aria-modal="true" aria-labelledby="labApplyTitle">
     <div class="dialog__body">
       <h2 class="dialog__title" id="labApplyTitle">Live-Override übernehmen?</h2>
-      <div class="alert2 alert2--danger" role="alert">
-        <div><p class="alert2__title">Der Bot handelt danach mit diesem Wert</p>
+      <div class="alert alert--danger" role="alert">
+        <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
+        <div><p class="alert__title">Der Bot handelt danach mit diesem Wert</p>
         <div>Das wirkt auf alle Nutzer im Live-/Paper-Handel, nicht nur im Labor.</div></div>
       </div>
       <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">

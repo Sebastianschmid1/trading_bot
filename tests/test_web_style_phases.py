@@ -233,7 +233,7 @@ def test_stale_feed_disables_entry_buttons_and_states_the_reason():
     assert "chip--warn" in text
     assert "veraltet – keine neuen Trades" in text
     # Begründung sichtbar, als Alert ausgezeichnet, nennt das gemessene Alter
-    alert = re.search(r'<div class="alert2 alert2--danger" role="alert" id="feedStaleAlert">.*?</div>\s*</div>',
+    alert = re.search(r'<div class="alert alert--danger" role="alert" id="feedStaleAlert">.*?</div>\s*</div>',
                       text, re.S)
     assert alert, "Begründung mit role=alert fehlt"
     assert "300 s alt" in alert.group(0)
@@ -290,7 +290,7 @@ def test_degraded_data_is_a_warning_banner_and_not_the_error_banner(monkeypatch)
     assert 'data-feed-state="degraded"' in text
     assert "Daten unsicher" in text
     banner = re.search(
-        r'<div class="alert2 alert2--warning" role="alert" id="feedDegradedAlert">.*?</div>\s*</div>',
+        r'<div class="alert alert--warning" role="alert" id="feedDegradedAlert">.*?</div>\s*</div>',
         text, re.S)
     assert banner, "Warn-Banner (--warning, role=alert) fehlt"
     assert "TSLA" in banner.group(0)                  # nennt konkret die unsicheren Daten

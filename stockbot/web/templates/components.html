@@ -35,8 +35,9 @@
 {%- endmacro %}
 
 {% macro alert(message, tone='info', title=None) -%}
-  <div class="alert2 alert2--{{ tone }}" role="{{ 'alert' if tone in ('danger','warning') else 'status' }}">
-    <div>{% if title %}<p class="alert2__title">{{ title }}</p>{% endif %}<div>{{ message }}</div></div>
+  <div class="alert alert--{{ tone }}" role="{{ 'alert' if tone in ('danger','warning') else 'status' }}">
+    <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
+    <div>{% if title %}<p class="alert__title">{{ title }}</p>{% endif %}<div>{{ message }}</div></div>
   </div>
 {%- endmacro %}
 
