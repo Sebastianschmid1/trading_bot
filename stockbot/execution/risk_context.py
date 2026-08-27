@@ -203,6 +203,34 @@ def signal_context(intent: TradeIntent, signal: Signal) -> dict[str, Any]:
         log.warning("Risk-Kontext: Dollar-Umsatz fuer signal_id=%s nicht lesbar: %s",
                     signal.id, type(exc).__name__)
 
+    # RISK-003-Wiring Schritt 5: `allowed_strategies` fuer den Strategie-Whitelist-Check.
+    # `pretrade_check` liest ihn als EIGENEN Parameter (nicht aus `risk_profile`) und prueft ihn
+    # nur zusammen mit `strategy_key` (risk.py:120) -- beide fehlten hier bislang komplett, die
+    # gespeicherte Whitelist (`RiskProfile.allowed_strategies`) war deshalb nie scharf, unabhaengig
+    # vom gespeicherten Wert. Inert-by-default: das leere Default-Tupel blockiert laut risk.py:120
+    # ohnehin nichts, deshalb wird der Parameter nur bei einer NICHT-leeren Liste gesetzt (kein
+    # zusaetzlicher DB-Zugriff im Normalfall). `strategy_key` kommt aus demselben persistierten
+    # Signal-JSON wie `stop_price`/`average_dollar_volume` oben -- fail-open: fehlt er, bleibt der
+    # Check mangels `strategy_key` uebersprungen statt zu raten.
+    if has_stored_profile and stored_profile.allowed_strategies:
+        context["allowed_strategies"] = stored_profile.allowed_strategies
+        # Gut sichtbare Zeile: ab jetzt lehnt der Check Signale anderer Strategien ab -- das
+        # soll im Journal sofort auffallen, nicht erst beim ersten Ablehnungsfall.
+        log.warning(
+            "Risk-Kontext: Strategie-Whitelist fuer user_id=%s ist AKTIV (erlaubt: %s) -- "
+            "Signale anderer Strategien werden ab sofort abgelehnt.",
+            user_id, list(stored_profile.allowed_strategies))
+        try:
+            whitelist_trade = db.get_trade_by_id(int(signal.id)) if signal.id is not None else None
+            strategy_key = (whitelist_trade.get("signal") or {}).get("strategy") if whitelist_trade else None
+            if strategy_key is not None:
+                context["strategy_key"] = strategy_key
+        except (TypeError, ValueError):
+            log.warning("Risk-Kontext: ungueltiger Strategie-Schluessel fuer signal_id=%s", signal.id)
+        except Exception as exc:
+            log.warning("Risk-Kontext: Strategie-Schluessel fuer signal_id=%s nicht lesbar: %s",
+                        signal.id, type(exc).__name__)
+
     return context
 
 

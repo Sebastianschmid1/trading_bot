@@ -116,6 +116,143 @@ def test_signal_context_average_dollar_volume_fail_open_on_read_error(monkeypatc
     assert "average_dollar_volume" not in risk_context.signal_context(_intent(), _signal())
 
 
+# ── RISK-003 Schritt 5: Strategie-Whitelist-Wiring (allowed_strategies) ─────
+
+def test_signal_context_omits_allowed_strategies_without_stored_profile(monkeypatch):
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert "allowed_strategies" not in context
+    assert "strategy_key" not in context
+
+
+def test_signal_context_omits_allowed_strategies_when_whitelist_empty(monkeypatch):
+    # Default-RiskProfile hat eine leere Whitelist -> inert (unveraendertes heutiges Verhalten),
+    # kein zusaetzlicher DB-Zugriff fuer strategy_key noetig.
+    stored = RiskProfile(user_id=42)
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert "allowed_strategies" not in context
+    assert "strategy_key" not in context
+
+
+def test_signal_context_sets_allowed_strategies_and_strategy_key_when_whitelist_set(monkeypatch):
+    stored = RiskProfile(user_id=42, allowed_strategies=("standard", "ai_adaptive"))
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["allowed_strategies"] == ("standard", "ai_adaptive")
+    assert context["strategy_key"] == "bb_revert"
+
+
+def test_signal_context_strategy_key_fail_open_on_read_error(monkeypatch):
+    # Die Whitelist selbst bleibt gesetzt (sie kommt aus dem schon geladenen Profil), nur der
+    # strategy_key fehlt -> pretrade_check kann den Check mangels strategy_key nicht scharf
+    # schalten (fail-open statt haerter zu blocken).
+    stored = RiskProfile(user_id=42, allowed_strategies=("standard",))
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+
+    def _boom(signal_id):
+        raise RuntimeError("db offline")
+
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", _boom)
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["allowed_strategies"] == ("standard",)
+    assert "strategy_key" not in context
+
+
+class _RecordingLog:
+    """Ersatz fuer `risk_context.log`: caplog faengt WARN-Meldungen dieses Moduls in der
+    Vollsuite nicht zuverlaessig ein (siehe test_quote_context.py) -- daher wird der Logger
+    selbst ersetzt und die formatierten Aufrufe eingesammelt."""
+
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def warning(self, msg, *args):
+        self.warnings.append(msg % args if args else msg)
+
+    def info(self, *args, **kwargs):
+        pass
+
+
+def test_signal_context_logs_visible_warning_when_whitelist_active(monkeypatch):
+    stored = RiskProfile(user_id=42, allowed_strategies=("standard",))
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+    recorder = _RecordingLog()
+    monkeypatch.setattr(risk_context, "log", recorder)
+
+    risk_context.signal_context(_intent(), _signal())
+
+    assert any("42" in w and "standard" in w for w in recorder.warnings)
+
+
+def test_real_oms_strategy_whitelist_inert_when_empty(monkeypatch):
+    # Default-Whitelist (leer) bleibt wirkungslos -- ein Signal einer nicht genannten Strategie
+    # geht weiterhin durch (unveraendertes heutiges Verhalten).
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:50"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 100.0},
+    )
+
+    assert result.ok is True
+
+
+def test_real_oms_strategy_whitelist_blocks_signal_outside_whitelist(monkeypatch):
+    # Nicht-leere Whitelist wird scharf: das Signal traegt "bb_revert", erlaubt ist nur
+    # "standard" -> Ablehnung mit dem vorhandenen Grund aus risk.py:120-121.
+    stored = RiskProfile(user_id=42, allowed_strategies=("standard",))
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"strategy": "bb_revert"},
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: stored)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:51"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 100.0},
+    )
+
+    assert result.ok is False and result.code == "strategy_not_allowed"
+
+
 # ── RISK-005: Korrelationsgruppen-Wiring (candidate + Bestand) ───────────────
 
 def test_signal_context_sets_candidate_correlation_group_for_known_universe(monkeypatch):
