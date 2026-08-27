@@ -470,9 +470,10 @@ CREATE INDEX IF NOT EXISTS idx_polymarket_snapshots_condition
 
 def init_db():
     """Legt data/-Ordner und Tabellen an (idempotent). Beim Start einmal aufrufen."""
-    global _STRATEGY_VERSIONS_BOOTSTRAPPED
-    _STRATEGY_VERSION_CACHE.clear()   # frische DB → gecachte Strategie-Version-IDs verwerfen
-    _STRATEGY_VERSIONS_BOOTSTRAPPED = False
+    # Der Cache lebt in `strategies` — hier wird er dort zurückgesetzt, nicht über das Paket:
+    # ein rebindender Schreibzugriff träfe sonst nur die Kopie im Re-Export.
+    strategies._STRATEGY_VERSION_CACHE.clear()   # frische DB → gecachte Strategie-Version-IDs verwerfen
+    strategies._STRATEGY_VERSIONS_BOOTSTRAPPED = False
     if config.DB_BACKEND == "postgres":
         _migrate()
         return
@@ -1976,79 +1977,6 @@ def mark_notifications_read(user_id: int):
         )
 
 
-# ── Strategie-Konfiguration (Web-Editor + Backtest/Live-Overrides) ────────────
-
-def _strategy_config_to_dict(row) -> dict:
-    params = {}
-    try:
-        params = json.loads(row["params_json"] or "{}") if row and row["params_json"] else {}
-    except Exception:
-        params = {}
-    return {
-        "key": row["key"],
-        "label": row["label"],
-        "description": row["description"],
-        "params": params,
-        "enabled": bool(row["enabled"]),
-        "updated_at": row["updated_at"],
-    }
-
-
-def list_strategy_configs() -> list[dict]:
-    with _database().transaction() as transaction:
-        rows = transaction.all(
-            "SELECT key, label, description, params_json, enabled, updated_at FROM strategy_configs ORDER BY key ASC"
-        )
-    return [_strategy_config_to_dict(r) for r in rows]
-
-
-def get_strategy_config(key: str) -> dict | None:
-    with _database().transaction() as transaction:
-        row = transaction.one(
-            "SELECT key, label, description, params_json, enabled, updated_at "
-            "FROM strategy_configs WHERE key = :key", {"key": key}
-        )
-    return _strategy_config_to_dict(row) if row else None
-
-
-def upsert_strategy_config(key: str, label: str, description: str, params: dict | None = None,
-                          enabled: bool = True) -> dict:
-    params = params or {}
-    updated_at = _utc_timestamp()
-    with _database().transaction() as transaction:
-        transaction.execute(
-            """INSERT INTO strategy_configs (key, label, description, params_json, enabled, updated_at)
-               VALUES (:key, :label, :description, :params_json, :enabled, :updated_at)
-               ON CONFLICT(key) DO UPDATE SET
-                   label = excluded.label,
-                   description = excluded.description,
-                   params_json = excluded.params_json,
-                   enabled = excluded.enabled,
-                   updated_at = excluded.updated_at""",
-            {"key": key, "label": label, "description": description,
-             "params_json": json.dumps(params, default=str),
-             "enabled": 1 if enabled else 0, "updated_at": updated_at},
-        )
-    row = get_strategy_config(key)
-    return row or {"key": key, "label": label, "description": description, "params": params, "enabled": enabled}
-
-
-def search_strategy_configs(query: str) -> list[dict]:
-    q = (query or "").strip().lower()
-    rows = list_strategy_configs()
-    if not q:
-        return rows
-    out = []
-    for row in rows:
-        blob = " ".join([
-            row["key"], row["label"], row["description"],
-            json.dumps(row.get("params") or {}, sort_keys=True),
-        ]).lower()
-        if q in blob:
-            out.append(row)
-    return out
-
-
 def get_closed_trade_results_since(days: int = 45) -> list[dict]:
     """Rohdaten geschlossener Trades seit dem UTC-Tages-Cutoff (inklusive)."""
     cutoff = (datetime.now(timezone.utc).date() - timedelta(days=int(days))).isoformat()
@@ -2106,343 +2034,6 @@ def has_open_position(user_id: int, ticker: str) -> bool:
             {"user_id": user_id, "ticker": ticker, "trade_date": _today()},
         )
     return row is not None
-
-
-# ── Strategieversionierung persistent (STRAT-003 / W3.3 → Gate P5) ───────────
-
-_STRATEGY_VERSION_CACHE: dict[str, int] = {}
-_STRATEGY_VERSIONS_BOOTSTRAPPED = False
-
-
-def _current_code_commit() -> str:
-    """Best-effort Code-Commit für die Strategie-Snapshots (aus ``CODE_COMMIT``, sonst 'unknown')."""
-    import os
-    return (os.getenv("CODE_COMMIT") or "unknown").strip() or "unknown"
-
-
-def _strategy_content_hash(*parts) -> str:
-    h = hashlib.sha256()
-    for part in parts:
-        h.update(str(part).encode("utf-8"))
-        h.update(b"\x00")
-    return h.hexdigest()
-
-
-def publish_strategy_version(strategy_key: str, snapshot) -> int:
-    """Persistiert einen unveränderlichen ``StrategyVersion``-Snapshot append-only in
-    ``strategy_versions``. Idempotent über (strategy_key, content_hash): identischer Inhalt liefert
-    die bestehende id, geänderter Inhalt hängt die nächste fortlaufende Version an. Gibt die
-    persistente id zurück (== ``Signal.strategy_version_id``)."""
-    params_json = json.dumps(dict(snapshot.params or {}), sort_keys=True, default=str)
-    cost_model_json = json.dumps(dict(snapshot.cost_model or {}), sort_keys=True, default=str)
-    content_hash = _strategy_content_hash(
-        strategy_key, snapshot.strategy_id, params_json, snapshot.feature_version,
-        snapshot.universe_version, snapshot.entry_rules, snapshot.exit_rules,
-        cost_model_json, snapshot.code_commit)
-    with _database().transaction() as transaction:
-        existing = transaction.one(
-            "SELECT id FROM strategy_versions WHERE strategy_key = :k AND content_hash = :h",
-            {"k": strategy_key, "h": content_hash})
-        if existing:
-            return int(existing["id"])
-        last = transaction.one(
-            "SELECT MAX(version) AS v FROM strategy_versions WHERE strategy_key = :k",
-            {"k": strategy_key})
-        next_version = int(last["v"]) + 1 if last and last["v"] is not None else 1
-        new_id = transaction.insert_id(
-            """INSERT INTO strategy_versions (strategy_key, strategy_id, version, params_json,
-                    feature_version, universe_version, entry_rules, exit_rules, cost_model_json,
-                    release_status, code_commit, content_hash, created_at)
-               VALUES (:strategy_key, :strategy_id, :version, :params_json, :feature_version,
-                    :universe_version, :entry_rules, :exit_rules, :cost_model_json,
-                    :release_status, :code_commit, :content_hash, :created_at)""",
-            {"strategy_key": strategy_key, "strategy_id": int(snapshot.strategy_id),
-             "version": next_version, "params_json": params_json,
-             "feature_version": snapshot.feature_version,
-             "universe_version": snapshot.universe_version,
-             "entry_rules": snapshot.entry_rules, "exit_rules": snapshot.exit_rules,
-             "cost_model_json": cost_model_json, "release_status": snapshot.release_status,
-             "code_commit": snapshot.code_commit, "content_hash": content_hash,
-             "created_at": _utc_timestamp()})
-    return int(new_id)
-
-
-def get_strategy_version(version_id: int) -> dict | None:
-    """Unveränderlicher Strategie-Snapshot zu einer persistenten id (oder None)."""
-    with _database().transaction() as transaction:
-        row = transaction.one(
-            "SELECT * FROM strategy_versions WHERE id = :id", {"id": version_id})
-    if not row:
-        return None
-    return {
-        "id": int(row["id"]), "strategy_key": row["strategy_key"],
-        "strategy_id": int(row["strategy_id"]), "version": int(row["version"]),
-        "params": json.loads(row["params_json"]),
-        "feature_version": row["feature_version"], "universe_version": row["universe_version"],
-        "entry_rules": row["entry_rules"], "exit_rules": row["exit_rules"],
-        "cost_model": json.loads(row["cost_model_json"]),
-        "release_status": row["release_status"], "code_commit": row["code_commit"],
-        "created_at": row["created_at"],
-    }
-
-
-def _latest_strategy_version_id(strategy_key: str) -> int | None:
-    with _database().transaction() as transaction:
-        row = transaction.one(
-            "SELECT id FROM strategy_versions WHERE strategy_key = :k "
-            "ORDER BY version DESC LIMIT 1", {"k": strategy_key})
-    return int(row["id"]) if row else None
-
-
-def ensure_strategy_versions_published(code_commit: str | None = None) -> dict[str, int]:
-    """Publiziert die produktiven V1-Strategien idempotent und liefert ``{strategy_key: id}``.
-    Am Start (bot.main/dashboard.run) und lazy beim ersten Signal aufrufbar."""
-    global _STRATEGY_VERSIONS_BOOTSTRAPPED
-    from stockbot.core.strategy_registry import StrategyVersionRegistry
-    from stockbot.market import strategies
-    commit = code_commit or _current_code_commit()
-    registry = StrategyVersionRegistry()
-    mapping: dict[str, int] = {}
-    for key, strat in strategies.REGISTRY.items():
-        if not getattr(strat, "production", False):
-            continue
-        snapshot = registry.snapshot_from_registry(key, code_commit=commit)
-        mapping[key] = publish_strategy_version(key, snapshot)
-    _STRATEGY_VERSION_CACHE.update(mapping)
-    _STRATEGY_VERSIONS_BOOTSTRAPPED = True
-    return mapping
-
-
-def resolve_strategy_version_id(strategy_key: str) -> int | None:
-    """Persistente ``strategy_version_id`` für einen Strategie-Key (nur produktive Strategien).
-    In-Prozess gecacht; bootet die Registry **höchstens einmal** lazy, falls die Tabelle noch leer
-    ist. Nicht-produktive Keys → None (ohne den Bootstrap zu wiederholen — sonst würden bei einem
-    abweichenden Default-Commit Duplikat-Versionen entstehen)."""
-    if strategy_key in _STRATEGY_VERSION_CACHE:
-        return _STRATEGY_VERSION_CACHE[strategy_key]
-    version_id = _latest_strategy_version_id(strategy_key)
-    if version_id is not None:
-        _STRATEGY_VERSION_CACHE[strategy_key] = version_id
-        return version_id
-    if not _STRATEGY_VERSIONS_BOOTSTRAPPED:
-        ensure_strategy_versions_published()
-        return _STRATEGY_VERSION_CACHE.get(strategy_key)
-    return None
-
-
-def _with_strategy_version(signal: dict) -> dict:
-    """Ergänzt ein Signal um seine persistente ``strategy_version_id`` (Gate P5). Bricht nie —
-    bei Fehlern oder Nicht-Produktionsstrategien bleibt das Signal unverändert."""
-    if signal.get("strategy_version_id"):
-        return signal
-    try:
-        version_id = resolve_strategy_version_id(signal.get("strategy") or "standard")
-    except Exception as e:
-        log.warning(f"strategy_version_id nicht auflösbar: {e}")
-        return signal
-    if version_id is None:
-        return signal
-    return {**signal, "strategy_version_id": version_id}
-
-
-# ── Rohdatenarchiv-Metadaten + Shadow-Snapshots (W3.5) ───────────────────────
-
-def record_raw_data_archive_entry(entry) -> int:
-    """Persistiert die Metadaten einer archivierten Rohdaten-Partition (``RawDataArchiveEntry``)
-    über den DB-Seam (nach dem Postgres-Cutover entblockt, W3.1). Idempotent je
-    (symbol, trading_date, timeframe): ein erneuter Abruf aktualisiert Provider/Abrufzeit/
-    Zeilenzahl/Pfad, statt zu duplizieren. Gibt die id zurück."""
-    trading_date = entry.trading_date
-    trading_date = trading_date.isoformat() if isinstance(trading_date, date) else str(trading_date)
-    fetched_at = entry.fetched_at
-    fetched_at = fetched_at.isoformat() if isinstance(fetched_at, datetime) else str(fetched_at)
-    symbol = entry.symbol.upper()
-    with _database().transaction() as transaction:
-        existing = transaction.one(
-            "SELECT id FROM raw_data_archive WHERE symbol = :s AND trading_date = :d "
-            "AND timeframe = :tf", {"s": symbol, "d": trading_date, "tf": entry.timeframe})
-        if existing:
-            transaction.execute(
-                "UPDATE raw_data_archive SET provider = :p, fetched_at = :f, row_count = :rc, "
-                "file_path = :fp WHERE id = :id",
-                {"p": entry.provider, "f": fetched_at, "rc": int(entry.row_count),
-                 "fp": entry.file_path, "id": existing["id"]})
-            return int(existing["id"])
-        return int(transaction.insert_id(
-            """INSERT INTO raw_data_archive (symbol, trading_date, timeframe, provider,
-                    fetched_at, row_count, file_path, created_at)
-               VALUES (:symbol, :trading_date, :timeframe, :provider, :fetched_at, :row_count,
-                    :file_path, :created_at)""",
-            {"symbol": symbol, "trading_date": trading_date, "timeframe": entry.timeframe,
-             "provider": entry.provider, "fetched_at": fetched_at,
-             "row_count": int(entry.row_count), "file_path": entry.file_path,
-             "created_at": _utc_timestamp()}))
-
-
-def list_raw_data_archive_entries(symbol: str | None = None) -> list[dict]:
-    """Archiv-Metadaten (jüngster Handelstag zuerst), optional auf ein Symbol gefiltert."""
-    with _database().transaction() as transaction:
-        if symbol:
-            rows = transaction.all(
-                "SELECT * FROM raw_data_archive WHERE symbol = :s "
-                "ORDER BY trading_date DESC, timeframe", {"s": symbol.upper()})
-        else:
-            rows = transaction.all(
-                "SELECT * FROM raw_data_archive ORDER BY trading_date DESC, symbol, timeframe", {})
-    return [dict(row) for row in rows]
-
-
-def record_shadow_snapshot(snapshot, ticker: str = "") -> int:
-    """Persistiert eine Shadow-``PerformanceSnapshot`` (Modus muss SHADOW sein, RES-002-Isolation)."""
-    from stockbot.core.domain import Mode
-    if snapshot.mode != Mode.SHADOW:
-        raise ValueError("record_shadow_snapshot erwartet mode=SHADOW")
-    with _database().transaction() as transaction:
-        return int(transaction.insert_id(
-            """INSERT INTO shadow_snapshots (strategy_version_id, ticker, captured_at, net_pnl,
-                    open_risk, created_at)
-               VALUES (:svid, :ticker, :captured_at, :net_pnl, :open_risk, :created_at)""",
-            {"svid": int(snapshot.strategy_version_id), "ticker": ticker or "",
-             "captured_at": snapshot.captured_at,
-             "net_pnl": None if snapshot.net_pnl is None else float(snapshot.net_pnl),
-             "open_risk": None if snapshot.open_risk is None else float(snapshot.open_risk),
-             "created_at": _utc_timestamp()}))
-
-
-def get_shadow_snapshots(limit: int = 500) -> list:
-    """Persistierte Shadow-``PerformanceSnapshot``s (jüngste zuerst) für den Shadow-Report."""
-    from stockbot.core.domain import Mode, PerformanceSnapshot
-    with _database().transaction() as transaction:
-        rows = transaction.all(
-            "SELECT * FROM shadow_snapshots ORDER BY captured_at DESC, id DESC LIMIT :lim",
-            {"lim": limit})
-    return [PerformanceSnapshot(
-        id=int(row["id"]), strategy_version_id=int(row["strategy_version_id"]),
-        mode=Mode.SHADOW, captured_at=row["captured_at"],
-        net_pnl=row["net_pnl"], open_risk=row["open_risk"]) for row in rows]
-
-
-# ── Polymarket-Datenschicht (PM-0, read-only Ereignissensor) ─────────────────
-#
-# Reine Persistenz — Bewertung (usable/reject_code/mid) kommt von außen
-# (``research/polymarket_quality.py::evaluate_snapshot``), dieses Modul rechnet nichts nach.
-
-def _polymarket_timestamp(moment: datetime | str) -> str:
-    """Zwingt einen Polymarket-Zeitwert auf den DB-Zeitvertrag: naiver UTC-String.
-    Nimmt ``datetime`` (aware oder naiv) oder einen bereits ISO-formatierten String entgegen
-    — Aufrufer müssen sich nicht um Backend-Unterschiede kümmern (analog
-    ``burn_in._as_utc_text``/``_audit_timestamp``: PostgreSQL liefert für aware Werte sonst
-    ``timestamptz`` und der Vergleich mit dem naiven TEXT-Schema scheitert hart)."""
-    if isinstance(moment, datetime):
-        if moment.tzinfo is not None:
-            moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
-        return _utc_timestamp(moment)
-    value = str(moment)
-    if not value:
-        return value
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return _utc_timestamp(parsed)
-
-
-def upsert_polymarket_market(info) -> int:
-    """Legt einen Polymarket-Markt an oder aktualisiert seine Stammdaten (idempotent je
-    ``condition_id``). ``first_seen_at`` bleibt beim ersten Insert stehen, ``last_seen_at``
-    wird bei jedem Aufruf aktualisiert — Frage/Regeln können sich bei Polymarket ändern
-    (das Rohdatenarchiv macht das nachweisbar), Stammdaten sonst kaum."""
-    now = _utc_timestamp()
-    with _database().transaction() as transaction:
-        existing = transaction.one(
-            "SELECT id FROM polymarket_markets WHERE condition_id = :cid",
-            {"cid": info.condition_id})
-        if existing:
-            transaction.execute(
-                """UPDATE polymarket_markets SET token_id = :tid, slug = :slug,
-                        question = :q, resolution_source = :rs, resolution_rules = :rr,
-                        end_date = :ed, category = :cat, last_seen_at = :now
-                   WHERE id = :id""",
-                {"tid": info.token_id, "slug": info.slug, "q": info.question,
-                 "rs": info.resolution_source, "rr": info.resolution_rules,
-                 "ed": info.end_date, "cat": info.category, "now": now,
-                 "id": existing["id"]})
-            return int(existing["id"])
-        return int(transaction.insert_id(
-            """INSERT INTO polymarket_markets (condition_id, token_id, slug, question,
-                    resolution_source, resolution_rules, end_date, category,
-                    first_seen_at, last_seen_at)
-               VALUES (:cid, :tid, :slug, :q, :rs, :rr, :ed, :cat, :now, :now)""",
-            {"cid": info.condition_id, "tid": info.token_id, "slug": info.slug,
-             "q": info.question, "rs": info.resolution_source, "rr": info.resolution_rules,
-             "ed": info.end_date, "cat": info.category, "now": now}))
-
-
-def record_polymarket_snapshot(
-    snapshot, *, mid: float | None, spread_bps: float | None, usable: bool,
-    reject_code: str, raw_file_path: str = "",
-) -> int:
-    """Persistiert einen bewerteten Polymarket-Snapshot. ``mid``/``spread_bps``/``usable``/
-    ``reject_code`` kommen bewusst vom Aufrufer (Ergebnis von
-    ``polymarket_quality.evaluate_snapshot``) — dieses Modul ist reine Persistenz."""
-    fetched_at = _polymarket_timestamp(snapshot.fetched_at)
-    last_trade_at = (_polymarket_timestamp(snapshot.last_trade_at)
-                     if snapshot.last_trade_at is not None else None)
-    with _database().transaction() as transaction:
-        return int(transaction.insert_id(
-            """INSERT INTO polymarket_snapshots (condition_id, fetched_at, bid, ask, mid,
-                    spread_bps, depth_bid_usd, depth_ask_usd, volume_24h_usd,
-                    liquidity_usd, trade_count_24h, last_trade_at, usable, reject_code,
-                    raw_file_path, created_at)
-               VALUES (:cid, :fa, :bid, :ask, :mid, :spread, :dbid, :dask, :vol24, :liq,
-                    :tc, :lta, :usable, :code, :path, :created_at)""",
-            {"cid": snapshot.condition_id, "fa": fetched_at,
-             "bid": snapshot.bid, "ask": snapshot.ask, "mid": mid, "spread": spread_bps,
-             "dbid": snapshot.depth_bid_usd, "dask": snapshot.depth_ask_usd,
-             "vol24": snapshot.volume_24h_usd, "liq": snapshot.liquidity_usd,
-             "tc": snapshot.trade_count_24h, "lta": last_trade_at,
-             "usable": 1 if usable else 0, "code": reject_code or "",
-             "path": raw_file_path or "", "created_at": _utc_timestamp()}))
-
-
-def polymarket_snapshot_history(condition_id: str, *, since: datetime) -> list[dict]:
-    """Snapshot-Historie eines Markts seit ``since`` (älteste zuerst) — Eingabe für
-    ``polymarket_quality.evaluate_snapshot``'s Δp-Berechnung. Zeitvertrag beim Lesen:
-    ``fetched_at`` kommt aware (UTC) zurück, unabhängig davon, ob das Backend es naiv
-    (SQLite) oder tz-aware (PostgreSQL-Treiber) liefert."""
-    since_text = _polymarket_timestamp(since)
-    with _database().transaction() as transaction:
-        rows = transaction.all(
-            """SELECT fetched_at, mid FROM polymarket_snapshots
-               WHERE condition_id = :cid AND fetched_at >= :since
-               ORDER BY fetched_at ASC""",
-            {"cid": condition_id, "since": since_text})
-    history = []
-    for row in rows:
-        fetched_at = row["fetched_at"]
-        if isinstance(fetched_at, str):
-            fetched_at = datetime.fromisoformat(fetched_at)
-        if fetched_at.tzinfo is not None:
-            fetched_at = fetched_at.astimezone(timezone.utc).replace(tzinfo=None)
-        history.append({"fetched_at": fetched_at.replace(tzinfo=timezone.utc),
-                        "mid": row["mid"]})
-    return history
-
-
-def list_polymarket_markets() -> list[dict]:
-    """Alle bekannten Polymarket-Märkte (Stammdaten), zuletzt gesehen zuerst."""
-    with _database().transaction() as transaction:
-        rows = transaction.all("SELECT * FROM polymarket_markets ORDER BY last_seen_at DESC")
-    return [dict(row) for row in rows]
-
-
-def list_polymarket_snapshots(condition_id: str, *, limit: int = 500) -> list[dict]:
-    """Snapshot-Historie eines Markts (jüngste zuerst) für Reports/Debug."""
-    with _database().transaction() as transaction:
-        rows = transaction.all(
-            """SELECT * FROM polymarket_snapshots WHERE condition_id = :cid
-               ORDER BY fetched_at DESC, id DESC LIMIT :lim""",
-            {"cid": condition_id, "lim": limit})
-    return [dict(row) for row in rows]
 
 
 def add_pending(user_id: int, signal: dict, message_id: int) -> bool:
@@ -3196,3 +2787,25 @@ def get_today_ticks(user_id: int) -> dict:
             {"ts": r["ts"], "price": r["price"], "strength": r["strength"]}
         )
     return series
+
+
+from . import strategies   # init_db setzt den Strategieversions-Cache zurück
+
+# Strategie-Konfigurationen und -Versionen.
+# `_STRATEGY_VERSIONS_BOOTSTRAPPED` ist ein modulinterner Cache-Schalter; maßgeblich ist
+# immer `strategies._STRATEGY_VERSIONS_BOOTSTRAPPED`, der Wert hier ist nur eine Kopie.
+from .strategies import (                                                      # noqa: E402
+    _strategy_config_to_dict, list_strategy_configs, get_strategy_config,
+    upsert_strategy_config, search_strategy_configs, _STRATEGY_VERSION_CACHE,
+    _STRATEGY_VERSIONS_BOOTSTRAPPED, _current_code_commit, _strategy_content_hash,
+    publish_strategy_version, get_strategy_version, _latest_strategy_version_id,
+    ensure_strategy_versions_published, resolve_strategy_version_id, _with_strategy_version,
+)
+
+# Rohdatenarchiv, Shadow-Snapshots, Polymarket
+from .research import (                                                        # noqa: E402
+    record_raw_data_archive_entry, list_raw_data_archive_entries, record_shadow_snapshot,
+    get_shadow_snapshots, _polymarket_timestamp, upsert_polymarket_market,
+    record_polymarket_snapshot, polymarket_snapshot_history, list_polymarket_markets,
+    list_polymarket_snapshots,
+)
