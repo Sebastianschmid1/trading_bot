@@ -63,13 +63,11 @@
    den betroffenen Stellen KEIN Schätzwert gerendert, sondern „—". #}
 {% if feed_status and feed_status.state == "degraded" %}
 <div class="alert alert--warning" role="alert" id="feedDegradedAlert">
-  <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
   <div><p class="alert__title">Daten unsicher — aktuelle Kurse nicht abrufbar</p>
   <div>{{ feed_status.reason }}</div></div>
 </div>
 {% elif entries_blocked %}
 <div class="alert alert--danger" role="alert" id="feedStaleAlert">
-  <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
   <div><p class="alert__title">Kursdaten veraltet — keine neuen Trades</p>
   <div>{{ feed_status.reason }}</div></div>
 </div>
@@ -244,7 +242,6 @@
     <h2 class="dialog__title" id="tcTitle">Trade bestätigen</h2>
     {% if trade_mode == 'live' %}
     <div class="alert alert--danger" role="alert">
-      <svg class="alert__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.2v4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.6" r="1" fill="currentColor"/></svg>
       <div><p class="alert__title">Echtes Geld</p>
       <div>Diese Order wird mit echtem Kapital an den Broker übermittelt.</div></div>
     </div>

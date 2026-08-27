@@ -458,7 +458,7 @@ def test_token_rotate_form_uses_dialog_not_native_confirm():
     match = re.search(r'<dialog\b[^>]*\bid="tokenRotateConfirm"[^>]*>', text)
     assert match, 'kein <dialog id="tokenRotateConfirm" …> gefunden'
     tag = match.group(0)
-    assert "dialog" in tag
+    assert 'class="dialog"' in tag
     assert 'role="dialog"' in tag and 'aria-modal="true"' in tag
     dialog = text[text.index('id="tokenRotateConfirm"'):]
     dialog = dialog[:dialog.index("</dialog>")]

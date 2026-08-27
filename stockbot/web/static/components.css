@@ -122,16 +122,26 @@
 /* ── Alert ─────────────────────────────────────────────────────────────── */
 /* Liegt auf --lg-glass-solid statt einer Flaechentoenung: der Rand traegt als
    1px-Linie in Light nur 2,83–4,09:1 (siehe DESIGN.md „Kontrast-Härtung"), deshalb
-   HARTE AUFLAGE — jeder Ton steht DREIFACH: Rand + eingefaerbter Titel + Icon in
-   Titelfarbe. Fliesstext bleibt auf --lg-ink (13,64:1 / 14,32:1), nicht auf der
-   Titelfarbe. Ohne Titel (z. B. der neutrale Flash in base.html) liest ein
-   Farbfehlsichtiger den Ton im Light Mode nicht sicher — deshalb nur fuer den
-   titellosen, tonlosen Fall vorgesehen. */
+   steht der Ton zusaetzlich im eingefaerbten Titel — und der Titeltext selbst
+   benennt den Ton in jedem gerenderten Fall bereits in Worten (z. B. "Kursdaten
+   veraltet"). Kein Icon: ein fuer alle vier Toene identisches Symbol kodiert
+   nichts, was die Farbe nicht schon traegt, und stuende bei ruhigen Hinweisen
+   (info) faelschlich als Warnzeichen. .alert__icon bleibt als Sizing-/
+   Tonfarben-Regel fuer einen spaeteren, echten Ton-Glyph erhalten. Fliesstext
+   bleibt auf --lg-ink (13,64:1 / 14,32:1), nicht auf der Titelfarbe. Der
+   titellose, tonlose Fall (neutraler Flash in base.html) bleibt bewusst ohne
+   Ton-Anspruch. */
 .alert {
   display: flex; gap: var(--lg-space-3); padding: var(--lg-space-4);
+  margin: var(--lg-space-3) 0;
   border-radius: var(--lg-r-md); border: 1px solid var(--lg-edge-soft);
   background: var(--lg-glass-solid); color: var(--lg-ink); font-size: 14px;
 }
+/* Flex-Items schrumpfen ohne min-width:0 nicht unter ihre Inhaltsbreite — eine
+   lange, leerzeichenfreie Fehlermeldung (z. B. ein Pfad in st.error) haette sonst
+   den Container gesprengt statt umzubrechen (gemessen: scrollWidth/clientWidth
+   1007/726). overflow-wrap:anywhere erzwingt den Umbruch auch ohne Leerzeichen. */
+.alert > div { min-width: 0; overflow-wrap: anywhere; }
 .alert__title { font-weight: 600; margin: 0 0 2px; }
 .alert__icon { flex: 0 0 auto; width: 18px; height: 18px; }
 .alert--info { border-color: var(--lg-violet); }
