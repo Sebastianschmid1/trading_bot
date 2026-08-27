@@ -946,6 +946,46 @@ als Zugriff?), und sie ändert, welche Strategien promotet werden — **Tor T3, 
 Betreibers.** Was ohne ihn geht und hiermit getan ist: die Gate-Behauptungen richtigstellen,
 damit die Checkliste nicht länger etwas als geschlossen führt, das offen ist.
 
+**Befund 17 — der Go/No-Go-Bericht sieht nicht, was er absichern soll.** Beim Erzeugen der
+T5-Vorlage am 2026-08-27 aufgefallen. `burn_in_order_stats` (`core/db/orders.py:235`) zählt
+ausschließlich Zeilen der **`orders`**-Tabelle des OMS. Für das Burn-in-Fenster
+2026-07-21 … 2026-08-27 meldet der Bericht deshalb:
+
+```
+Orders eingereicht: 44 · davon abgelehnt: 0 (Fehlerquote 0,00 %) · Gate P10: sauber
+```
+
+Im **selben** Fenster stehen in `trades` **524** Zeilen mit `status='broker_failed'`. Sie
+tauchen im Bericht nirgends auf, weil sie es nie bis in die `orders`-Tabelle geschafft haben.
+Wer Tor T5 auf diesen Bericht hin abzeichnet, zeichnet „0,00 % Fehlerquote" ab, während im
+Prüfzeitraum 524 Trades scheiterten.
+
+Aufgeschlüsselt nach `broker_status` ist die Lage weniger dramatisch, als die Zahl klingt —
+aber das *entlastet den Bericht nicht*, es zeigt nur, dass die Einordnung woanders liegt:
+
+| `broker_status` | Anzahl | Einordnung |
+|---|---|---|
+| `submit_failed` | 331 | **echte Einreichungsfehler** — aber nur 2026-07-21 bis **2026-08-10**, seither keiner mehr |
+| `spread_wide` | 134 | Risiko-Block (Spread > 50 bps) — laut Kriterium 2.6 ausdrücklich **kein** Fehler |
+| `max_positions_reached` | 40 | Risiko-Block (Positions-Cap) — kein Fehler |
+| `quote_stale` | 19 | Risiko-Block (Kurs zu alt) — kein Fehler |
+
+Kriterium 2.6 verlangt „Fehlerquote dokumentiert, jede Ablehnungsursache erklärbar". Genau das
+leistet die Tabelle oben — und genau das leistet der automatisch erzeugte Bericht **nicht**.
+Solange er nur die OMS-Tabelle liest, ist er für seinen Zweck (Gate P10) unvollständig.
+
+**Nicht nebenbei repariert:** die Kennzahl um `trades.broker_status` zu erweitern ändert, was
+`clean` bedeutet, und damit die Aussage eines Freigabe-Gates. Das gehört bewusst entschieden,
+nicht im Vorbeigehen umdefiniert.
+
+**Betriebsbefund nebenbei: die Kauf-Dürre ist zurück.** 15 offene Positionen bei
+`max_open_positions = 15` — der Cap wurde am 02.08. von 5 auf 15 angehoben und ist am 27.08.
+wieder ausgeschöpft. Seit dem 11.08. sind **alle** Fehlschläge Risiko-Blocks, angeführt von
+`spread_wide` (134, zuletzt heute): der Bot findet alle 30 Minuten dieselben ~21 EM-ADR-Signale
+(AU, SHG, KB, BAP, FMX, EDU, BEKE, …), deren Spread über der 50-bps-Grenze liegt. Das deckt
+sich mit [[project_labor-divergenz]] — das Labor optimiert gegen den S&P 500, gehandelt werden
+EM-ADRs. Solange die Exit-Policies aus sind (Tor T2), werden die 15 Plätze auch nicht frei.
+
 ## Deploy 2026-08-27 — Repo-Vorzeigbarkeit, Alarmpfad, Risiko-Verdrahtung, Mobil-Nav
 
 GitHub-`main` `2e2e07c` → VPS-`main` `5c84d89` (`git merge --no-ff` aus `deploy-20260827`; der
