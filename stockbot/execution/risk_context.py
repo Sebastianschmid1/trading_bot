@@ -14,8 +14,14 @@ ist der Wert nicht lesbar, wird er weggelassen statt haerter zu blocken.
 
 ``average_dollar_volume`` (fuer den Liquiditaetscheck RISK-003 Schritt 9) wird aus dem im Trade
 persistierten Signal abgeleitet (`avg_volume` × `price`, kein zusaetzlicher Marktdatenabruf) und
-ist damit nur fuer Strategien verfuegbar, die `avg_volume` mitliefern (aktuell: "standard").
-Bleibt der Wert weg, ueberspringt ``pretrade_check`` den Check wie bisher.
+ist damit nur fuer Strategien verfuegbar, die `avg_volume` mitliefern (alle produktiven
+Strategien: "standard", "bb_revert", "ai_adaptive"). Bleibt der Wert weg, ueberspringt
+``pretrade_check`` den Check wie bisher.
+
+``allowed_strategies``/``strategy_key`` (fuer den Strategie-Whitelist-Check RISK-003 Schritt 5)
+werden nur gesetzt, wenn ein gespeichertes Profil eine NICHT-leere Whitelist traegt -- das leere
+Default-Tupel blockiert ohnehin nichts (inert-by-default). Aktiviert ein Betreiber sie, wird das
+mit ``user_id`` und der erlaubten Liste geloggt, damit die Aktivierung im Journal sichtbar ist.
 """
 
 from __future__ import annotations

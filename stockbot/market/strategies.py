@@ -293,6 +293,13 @@ def _make_signal(ticker: str, df, key: str, strength: float,
         "trend_comment": trend, "weekly_comment": "—",
         "volume_comment": f"{vol_ratio:.1f}x Durchschnitt", "sr_comment": "—",
         "macd_hist": float(macd_hist), "atr": atr,
+        # Durchschnittliches Tagesvolumen in STÜCK (`avg_vol` oben) — bislang nur intern für
+        # `vol_ratio` genutzt und sonst verworfen. RISK-LIQUIDITY: additiv unter demselben
+        # Schlüssel wie `analyzer.analyze_ticker` mitgegeben, damit `risk_context.signal_context`
+        # daraus (× `price`) den Dollar-Umsatz für den Liquiditätscheck (RISK-003 Schritt 9)
+        # auch für die hier gebauten Strategien ("bb_revert", "ai_adaptive", …) ableiten kann —
+        # bislang griff die Ableitung nur für "standard" (analyzer.py, eigener Codepfad).
+        "avg_volume": avg_vol,
         "stop_loss": stop_loss, "take_profit": take_profit,
         "sl_pct": (stop_loss - price) / price * 100, "tp_pct": (take_profit - price) / price * 100,
         "risk_reward": tp_mult / sl_mult,
