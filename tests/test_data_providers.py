@@ -487,6 +487,17 @@ def test_alpaca_get_corporate_actions_maps_splits_and_dividends():
     assert by_type["cash_dividends"].value == 0.24
 
 
+def test_alpaca_get_corporate_actions_raises_without_ca_client():
+    # api_key/api_secret bewusst leer → _build_ca_client liefert None (kein echter
+    # Netzwerkaufruf), get_corporate_actions muss das klar melden statt mit AttributeError
+    # auf None zu knallen.
+    provider = dp.AlpacaPaperMarketDataProvider(
+        api_key="", api_secret="",
+        data_client=_FakeDataClient(), corporate_actions_client=None, trading_client=None)
+    with pytest.raises(RuntimeError, match="ALPACA_API_KEY.*ALPACA_API_SECRET"):
+        provider.get_corporate_actions("AAPL")
+
+
 def test_alpaca_get_market_status_uses_trading_client_clock():
     provider = _alpaca_provider(trading_client=_FakeTradingClientForClock(is_open=True))
     status = provider.get_market_status()

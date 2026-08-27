@@ -255,6 +255,14 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
                 "ALPACA_API_KEY/ALPACA_API_SECRET) — Kurse können nicht abgefragt werden.")
         return self._data_client
 
+    def _require_ca_client(self):
+        if self._ca_client is None:
+            raise RuntimeError(
+                "AlpacaPaperMarketDataProvider: kein Corporate-Actions-Client verfügbar (fehlende/"
+                "ungültige ALPACA_API_KEY/ALPACA_API_SECRET) — Kapitalmaßnahmen können nicht "
+                "abgefragt werden.")
+        return self._ca_client
+
     def get_bars(self, ticker: str, *, interval: str, period: str | None = None,
                  start: datetime | None = None, end: datetime | None = None) -> pd.DataFrame:
         from alpaca.data.requests import StockBarsRequest
@@ -325,7 +333,7 @@ class AlpacaPaperMarketDataProvider(MarketDataProvider):
     ) -> list[CorporateAction]:
         from alpaca.data.requests import CorporateActionsRequest
         req = CorporateActionsRequest(symbols=[broker_client.to_alpaca_symbol(ticker)], start=since)
-        result = self._ca_client.get_corporate_actions(req)
+        result = self._require_ca_client().get_corporate_actions(req)
         actions: list[CorporateAction] = []
         for action_type, items in result.data.items():
             for item in items:
