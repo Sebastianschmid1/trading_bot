@@ -11,6 +11,11 @@ einem gespeicherten Profil gesetzt: erst mit dem Opt-in ins Risiko-Framework dar
 Tagesverlustlimit greifen. Ohne gespeichertes Profil bleibt ``realized_pnl_today`` weg → der
 Check wird uebersprungen (unveraendertes heutiges Verhalten). Die Ermittlung ist fail-open:
 ist der Wert nicht lesbar, wird er weggelassen statt haerter zu blocken.
+
+``average_dollar_volume`` (fuer den Liquiditaetscheck RISK-003 Schritt 9) wird aus dem im Trade
+persistierten Signal abgeleitet (`avg_volume` × `price`, kein zusaetzlicher Marktdatenabruf) und
+ist damit nur fuer Strategien verfuegbar, die `avg_volume` mitliefern (aktuell: "standard").
+Bleibt der Wert weg, ueberspringt ``pretrade_check`` den Check wie bisher.
 """
 
 from __future__ import annotations
@@ -161,6 +166,35 @@ def signal_context(intent: TradeIntent, signal: Signal) -> dict[str, Any]:
         log.warning("Risk-Kontext: ungueltiger Stop-Loss fuer signal_id=%s", signal.id)
     except Exception as exc:
         log.warning("Risk-Kontext: Stop-Loss fuer signal_id=%s nicht lesbar: %s",
+                    signal.id, type(exc).__name__)
+
+    # RISK-LIQUIDITY-Wiring: `average_dollar_volume` fuer den Liquiditaetscheck (RISK-003
+    # Schritt 9). `min_average_dollar_volume` bleibt am Default 0.0 (RiskProfile) -> der Check
+    # bleibt inert, bis ein Betreiber die Schwelle bewusst setzt; hier wird nur die bislang
+    # fehlende Eingabe nachgereicht. Kein zusaetzlicher Marktdatenabruf: die Standard-Strategie
+    # (analyzer.analyze_ticker) legt das durchschnittliche Tagesvolumen in Stueck bereits additiv
+    # im Signal-JSON ab (`avg_volume`, market/analyzer.py) -- Dollar-Umsatz = `avg_volume` ×
+    # `price`, beide schon im selben Trade wie der Stop-Loss oben. Fail-open: fehlt eine der
+    # beiden Groessen, ist sie nicht plausibel (<= 0) oder die Strategie liefert kein
+    # `avg_volume` (z. B. andere Strategien als "standard"), bleibt der Wert weg -> der Check
+    # wird uebersprungen statt geraten oder haerter zu blocken.
+    try:
+        liquidity_trade = db.get_trade_by_id(int(signal.id)) if signal.id is not None else None
+        sig_json = (liquidity_trade.get("signal") or {}) if liquidity_trade else {}
+        avg_volume, price = sig_json.get("avg_volume"), sig_json.get("price")
+        if avg_volume is not None and price is not None:
+            avg_volume_f, price_f = float(avg_volume), float(price)
+            if avg_volume_f > 0 and price_f > 0:
+                context["average_dollar_volume"] = avg_volume_f * price_f
+            else:
+                log.info(
+                    "Risk-Kontext: Dollar-Umsatz fuer signal_id=%s nicht plausibel "
+                    "(avg_volume=%s, price=%s) - Liquiditaetscheck bleibt uebersprungen.",
+                    signal.id, avg_volume, price)
+    except (TypeError, ValueError):
+        log.warning("Risk-Kontext: ungueltiger Dollar-Umsatz fuer signal_id=%s", signal.id)
+    except Exception as exc:
+        log.warning("Risk-Kontext: Dollar-Umsatz fuer signal_id=%s nicht lesbar: %s",
                     signal.id, type(exc).__name__)
 
     return context

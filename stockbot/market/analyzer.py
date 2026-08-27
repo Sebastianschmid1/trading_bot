@@ -547,6 +547,12 @@ def analyze_ticker(ticker: str, tf_data: dict | None = None, profile=None,
             "weekly_comment": weekly_comment,
             "macd_hist":      float(macd_hist),
             "vol_ratio":      vol_ratio,
+            # Durchschnittliches Tagesvolumen in STÜCK (aus den abgeschlossenen Handelstagen
+            # oben, `avg_vol`) — bislang nur intern für `vol_ratio` genutzt und sonst verworfen.
+            # RISK-LIQUIDITY: additiv mitgegeben, damit der Aufrufer daraus (× `price`) den
+            # Dollar-Umsatz für den Liquiditätscheck (RISK-003 Schritt 9) ableiten kann, ohne
+            # einen weiteren Marktdatenabruf zu brauchen.
+            "avg_volume":     avg_vol,
             "atr":            atr,
             "stop_loss":      stop_loss,
             "take_profit":    take_profit,

@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from stockbot.core.domain import Mode, RiskProfile, Signal, SignalStatus, TradeIntent
 from stockbot.core.market_data import Quote
 from stockbot.execution import risk_context
@@ -64,6 +66,54 @@ def test_signal_context_omits_missing_stop(monkeypatch):
     monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {"signal": {}})
 
     assert "stop_price" not in risk_context.signal_context(_intent(), _signal())
+
+
+# ── RISK-LIQUIDITY: Dollar-Umsatz-Wiring (RISK-003 Schritt 9) ───────────────
+
+def test_signal_context_computes_average_dollar_volume_from_signal(monkeypatch):
+    # avg_volume (Stueck, aus analyzer.analyze_ticker) x price (selbes Signal-JSON) -> Dollar-
+    # Umsatz. Hier nur die Groessenordnung geprueft (2 Mio Stueck x 50 $ = 100 Mio $).
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"avg_volume": 2_000_000.0, "price": 50.0},
+    })
+
+    context = risk_context.signal_context(_intent(), _signal())
+
+    assert context["average_dollar_volume"] == pytest.approx(100_000_000.0)
+
+
+def test_signal_context_omits_average_dollar_volume_without_avg_volume(monkeypatch):
+    # Strategien ohne avg_volume im Signal-JSON (aktuell alles außer "standard") liefern den
+    # Wert nicht -> fail-open, der Liquiditaetscheck bleibt uebersprungen (heutiges Verhalten).
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"price": 50.0},
+    })
+
+    assert "average_dollar_volume" not in risk_context.signal_context(_intent(), _signal())
+
+
+def test_signal_context_omits_average_dollar_volume_when_not_plausible(monkeypatch):
+    # Kurs 0 (z. B. Datenluecke) -> nicht plausibel, wird weggelassen statt geraten.
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"avg_volume": 2_000_000.0, "price": 0.0},
+    })
+
+    assert "average_dollar_volume" not in risk_context.signal_context(_intent(), _signal())
+
+
+def test_signal_context_average_dollar_volume_fail_open_on_read_error(monkeypatch):
+    # Ausnahme beim Lesen (z. B. DB offline) -> weglassen statt haerter zu blocken.
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+
+    def _boom(signal_id):
+        raise RuntimeError("db offline")
+
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", _boom)
+
+    assert "average_dollar_volume" not in risk_context.signal_context(_intent(), _signal())
 
 
 # ── RISK-005: Korrelationsgruppen-Wiring (candidate + Bestand) ───────────────
@@ -435,3 +485,51 @@ def test_oms_fail_closed_allows_good_quote(monkeypatch):
     result = service.submit_intent(
         _intent("risk:42:20"), price=100.0, trade_size=100.0, risk_context=callsite)
     assert result.ok is True
+
+
+# ── RISK-LIQUIDITY Ende-zu-Ende (echter OMS-Pfad) ────────────────────────────
+
+def test_real_oms_liquidity_default_threshold_allows_like_before(monkeypatch):
+    # average_dollar_volume kommt jetzt echt aus signal_context (avg_volume x price aus dem
+    # Trade); bei der ausgelieferten Default-Schwelle 0.0 bleibt der Check trotzdem wirkungslos
+    # (0.0 < 0.0 ist nie wahr) -> unveraendertes Verhalten.
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"avg_volume": 1_000.0, "price": 5.0},   # 5.000 $ -- sehr geringer Umsatz
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:40"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 100.0,
+                      "min_average_dollar_volume": RiskProfile(user_id=42).min_average_dollar_volume},
+    )
+
+    assert result.ok is True
+
+
+def test_real_oms_liquidity_blocks_when_threshold_set_above_value(monkeypatch):
+    # Dieselbe (sehr geringe) average_dollar_volume wie oben, aber mit einer bewusst gesetzten
+    # Schwelle darueber -> der Check greift jetzt tatsaechlich (Beweis, dass die Verdrahtung
+    # wirkt, nicht nur dass sie existiert).
+    monkeypatch.setattr(risk_context.db, "get_active_trades", lambda user_id: [])
+    monkeypatch.setattr(risk_context.db, "get_trade_by_id", lambda signal_id: {
+        "signal": {"avg_volume": 1_000.0, "price": 5.0},   # 5.000 $
+    })
+    monkeypatch.setattr(risk_context.db, "get_risk_profile", lambda user_id: None)
+    service = OrderManagementSystem(
+        signal_loader=lambda signal_id: _signal(), context_loader=risk_context.signal_context,
+        broker_adapter=_Broker(), persistence=_Persistence(),
+    )
+
+    result = service.submit_intent(
+        _intent("risk:42:41"), price=100.0, trade_size=100.0,
+        risk_context={"entry_price": 100.0, "candidate_notional": 100.0,
+                      "min_average_dollar_volume": 100_000.0},
+    )
+
+    assert result.ok is False and result.code == "liquidity_low"
