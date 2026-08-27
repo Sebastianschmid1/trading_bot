@@ -854,6 +854,26 @@ bleiben soll (der Kommentar in `config.py:231` nennt es „vorerst Demo/Tracking
 wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
 mit „wirkt" gleichsetzt.
 
+**Befund 15 — am Telefon ist die Kill-Switch-Warnung verdeckt.** Gefunden bei der
+Design-Abnahme der CSS-Serie am 27.08. am laufenden Bild, nicht hergeleitet. `base.html:368`
+legt die Hauptnavigation bei ≤ 640 px per `position: fixed; bottom: 0` an den unteren
+Bildschirmrand. Sie landet stattdessen **im Kopfbereich**, weil `<header class="appbar
+lg-glass">` über die vendorierte `.lg-glass` (`liquid-glass.css:289-295`) ein
+`backdrop-filter` trägt — und ein Element mit `backdrop-filter` wird zum Containing Block für
+`position: fixed` in seinem Teilbaum. Nachweis: Filter im DOM abgeschaltet → die Leiste
+springt von y = 40 auf y = 653 bei 749 px Viewport-Höhe. Gemessen bei 500 px in beiden Themes,
+auf allen acht `.appbar`-Seiten: der Kill-Switch-Chip (453 × 28 px), der Benutzername und das
+Logout-Formular sind **vollständig** überdeckt. Das Dashboard ist nicht betroffen (`.ck-nav`
+ist `position: static`).
+
+Der Fehler kam mit W7 (`48fc42c`) und war seit dem 20.07. produktiv. Er gehört damit in
+dieselbe Familie wie die Befunde 8–14: gebaut, getestet, und in der einen Umgebung wirkungslos,
+die zählt. Neu ist die Fundmethode — hier fand ihn keine Grep-Regel, sondern die **Sichtprüfung
+am echten Browser bei echter Fensterbreite**. Ein Test auf die CSS-Regel allein hätte ihn nie
+gesehen: die Regel ist ja korrekt geschrieben, sie wird nur von einem Elternteil ausgehebelt.
+Behoben auf `agent/UI-MOBILNAV` (Override im eigenen CSS, der Vendor bleibt unangetastet), mit
+Regressionstest.
+
 ## Offen: Repository für die Bewerbungsmappe vorzeigbar machen (2026-08-27)
 
 Neues Ziel des Betreibers: das **Repository** (nur der Git-Teil — nicht Betrieb, nicht Deploy)
