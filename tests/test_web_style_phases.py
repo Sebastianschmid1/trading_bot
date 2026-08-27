@@ -349,12 +349,12 @@ def test_kill_switch_shows_state_chip_and_reason_field():
     assert "Grund (wird protokolliert)" in text
 
 
-# ── agent/UI-HARDENING-2: Kill-Switch-Abschalten & Link-Erneuern hinter dialog2 ──
+# ── agent/UI-HARDENING-2: Kill-Switch-Abschalten & Link-Erneuern hinter dialog ──
 # (§18.1 statt nativem confirm() — Kill-Switch abschalten hebt die Einstiegssperre
 # auf und ist damit sicherheitsrelevant; Link-Erneuern ist die harmlosere zweite
 # Stelle derselben Art. Muster gespiegelt von alpacaClearConfirm/resetConfirm.)
 
-def test_kill_switch_off_form_uses_dialog2_not_native_confirm():
+def test_kill_switch_off_form_uses_dialog_not_native_confirm():
     c = _client()
     r = c.post("/app/settings/killswitch", data={"enabled": "1", "reason": "Testgrund"},
                follow_redirects=False)
@@ -366,7 +366,7 @@ def test_kill_switch_off_form_uses_dialog2_not_native_confirm():
     match = re.search(r'<dialog\b[^>]*\bid="killSwitchOffConfirm"[^>]*>', text)
     assert match, 'kein <dialog id="killSwitchOffConfirm" …> gefunden'
     tag = match.group(0)
-    assert 'class="dialog2 dialog2--live"' in tag
+    assert 'class="dialog dialog--live"' in tag
     assert 'role="dialog"' in tag and 'aria-modal="true"' in tag
 
     dialog = text[text.index('id="killSwitchOffConfirm"'):]
@@ -375,7 +375,7 @@ def test_kill_switch_off_form_uses_dialog2_not_native_confirm():
     assert "neue Positionen" in dialog and ("eröffnen" in dialog or "möglich" in dialog)
     assert "Schutz-Verkäufe" in dialog
     assert "Stop-Loss" in dialog or "Take-Profit" in dialog
-    # Gleiches Fokus-/Aktions-Muster wie die drei bestehenden dialog2-Stellen:
+    # Gleiches Fokus-/Aktions-Muster wie die drei bestehenden dialog-Stellen:
     assert re.search(r'<button[^>]*data-confirm-cancel[^>]*autofocus[^>]*>', dialog)
     assert 'data-confirm-ok' in dialog
 
@@ -451,14 +451,14 @@ def test_kill_switch_chip_reuses_existing_chip_component_not_a_new_one():
     assert 'class="chip chip--warn"' in text
 
 
-def test_token_rotate_form_uses_dialog2_not_native_confirm():
+def test_token_rotate_form_uses_dialog_not_native_confirm():
     text = re.sub(r"\s+", " ", _client().get("/app/settings").text)
     assert 'onsubmit="return confirm(' not in text
     assert 'data-confirm-dialog="tokenRotateConfirm"' in text
     match = re.search(r'<dialog\b[^>]*\bid="tokenRotateConfirm"[^>]*>', text)
     assert match, 'kein <dialog id="tokenRotateConfirm" …> gefunden'
     tag = match.group(0)
-    assert "dialog2" in tag
+    assert "dialog" in tag
     assert 'role="dialog"' in tag and 'aria-modal="true"' in tag
     dialog = text[text.index('id="tokenRotateConfirm"'):]
     dialog = dialog[:dialog.index("</dialog>")]

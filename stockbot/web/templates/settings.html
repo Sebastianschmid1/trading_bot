@@ -128,16 +128,16 @@
     {% if ks_active %}<span class="muted">Grund: {{ kill_switch.reason }}</span>{% endif %}
   </form>
   {% if ks_active %}
-  {# §18.1/dialog2 statt nativem confirm(): hebt die Einstiegssperre auf — sicherheitsrelevant.
+  {# §18.1/dialog statt nativem confirm(): hebt die Einstiegssperre auf — sicherheitsrelevant.
      Folgen als Liste statt im Fließtext, gespiegelt von alpacaClearConfirm/resetConfirm unten. #}
-  <dialog id="killSwitchOffConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="killSwitchOffTitle">
-    <div class="dialog2__body">
-      <h2 class="dialog2__title" id="killSwitchOffTitle">Kill-Switch wirklich abschalten?</h2>
+  <dialog id="killSwitchOffConfirm" class="dialog dialog--live" role="dialog" aria-modal="true" aria-labelledby="killSwitchOffTitle">
+    <div class="dialog__body">
+      <h2 class="dialog__title" id="killSwitchOffTitle">Kill-Switch wirklich abschalten?</h2>
       <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
         <li>Hebt die Sperre für neue Positionen auf — danach kann der Bot wieder automatisch neue Einstiege eröffnen</li>
         <li>Schutz-Verkäufe (Stop-Loss/Take-Profit o.&nbsp;ä.) waren durchgehend erlaubt und bleiben es unverändert — daran ändert der Kill-Switch nichts</li>
       </ul>
-      <div class="dialog2__actions">
+      <div class="dialog__actions">
         <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
         <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Kill-Switch abschalten</button>
       </div>
@@ -196,17 +196,17 @@
     <button class="btn2 btn2--destructive">Verbindung entfernen</button>
   </form>
   {# Blocker 8 (agent/UI-CONTRAST, §18.1): entfernt echte Broker-Zugangsdaten und deaktiviert
-     damit sofort die echte Order-Ausführung — abgesichert über den vorhandenen dialog2 statt
+     damit sofort die echte Order-Ausführung — abgesichert über den vorhandenen dialog statt
      eines nativen confirm(), Folgen als Liste statt im Fließtext oben. #}
-  <dialog id="alpacaClearConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="alpacaClearTitle">
-    <div class="dialog2__body">
-      <h2 class="dialog2__title" id="alpacaClearTitle">Alpaca-Verbindung wirklich entfernen?</h2>
+  <dialog id="alpacaClearConfirm" class="dialog dialog--live" role="dialog" aria-modal="true" aria-labelledby="alpacaClearTitle">
+    <div class="dialog__body">
+      <h2 class="dialog__title" id="alpacaClearTitle">Alpaca-Verbindung wirklich entfernen?</h2>
       <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
         <li>Löscht die gespeicherten API-Zugangsdaten (Key &amp; Secret) unwiderruflich</li>
         <li>Deaktiviert sofort die echte Broker-Order-Ausführung</li>
         <li>Bereits offene Alpaca-Positionen bleiben unverändert bestehen, sind hier aber nicht mehr steuerbar, bis neue Zugangsdaten hinterlegt werden</li>
       </ul>
-      <div class="dialog2__actions">
+      <div class="dialog__actions">
         <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
         <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Verbindung entfernen</button>
       </div>
@@ -227,16 +227,16 @@
   <form class="inline" method="post" action="/app/settings/token/rotate" data-confirm-dialog="tokenRotateConfirm">
     <button>🔄 Dashboard-Link erneuern</button>
   </form>
-  {# §18.1/dialog2 statt nativem confirm(): invalidiert den bisherigen Link, gespiegelt
+  {# §18.1/dialog statt nativem confirm(): invalidiert den bisherigen Link, gespiegelt
      vom Muster oben/unten (alpacaClearConfirm, resetConfirm). #}
-  <dialog id="tokenRotateConfirm" class="dialog2" role="dialog" aria-modal="true" aria-labelledby="tokenRotateTitle">
-    <div class="dialog2__body">
-      <h2 class="dialog2__title" id="tokenRotateTitle">Neuen Dashboard-Link erzeugen?</h2>
+  <dialog id="tokenRotateConfirm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="tokenRotateTitle">
+    <div class="dialog__body">
+      <h2 class="dialog__title" id="tokenRotateTitle">Neuen Dashboard-Link erzeugen?</h2>
       <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
         <li>Der bisherige Link (z.&nbsp;B. aus Telegram oder dem Browser-Verlauf) wird sofort ungültig</li>
         <li>Nützlich, wenn er versehentlich geteilt wurde</li>
       </ul>
-      <div class="dialog2__actions">
+      <div class="dialog__actions">
         <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
         <button type="button" class="btn2 btn2--primary" data-confirm-ok>🔄 Dashboard-Link erneuern</button>
       </div>
@@ -253,17 +253,17 @@
   </form>
 </div>
 {# Blocker 8 (agent/UI-CONTRAST, §18.1): löscht Trades/Verlauf und schließt ggf. echte
-   Alpaca-Positionen — abgesichert über den vorhandenen dialog2 statt eines nativen
+   Alpaca-Positionen — abgesichert über den vorhandenen dialog statt eines nativen
    confirm(), Folgen als Liste statt im Fließtext oben. #}
-<dialog id="resetConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="resetConfirmTitle">
-  <div class="dialog2__body">
-    <h2 class="dialog2__title" id="resetConfirmTitle">Demo wirklich zurücksetzen?</h2>
+<dialog id="resetConfirm" class="dialog dialog--live" role="dialog" aria-modal="true" aria-labelledby="resetConfirmTitle">
+  <div class="dialog__body">
+    <h2 class="dialog__title" id="resetConfirmTitle">Demo wirklich zurücksetzen?</h2>
     <ul style="margin:.7rem 0 0; padding-left:1.1rem; line-height:1.6">
       <li>Löscht <strong>alle</strong> deine Trades, den Verlauf und Mitteilungen unwiderruflich</li>
       <li>Schließt deine offenen Alpaca-Positionen, falls echte Broker-Ausführung aktiv ist</li>
       <li>Einstellungen und die Alpaca-Verbindung bleiben erhalten</li>
     </ul>
-    <div class="dialog2__actions">
+    <div class="dialog__actions">
       <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
       <button type="button" class="btn2 btn2--destructive" data-confirm-ok>🗑️ Zurücksetzen</button>
     </div>

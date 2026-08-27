@@ -229,12 +229,12 @@
     <span class="note">Übernehmen schreibt die Parameter als Live-Override — der Bot nutzt sie binnen ~20 s.</span>
   </div>
   {# Blocker 8 (agent/UI-CONTRAST, §18.1): Live-Override der Handelsparameter bestätigt
-     über den vorhandenen dialog2 statt eines nativen confirm() — die Folgen (welcher
+     über den vorhandenen dialog statt eines nativen confirm() — die Folgen (welcher
      Parameter, alter/neuer Wert, Wirkung) werden im Dialog aufgezählt, nicht im
      Fließtext darüber. #}
-  <dialog id="labApplyConfirm" class="dialog2 dialog2--live" role="dialog" aria-modal="true" aria-labelledby="labApplyTitle">
-    <div class="dialog2__body">
-      <h2 class="dialog2__title" id="labApplyTitle">Live-Override übernehmen?</h2>
+  <dialog id="labApplyConfirm" class="dialog dialog--live" role="dialog" aria-modal="true" aria-labelledby="labApplyTitle">
+    <div class="dialog__body">
+      <h2 class="dialog__title" id="labApplyTitle">Live-Override übernehmen?</h2>
       <div class="alert2 alert2--danger" role="alert">
         <div><p class="alert2__title">Der Bot handelt danach mit diesem Wert</p>
         <div>Das wirkt auf alle Nutzer im Live-/Paper-Handel, nicht nur im Labor.</div></div>
@@ -244,7 +244,7 @@
         <li>Gilt ab dem nächsten Zyklus des Bots — binnen ~20 Sekunden</li>
         <li>Der bisherige Champion-Wert lässt sich danach nicht automatisch wiederherstellen</li>
       </ul>
-      <div class="dialog2__actions">
+      <div class="dialog__actions">
         <button type="button" class="btn2 btn2--secondary" data-confirm-cancel autofocus>Abbrechen</button>
         <button type="button" class="btn2 btn2--destructive" data-confirm-ok>Als Live-Override übernehmen</button>
       </div>

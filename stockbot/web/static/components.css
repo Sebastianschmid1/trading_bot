@@ -158,18 +158,18 @@
 a.chip:hover, a.chip:focus { text-decoration: none; }
 
 /* ── Dialog (Modal) ────────────────────────────────────────────────────── */
-.dialog2::backdrop { background: rgba(0, 0, 0, .55); }
-.dialog2 {
+.dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.dialog {
   border: 1px solid var(--border-strong); border-radius: var(--radius-xl);
   background: var(--bg-surface-2); color: var(--text-primary); padding: 0;
   max-width: 440px; width: calc(100vw - 32px); box-shadow: var(--shadow-dialog);
 }
-.dialog2__body { padding: var(--space-6); }
-.dialog2__title { font-size: 18px; font-weight: 640; margin: 0 0 var(--space-3); }
-.dialog2__actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-6); }
+.dialog__body { padding: var(--space-6); }
+.dialog__title { font-size: 18px; font-weight: 640; margin: 0 0 var(--space-3); }
+.dialog__actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-6); }
 /* Live-Bestätigung: roter Rahmen + Warnbanner */
-.dialog2--live { border-color: var(--danger); }
-.dialog2--live .dialog2__title { color: var(--danger); }
+.dialog--live { border-color: var(--danger); }
+.dialog--live .dialog__title { color: var(--danger); }
 
 /* ── Warte-Dialog (components.html#wait_dialog) ──────────────────────────
    Trägt selbst keine Karten-Optik — der Inhalt liefert sein eigenes .card,

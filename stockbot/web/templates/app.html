@@ -235,11 +235,11 @@
 {% endfor %}
 
 {# ── Pflicht-Bestätigungsdialog (§18.1): feste Reihenfolge Modus → Instrument → Entry →
-     Stop/Ziel → Risiko → Größe. Live bekäme dialog2--live + Volltext-Button („Echtes Geld"). #}
-<dialog id="tradeConfirm" class="dialog2 {{ 'dialog2--live' if trade_mode == 'live' }}"
+     Stop/Ziel → Risiko → Größe. Live bekäme dialog--live + Volltext-Button („Echtes Geld"). #}
+<dialog id="tradeConfirm" class="dialog {{ 'dialog--live' if trade_mode == 'live' }}"
         role="dialog" aria-modal="true" aria-labelledby="tcTitle">
-  <div class="dialog2__body">
-    <h2 class="dialog2__title" id="tcTitle">Trade bestätigen</h2>
+  <div class="dialog__body">
+    <h2 class="dialog__title" id="tcTitle">Trade bestätigen</h2>
     {% if trade_mode == 'live' %}
     <div class="alert2 alert2--danger" role="alert">
       <div><p class="alert2__title">Echtes Geld</p>
@@ -257,7 +257,7 @@
       <dt>Größe</dt> <dd class="mono" id="tcSize">{{ '%.0f'|format(user.trade_size_eur) }} $ × <span id="tcLev"></span></dd>
     </dl>
     <p class="muted" id="tcNote" style="margin:.6rem 0 0"></p>
-    <div class="dialog2__actions">
+    <div class="dialog__actions">
       <button type="button" class="btn2 btn2--secondary" id="tcCancel" autofocus>Abbrechen</button>
       {# §32.4 Anti-Fehlklick: Initialfokus liegt auf „Abbrechen", der Bestätigen-Button ist
          nicht per Enter auslösbar — ein versehentliches Enter darf keine Order auslösen. #}
