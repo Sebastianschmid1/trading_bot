@@ -147,10 +147,11 @@ body {
    (vendor lg-violet/lg-warning) reichen als Text auf --info-soft/--warning-soft NICHT an
    4.5:1 heran (2.15–2.84:1 in beiden Themes, siehe DESIGN.md). Backtest/Shadow/Paper nutzen
    deshalb eigene, undurchsichtige --tone-*-bg/-fg-Paare (>=5:1 in beiden Themes, deterministisch
-   geprüft — keine Translucenz-Abhängigkeit vom unbekannten Hintergrund). Live bleibt
-   unverändert: --danger/--danger-soft (abgeleitet vom bereits abgedunkelten --money-loss)
-   erreichen bereits >=4.5:1 in beiden Themes. */
+   geprüft — keine Translucenz-Abhängigkeit vom unbekannten Hintergrund). Live folgt seit
+   Befund 15 derselben Regel: --danger-soft ist zu 88 % durchsichtig, das Etikett hing damit am
+   zufälligen Grund (in der appbar 4,40:1 über --lg-bg-2 gemessen, agent/UI-MOBILNAV). Mit dem
+   undurchsichtigen --tone-danger-Paar sind es 6,02:1 hell / 7,86:1 dunkel, positionsunabhängig. */
 .mode-badge--backtest { color: var(--tone-indigo-fg, #3F3AAE); background: var(--tone-indigo-bg, #E7E4FE); border-color: color-mix(in srgb, var(--tone-indigo-fg, #3F3AAE) 35%, transparent); }
 .mode-badge--shadow { color: var(--tone-violet-fg, #443592); background: var(--tone-violet-bg, #ECE6FB); border-color: color-mix(in srgb, var(--tone-violet-fg, #443592) 35%, transparent); }
 .mode-badge--paper { color: var(--tone-warning-fg, #6B430A); background: var(--tone-warning-bg, #F5E6C8); border-color: color-mix(in srgb, var(--tone-warning-fg, #6B430A) 35%, transparent); }
-.mode-badge--live { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+.mode-badge--live { color: var(--tone-danger-fg, #A5122B); background: var(--tone-danger-bg, #F7DDE1); border-color: color-mix(in srgb, var(--tone-danger-fg, #A5122B) 35%, transparent); }
