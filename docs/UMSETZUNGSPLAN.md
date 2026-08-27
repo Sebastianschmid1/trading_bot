@@ -793,6 +793,28 @@ Entscheidung des Betreibers. Anmerkung zur Historie: die Reparatur der Exposure-
 (`8022bc9`) hat den Korrelationsgruppen-Pfad verdrahtet, den Sektor-Pfad aber nicht — es war
 eine halbe Reparatur, was beim damaligen Review niemandem auffiel.
 
+**Befund 13 — fünf von sieben Datenqualitäts-Prüfungen haben keinen Aufrufer.**
+Derselbe Eingaben-Scan auf `core/data_quality.py` angewandt: aus dem Modul werden **nur**
+`check_quote_age` und `check_spread` benutzt (beide aus `risk.py:136/140`).
+`check_no_halt`, `check_market_status`, `check_bars_complete`, `check_corporate_actions` und
+der Sammel-Auswerter `evaluate_quality` haben **null Aufrufer** — auch `exposure.py:133-134`
+verweist nur im Kommentar auf sie als „Seam fürs Wiring".
+
+Das ist inhaltlich der ernsteste der Befunde, weil `check_corporate_actions`
+(`data_quality.py:121-133`) genau den Schaden verhindern soll, den dieses Repo bereits erlebt
+hat: unverarbeitete Splits skalieren Bars und Kennzahlen falsch. In `tgbot/bot.py:3116` steht
+seit einem echten Vorfall eine **nachträgliche Datenreparatur** („Glitch-Fills wie KHC @ 0,26
+→ +53.810 $ Fake-P&L"), die beim Start absurde P&L-Werte geradezieht. Der Bot repariert also
+im Nachhinein, was ein vorhandener, nie aufgerufener Vorab-Check hätte abfangen können.
+Ebenso ungenutzt: `check_no_halt` — eine Handelsunterbrechung wird vor einer Order nie geprüft.
+
+**Nicht nebenbei verdrahtet, und diesmal aus einem anderen Grund als sonst:** anders als beim
+Liquiditätscheck liegen die Eingaben hier **nicht** schon im Repo. Halt-Status und Corporate
+Actions müssten erst beim Broker abgefragt werden (Alpaca liefert beides), das ist ein
+zusätzlicher Marktdatenpfad im Handelsweg — ein Feature mit Latenz- und Fehlerfolgen, keine
+Verdrahtung. Empfehlung: als eigener Task planen, `check_corporate_actions` zuerst (der Schaden
+ist belegt), `check_no_halt` danach.
+
 **Lehre für die nächste Sitzung:** dieser Scan kostet zwei Minuten und findet in einer Runde,
 wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
 mit „wirkt" gleichsetzt.
