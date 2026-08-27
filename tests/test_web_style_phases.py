@@ -529,3 +529,44 @@ def test_dashboard_renders_mode_report_panel_from_existing_json():
     assert data.status_code == 200
     reports = json.loads(data.text)["mode_reports"]
     assert set(reports) == {"paper", "shadow"}       # nie über Modi hinweg vermischt
+
+
+# ── design-lead-Nachtrag (2026-08-27): Dashboard-Hierarchie, keine Hero-Kachel ───────
+
+def test_no_hero_kachel_remains_in_dashboard():
+    """Die Iris-Hero-Kachel fällt ersatzlos weg (design-lead-Nachtrag): die P&L-Kachel war
+    der einzige gesättigte Farbblock der Ansicht und zog den Blick zuerst auf den Gewinn,
+    obwohl Risiko hier bereits ereignisgetrieben kodiert ist (Kill-Switch-Chip, #error,
+    #sizing-hint)."""
+    text = Path("stockbot/web/templates/dashboard.html").read_text(encoding="utf-8")
+    assert "card-hero" not in text
+    assert "big" not in re.search(r"function renderKpis\(d\).*?\n    \}", text, flags=re.S).group(0)
+
+
+def test_kpi_order_follows_risk_status_performance_history():
+    """Reihenfolge der neun kpis.push()-Aufrufe (design-lead-Nachtrag): Risiko (aktive
+    Exponierung) -> Status (verfügbares Kapital) -> Performance -> Historie. Ohne
+    Broker-Anbindung (kein `if (ba)`-Block) fallen bp/cash weg, der Rest bleibt in
+    derselben Reihenfolge stehen — eine direkte Konsequenz der linearen
+    Push-Reihenfolge im Quelltext, hier explizit für beide Fälle belegt."""
+    text = Path("stockbot/web/templates/dashboard.html").read_text(encoding="utf-8")
+    block = re.search(r"function renderKpis\(d\).*?const host = document\.getElementById", text, flags=re.S)
+    assert block, "renderKpis()-Funktion nicht gefunden"
+    keys = re.findall(r'kpis\.push\(\{\s*key:\s*"(\w+)"', block.group(0))
+    assert keys == ["active", "size", "bp", "cash", "pnl", "pf", "wr", "wl", "closed"]
+
+    without_broker = [k for k in keys if k not in ("bp", "cash")]
+    assert without_broker == ["active", "size", "pnl", "pf", "wr", "wl", "closed"]
+
+
+def test_pnl_loss_coloring_survives_hero_removal():
+    """Blocker aus der Design-Vorgabe: `cls()` färbt Gewinn/Verlust unabhängig von der
+    (jetzt entfernten) Hero-Optik — `cls` hing nie an `big`. Regressionsschutz: wird rot,
+    wenn jemand die Verlustfärbung beim Entfernen der Hero-Kachel versehentlich mitnimmt."""
+    text = Path("stockbot/web/templates/dashboard.html").read_text(encoding="utf-8")
+    assert re.search(r'const cls\s*=\s*\(n\)\s*=>\s*n\s*>=\s*0\s*\?\s*"green"\s*:\s*"red";', text)
+    pnl_push = re.search(r'kpis\.push\(\{[^}]*key:\s*"pnl"[^}]*\}\)', text)
+    assert pnl_push, "pnl-Kachel nicht gefunden"
+    assert "cls: cls(s.total_pnl)" in pnl_push.group(0)
+    assert "big" not in pnl_push.group(0)
+    assert 'valEl.className = "value " + (k.cls || "");' in text

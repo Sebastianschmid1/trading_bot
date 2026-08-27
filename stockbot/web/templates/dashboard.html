@@ -17,7 +17,7 @@
     .hero { display:grid; grid-template-columns:repeat(auto-fill, minmax(155px, 1fr));
             gap:14px; margin-bottom:20px; align-items:start; }
     .hero .cards { display:contents; }
-    .hero .card { aspect-ratio:1 / 1; display:flex; flex-direction:column; justify-content:center; margin:0; }
+    .hero .card--tile { aspect-ratio:1 / 1; display:flex; flex-direction:column; justify-content:center; margin:0; }
     /* Gauge-Rahmen: helle Glaskarte statt der dunklen Avionik-Blende der base.html */
     .hero .gauge-wrap { grid-column:span 2; aspect-ratio:2 / 1; flex-direction:row;
                         gap:.7rem; align-items:center; justify-content:center; padding:.5rem .9rem;
@@ -107,15 +107,17 @@
 
     /* ── KPI-Kacheln: Glas ────────────────────────────────────────────────── */
     .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; margin-bottom:20px; }
-    .card { background:var(--lg-glass-solid); border:1px solid var(--lg-edge-soft);
-            border-radius:var(--lg-r-md); padding:14px 16px; box-shadow:var(--lg-cast-1), var(--lg-facet);
-            transition:box-shadow .2s, border-color .2s; }
-    .card .label { color:var(--lg-ink-muted); font-size:.7rem; text-transform:uppercase;
+    /* .card (Fläche/Rand/Radius/Schatten/Tinte) kommt jetzt aus components.css — hier
+       bleibt nur noch .card--tile: die kompaktere KPI-Kachel-Struktur bleibt
+       Dashboard-lokal (E2), sonst kollidiert sie mit sich selbst über den
+       Komponenten-Guard, sobald sie auch in components.css stünde. */
+    .card--tile { padding:14px 16px; transition:box-shadow .2s, border-color .2s; }
+    .card--tile .label { color:var(--lg-ink-muted); font-size:.7rem; text-transform:uppercase;
                    letter-spacing:.06em; font-weight:600; }
-    .card .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums;
+    .card--tile .value { font-size:1.55rem; font-weight:700; margin-top:.3rem; font-variant-numeric:tabular-nums;
                    color:var(--lg-ink); }
-    .card.flash-up { animation:flashUp .9s ease-out; }
-    .card.flash-down { animation:flashDown .9s ease-out; }
+    .card--tile.flash-up { animation:flashUp .9s ease-out; }
+    .card--tile.flash-down { animation:flashDown .9s ease-out; }
     @keyframes flashUp { 0%{box-shadow:0 0 0 2px var(--lg-success)} 100%{box-shadow:var(--lg-cast-1), var(--lg-facet)} }
     @keyframes flashDown { 0%{box-shadow:0 0 0 2px var(--lg-error)} 100%{box-shadow:var(--lg-cast-1), var(--lg-facet)} }
 
@@ -267,11 +269,11 @@
       main { padding:14px !important; }
       .ck-bar { top:0; padding:10px 12px; }
       .hero { grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:10px; }
-      .card .value { font-size:1.25rem; }
+      .card--tile .value { font-size:1.25rem; }
       .panel canvas, .span-2 .panel canvas { height:230px !important; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .pill .dot, .iconbtn.spin, .card.flash-up, .card.flash-down { animation:none !important; }
+      .pill .dot, .iconbtn.spin, .card--tile.flash-up, .card--tile.flash-down { animation:none !important; }
     }
   </style>
 

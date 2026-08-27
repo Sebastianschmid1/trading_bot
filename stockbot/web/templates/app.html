@@ -8,11 +8,11 @@
    Nur solange das Konto leer ist (kein Trade, keine Alpaca-Verbindung — siehe
    `show_onboarding` in webapp.app_home): fehlender Erstkontakt war die Lücke, die
    Einzel-Leerzustände weiter unten sind bereits gut. Bewusst KEINE neue Komponentenwelt —
-   nur card2/alert/chip aus components.css/components.html. #}
+   nur card/alert/chip aus components.css/components.html. #}
 {% if show_onboarding %}
-<div class="card2" style="margin-bottom:1rem">
-  <div class="card2__header"><h2 class="card2__title">Erste Schritte</h2></div>
-  <div class="card2__body">
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__header"><h2 class="card__title">Erste Schritte</h2></div>
+  <div class="card__body">
     {{ alert("Es wird kein echtes Geld bewegt, solange kein Broker verbunden ist.",
              tone='info', title=glossary.MODE_LABELS.demo) }}
     <p style="margin:.9rem 0 .4rem"><strong>Nächste Schritte:</strong></p>

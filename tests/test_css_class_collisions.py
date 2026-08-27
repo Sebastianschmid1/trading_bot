@@ -58,7 +58,7 @@ def test_components_css_wird_geparst():
     """Schutz vor einem stillschweigend leeren Test (Pfad verschoben, Regex kaputt)."""
     klassen = _klassen_aus_css(_COMPONENTS_CSS.read_text(encoding="utf-8"))
     assert len(klassen) > 20, f"nur {len(klassen)} Klassen gefunden — Parser oder Pfad kaputt?"
-    assert "chip" in klassen and "card2" in klassen
+    assert "chip" in klassen and "card" in klassen
 
 
 def test_seiten_templates_werden_geparst():

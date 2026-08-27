@@ -1153,14 +1153,14 @@ def test_admin_only_action_returns_styled_html_403_for_browser():
 
 
 def test_error_page_has_no_inline_style_attributes():
-    """Befund: error.html trug Inline-style="..." statt Utility-Klassen (card2--narrow/
+    """Befund: error.html trug Inline-style="..." statt Utility-Klassen (card--narrow/
     --center, btn-row--center) aus components.css."""
     fresh()
     c = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app)
     r = c.get("/gibtesnicht")
     assert r.status_code == 404
     assert 'style="' not in r.text
-    assert "card2--narrow" in r.text and "card2--center" in r.text
+    assert "card--narrow" in r.text and "card--center" in r.text
     assert "btn-row btn-row--center" in r.text
 
 
@@ -1169,7 +1169,7 @@ def test_index_page_has_no_inline_style_attributes():
     r = TestClient(__import__("stockbot.web.dashboard", fromlist=["app"]).app).get("/")
     assert r.status_code == 200
     assert 'style="' not in r.text
-    assert "card2--narrow" in r.text and "card2--center" not in r.text   # Prosa bleibt linksbündig
+    assert "card--narrow" in r.text and "card--center" not in r.text   # Prosa bleibt linksbündig
     assert "btn-row" in r.text
 
 

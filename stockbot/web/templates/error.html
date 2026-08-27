@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ error_title }} — Stock Signal Bot{% endblock %}
 {% block content %}
-<div class="card2 card2--narrow card2--center">
-  <div class="card2__header card2__header--center">
-    <h1 class="card2__title card2__title--lg">{{ error_code }} · {{ error_title }}</h1>
+<div class="card card--narrow card--center">
+  <div class="card__header card__header--center">
+    <h1 class="card__title card__title--lg">{{ error_code }} · {{ error_title }}</h1>
   </div>
-  <div class="card2__body">
+  <div class="card__body">
     <p>{{ error_message }}</p>
     {% if error_detail %}<p class="muted">{{ error_detail }}</p>{% endif %}
   </div>
