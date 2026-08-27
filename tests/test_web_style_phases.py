@@ -69,6 +69,28 @@ def test_mobile_bottom_nav_and_touch_targets_are_declared():
     assert "prefers-reduced-motion" in text
 
 
+def test_mobile_appbar_disables_backdrop_filter_so_bottom_nav_reaches_the_viewport():
+    """agent/UI-MOBILNAV: backdrop-filter macht sein Element zum Containing Block für
+    position:fixed-Nachfahren (CSS Filter Effects) — ohne den Override haengt die
+    .appbar__nav an der .appbar statt am Viewport und verdeckt Kill-Switch-Chip,
+    Nutzername und Logout im Kopf vollstaendig (am laufenden Browser nachgewiesen: die
+    Leiste sprang von y=40 auf y=653 bei 749px Viewporthoehe)."""
+    text = Path("stockbot/web/templates/base.html").read_text(encoding="utf-8")
+    media = re.search(r"@media \(max-width: 640px\) \{(.*?)\n  \}\n", text, re.S)
+    assert media, "Mobile-Media-Query (@media max-width:640px) nicht gefunden"
+    mobile_css = media.group(1)
+    appbar_rule = re.search(r"\.appbar\s*\{([^}]*)\}", mobile_css)
+    assert appbar_rule, "keine eigenstaendige .appbar-Regel im Mobile-Media-Query"
+    rule_body = re.sub(r"\s+", "", appbar_rule.group(1))
+    assert "backdrop-filter:none" in rule_body, (
+        ".appbar schaltet backdrop-filter im Mobile-Media-Query nicht (mehr) ab — "
+        "backdrop-filter macht die .appbar zum Containing Block fuer position:fixed, "
+        "die .appbar__nav haengt dann an der .appbar statt am Viewport (siehe Kommentar "
+        "in base.html direkt darueber)."
+    )
+    assert "-webkit-backdrop-filter:none" in rule_body
+
+
 # ── Style-Phase 3/4: Signalseite ─────────────────────────────────────────────
 
 def test_signal_card_asks_to_review_instead_of_offering_a_buy_button():

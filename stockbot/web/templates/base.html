@@ -363,7 +363,14 @@
   @media (max-width: 640px) {
     /* Touch-Ziele ≥ 44×44 px (§23) */
     button, .btn, nav a, .appbar__nav a { min-height:44px; }
-    .appbar { padding:8px 12px; }
+    /* backdrop-filter macht sein Element zum Containing Block für position:fixed-Nachfahren
+       (CSS Transforms/Filter Effects) — die .appbar__nav unten hätte ihr bottom:0 sonst auf
+       die .appbar bezogen statt auf den Viewport und würde y=653 statt y=40 verankert bleiben
+       (am laufenden Browser nachgewiesen), Kill-Switch-Chip/Nutzername/Logout im Kopf komplett
+       verdeckt. Filter hier abschalten und mit --lg-glass-solid (wie die Bottom-Nav selbst)
+       undurchsichtig machen, sonst wirkt der Header milchig-transparent statt Glas. */
+    .appbar { padding:8px 12px; background:var(--lg-glass-solid);
+              -webkit-backdrop-filter:none; backdrop-filter:none; }
     /* Bottom-Navigation (§23.4): Hauptnavigation ans Daumenende, kein Horizontal-Scroll */
     .appbar__nav { position:fixed; bottom:0; left:0; right:0; z-index:40; background:var(--lg-glass-solid);
                    -webkit-backdrop-filter:blur(var(--lg-blur)); backdrop-filter:blur(var(--lg-blur));
