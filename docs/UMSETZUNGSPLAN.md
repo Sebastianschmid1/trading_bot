@@ -832,6 +832,24 @@ zusätzlicher Marktdatenpfad im Handelsweg — ein Feature mit Latenz- und Fehle
 Verdrahtung. Empfehlung: als eigener Task planen, `check_corporate_actions` zuerst (der Schaden
 ist belegt), `check_no_halt` danach.
 
+**Befund 14 — die Produktgrenze „nur US-Aktien + US-ETFs" ist nicht durchgesetzt.**
+`config.py:233` führt ein Krypto-Universum (`BTC-USD` …), `market/asset_classes.py:97-99`
+macht daraus eine wählbare Anlageklasse, und `web/webapp.py:600-607` persistiert die Wahl als
+`asset_pref`. Über `/app/scan` lassen sich damit Krypto-Signale erzeugen und über
+`/app/scan/accept` (`webapp.py:664`) annehmen — **im Broker-, Execution- oder Risk-Pfad gibt es
+keinen einzigen Krypto-Guard** (grep über `broker/`, `execution/`, `core/risk.py`: null Treffer).
+Was die Order heute aufhält, ist allein das Symbolformat: der Bot führt `BTC-USD` (yfinance),
+Alpaca erwartet `BTC/USD`. Die Produktgrenze hält also durch einen **Zufall der Schreibweise**,
+nicht durch eine Leitplanke — während für Optionen mit TSAFE-003 genau so ein Guard existiert.
+
+Einzuordnen: der Schaden wäre eine fehlgeschlagene Order mit Logeintrag, kein Geldverlust, und
+`asset_pref` steuert nur den Web-Scan, nicht den automatischen Telegram-Signalpfad. Die
+Rohstoff-Klasse (`DBC`, `PDBC`, `CPER`, `PPLT` …) besteht dagegen aus regulär handelbaren
+US-ETFs und ist DoD-konform. **Nicht nebenbei geändert:** ein Instrumenten-Guard gehört
+entweder in `risk.pretrade_check` (TSAFE) oder ins OMS und ändert, was ein Nutzer annehmen
+kann — Entscheidung des Betreibers, zusammen mit der Frage, ob Krypto überhaupt im Produkt
+bleiben soll (der Kommentar in `config.py:231` nennt es „vorerst Demo/Tracking").
+
 **Lehre für die nächste Sitzung:** dieser Scan kostet zwei Minuten und findet in einer Runde,
 wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
 mit „wirkt" gleichsetzt.
