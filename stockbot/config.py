@@ -310,6 +310,21 @@ BROKER_POLL_INTERVAL_SEC = int(os.getenv("BROKER_POLL_INTERVAL_SEC", "30"))
 # Post-Trade-Risiko: offene Positionen regelmäßig auf aktive Schutzorders prüfen.
 POST_TRADE_SCAN_INTERVAL_SEC = int(os.getenv("POST_TRADE_SCAN_INTERVAL_SEC", "600"))
 
+# Corporate-Action-Wächter (OBS-CORPACT): unverarbeitete Kursanpassungen (Splits) auf offenen
+# Positionen/Watchlist SICHTBAR machen, bevor sie Kennzahlen/P&L verfälschen (der Bot reparierte
+# solche Glitch-Fills bislang nur nachträglich, siehe tgbot/bot.py). Meldet nur, blockiert keine
+# Order (kein Live-Verhalten) — dafür spricht ein Default AN; dagegen spricht nur zusätzliche
+# Broker-Last, die der stündliche Takt klein hält (Splits werden Tage im Voraus angekündigt und
+# ändern sich nicht binnen Minuten — ein schnellerer Takt brächte keinen Erkenntnisgewinn, nur
+# mehr Alpaca-Anfragen).
+CORPACT_GUARD_ENABLED = os.getenv("CORPACT_GUARD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+CORPACT_GUARD_INTERVAL_SEC = int(os.getenv("CORPACT_GUARD_INTERVAL_SEC", str(60 * 60)))
+# Watchlist-Symbole haben (noch) keine Position und damit keine verfälschte P&L-Berechnung im
+# Risiko — hier reicht ein knappes Rückblick-Fenster als Frühwarnung vor dem nächsten Einstieg.
+# Offene Positionen brauchen dagegen KEIN Fenster: dort gilt das tatsächliche Einstiegsdatum
+# (jede Anpassung seit Eröffnung kann die bereits gebuchte P&L verfälschen), siehe tgbot/bot.py.
+CORPACT_WATCHLIST_LOOKBACK_DAYS = int(os.getenv("CORPACT_WATCHLIST_LOOKBACK_DAYS", "14"))
+
 # Intraday-Signal-Scan: während der Handelszeit alle 30 Min nach NEUEN Signalen suchen und
 # sie per Telegram + Website pushen (über den Eröffnungs-Scan hinaus, ohne top_n-Deckel).
 INTRADAY_SCAN_INTERVAL_SEC = 30 * 60
