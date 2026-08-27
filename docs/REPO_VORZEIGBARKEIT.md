@@ -149,7 +149,17 @@ Datenbank). Ich würde das **nur mit anschließendem Lauf gegen echtes Postgres*
 wirklich in den Code geht. Aber wenn er es tut, ist es der Unterschied zwischen „ah, sauber
 geschnitten" und „oh".
 
-> **Freigabe B1:** 🔄 **freigegeben, in Arbeit** — als Paket mit Re-Export, damit kein Aufrufer angefasst werden muss.
+> **Freigabe B1:** ✅ **erledigt** (`f3969f6`) — elf Fachmodule zwischen 67 und 705 Zeilen,
+> geschnitten entlang der Abschnittsüberschriften, die die Datei schon selbst trug. Kein Aufrufer
+> angefasst. **Der Befund, der das Design bestimmt hat:** `db` ist selbst eine Test-Naht — rund 50
+> Teststellen ersetzen Namen *auf dem Modul* (`db.DB_FILE` 51×, `db.yf` 26×, `db._today` 7×). Ein
+> naiver Schnitt mit einem `base.py` hätte diese Naht lautlos zerschnitten: die Fachmodule hätten
+> eigene Bindungen gehabt, das Patchen wäre wirkungslos geblieben — grüne Tests, die nichts mehr
+> prüfen, also genau das Muster, das dieses Repo schon zehnmal getroffen hat. Deshalb liegt das
+> Fundament in `__init__.py`. Der Umzug ist per AST erfolgt und rückwärts verifiziert (alle 167
+> Top-Level-Namen zeichengleich). **Belegt: 1529 Tests lokal grün + 47 Postgres-Contract-Tests
+> gegen die echte Instanz am VPS** — die lokalen Skips wären für einen Eingriff am DB-Seam kein
+> ausreichender Nachweis gewesen.
 
 ### B2. `stockbot/tgbot/bot.py` — 3.136 Zeilen
 
@@ -164,7 +174,14 @@ Formatierung hat keine Seiteneffekte. Die Handler bleiben, wo sie sind.
 **Aufwand:** ein halber Tag. **Risiko:** geringer als B1, weil die Job-Registrierung an einer
 Stelle sitzt und die Tests sie zählen.
 
-> **Freigabe B2:** 🔄 **freigegeben, in Arbeit** — Scheduler-Jobs und Nachrichtenformatierung raus, Handler bleiben.
+> **Freigabe B2:** 🔄 **neu zugeschnitten, in Arbeit.** Der erste Anlauf ist gescheitert und war
+> lehrreich: von dreizehn Scheduler-Jobs ließen sich nur **drei** entkoppeln (die übrigen rufen
+> Handler auf, die in `bot.py` bleiben), macht 243 Zeilen — die Datei wäre bei 2.893 geblieben, das
+> Leseproblem also ungelöst. Zusätzlich brach das Auslagern einen Test, der per `inspect.getsource`
+> den Quelltext prüft: einzeln grün, im Gesamtlauf rot. Neuer Zuschnitt: **nur die reine
+> Nachrichtenformatierung heraus, plus eine echte Navigationshilfe** (Modul-Docstring mit
+> Inhaltsverzeichnis, einheitliche Abschnittsmarker im vorhandenen Stil). Die Datei bleibt groß,
+> wird aber navigierbar — bei einem Bruchteil des Risikos.
 
 ### B3. `stockbot/web/webapp.py` — 1.368 Zeilen
 
