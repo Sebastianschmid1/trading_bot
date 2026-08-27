@@ -387,6 +387,19 @@ BROKER_RECONCILE_HOUR = int(os.getenv("BROKER_RECONCILE_HOUR", "12"))
 BROKER_RECONCILE_MIN = int(os.getenv("BROKER_RECONCILE_MIN", "0"))
 RECONCILE_PERIODIC_SEC = int(os.getenv("RECONCILE_PERIODIC_SEC", "600"))
 
+# Rohdatenarchiv (OBS-RAWARCHIV, Nachzügler zu W3.5): `research/shadow_scheduler.py` archiviert
+# bei jedem Shadow-Zyklus (alle INTRADAY_SCAN_INTERVAL_SEC während der Handelszeit) die
+# Tagesbars der aktuellen Top-Signal-Ticker (≤ TOP_N_SIGNALS, aktuell 5) als Parquet + DB-
+# Metadaten (`raw_data_archive.write_and_record`). Kostenschätzung: eine Parquet-Datei pro
+# Symbol/Handelstag/Timeframe (Partition; ein erneuter Schreibvorgang am selben Handelstag
+# überschreibt statt anzuhängen), mit wenigen Zeilen — bei so kleinen Dateien dominieren
+# Parquet-Fixkosten (Schema/Footer), überschlägig ~5 KB/Datei. Bei 5 Tickern/Handelstag also
+# ≤ 25 KB/Handelstag, ≈ 6 MB/Jahr. Bewusst NICHT im synchronen Signal-/Handelspfad (core/risk.py,
+# execution/, broker/) — reiner Nebeneffekt des ohnehin laufenden Shadow-Hintergrundjobs.
+# Default AUS: reiner Plattenplatzverbrauch, den der Betreiber bewusst einschalten soll.
+RAW_DATA_ARCHIVE_ENABLED = os.getenv(
+    "RAW_DATA_ARCHIVE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
 # ── LLM-Ranking (Claude Haiku) ───────────────────────────────────────────────
 # Ein LLM rankt die Signale anhand aller Metadaten + Fundamentaldaten (Geschäftsberichte)
 # + News/Analysten. Bewusst nur Haiku zur Kostenersparnis (eine gebündelte Anfrage pro Lauf).
