@@ -854,6 +854,39 @@ bleiben soll (der Kommentar in `config.py:231` nennt es „vorerst Demo/Tracking
 wofür es sonst einen Produktionsvorfall braucht. Er gehört vor jedes Gate, das „ist gebaut"
 mit „wirkt" gleichsetzt.
 
+## Offen: Repository für die Bewerbungsmappe vorzeigbar machen (2026-08-27)
+
+Neues Ziel des Betreibers: das **Repository** (nur der Git-Teil — nicht Betrieb, nicht Deploy)
+soll für eine Bewerbungsmappe vorzeigbar sein. Schwerpunkt: **Code-Lesbarkeit und Struktur**,
+damit ein fremder Mensch es schnell versteht.
+
+**Der Plan steht in [REPO_VORZEIGBARKEIT.md](REPO_VORZEIGBARKEIT.md) und ist ein ENTWURF —
+jeder Punkt trägt eine eigene Freigabe-Zeile und wird erst nach dem ausdrücklichen „ja" des
+Betreibers umgesetzt.** Nichts davon ist begonnen.
+
+Kurzfassung der Befunde (Zahlen gemessen an `8134f48`):
+
+| Punkt | Befund | Aufwand |
+|---|---|---|
+| **A1** | Das README beschreibt ein anderes, viel kleineres Projekt („Demo-Modus: kein echtes Geld") und verschenkt damit OMS, Risk-Gate, Reconciliation, Backtest-Härtung und 1.522 Tests | ½ Tag, **höchste Wirkung** |
+| **A2** | Wurzelverzeichnis mit vier nebeneinanderliegenden Deploy-Skripten, `todo.md` und ignorierten Leerverzeichnissen | 1 Std |
+| **A3** | `CLAUDE.md`/`AGENTS.md` liegen offen — Entscheidung des Betreibers, keine Empfehlung von mir | Entscheidung |
+| **B1** | `core/db.py` mit 3.198 Zeilen; Inhalt gut, aber alles in einer Datei. Aufteilen berührt den DB-Zugriffspfad → nur mit Postgres-Lauf | 1 Tag |
+| **B2** | `tgbot/bot.py` mit 3.136 Zeilen (Handler + Formatierung + alle Scheduler-Jobs) | ½ Tag |
+| **B3** | `web/webapp.py` mit 1.368 Zeilen, alle Routen in einer Datei | ½ Tag |
+| **C1** | 143 von 509 Commits tragen einen Agenten als Autor — sichtbar auf GitHub, Entscheidung des Betreibers | Entscheidung |
+| **C2** | 86 Commits ohne Nachrichtenkonvention — **Empfehlung: ablehnen**, das Umschreiben von 500 Commits bringt keinen sichtbaren Gewinn | — |
+
+**Was dabei ausdrücklich gut ist** (und im Gespräch genannt werden sollte): 93 % der 1.086
+Funktionen sind typannotiert, 64 % haben Docstrings, die Suite umfasst Replay- und
+Fehlerinjektions-Tests sowie einen strukturellen Beweis, dass kein Codepfad das Risk-Gate
+umgeht, und der Backend-Wechsel SQLite→Postgres ist über zehn Alembic-Migrationen im laufenden
+Betrieb vollzogen.
+
+Empfehlung bei knapper Zeit: **A1 + A2** — zusammen etwa ein Tag und der ganze Unterschied im
+ersten Eindruck. B ist Feinschliff, der erst zählt, wenn jemand in den Code steigt; dorthin
+kommt er nur über A.
+
 ## Kritische Dateien für die Umsetzung
 
 - `stockbot/execution/oms.py` — Risk-Context-Einspeisung, Kern von W1
