@@ -763,9 +763,18 @@ technisch.
 existieren, werden aber von niemandem benutzt. W3.5 ist damit halb erledigt: der
 `shadow_scheduler` füllt `shadow_snapshots`, das Rohdatenarchiv bleibt leer. Folge für die
 Checkliste: „Datenherkunft gespeichert" (Produkt-/Datenkriterien am Ende von
-`PLAN_CHECKLIST.md`) ist **nicht** erfüllt. **Bewusst nicht nebenbei verdrahtet:** ein
-Parquet-Schreibvorgang bei jedem Bar-Abruf ist eine Entscheidung über Speicherplatz und
-Laufzeit im Signalpfad, keine Kleinigkeit.
+`PLAN_CHECKLIST.md`) ist **nicht** erfüllt.
+
+**✅ Erledigt 2026-08-27 (`a871226`).** Der damalige Vorbehalt — „ein Parquet-Schreibvorgang bei
+jedem Bar-Abruf ist eine Entscheidung über Speicherplatz und Laufzeit im Signalpfad" — war
+lösbar, ohne die Entscheidung zu erzwingen: die Archivierung hängt jetzt als Nebeneffekt am
+ohnehin laufenden **Shadow-Zyklus**, wo die Signal-Ticker schon bekannt sind und der Signalpfad
+längst verlassen ist. Kein zusätzlicher Analyse-Lauf, nichts Synchrones im Handelsweg.
+`RAW_DATA_ARCHIVE_ENABLED` steht auf **aus** — der Plattenplatz bleibt die Entscheidung des
+Betreibers, die Schätzung (≈ 25 KB je Handelstag, ≈ 6 MB im Jahr) steht im Code. Der Test fährt
+den **verdrahteten** Weg (`generate_and_record` → `write_and_record` → DB) und fragt danach
+`db.list_raw_data_archive_entries` ab — ein Test, der nur `write_and_record` direkt aufruft,
+hätte den Befund nie gefunden.
 
 **Zweiter Scan, andere Variante (2026-08-27):** der Modul-Scan findet nur *unbenutzte
 Module*. Die zweite Variante ist *unbefüllte Eingaben* — der Aufrufer existiert, übergibt den
@@ -844,12 +853,25 @@ seit einem echten Vorfall eine **nachträgliche Datenreparatur** („Glitch-Fill
 im Nachhinein, was ein vorhandener, nie aufgerufener Vorab-Check hätte abfangen können.
 Ebenso ungenutzt: `check_no_halt` — eine Handelsunterbrechung wird vor einer Order nie geprüft.
 
-**Nicht nebenbei verdrahtet, und diesmal aus einem anderen Grund als sonst:** anders als beim
-Liquiditätscheck liegen die Eingaben hier **nicht** schon im Repo. Halt-Status und Corporate
-Actions müssten erst beim Broker abgefragt werden (Alpaca liefert beides), das ist ein
-zusätzlicher Marktdatenpfad im Handelsweg — ein Feature mit Latenz- und Fehlerfolgen, keine
-Verdrahtung. Empfehlung: als eigener Task planen, `check_corporate_actions` zuerst (der Schaden
-ist belegt), `check_no_halt` danach.
+**Korrektur am 2026-08-27 — meine Begründung hier war falsch.** Es stand: „anders als beim
+Liquiditätscheck liegen die Eingaben hier **nicht** schon im Repo … das ist ein zusätzlicher
+Marktdatenpfad im Handelsweg". Stimmt nicht. `get_corporate_actions` ist im Provider-Interface
+(`market/data_providers.py:150`) **und** für Alpaca implementiert (`:323`, über
+`CorporateActionsClient`), dazu in `core/market_data.py:117`. Auch diese Hälfte hat null
+Produktionsaufrufer. Es war also der **elfte** Fall des Musters, und ein doppelter: Prüfung und
+Abrufweg beide gebaut, beide tot, niemand verbindet sie.
+
+**✅ Corporate Actions erledigt 2026-08-27 (`e4d4e6c`).** Neuer stündlicher Job
+`corporate_action_guard` prüft offene Positionen (`since` = Einstiegsdatum, weil jede Anpassung
+seit Eröffnung die gebuchte P&L verfälschen kann) und Watchlist (`since` = Rückblickfenster) und
+meldet neue Funde einmalig an den Admin. **Bewusst beobachtend, nicht blockierend:**
+`risk.pretrade_check` ist ein TSAFE-Pfad und bleibt unberührt — ob die Prüfung ins Risk-Gate
+wandert, ändert Handelsverhalten und ist Entscheidung des Betreibers.
+
+**Weiterhin offen:** `check_no_halt`, `check_market_status`, `check_bars_complete` und
+`evaluate_quality`. Für `check_no_halt` gilt der ursprüngliche Vorbehalt tatsächlich — einen
+Halt-Status ruft im Repo nichts ab; `get_market_status` existiert zwar im Provider, hat aber
+ebenfalls null Aufrufer.
 
 **Befund 14 — die Produktgrenze „nur US-Aktien + US-ETFs" ist nicht durchgesetzt.**
 `config.py:233` führt ein Krypto-Universum (`BTC-USD` …), `market/asset_classes.py:97-99`
