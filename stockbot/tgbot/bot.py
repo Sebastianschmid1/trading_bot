@@ -105,6 +105,12 @@ log = logging.getLogger(__name__)
 TRADE_ACTIVATION_WINDOW_MIN = 15  # Zeitfenster, in dem ein Signal per JA noch gestartet werden kann
 BROKER_REPRICE_AFTER_SEC = 300    # 5 Minuten bis zum erneuten Repricing offener Broker-Sells
 OUTBOX_DELIVERY_SEC = 60          # Zustell-Takt der Domain-Event-Outbox (W4.5)
+# Bewusst OHNE `DedupConsumer`-Wrapper: `deliver_due` markiert ein Event erst NACH
+# erfolgreicher Zustellung als erledigt, eine Doppelzustellung tritt also nur auf, wenn
+# `handle` teilweise wirkte und dann warf. Der einzige Consumer hier loggt bloss — er ist
+# von Natur aus idempotent, waehrend `DedupConsumer._seen` ein unbegrenzt wachsendes Set
+# im Prozess haelt. Wer hier einen WIRKSAMEN Consumer anhaengt (Versand, Schreibzugriff),
+# muss ihn wrappen und die Groesse des Sets begrenzen.
 _OUTBOX_CONSUMER = ObservabilityConsumer()
 ALERT_EVALUATION_SEC = 60         # Takt der Alarmauswertung (OBS-ALERTS)
 _ALERT_NOTIFIER = AlertNotifier()  # nur Dedup-Zustand; der Versand läuft direkt über context.bot

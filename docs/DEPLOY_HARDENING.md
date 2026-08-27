@@ -43,7 +43,7 @@ erlaubt, weil die Units absichtlich kein `PrivateNetwork` setzen.
    ```bash
    sudo rm -rf /opt/stockbot/venv
    sudo -u stockbot python3 -m venv /opt/stockbot/venv
-   sudo -u stockbot /opt/stockbot/venv/bin/pip install -r /opt/stockbot/requirements.txt
+   sudo -u stockbot /opt/stockbot/venv/bin/pip install -r /opt/stockbot/requirements.lock
    ```
 
 5. Prüfen, dass die vorhandene PostgreSQL-DSN in `/opt/stockbot/.env` weiterhin auf den
