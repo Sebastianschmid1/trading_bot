@@ -96,3 +96,58 @@ def test_button_handler_rejects_foreign_users_token(fresh_db):
     # Token bleibt beim echten Besitzer weiter einlösbar (wrong_user verbraucht nicht)
     action, _ = cbs.resolve(token, 1)
     assert action == "sell"
+
+
+# ── Modus-Präfix in der Signalnachricht (§26.1/§26.2, agent/TG-MODEPREFIX) ──────────────────
+
+def test_signal_card_mode_prefix_demo_paper_live(fresh_db, monkeypatch):
+    """Deckt alle drei Fälle ab: ohne Broker-Anbindung (demo), Broker an + Paper-Gate (paper),
+    Broker an + Live-Gate (live). Würde rot, wenn die erste Zeile das Präfix nicht trägt oder
+    ein anderer Modus ermittelt würde."""
+    from stockbot.core import glossary
+
+    # Ohne Registrierung/Broker-Anbindung → "demo" (UI-Zustand, siehe glossary.MODE_LABELS.demo)
+    text, _ = bot._signal_card(_minimal_signal(), 25.0, market_open=True, user_id=42)
+    assert text.split("\n", 1)[0] == glossary.MODE_MESSAGE_PREFIXES["demo"]
+
+    db.get_or_create_user(42, "modeprefix-tester")
+    db.save_profile(42, trade_size_eur=25.0)
+    db.set_broker_exec(42, True)
+
+    # Broker-Ausführung aktiv + globales Paper-Gate → "paper"
+    monkeypatch.setattr(bot, "ALPACA_PAPER", True)
+    text, _ = bot._signal_card(_minimal_signal(), 25.0, market_open=True, user_id=42)
+    assert text.split("\n", 1)[0] == glossary.MODE_MESSAGE_PREFIXES["paper"]
+
+    # Broker-Ausführung aktiv + Live-Gate scharf → wörtlich dieselbe Warnung wie die Web-App
+    monkeypatch.setattr(bot, "ALPACA_PAPER", False)
+    text, _ = bot._signal_card(_minimal_signal(), 25.0, market_open=True, user_id=42)
+    assert text.split("\n", 1)[0] == glossary.MODE_MESSAGE_PREFIXES["live"]
+    assert text.split("\n", 1)[0] == "LIVE – ECHTES GELD"
+
+
+def test_signal_card_body_unchanged_apart_from_new_prefix_line(fresh_db):
+    """AC5: Die Änderung fügt ausschließlich eine neue erste Zeile ein — der gesamte
+    restliche Nachrichtentext bleibt Zeichen für Zeichen wie vor agent/TG-MODEPREFIX."""
+    expected_body = (
+        "📊 *AAPL* — 🟢 LONG\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "💰 Kurs: *$100.00*\n"
+        "📈 Strategie-Rohscore (Standard (Multi-Timeframe)): 60 — keine Gewinnwahrscheinlichkeit\n"
+        "🔍 Begründung:\n"
+        "  • RSI: 50.0 → -\n"
+        "  • MACD: -\n"
+        "  • Trend (MA50/200): -\n"
+        "  • Wochentrend: —\n"
+        "  • Volumen: -\n"
+        "  • Level: —\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "⚡ Hebel: *1×*\n"
+        "💵 Demo-Trade: *25$ LONG*\n"
+        "✅ Jederzeit annehmbar (kein Zeitlimit)\n"
+        "⏱ Auswertung: 22:15 Uhr (oder früher bei SL/TP)"
+    )
+    text, _ = bot._signal_card(_minimal_signal(), 25.0, market_open=True)
+    prefix, _, body = text.partition("\n")
+    assert prefix == "DEMO"
+    assert body == expected_body

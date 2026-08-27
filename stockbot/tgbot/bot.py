@@ -31,7 +31,9 @@ from telegram.ext import (
 
 from stockbot.core import db
 from stockbot.core import exchange_calendar
-from stockbot.core.glossary import broker_status_label, BROKER_CURRENCY_NOTE  # §32.9: geteiltes Web↔Telegram-Glossar
+from stockbot.core.glossary import (  # §32.9: geteiltes Web↔Telegram-Glossar
+    broker_status_label, BROKER_CURRENCY_NOTE, mode_message_prefix,
+)
 from stockbot.market import asset_classes
 from stockbot.market import universes
 from stockbot.market import smartmoney
@@ -406,6 +408,18 @@ def _secure_cb(user_id: int | None, action: str, ticker: str,
     return f"{action}:{ticker}"
 
 
+def _trade_mode_for_user(user_id: int | None) -> str:
+    """Betriebsmodus für die Moduskennzeichnung einer Handelsentscheidungs-Nachricht
+    (§26.1/§26.2, agent/TG-MODEPREFIX). Identische Herleitung wie `webapp._render`
+    (§32.9-Begriffsparität): ohne Broker-Ausführung sieht der Nutzer „demo" (UI-Zustand,
+    KEIN `Mode`-Enum-Wert — siehe glossary.MODE_LABELS), sonst greift das globale
+    Paper/Live-Gate `ALPACA_PAPER` (ohne LIVE_TRADING_ENABLED immer True, TSAFE-002/003)."""
+    user = db.get_user(user_id) if user_id is not None else None
+    if not user or not user.get("broker_exec"):
+        return "demo"
+    return "paper" if ALPACA_PAPER else "live"
+
+
 def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
                  expiry_min: int | None = None,
                  user_id: int | None = None) -> tuple[str, InlineKeyboardMarkup]:
@@ -464,7 +478,9 @@ def _signal_card(signal: dict, trade_size_eur: float, market_open: bool,
         ])
 
     watch_badge = "  📋 Watchlist" if signal.get("watchlist") else ""
+    mode_prefix = mode_message_prefix(_trade_mode_for_user(user_id))
     text = (
+        f"{mode_prefix}\n"
         f"📊 *{ticker}* — {direction_emoji}{watch_badge}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Kurs: *${signal['price']:.2f}*\n"

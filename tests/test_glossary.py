@@ -141,3 +141,44 @@ def test_sl_tp_mode_labels_cover_config_domain():
     from stockbot.config import SL_TP_MODES
     for key in SL_TP_MODES:
         assert key in glossary.SL_TP_MODE_LABELS
+
+
+# ── Modus-Präfix für Handelsentscheidungs-Nachrichten (§26.1/§26.2, agent/TG-MODEPREFIX) ────
+
+@pytest.mark.parametrize("mode,prefix", [
+    ("demo", "DEMO"),
+    ("paper", "PAPER"),
+    ("live", "LIVE – ECHTES GELD"),
+])
+def test_mode_message_prefix(mode, prefix):
+    assert glossary.mode_message_prefix(mode) == prefix
+
+
+def test_mode_message_prefix_accepts_enum():
+    from stockbot.core.domain import Mode
+    assert glossary.mode_message_prefix(Mode.PAPER) == "PAPER"
+    assert glossary.mode_message_prefix(Mode.LIVE) == "LIVE – ECHTES GELD"
+
+
+def test_mode_message_prefix_falls_back_to_mode_label_for_unknown_value():
+    assert glossary.mode_message_prefix("shadow") == glossary.mode_label("shadow").upper()
+
+
+def test_telegram_reuses_glossary_mode_message_prefix():
+    """Der Telegram-Signalcard-Pfad zieht das Modus-Präfix aus derselben Glossar-Funktion."""
+    bot = pytest.importorskip("stockbot.tgbot.bot")
+    assert bot.mode_message_prefix is glossary.mode_message_prefix
+
+
+def test_live_mode_message_prefix_matches_web_wording():
+    """§30/§32.9-Begriffsparität: die Live-Warnung ist WÖRTLICH dieselbe wie in der Web-App
+    (`app.html`/`components.html`, tcMode bzw. `mode_badge`-Makro) — keine zweite Formulierung
+    derselben Warnung. Liest den tatsächlichen Template-Text statt ihn hier zu duplizieren, damit
+    der Test rot wird, sobald Web ODER Telegram künftig divergieren."""
+    from pathlib import Path
+    live_prefix = glossary.MODE_MESSAGE_PREFIXES["live"]
+    templates_dir = Path(__file__).resolve().parents[1] / "stockbot" / "web" / "templates"
+    app_html = (templates_dir / "app.html").read_text(encoding="utf-8")
+    components_html = (templates_dir / "components.html").read_text(encoding="utf-8")
+    assert live_prefix in app_html
+    assert live_prefix in components_html

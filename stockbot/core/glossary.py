@@ -42,6 +42,28 @@ MODE_LABELS = {
     "live": "Live",
 }
 
+# ── Modus-Präfix für Handelsentscheidungs-Nachrichten (§26.1/§26.2, agent/TG-MODEPREFIX) ────
+#: Erste Zeile jeder Nachricht, die zu einer Handelsentscheidung auffordert (Signalnachricht).
+#: Live nutzt WÖRTLICH dieselbe Warnung wie die Web-App (`app.html`/`components.html`,
+#: `tcMode` bzw. `mode_badge`-Makro) — zwei Schreibweisen derselben Warnung wären laut §32.9
+#: selbst ein Defekt, deshalb hier keine eigene Formulierung. Enthält keine Markdown-
+#: Sonderzeichen (`_`, `*`, Backtick, `[`) — sicher für `parse_mode="Markdown"` ohne Escaping.
+MODE_MESSAGE_PREFIXES = {
+    "demo": MODE_LABELS["demo"].upper(),
+    "paper": MODE_LABELS["paper"].upper(),
+    "live": "LIVE – ECHTES GELD",
+}
+
+
+def mode_message_prefix(mode) -> str:
+    """Betriebsmodus (``"demo"`` oder ``Mode``-Enum/-String) → Präfix-Zeile für
+    Handelsentscheidungs-Nachrichten (§26.1/§26.2). Unbekannte Werte fallen auf den
+    normalen Modus-Label zurück (großgeschrieben, wie die übrigen Präfixe)."""
+    key = getattr(mode, "value", mode)
+    key = str(key).lower()
+    return MODE_MESSAGE_PREFIXES.get(key, mode_label(key).upper())
+
+
 # ── Broker-Währung (agent/CURRENCY-HONEST) ──────────────────────────────────
 #: Alpaca führt Konten ausschließlich in US-Dollar; im Repo gibt es KEINE Wechselkurs-
 #: Umrechnung (kein fx_rate, kein Kursabruf für EUR/USD). Trade-Größe, P&L und Kontowerte
