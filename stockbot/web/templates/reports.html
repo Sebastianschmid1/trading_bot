@@ -103,7 +103,7 @@
   <fieldset>
     <legend>Zeitraum</legend>
     {% for y in report_years %}
-    <a class="rp-filter {{ 'on' if y == sel_years }}" href="/app/reports?years={{ y }}">{{ y }} {{ 'Jahr' if y == 1 else 'Jahre' }}</a>
+    <a class="rp-filter {{ 'on' if y == sel_years }}"{% if y == sel_years %} aria-current="true"{% endif %} href="/app/reports?years={{ y }}">{{ y }} {{ 'Jahr' if y == 1 else 'Jahre' }}</a>
     {% endfor %}
     <span class="muted" style="margin-left:.4rem">Backtest-Fenster für alle Tabellen unten.</span>
   </fieldset>
