@@ -1,6 +1,8 @@
 # Plan: das Repository vorzeigbar machen (Bewerbungsmappe)
 
-> **Status: ENTWURF — nichts davon ist umgesetzt.** Jeder Punkt trägt eine eigene Freigabe-Zeile.
+> **Status: A1/A2 freigegeben und umgesetzt (2026-08-27), B1/B2 freigegeben und in Arbeit.**
+> Die Entscheidung zur Urheberschaft ist gefallen: **offen lassen** (siehe A3/C1).
+> Ursprünglicher Hinweis: Jeder Punkt trägt eine eigene Freigabe-Zeile.
 > Erst nach deinem „ja" zu einem Punkt wird daran gearbeitet.
 > Erstellt 2026-08-27. Betrifft **nur das Repository** — Betrieb, VPS und Deploy bleiben außen vor.
 
@@ -75,7 +77,7 @@ nach unten.
 
 **Aufwand:** ein halber Tag. **Wirkung:** die höchste in dieser Liste.
 
-> **Freigabe A1:** ⬜ offen
+> **Freigabe A1:** ✅ **erledigt** (`4c9ab09`) — README neu aufgebaut, alle Verweise geprüft, Zahlen gegen die Suite belegt.
 
 ### A2. Das Wurzelverzeichnis sieht nach Werkstatt aus
 
@@ -96,7 +98,7 @@ README — mehr nicht.
 **Aufwand:** eine Stunde, reines Verschieben, kein Codeeingriff. **Wirkung:** hoch, weil es
 das Erste ist, was im Blick liegt.
 
-> **Freigabe A2:** ⬜ offen
+> **Freigabe A2:** ✅ **erledigt** (`770b095`) — Skripte nach `deploy/`, `todo.md` nach `docs/`. **Wichtig dabei:** alle vier Skripte leiteten ihr Arbeitsverzeichnis aus dem eigenen Ort ab und hätten nach dem Umzug die `.env` im falschen Verzeichnis gesucht; die Pfade wurden mitgezogen. Die ignorierten Verzeichnisse `logs/` und `_imported_transcripts/` waren nie im Repo — sie stehen nur lokal in der Dateiliste, für einen fremden Leser sind sie unsichtbar (Korrektur an meiner ursprünglichen Einschätzung).
 
 ### A3. `CLAUDE.md` und `AGENTS.md` liegen offen im Wurzelverzeichnis
 
@@ -119,7 +121,7 @@ den Autorennamen „Claude" und „Sol Worker" führt.
 wäre aber eine Falschangabe über die Urheberschaft — und sie fliegt auf, sobald jemand im
 Gespräch nach einer Stelle im Code fragt, die du nicht selbst geschrieben hast.
 
-> **Freigabe A3:** ⬜ offen — Entscheidung erforderlich, keine Umsetzung ohne dein Wort
+> **Freigabe A3:** ✅ **entschieden: offen lassen.** `CLAUDE.md` und `AGENTS.md` bleiben im Wurzelverzeichnis, die Historie bleibt unangetastet. Der Betreiber erklärt die Arbeitsweise im Gespräch.
 
 ---
 
@@ -147,7 +149,7 @@ Datenbank). Ich würde das **nur mit anschließendem Lauf gegen echtes Postgres*
 wirklich in den Code geht. Aber wenn er es tut, ist es der Unterschied zwischen „ah, sauber
 geschnitten" und „oh".
 
-> **Freigabe B1:** ⬜ offen
+> **Freigabe B1:** 🔄 **freigegeben, in Arbeit** — als Paket mit Re-Export, damit kein Aufrufer angefasst werden muss.
 
 ### B2. `stockbot/tgbot/bot.py` — 3.136 Zeilen
 
@@ -162,7 +164,7 @@ Formatierung hat keine Seiteneffekte. Die Handler bleiben, wo sie sind.
 **Aufwand:** ein halber Tag. **Risiko:** geringer als B1, weil die Job-Registrierung an einer
 Stelle sitzt und die Tests sie zählen.
 
-> **Freigabe B2:** ⬜ offen
+> **Freigabe B2:** 🔄 **freigegeben, in Arbeit** — Scheduler-Jobs und Nachrichtenformatierung raus, Handler bleiben.
 
 ### B3. `stockbot/web/webapp.py` — 1.368 Zeilen
 
@@ -173,7 +175,7 @@ Router).
 
 **Aufwand:** ein halber Tag. **Wirkung:** gering bis mittel.
 
-> **Freigabe B3:** ⬜ offen
+> **Freigabe B3:** ⬜ offen — nicht freigegeben.
 
 ---
 
@@ -192,7 +194,7 @@ Router).
 Das ist auf GitHub sichtbar, in jedem `git blame` und in der Contributor-Liste. Siehe **A3** —
 es ist dieselbe Entscheidung, und sie gehört dir.
 
-> **Freigabe C1:** ⬜ offen — Entscheidung erforderlich
+> **Freigabe C1:** ✅ **entschieden: offen lassen** (zusammen mit A3).
 
 ### C2. 86 Commits ohne Nachrichtenkonvention
 
@@ -206,7 +208,7 @@ zwanzig Commits, und die sind sauber.
 
 Ich führe den Punkt nur auf, damit er geprüft und bewusst abgelehnt ist, statt übersehen.
 
-> **Freigabe C2:** ⬜ offen — meine Empfehlung: **ablehnen**
+> **Freigabe C2:** ⬜ offen — nicht freigegeben, Empfehlung bleibt **ablehnen**.
 
 ---
 
