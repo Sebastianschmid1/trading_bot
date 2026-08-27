@@ -1,9 +1,44 @@
 """
-📈 Stock Signal Telegram Bot
-- Täglich 8:45 Uhr: 5 Aktienempfehlungen (S&P 500)
-- Analyse via technische Indikatoren (RSI, MACD, MA)
-- Demo-Modus: Trades werden NICHT wirklich ausgeführt
-- 15:30 Uhr: Automatische Auswertung aller Empfehlungen
+📈 Stock Signal Telegram Bot — Haupt-Handler des Telegram-Bots.
+
+Täglicher Eröffnungs-Scan + Intraday-Nachschub mit Aktienempfehlungen, Annahme/
+Ablehnung per Button, laufende Überwachung aktiver Trades (SL/TP, Liquidation,
+Höchsthaltedauer) und Alpaca-Paper-Orders über das zentrale OMS. Ohne verbundenen
+Broker bleibt es eine Simulation; Live-Handel ist hart gesperrt (TSAFE-001), und der
+Kill-Switch sperrt zusätzlich neue Positionen, während Schutz-Verkäufe weiter laufen.
+
+Jede Nachricht, die zu einer Handelsentscheidung auffordert, trägt ihren Betriebsmodus
+in der ersten Zeile (`mode_message_prefix` aus `core/glossary.py`) — dieselbe Quelle wie
+die Web-App, damit beide Kanäle denselben Begriff verwenden.
+
+Bleibt bewusst groß: ein Versuch, die Scheduler-Jobs herauszulösen (agent/REPO-B2-NAV,
+erster Anlauf), scheiterte — die meisten rufen private Handler-Helfer auf. Reine
+Nachrichtenformatierung ohne Seiteneffekte liegt seit demselben Anlauf in
+`stockbot/tgbot/messages.py`.
+
+Abschnitte (Reihenfolge im Quelltext, siehe die `# ──`-Marker):
+  • OMS-Verdrahtung & Kill-Switch — `_oms`, `kill_switch_service`
+  • Nutzerprofil-/Strategie-Helfer, Alpaca-Zugang, Kandidaten-Cache
+  • Nachrichten senden — Signalversand: `send_signal`, `_run_signal_scan`
+  • Tagesauswertung — `close_and_evaluate`
+  • 60s-Monitoring aktiver Trades (Auto-Close) — `monitor_trades`
+  • Smart-Money: nächtlicher Scan
+  • Manuelle Befehle (`/signals`, `/settings`, `/evaluate` …), darin die
+    Trade-Karte für `/evaluate`
+  • Hauptmenü (Reply-Keyboard-Buttons)
+  • Button-Handler — Freigabe-Callback: `button_handler` (JA/NEIN/Verkaufen,
+    sichere Callback-Tokens aus `callback_security`)
+  • Fehlerbehandlung
+  • App starten — Dashboard-Thread, Scheduler-Jobs (`_register_jobs`), `main`
+
+Die Scheduler-Jobs sind der Ort, an dem die Nebenpfade hängen: Broker-Event-Poll,
+periodische Reconciliation, Post-Trade-Risikoscan, Shadow-Signale, Outbox-Zustellung
+(`outbox_delivery`) und die Alarmauswertung (`alert_evaluation`, wertet
+`core/alerts.py` gegen den Metrik-Snapshot aus). Alle sind fail-open: ein Fehler dort
+darf den Handelspfad nie beeinträchtigen.
+
+Test-Hinweis: manche Tests lesen Architektur am Quelltext (`inspect.getsource`,
+siehe test_trailing_stop_wiring.py) — verschobene Funktionen können Tests brechen.
 """
 
 import sys
@@ -68,6 +103,7 @@ from stockbot.broker import reconcile as reconcile_mod
 from stockbot.tgbot.onboarding import onboarding_conv_handler
 from stockbot.tgbot import menu
 from stockbot.tgbot import callback_security
+from stockbot.tgbot.messages import format_strength as _fmt_strength, strategy_label as _strategy_label
 from stockbot.broker.setup import connect_alpaca_handler, disconnect as cmd_disconnect_alpaca
 from stockbot.market.analyzer import analyze_universe, sl_tp_from_atr
 from stockbot.services import trades as trade_svc, settings as settings_svc, watchlist as watchlist_svc
@@ -120,6 +156,7 @@ _alert_admin_missing_logged = False  # verhindert Log-Spam ohne konfigurierten A
 BROKER_POSITION_MISSING_AFTER_SEC = 300  # nach 5 Minuten fehlender Broker-Position wird der Trade als geschlossen markiert
 BROKER_QUEUE_MAX_AGE_SEC = 24 * 3600  # vorgemerkte Bruchteil-Order verfällt nach 24 h (Signal veraltet)
 
+# ── OMS-Verdrahtung & Kill-Switch ────────────────────────────────────────────
 
 def _load_oms_signal(signal_id: int) -> Signal | None:
     """Bridge vom bisherigen Trade-JSON zum Phase-4-Signalobjekt."""
@@ -156,6 +193,7 @@ def _reprice_limit_price(current: float, side: str, age_sec: float) -> float:
 
 _candidates_cache: dict[str, dict] = {}   # key -> {"date": 'YYYY-MM-DD' (UTC), "ranked": [signal, ...]}
 
+# ── Nutzerprofil- & Strategie-Helfer (reine user-Dict-Leser) ─────────────────
 
 def _auto_uni(user: dict) -> bool:
     """Ob der Nutzer das Voll-Universum (automatisch geladene Vollliste) nutzt."""
@@ -239,11 +277,7 @@ def _interleave_strategy_rankings(rankings: dict[str, list[dict]],
     return merged
 
 
-def _strategy_label(signal_or_key) -> str:
-    key = signal_or_key if isinstance(signal_or_key, str) else (signal_or_key or {}).get("strategy")
-    key = key or strategies.DEFAULT_STRATEGY
-    return strategies.get(key).label
-
+# ── Alpaca-Zugang & Broker-Helfer ─────────────────────────────────────────────
 
 def _llm_enabled(user: dict) -> bool:
     """Ob das LLM-Ranking (Claude Haiku) für diesen Nutzer aktiv ist (Schalter + globaler Key)."""
@@ -368,6 +402,8 @@ async def _reconcile_and_alert(bot: Bot, user: dict, client, *, context: str):
     except Exception as e:
         log.warning(f"[{user['user_id']}] Abweichungs-Meldung nicht zustellbar: {e}")
 
+
+# ── Kandidaten-Cache: Zugriffshelfer (Dict-Deklaration siehe oben) ───────────
 
 def _universe_key(region: str, auto: bool, strategy: str = strategies.DEFAULT_STRATEGY) -> str:
     """Cache-/Analyse-Schlüssel: Region + Voll-Universum-Schalter + Strategie
@@ -1232,11 +1268,6 @@ async def _send_autoaccept_daily_report(bot: Bot, user: dict, eod_results: list[
 
 # ── 60s-Monitoring aktiver Trades (Auto-Close) ──────────────────────────────
 
-def _fmt_strength(v) -> str:
-    """Kompatiblen Strategie-Rohscore formatieren; '—' wenn unbekannt."""
-    return f"{v:.0f}" if v is not None else "—"
-
-
 # Einmalige „SL/TP aus"-Warnung pro Trade & Tag: (uid, ticker, datum)
 _weak_warned: set = set()
 
@@ -1881,6 +1912,11 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ℹ️ Alle heutigen Signale hattest du bereits — pro Aktie gibt es nur ein Signal pro Tag."
         )
 
+
+# ── Trade-Karte für /evaluate (Text + Verkaufen-Tastatur) ────────────────────
+# _trade_card sieht rein aus, ist es aber nicht: _unrealized_pnl holt einen Live-Kurs
+# (get_current_price) und der Verkaufen-Button issued über _secure_cb einen echten,
+# in der DB persistierten Callback-Token — beides bewusst NICHT nach messages.py verschoben.
 
 def _unrealized_pnl(trade: dict, trade_size_eur: float):
     """Aktuellen (unrealisierten) Stand eines aktiven Trades berechnen — echte Kurse, optionsbewusst.
@@ -2730,6 +2766,8 @@ def _start_dashboard_thread():
     log.info(f"📊 Dashboard aktiv — Link: {DASHBOARD_BASE_URL}")
 
 
+# ── Scheduler-Jobs (Zeittakte & Registrierung siehe _register_jobs) ─────────
+
 async def run_daily_lab_optimization(context: ContextTypes.DEFAULT_TYPE):
     """Täglicher Laborlauf während US-Handelszeit: nur Pending erzeugen, niemals Live anwenden."""
     from stockbot.optimize import lab
@@ -3057,6 +3095,8 @@ def _register_jobs(app):
         name="alert_evaluation",
     )
 
+
+# ── Bot-Start (main) ─────────────────────────────────────────────────────────
 
 async def _post_init(app):
     """Nach dem Bot-Start das Telegram-Befehlsmenü setzen (fail-open: rein kosmetisch)."""
