@@ -1,0 +1,1543 @@
+<title>Zonenlabor QS5L</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   Zonenlabor QS5L — Tokens
+   Neutrale kühle Graustufen (Instrument-Anmutung), Akzent Messing.
+   Rot/Blau sind reserviert für die Label-Semantik (Kauf/Verkauf)
+   und werden nie für Bedienelemente benutzt.
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --bg:          #eceff2;
+  --panel:       #fafbfc;
+  --panel-2:     #f2f4f6;
+  --ink:         #10151c;
+  --ink-2:       #414c59;
+  --muted:       #6b7684;
+  --line:        #d7dce2;
+  --line-strong: #bcc4cd;
+
+  --accent:      #8a6318;
+  --accent-ink:  #ffffff;
+  --accent-soft: #f2e7d1;
+
+  --buy:         #d03b3b;
+  --buy-fill:    rgba(208, 59, 59, .14);
+  --sell:        #2a78d6;
+  --sell-fill:   rgba(42, 120, 214, .14);
+
+  --price:       #2c3945;
+  --price-fill:  rgba(44, 57, 69, .09);
+  --grid:        rgba(16, 21, 28, .07);
+
+  --s1: #eb6834; --s2: #1baf7a; --s3: #eda100; --s4: #e87ba4; --s5: #4a3aa7;
+
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+
+  --r-sm: 3px; --r-md: 6px; --r-lg: 10px;
+  --shadow: 0 1px 2px rgba(16,21,28,.06), 0 8px 24px -16px rgba(16,21,28,.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:          #0e1116;
+    --panel:       #161b22;
+    --panel-2:     #1c222b;
+    --ink:         #e9edf2;
+    --ink-2:       #b3bdc9;
+    --muted:       #8b97a5;
+    --line:        #262d38;
+    --line-strong: #3a434f;
+
+    --accent:      #d9a441;
+    --accent-ink:  #17130a;
+    --accent-soft: #332a17;
+
+    --buy:         #e66767;
+    --buy-fill:    rgba(230, 103, 103, .16);
+    --sell:        #3987e5;
+    --sell-fill:   rgba(57, 135, 229, .16);
+
+    --price:       #aab6c3;
+    --price-fill:  rgba(170, 182, 195, .10);
+    --grid:        rgba(233, 237, 242, .08);
+
+    --s1: #d95926; --s2: #199e70; --s3: #c98500; --s4: #d55181; --s5: #9085e9;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0e1116;
+  --panel:       #161b22;
+  --panel-2:     #1c222b;
+  --ink:         #e9edf2;
+  --ink-2:       #b3bdc9;
+  --muted:       #8b97a5;
+  --line:        #262d38;
+  --line-strong: #3a434f;
+
+  --accent:      #d9a441;
+  --accent-ink:  #17130a;
+  --accent-soft: #332a17;
+
+  --buy:         #e66767;
+  --buy-fill:    rgba(230, 103, 103, .16);
+  --sell:        #3987e5;
+  --sell-fill:   rgba(57, 135, 229, .16);
+
+  --price:       #aab6c3;
+  --price-fill:  rgba(170, 182, 195, .10);
+  --grid:        rgba(233, 237, 242, .08);
+
+  --s1: #d95926; --s2: #199e70; --s3: #c98500; --s4: #d55181; --s5: #9085e9;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  margin: 0;
+}
+
+.mono, code, .num {
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---------- Rahmen ---------- */
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 96px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.top-in {
+  max-width: 1180px; margin: 0 auto; padding: 11px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { font-size: 17px; }
+.brand .isin { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.top-spacer { flex: 1 1 auto; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-size: 11.5px; font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  white-space: nowrap;
+}
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.chip.demo   { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.chip.live   { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); background: color-mix(in srgb, var(--good) 9%, transparent); }
+
+button, .btn {
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  padding: 6px 13px; border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--panel); color: var(--ink);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+button:hover { background: var(--panel-2); border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+section.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  margin-top: 20px;
+  overflow: hidden;
+}
+.panel-head {
+  padding: 15px 20px 13px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.panel-head h2 { font-size: 15.5px; }
+.panel-head p { margin: 0; font-size: 13px; color: var(--muted); flex: 1 1 260px; }
+.panel-body { padding: 18px 20px; }
+
+/* ---------- Intro ---------- */
+.hero { padding: 34px 0 4px; }
+.hero h2 { font-size: clamp(25px, 3.4vw, 34px); line-height: 1.15; max-width: 30ch; }
+.hero p { max-width: 62ch; color: var(--ink-2); margin: 12px 0 0; }
+
+.notice {
+  margin-top: 18px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+  border-radius: var(--r-lg);
+  padding: 13px 16px;
+  display: grid; grid-template-columns: auto 1fr; gap: 12px;
+  font-size: 13.5px;
+}
+.notice svg { margin-top: 2px; }
+.notice strong { display: block; margin-bottom: 2px; }
+
+/* ---------- Datenpanel ---------- */
+.data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 780px) { .data-grid { grid-template-columns: 1fr; } }
+
+.drop {
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 22px 18px; text-align: center;
+  background: var(--panel-2);
+  transition: border-color .15s ease, background .15s ease;
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+textarea {
+  width: 100%; min-height: 118px; resize: vertical;
+  font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.5;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--panel-2); color: var(--ink);
+}
+.hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.hint code { background: var(--panel-2); padding: 1px 5px; border-radius: var(--r-sm); font-size: 11.5px; border: 1px solid var(--line); }
+
+.status-line { margin-top: 14px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.status-line.err { color: var(--crit); font-weight: 600; }
+
+/* ---------- Steuerleiste ---------- */
+.controls {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 14px 20px;
+  padding: 16px 20px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.ctrl label { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.ctrl .val { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--accent); font-weight: 700; }
+.ctrl input[type="range"] { width: 100%; margin: 5px 0 0; accent-color: var(--accent); }
+.ctrl .sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; display: block; }
+
+/* ---------- Chart ---------- */
+.chart-box { position: relative; padding: 8px 4px 0; }
+#chart { width: 100%; display: block; }
+.axis text { font-family: "JetBrains Mono", monospace; font-size: 10.5px; fill: var(--muted); }
+.grid-line { stroke: var(--grid); stroke-width: 1; }
+
+#tip {
+  position: absolute; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -100%);
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--r-md); box-shadow: var(--shadow);
+  padding: 8px 11px; font-size: 12.5px; min-width: 150px;
+  transition: opacity .1s ease;
+  z-index: 5;
+}
+#tip .t-date { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--muted); }
+#tip .t-px { font-family: "JetBrains Mono", monospace; font-size: 16px; font-weight: 700; margin: 1px 0 4px; }
+#tip .t-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+#tip .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+.legend { display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 20px 16px; font-size: 12.5px; align-items: center; }
+.legend .item { display: inline-flex; align-items: center; gap: 7px; }
+.legend .box-sw { width: 15px; height: 11px; border-radius: 2px; border: 1.5px solid; flex: none; }
+.legend .line-sw { width: 17px; height: 2px; background: var(--price); flex: none; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
+.stat { background: var(--panel); padding: 12px 16px; }
+.stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-family: "JetBrains Mono", monospace; }
+.stat .v { font-family: "JetBrains Mono", monospace; font-size: 19px; font-weight: 700; line-height: 1.25; margin-top: 2px; }
+.stat .v.buy { color: var(--buy); }
+.stat .v.sell { color: var(--sell); }
+
+/* ---------- Tabelle ---------- */
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-family: "JetBrains Mono", monospace; font-weight: 600; background: var(--panel-2); position: sticky; top: 0; }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 210px; }
+td.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--panel-2); }
+tbody tr.sel { background: var(--accent-soft); }
+tbody tr { cursor: pointer; }
+.algo-name { display: flex; align-items: center; gap: 9px; }
+.algo-name .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.algo-name .sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.best { position: relative; }
+.best::after {
+  content: "beste"; font-family: "JetBrains Mono", monospace; font-size: 9px;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); margin-left: 6px; font-weight: 700;
+}
+
+.bar-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.bar-track { width: 54px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; flex: none; }
+.bar-fill { height: 100%; border-radius: 3px; }
+
+/* ---------- Detailkarten ---------- */
+.detail-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; }
+@media (max-width: 860px) { .detail-grid { grid-template-columns: 1fr; } }
+.mini { border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 16px; background: var(--panel-2); }
+.mini h3 { font-size: 13px; margin-bottom: 8px; }
+.cm { display: grid; grid-template-columns: auto repeat(2, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; font-size: 12px; }
+.cm div { background: var(--panel); padding: 7px 10px; font-family: "JetBrains Mono", monospace; text-align: right; }
+.cm .hd { background: var(--panel-2); color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.cm .rh { text-align: left; }
+
+.formula { font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.75; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 11px 13px; overflow-x: auto; color: var(--ink-2); }
+.formula .kw { color: var(--accent); font-weight: 700; }
+.formula .rd { color: var(--buy); font-weight: 700; }
+.formula .bl { color: var(--sell); font-weight: 700; }
+
+/* ---------- Methodik ---------- */
+.prose { max-width: 68ch; }
+.prose p { color: var(--ink-2); }
+.prose h3 { font-size: 14.5px; margin: 22px 0 6px; }
+.prose ul { padding-left: 18px; margin: 6px 0; color: var(--ink-2); }
+.prose li { margin: 4px 0; }
+.prose code { font-family: "JetBrains Mono", monospace; font-size: 12.5px; background: var(--panel-2); border: 1px solid var(--line); padding: 1px 5px; border-radius: var(--r-sm); }
+
+.busy { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.spin { width: 13px; height: 13px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: sp .7s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <h1>Zonenlabor</h1>
+      <span class="isin mono">QS5L · XS2771642134 · NASDAQ&#8209;100 5x Daily</span>
+    </div>
+    <div class="top-spacer"></div>
+    <span class="chip demo" id="src-chip"><span class="dot"></span><span id="src-label">Demo-Reihe</span></span>
+    <button id="theme-btn" aria-label="Farbschema wechseln">Dunkel / Hell</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <p class="eyebrow">Boxen-Labeling &amp; Signalprognose</p>
+    <h2>Kaufzonen und Verkaufszonen automatisch setzen — und messen, welcher Algorithmus sie vorhersieht.</h2>
+    <p>Der Labeler markiert mit vollem Rückblick die roten Kaufboxen und blauen Verkaufsboxen im Kursverlauf. Diese Boxen sind danach die Zielgröße: fünf Algorithmen versuchen, sie allein aus Information bis zum jeweiligen Handelstag zu treffen — walk&#8209;forward, ohne Blick nach vorn.</p>
+  </div>
+
+  <div class="notice" id="demo-notice">
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.5 15 14H1L8 1.5Z" stroke="var(--warn)" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M8 6v3.5" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="8" cy="11.6" r=".9" fill="var(--warn)"/>
+    </svg>
+    <div>
+      <strong>Aktuell läuft eine synthetische Demo-Reihe, nicht QS5L.</strong>
+      Die echten Kursdaten konnten nicht geladen werden — die Marktdaten-Hosts sind in dieser Umgebung gesperrt. Die Demo-Reihe ist ein deterministisch erzeugter 5x&#8209;Pfad mit realistischer Volatilität und Pfadverlust; sie zeigt, dass das Werkzeug rechnet, aber <strong>keine Zahl daraus ist eine Aussage über QS5L</strong>. Lade unten deinen CSV-Export, dann rechnet alles auf den echten Kursen.
+    </div>
+  </div>
+
+  <!-- ============ DATEN ============ -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Kursdaten</h2>
+      <p>CSV mit Datum und Schlusskurs. Deutsches Format (Semikolon, Dezimalkomma, <code>TT.MM.JJJJ</code>) wird erkannt, ISO ebenso.</p>
+    </div>
+    <div class="panel-body">
+      <div class="data-grid">
+        <div>
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="CSV-Datei auswählen oder hierher ziehen">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 15V3m0 0L8 7m4-4 4 4" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <p><strong style="color:var(--ink)">CSV hierher ziehen</strong> oder klicken zum Auswählen</p>
+          </div>
+          <input type="file" id="file" accept=".csv,.txt,text/csv" class="sr">
+          <p class="hint">Spalten werden über die Kopfzeile gefunden: <code>Datum</code>/<code>Date</code> und <code>Schluss</code>/<code>Close</code>/<code>Kurs</code>/<code>NAV</code>. Ohne Kopfzeile werden die ersten beiden Spalten genommen.</p>
+        </div>
+        <div>
+          <label for="paste" class="eyebrow" style="display:block;margin-bottom:6px">Oder einfügen</label>
+          <textarea id="paste" spellcheck="false" placeholder="Datum;Schlusskurs&#10;12.06.2024;27,74&#10;13.06.2024;28,31&#10;…"></textarea>
+          <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+            <button class="primary" id="load-paste">Reihe laden</button>
+            <button id="reset-demo">Zurück zur Demo-Reihe</button>
+          </div>
+        </div>
+      </div>
+      <div class="status-line" id="data-status"></div>
+    </div>
+  </section>
+
+  <!-- ============ BOXEN ============ -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Automatisches Boxen-Labeling</h2>
+      <p>ZigZag-Wendepunkte mit Mindest-Folgebewegung; um jeden gültigen Wendepunkt wird das Rechteck über alle Bars gelegt, die noch in der Toleranz liegen.</p>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl">
+        <label for="p-theta">ZigZag-Schwelle <span class="val" id="v-theta"></span></label>
+        <input type="range" id="p-theta" min="4" max="40" step="1" value="15">
+        <span class="sub">Gegenbewegung, die einen Wendepunkt bestätigt</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-move">Mindest-Folgewelle <span class="val" id="v-move"></span></label>
+        <input type="range" id="p-move" min="5" max="80" step="1" value="25">
+        <span class="sub">Nur Wendepunkte, deren Folgewelle sich lohnt</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-tol">Box-Toleranz <span class="val" id="v-tol"></span></label>
+        <input type="range" id="p-tol" min="1" max="15" step="1" value="5">
+        <span class="sub">Preisband der Box um den Wendepunkt</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-half">Max. Box-Breite <span class="val" id="v-half"></span></label>
+        <input type="range" id="p-half" min="2" max="30" step="1" value="10">
+        <span class="sub">Handelstage je Seite des Wendepunkts</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-algo">Signale einblenden</label>
+        <select id="p-algo" style="width:100%;margin-top:5px;padding:5px 8px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--panel);color:var(--ink);font:inherit;font-size:13px">
+          <option value="-1">keine</option>
+        </select>
+        <span class="sub">Prognose des gewählten Algorithmus</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-log">Preisachse</label>
+        <button id="p-log" aria-pressed="true" style="width:100%;margin-top:5px">logarithmisch</button>
+        <span class="sub">Bei 5x-Hebel fast immer sinnvoll</span>
+      </div>
+    </div>
+
+    <div class="chart-box">
+      <svg id="chart" role="img" aria-label="Kursverlauf mit automatisch gesetzten Kauf- und Verkaufsboxen"></svg>
+      <div id="tip" role="status"></div>
+    </div>
+
+    <div class="legend">
+      <span class="item"><span class="line-sw"></span> Schlusskurs</span>
+      <span class="item"><span class="box-sw" style="border-color:var(--buy);background:var(--buy-fill)"></span> Kaufbox (rot)</span>
+      <span class="item"><span class="box-sw" style="border-color:var(--sell);background:var(--sell-fill)"></span> Verkaufsbox (blau)</span>
+      <span class="item" id="legend-sig" hidden><span class="box-sw" style="border-radius:50%;width:9px;height:9px;border-color:var(--muted)"></span> Signal des gewählten Algorithmus</span>
+      <span class="item" style="color:var(--muted)">Graue Fläche links = Anlernfenster, wird nicht bewertet</span>
+    </div>
+
+    <div class="stats" id="box-stats"></div>
+  </section>
+
+  <!-- ============ ALGORITHMEN ============ -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Fünf Testalgorithmen</h2>
+      <p>Alle bewertet auf denselben Out-of-Sample-Bars. Zeile anklicken für Details.</p>
+    </div>
+    <div class="controls" style="grid-template-columns:repeat(auto-fit,minmax(178px,1fr))">
+      <div class="ctrl">
+        <label for="p-embargo">Embargo <span class="val" id="v-embargo"></span></label>
+        <input type="range" id="p-embargo" min="0" max="80" step="5" value="40">
+        <span class="sub">Label-Sperrfrist am Trainingsrand</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-mintrain">Anlernfenster <span class="val" id="v-mintrain"></span></label>
+        <input type="range" id="p-mintrain" min="120" max="400" step="10" value="250">
+        <span class="sub">Bars vor dem ersten bewerteten Tag</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-refit">Nachtraining <span class="val" id="v-refit"></span></label>
+        <input type="range" id="p-refit" min="5" max="63" step="1" value="21">
+        <span class="sub">Abstand zwischen zwei Neuanpassungen</span>
+      </div>
+      <div class="ctrl">
+        <label for="p-cost">Handelskosten <span class="val" id="v-cost"></span></label>
+        <input type="range" id="p-cost" min="0" max="50" step="5" value="15">
+        <span class="sub">Je Seite, für die Handelssimulation</span>
+      </div>
+      <div class="ctrl" style="display:flex;flex-direction:column;justify-content:flex-end">
+        <button class="primary" id="run" style="width:100%">Algorithmen rechnen</button>
+        <span class="sub" id="run-note">&nbsp;</span>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table id="board">
+        <thead>
+          <tr>
+            <th>Algorithmus</th>
+            <th title="Anteil der Kaufsignale, die wirklich in einer roten Box lagen">Präz. rot</th>
+            <th title="Anteil der roten Box-Tage, die erkannt wurden">Treffer rot</th>
+            <th title="Anteil der Verkaufssignale, die wirklich in einer blauen Box lagen">Präz. blau</th>
+            <th title="Anteil der blauen Box-Tage, die erkannt wurden">Treffer blau</th>
+            <th title="Mittleres F1 über beide Klassen — die Rangordnung">F1 gesamt</th>
+            <th title="Matthews-Korrelation, robust gegen die starke Klassenschieflage">MCC</th>
+            <th title="Median-Abstand eines Signals zur nächsten echten Box gleicher Farbe">Timing</th>
+            <th title="Rendite der Signal-Strategie im Bewertungsfenster">Strategie</th>
+          </tr>
+        </thead>
+        <tbody id="board-body">
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:26px">Noch nicht gerechnet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel-body" id="detail" hidden></div>
+  </section>
+
+  <!-- ============ METHODIK ============ -->
+  <section class="panel">
+    <div class="panel-head"><h2>Methodik und Grenzen</h2></div>
+    <div class="panel-body prose">
+      <h3>Wie die Boxen entstehen</h3>
+      <p>Der Labeler kennt die Zukunft — das ist gewollt, er erzeugt ja die Zielgröße. In drei Schritten:</p>
+      <ul>
+        <li><strong>ZigZag.</strong> Ein Wendepunkt gilt als bestätigt, sobald der Kurs sich um die ZigZag-Schwelle von ihm entfernt hat. Tiefpunkte und Hochpunkte wechseln sich zwangsläufig ab.</li>
+        <li><strong>Filter.</strong> Ein Tiefpunkt wird nur zur Kaufbox, wenn die folgende Aufwärtswelle mindestens die Mindest-Folgewelle bringt. Ein Hochpunkt wird nur zur Verkaufsbox, wenn der folgende Rückgang dieselbe Bewegung wieder abgibt (<code>1 − 1/(1+m)</code>). Der letzte Wendepunkt der Reihe hat keine Folgewelle und bekommt daher nie eine Box.</li>
+        <li><strong>Rechteck.</strong> Vom Wendepunkt aus wird nach links und rechts erweitert, solange der Schlusskurs im Toleranzband bleibt, höchstens bis zur maximalen Box-Breite. Preisband ist <code>[Tief, Tief·(1+Toleranz)]</code> beziehungsweise <code>[Hoch·(1−Toleranz), Hoch]</code>.</li>
+      </ul>
+      <p>Deine Farbkonvention aus dem Screenshot ist übernommen: <strong style="color:var(--buy)">rot = kaufen</strong> am Tief, <strong style="color:var(--sell)">blau = verkaufen</strong> am Hoch.</p>
+
+      <h3>Warum die Prognose sauber bleibt</h3>
+      <ul>
+        <li><strong>Walk-forward.</strong> Trainiert wird nur auf Bars vor dem Bewertungstag, in wachsendem Fenster, neu angepasst im gewählten Abstand.</li>
+        <li><strong>Embargo.</strong> Das Label eines Tages hängt von Kursen danach ab. Die letzten Bars vor dem Bewertungstag werden deshalb aus dem Training entfernt — sonst lernt das Modell aus einem Label, das zu diesem Zeitpunkt noch gar nicht feststand. Das ist die wichtigste Leckage-Sperre hier.</li>
+        <li><strong>Schwelle aus zurückgehaltenen Daten.</strong> Jedes Modell wird auf den ersten 80&nbsp;% seines Trainingsfensters angepasst; die Wahrscheinlichkeitsschwelle wird erst auf dem zurückgehaltenen letzten Fünftel auf bestes F1 gesetzt. Auf denselben Bars zu lernen und zu schwellen würde das überangepasste Modell belohnen.</li>
+        <li><strong>Klassengewichte.</strong> Box-Tage sind selten. Ohne Gewichtung sagt jedes Modell nur „keine Box“.</li>
+      </ul>
+
+      <h3>Was das Ergebnis nicht sagt</h3>
+      <ul>
+        <li>Die Boxen sind eine <em>Definition</em>, keine Wahrheit. Andere Parameter erzeugen andere Boxen und damit andere Sieger. Wer die Regler bis zum gewünschten Sieger dreht, hat nichts gemessen.</li>
+        <li>Die Handelssimulation kennt nur Schlusskurse, einen Long-Zustand und lineare Kosten. Kein Slippage-Modell, keine Teilausführung, keine Overnight-Gaps — bei einem 5x-Produkt ist genau das der Punkt, an dem Papier und Realität auseinanderlaufen.</li>
+        <li>Ein 5x-Hebelprodukt rebalanciert täglich. Über längere Seitwärtsphasen verliert es auch dann, wenn der Basiswert unverändert ist. Signale, die lange im Markt bleiben, zahlen diesen Pfadverlust mit.</li>
+      </ul>
+    </div>
+  </section>
+
+  <p class="hint" style="margin-top:22px;text-align:center">
+    Werkzeug zur Analyse. Keine Anlageberatung, keine Empfehlung. Gehebelte ETPs können in kurzer Zeit nahezu ihren gesamten Wert verlieren.
+  </p>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ==========================================================
+   0 · Hilfsmittel
+   ========================================================== */
+const $  = (s) => document.querySelector(s);
+const nf = (d) => new Intl.NumberFormat("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const f0 = nf(0), f1 = nf(1), f2 = nf(2), f3 = nf(3);
+const pct = (x, d = 1) => (x == null || !isFinite(x)) ? "–" : nf(d).format(x * 100) + " %";
+const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+
+const state = {
+  series: [],            // [{d: Date, s: "YYYY-MM-DD", c: number}]
+  isDemo: true,
+  boxes: { red: [], blue: [] },
+  labels: null,          // {red: Int8Array, blue: Int8Array}
+  results: null,         // [{...}]
+  selected: -1,
+  logScale: true,
+  oosStart: 0,
+};
+
+/* ==========================================================
+   1 · Demo-Reihe (deterministisch, klar als synthetisch markiert)
+   Aufbau wie das echte Produkt: NAV_t = NAV_{t-1}·(1 + 5·r_t − Drag).
+   Der Basiswert ist ein GBM mit Vol-Clustering, kein NASDAQ-Abbild.
+   ========================================================== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function demoSeries() {
+  const rnd = mulberry32(20240430);
+  const gauss = () => {
+    const u = Math.max(rnd(), 1e-12), v = rnd();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+  // Kostentreiber des echten Produkttyps: 0,70 % Gebühr p. a. + Finanzierung
+  // der 4x geliehenen Position zu ~4,3 % p. a.
+  const drag = (0.007 + 4 * 0.043) / 252;
+  const out = [];
+  let nav = 30.0, vol = 0.0105;
+  const d = new Date(Date.UTC(2024, 3, 30));
+  const end = Date.UTC(2026, 7, 28);
+  while (d.getTime() <= end) {
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) {
+      // Vol-Clustering: träge Mean-Reversion um 1,05 % Tagesvol, gelegentliche Schübe
+      vol = 0.94 * vol + 0.06 * 0.0105 + (rnd() < 0.012 ? 0.010 : 0) * rnd();
+      vol = Math.min(vol, 0.035);
+      const r = 0.00045 + vol * gauss();          // Tagesrendite des Basiswerts
+      nav = Math.max(nav * (1 + 5 * r - drag), 0.5);
+      const s = d.toISOString().slice(0, 10);
+      out.push({ d: new Date(d.getTime()), s, c: Math.round(nav * 100) / 100 });
+    }
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/* ==========================================================
+   2 · CSV einlesen
+   ========================================================== */
+function parseDate(raw) {
+  const t = raw.trim().replace(/^"|"$/g, "");
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  m = t.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+  if (m) {
+    let y = +m[3]; if (y < 100) y += 2000;
+    return new Date(Date.UTC(y, +m[2] - 1, +m[1]));
+  }
+  return null;
+}
+function parseNum(raw) {
+  let t = raw.trim().replace(/^"|"$/g, "").replace(/[^\d,.\-]/g, "");
+  if (t === "" || t === "-") return NaN;
+  const lastC = t.lastIndexOf(","), lastD = t.lastIndexOf(".");
+  if (lastC > -1 && lastD > -1) {
+    // Das hintere Zeichen ist das Dezimaltrennzeichen, das vordere gruppiert.
+    if (lastC > lastD) t = t.replace(/\./g, "").replace(",", ".");
+    else t = t.replace(/,/g, "");
+  } else if (lastC > -1) {
+    t = (t.length - lastC - 1 === 3 && !/,\d{1,2}$/.test(t)) ? t.replace(/,/g, "") : t.replace(",", ".");
+  }
+  return parseFloat(t);
+}
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length < 10) throw new Error("Zu wenige Zeilen — mindestens 10 Kurstage werden gebraucht.");
+  const delim = [";", "\t", ","].map((d) => ({ d, n: (lines[0].match(new RegExp("\\" + d, "g")) || []).length }))
+                                .sort((a, b) => b.n - a.n)[0].d;
+  const cells = lines.map((l) => l.split(delim));
+
+  let dCol = 0, cCol = 1, start = 0;
+  const head = cells[0].map((h) => h.toLowerCase().replace(/[^a-zäöüß]/g, ""));
+  const hasHead = parseDate(cells[0][0]) === null;
+  if (hasHead) {
+    start = 1;
+    const findCol = (keys) => head.findIndex((h) => keys.some((k) => h.includes(k)));
+    const di = findCol(["datum", "date", "day", "zeit"]);
+    const ci = findCol(["schluss", "close", "kurs", "preis", "price", "nav", "letzter", "adjclose"]);
+    if (di > -1) dCol = di;
+    if (ci > -1) cCol = ci; else cCol = dCol === 0 ? 1 : 0;
+  }
+
+  const rows = [];
+  for (let i = start; i < cells.length; i++) {
+    const r = cells[i];
+    if (r.length <= Math.max(dCol, cCol)) continue;
+    const dt = parseDate(r[dCol]);
+    const c = parseNum(r[cCol]);
+    if (!dt || !isFinite(c) || c <= 0) continue;
+    rows.push({ d: dt, s: dt.toISOString().slice(0, 10), c });
+  }
+  if (rows.length < 10) throw new Error("Keine 10 verwertbaren Zeilen gefunden. Stimmen Datums- und Kursspalte?");
+
+  rows.sort((a, b) => a.d - b.d);
+  const dedup = [];                                    // gleiches Datum: letzter Wert gewinnt
+  for (const r of rows) {
+    if (dedup.length && dedup[dedup.length - 1].s === r.s) dedup[dedup.length - 1] = r;
+    else dedup.push(r);
+  }
+  return dedup;
+}
+
+/* ==========================================================
+   3 · Boxen-Labeling
+   ========================================================== */
+function zigzag(c, theta) {
+  const n = c.length, piv = [];
+  if (n < 3) return piv;
+  let dir = 0, minI = 0, minV = c[0], maxI = 0, maxV = c[0];
+  for (let i = 1; i < n; i++) {
+    const v = c[i];
+    if (dir === 0) {
+      if (v < minV) { minV = v; minI = i; }
+      if (v > maxV) { maxV = v; maxI = i; }
+      if (v >= minV * (1 + theta) && minI < i) { piv.push({ i: minI, t: "L", v: minV }); dir = 1; maxI = i; maxV = v; }
+      else if (v <= maxV * (1 - theta) && maxI < i) { piv.push({ i: maxI, t: "H", v: maxV }); dir = -1; minI = i; minV = v; }
+    } else if (dir === 1) {
+      if (v > maxV) { maxV = v; maxI = i; }
+      if (v <= maxV * (1 - theta)) { piv.push({ i: maxI, t: "H", v: maxV }); dir = -1; minI = i; minV = v; }
+    } else {
+      if (v < minV) { minV = v; minI = i; }
+      if (v >= minV * (1 + theta)) { piv.push({ i: minI, t: "L", v: minV }); dir = 1; maxI = i; maxV = v; }
+    }
+  }
+  return piv;
+}
+function makeBox(c, pivIdx, pivVal, kind, tol, half) {
+  const n = c.length;
+  const lo = kind === "L" ? pivVal : pivVal * (1 - tol);
+  const hi = kind === "L" ? pivVal * (1 + tol) : pivVal;
+  let i0 = pivIdx, i1 = pivIdx;
+  while (i0 > 0 && pivIdx - i0 < half && c[i0 - 1] >= lo && c[i0 - 1] <= hi) i0--;
+  while (i1 < n - 1 && i1 - pivIdx < half && c[i1 + 1] >= lo && c[i1 + 1] <= hi) i1++;
+  return { i0, i1, lo, hi, pivot: pivIdx, pv: pivVal };
+}
+function buildBoxes(c, p) {
+  const piv = zigzag(c, p.theta);
+  const red = [], blue = [];
+  const dropNeeded = 1 - 1 / (1 + p.minMove);   // symmetrischer Rundlauf
+  for (let k = 0; k < piv.length - 1; k++) {
+    const a = piv[k], b = piv[k + 1];
+    if (a.t === "L" && b.t === "H" && b.v / a.v - 1 >= p.minMove) {
+      const bx = makeBox(c, a.i, a.v, "L", p.tol, p.half); bx.move = b.v / a.v - 1; red.push(bx);
+    } else if (a.t === "H" && b.t === "L" && 1 - b.v / a.v >= dropNeeded) {
+      const bx = makeBox(c, a.i, a.v, "H", p.tol, p.half); bx.move = 1 - b.v / a.v; blue.push(bx);
+    }
+  }
+  return { red, blue, pivots: piv };
+}
+function boxLabels(n, boxes) {
+  const red = new Int8Array(n), blue = new Int8Array(n);
+  for (const b of boxes.red)  for (let i = b.i0; i <= b.i1; i++) red[i] = 1;
+  for (const b of boxes.blue) for (let i = b.i0; i <= b.i1; i++) blue[i] = 1;
+  for (let i = 0; i < n; i++) if (red[i] && blue[i]) blue[i] = 0;   // Überschneidung: Kauf gewinnt
+  return { red, blue };
+}
+
+/* ==========================================================
+   4 · Merkmale — alle nur aus Kursen bis einschließlich t
+   ========================================================== */
+const FEATURES = ["r1","r5","r20","rsi14","z20","dd60","ru60","volRatio","dSma50","macdH","rank60"];
+
+function buildFeatures(c) {
+  const n = c.length;
+  const X = Array.from({ length: n }, () => new Float64Array(FEATURES.length));
+  const lr = new Float64Array(n);
+  for (let i = 1; i < n; i++) lr[i] = Math.log(c[i] / c[i - 1]);
+
+  const sma = (i, w) => { let s = 0; for (let k = i - w + 1; k <= i; k++) s += c[k]; return s / w; };
+  const sd = (i, w, arr) => {
+    let m = 0; for (let k = i - w + 1; k <= i; k++) m += arr[k]; m /= w;
+    let v = 0; for (let k = i - w + 1; k <= i; k++) { const d = arr[k] - m; v += d * d; }
+    return Math.sqrt(v / w);
+  };
+  // Wilder-RSI
+  const rsi = new Float64Array(n).fill(NaN);
+  let ag = 0, al = 0;
+  for (let i = 1; i < n; i++) {
+    const ch = c[i] - c[i - 1], g = Math.max(ch, 0), l = Math.max(-ch, 0);
+    if (i <= 14) { ag += g / 14; al += l / 14; if (i === 14) rsi[i] = 100 - 100 / (1 + ag / (al || 1e-12)); }
+    else { ag = (ag * 13 + g) / 14; al = (al * 13 + l) / 14; rsi[i] = 100 - 100 / (1 + ag / (al || 1e-12)); }
+  }
+  // MACD-Histogramm
+  const ema = (arr, w) => {
+    const o = new Float64Array(arr.length); const a = 2 / (w + 1); o[0] = arr[0];
+    for (let i = 1; i < arr.length; i++) o[i] = a * arr[i] + (1 - a) * o[i - 1];
+    return o;
+  };
+  const e12 = ema(c, 12), e26 = ema(c, 26);
+  const macd = new Float64Array(n); for (let i = 0; i < n; i++) macd[i] = e12[i] - e26[i];
+  const sig = ema(macd, 9);
+
+  const WARM = 60;
+  for (let i = 0; i < n; i++) {
+    const x = X[i];
+    if (i < WARM) { x.fill(0); continue; }
+    let hi = -Infinity, lo = Infinity;
+    for (let k = i - 59; k <= i; k++) { if (c[k] > hi) hi = c[k]; if (c[k] < lo) lo = c[k]; }
+    let below = 0; for (let k = i - 59; k <= i; k++) if (c[k] <= c[i]) below++;
+
+    const s20 = sma(i, 20), d20 = sd(i, 20, c) || 1e-9;
+    const v20 = sd(i, 20, lr) || 1e-9, v60 = sd(i, 60, lr) || 1e-9;
+
+    x[0] = lr[i];
+    x[1] = Math.log(c[i] / c[i - 5]);
+    x[2] = Math.log(c[i] / c[i - 20]);
+    x[3] = (rsi[i] - 50) / 50;
+    x[4] = (c[i] - s20) / d20;
+    x[5] = c[i] / hi - 1;
+    x[6] = c[i] / lo - 1;
+    x[7] = Math.log(v20 / v60);
+    x[8] = c[i] / sma(i, 50) - 1;
+    x[9] = (macd[i] - sig[i]) / c[i];
+    x[10] = below / 60 - 0.5;
+    for (let j = 0; j < x.length; j++) if (!isFinite(x[j])) x[j] = 0;
+  }
+  return { X, warm: WARM, rsi };
+}
+
+/* ==========================================================
+   5 · Lernverfahren
+   ========================================================== */
+function classWeights(y) {
+  let p = 0; for (let i = 0; i < y.length; i++) p += y[i];
+  const nn = y.length - p;
+  return { wp: p ? y.length / (2 * p) : 1, wn: nn ? y.length / (2 * nn) : 1 };
+}
+const sigmoid = (z) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z))));
+
+/* --- 5a · Logistische Regression, L2, klassengewichtet --- */
+function fitLogit(X, idx, y) {
+  const f = FEATURES.length, m = new Float64Array(f), s = new Float64Array(f);
+  for (const i of idx) for (let j = 0; j < f; j++) m[j] += X[i][j];
+  for (let j = 0; j < f; j++) m[j] /= idx.length;
+  for (const i of idx) for (let j = 0; j < f; j++) { const d = X[i][j] - m[j]; s[j] += d * d; }
+  for (let j = 0; j < f; j++) s[j] = Math.sqrt(s[j] / idx.length) || 1;
+
+  const yy = idx.map((i) => y[i]);
+  const { wp, wn } = classWeights(yy);
+  const w = new Float64Array(f); let b = 0;
+  const lr = 0.35, l2 = 0.02, iters = 260;
+  const g = new Float64Array(f);
+  for (let it = 0; it < iters; it++) {
+    g.fill(0); let gb = 0, wsum = 0;
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k], xi = X[i];
+      let z = b; for (let j = 0; j < f; j++) z += w[j] * ((xi[j] - m[j]) / s[j]);
+      const p = sigmoid(z), wt = yy[k] ? wp : wn, e = wt * (p - yy[k]);
+      for (let j = 0; j < f; j++) g[j] += e * ((xi[j] - m[j]) / s[j]);
+      gb += e; wsum += wt;
+    }
+    for (let j = 0; j < f; j++) w[j] -= lr * (g[j] / wsum + l2 * w[j]);
+    b -= lr * (gb / wsum);
+  }
+  return (xi) => { let z = b; for (let j = 0; j < f; j++) z += w[j] * ((xi[j] - m[j]) / s[j]); return sigmoid(z); };
+}
+
+/* --- 5b · Gradient Boosting auf Entscheidungsstümpfen --- */
+function fitStumps(X, idx, y, opts) {
+  const f = FEATURES.length, N = idx.length;
+  const TREES = opts.trees, LR = opts.lr, BINS = 12;
+  // Kandidatenschwellen aus Quantilen je Merkmal
+  const cuts = [];
+  for (let j = 0; j < f; j++) {
+    const col = idx.map((i) => X[i][j]).sort((a, b) => a - b);
+    const cs = [];
+    for (let q = 1; q < BINS; q++) {
+      const v = col[Math.floor((q / BINS) * (N - 1))];
+      if (!cs.length || v > cs[cs.length - 1]) cs.push(v);
+    }
+    cuts.push(cs);
+  }
+  const yy = new Float64Array(N), wt = new Float64Array(N);
+  const { wp, wn } = classWeights(idx.map((i) => y[i]));
+  let pos = 0;
+  for (let k = 0; k < N; k++) { yy[k] = y[idx[k]]; wt[k] = yy[k] ? wp : wn; pos += yy[k]; }
+  const prior = Math.min(Math.max(pos / N, 1e-4), 1 - 1e-4);
+  const F0 = Math.log(prior / (1 - prior));
+  const F = new Float64Array(N).fill(F0);
+  const trees = [];
+
+  const grad = new Float64Array(N), hess = new Float64Array(N);
+  for (let t = 0; t < TREES; t++) {
+    let G = 0, H = 0;
+    for (let k = 0; k < N; k++) {
+      const p = sigmoid(F[k]);
+      grad[k] = wt[k] * (yy[k] - p);
+      hess[k] = wt[k] * p * (1 - p) + 1e-6;
+      G += grad[k]; H += hess[k];
+    }
+    let best = null;
+    for (let j = 0; j < f; j++) {
+      for (const cv of cuts[j]) {
+        let gl = 0, hl = 0;
+        for (let k = 0; k < N; k++) if (X[idx[k]][j] <= cv) { gl += grad[k]; hl += hess[k]; }
+        const gr = G - gl, hr = H - hl;
+        if (hl < 1e-5 || hr < 1e-5) continue;
+        const gain = (gl * gl) / hl + (gr * gr) / hr - (G * G) / H;
+        if (!best || gain > best.gain) best = { gain, j, cv, vl: gl / hl, vr: gr / hr };
+      }
+    }
+    if (!best) break;
+    const vl = Math.max(-4, Math.min(4, best.vl)), vr = Math.max(-4, Math.min(4, best.vr));
+    for (let k = 0; k < N; k++) F[k] += LR * (X[idx[k]][best.j] <= best.cv ? vl : vr);
+    trees.push({ j: best.j, cv: best.cv, vl, vr });
+  }
+  return (xi) => {
+    let z = F0;
+    for (const tr of trees) z += LR * (xi[tr.j] <= tr.cv ? tr.vl : tr.vr);
+    return sigmoid(z);
+  };
+}
+
+/* --- 5c · k-NN über z-normalisierte Kursfenster (Shape-Matching) --- */
+function makeKnn(c, idx, y, W, K) {
+  const shape = (i) => {                      // Fenster auf Mittel 0 / Streuung 1
+    const v = new Float64Array(W);
+    let m = 0; for (let k = 0; k < W; k++) { v[k] = Math.log(c[i - W + 1 + k] / c[i - W + 1]); m += v[k]; }
+    m /= W;
+    let s = 0; for (let k = 0; k < W; k++) { const d = v[k] - m; s += d * d; }
+    s = Math.sqrt(s / W) || 1e-9;
+    for (let k = 0; k < W; k++) v[k] = (v[k] - m) / s;
+    return v;
+  };
+  const bank = [];
+  for (const i of idx) if (i >= W) bank.push({ v: shape(i), y: y[i] });
+  if (!bank.length) return () => 0;
+  return (i) => {
+    if (i < W) return 0;
+    const q = shape(i);
+    const ds = bank.map((b) => {
+      let s = 0; for (let k = 0; k < W; k++) { const d = q[k] - b.v[k]; s += d * d; }
+      return { d: Math.sqrt(s), y: b.y };
+    }).sort((a, b) => a.d - b.d).slice(0, Math.min(K, bank.length));
+    let num = 0, den = 0;
+    for (const e of ds) { const w = 1 / (e.d + 0.25); num += w * e.y; den += w; }
+    return den ? num / den : 0;
+  };
+}
+
+/* --- 5d · Schwelle: bestes F1 auf den Trainingsdaten --- */
+function bestThreshold(scores, idx, y) {
+  let best = { thr: 0.5, f1: -1 };
+  for (let t = 0.05; t <= 0.95; t += 0.025) {
+    let tp = 0, fp = 0, fn = 0;
+    for (const i of idx) {
+      const p = scores[i] >= t ? 1 : 0;
+      if (p && y[i]) tp++; else if (p) fp++; else if (y[i]) fn++;
+    }
+    const f1 = tp ? (2 * tp) / (2 * tp + fp + fn) : 0;
+    if (f1 > best.f1) best = { thr: t, f1 };
+  }
+  return best.thr;
+}
+
+/* ==========================================================
+   6 · Kennzahlen
+   ========================================================== */
+function scoreClass(pred, y, from, to) {
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  for (let i = from; i < to; i++) {
+    if (pred[i] && y[i]) tp++; else if (pred[i]) fp++; else if (y[i]) fn++; else tn++;
+  }
+  const prec = tp + fp ? tp / (tp + fp) : null;
+  const rec = tp + fn ? tp / (tp + fn) : null;
+  const f1 = (prec != null && rec != null && prec + rec > 0) ? (2 * prec * rec) / (prec + rec) : 0;
+  const den = Math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn));
+  const mcc = den > 0 ? (tp * tn - fp * fn) / den : 0;
+  return { tp, fp, fn, tn, prec, rec, f1, mcc };
+}
+function timingError(pred, y, from, to) {
+  const truth = []; for (let i = from; i < to; i++) if (y[i]) truth.push(i);
+  if (!truth.length) return null;
+  const errs = [];
+  for (let i = from; i < to; i++) {
+    if (!pred[i]) continue;
+    let bd = Infinity;
+    for (const t of truth) { const d = Math.abs(t - i); if (d < bd) bd = d; }
+    errs.push(bd);
+  }
+  if (!errs.length) return null;
+  errs.sort((a, b) => a - b);
+  return errs[Math.floor(errs.length / 2)];
+}
+function simulate(c, pr, pb, from, to, cost) {
+  let eq = 1, long = false, entry = 0, trades = 0, wins = 0, peak = 1, mdd = 0;
+  const curve = [];
+  for (let i = from; i < to; i++) {
+    if (long) eq *= c[i] / c[i - 1];
+    if (!long && pr[i]) { long = true; entry = eq * (1 - cost); eq *= (1 - cost); trades++; }
+    else if (long && pb[i]) { long = false; eq *= (1 - cost); if (eq > entry) wins++; }
+    peak = Math.max(peak, eq); mdd = Math.min(mdd, eq / peak - 1);
+    curve.push(eq);
+  }
+  return { ret: eq - 1, trades, hit: trades ? wins / trades : null, mdd, curve };
+}
+
+/* ==========================================================
+   7 · Die fünf Algorithmen
+   ========================================================== */
+const ALGOS = [
+  {
+    id: "rsi", name: "RSI-Extrem", color: "--s1", kind: "Regel",
+    sub: "Wilder-RSI(14), feste Schwellen",
+    formula: '<span class="rd">rot</span>  := RSI(14) &lt; 30\n<span class="bl">blau</span> := RSI(14) &gt; 70',
+    note: "Der Nullpunkt der Messung: der Klassiker, ohne jede Anpassung an dieses Papier. Jeder Algorithmus, der ihn nicht schlägt, hat sich nicht gelohnt.",
+    run: (ctx) => {
+      const { rsi, n } = ctx, pr = new Int8Array(n), pb = new Int8Array(n);
+      for (let i = 0; i < n; i++) { if (rsi[i] < 30) pr[i] = 1; if (rsi[i] > 70) pb[i] = 1; }
+      return { pr, pb };
+    },
+  },
+  {
+    id: "zdd", name: "Z-Score & Drawdown", color: "--s2", kind: "Regel",
+    sub: "Bollinger-Abweichung plus Lage zum 60-Tage-Extrem",
+    formula: '<span class="kw">z</span>  := (Kurs − SMA20) / StdAbw20\n<span class="kw">dd</span> := Kurs / Hoch(60) − 1\n<span class="kw">ru</span> := Kurs / Tief(60) − 1\n\n<span class="rd">rot</span>  := z &lt; −1,5  <span class="kw">und</span>  dd &lt; −20 %\n<span class="bl">blau</span> := z &gt; +1,5  <span class="kw">und</span>  ru &gt; +30 %',
+    note: "Zwei Bedingungen statt einer: überdehnt gegenüber dem kurzen Mittel und gleichzeitig weit weg vom Extrem der letzten drei Monate. Die Schwellen sind auf die Asymmetrie eines 5x-Papiers gesetzt — Erholungen laufen weiter als Rückgänge.",
+    run: (ctx) => {
+      const { X, n } = ctx, pr = new Int8Array(n), pb = new Int8Array(n);
+      const iz = FEATURES.indexOf("z20"), idd = FEATURES.indexOf("dd60"), iru = FEATURES.indexOf("ru60");
+      for (let i = 0; i < n; i++) {
+        if (X[i][iz] < -1.5 && X[i][idd] < -0.20) pr[i] = 1;
+        if (X[i][iz] > 1.5 && X[i][iru] > 0.30) pb[i] = 1;
+      }
+      return { pr, pb };
+    },
+  },
+  {
+    id: "logit", name: "Logistische Regression", color: "--s3", kind: "gelernt",
+    sub: "11 Merkmale, L2, klassengewichtet, walk-forward",
+    formula: '<span class="kw">p</span>(Box) = σ( b + Σ wⱼ · zⱼ )\n\nz = standardisierte Merkmale des Trainingsfensters\nGewichte je Klasse ausgeglichen (Boxen sind selten)\nSchwelle = bestes F1 auf dem <span class="kw">zurückgehaltenen Fünftel</span>',
+    note: "Ein lineares Modell auf allen elf Merkmalen. Es kann Momentum, Überdehnung und Volatilitätsregime gegeneinander abwägen, aber keine Wechselwirkungen abbilden — genau darin liegt der Vergleich zum Boosting darunter.",
+    learner: (ctx, idx, y) => fitLogit(ctx.X, idx, y),
+  },
+  {
+    id: "gbm", name: "Gradient Boosting", color: "--s4", kind: "gelernt",
+    sub: "120 Entscheidungsstümpfe, Newton-Schritte, walk-forward",
+    formula: 'F₀ = log(π / (1−π))\nFₜ = Fₜ₋₁ + η · Stumpf( Merkmal j ≤ Schwelle )\n\nη = 0,08   ·   120 Stümpfe   ·   12 Quantilschnitte\nBlattwert = Σg / Σh   (auf ±4 begrenzt)',
+    note: "Dieselben Merkmale, aber nichtlinear und mit Wechselwirkungen über die Stumpf-Folge. Auf kurzen Reihen die anfälligste Wahl für Überanpassung — deshalb steht es hier neben der Regression und nicht statt ihrer.",
+    learner: (ctx, idx, y) => fitStumps(ctx.X, idx, y, { trees: 120, lr: 0.08 }),
+  },
+  {
+    id: "knn", name: "Formvergleich k-NN", color: "--s5", kind: "gelernt",
+    sub: "20-Tage-Fenster, z-normalisiert, k = 25",
+    formula: 'Fenster := log(Kurs / Kurs₋₁₉) über 20 Tage,\n          auf Mittel 0 / Streuung 1 normiert\n\np(Box) = Σ (1/(d+¼)) · Label / Σ (1/(d+¼))\n         über die k = 25 ähnlichsten <span class="kw">früheren</span> Fenster',
+    note: "Kein Modell, sondern ein Gedächtnis: Wie ging es weiter, wenn der Verlauf zuletzt so aussah? Ignoriert das Preisniveau vollständig und vergleicht nur die Form — bei einem Papier, dessen Kurs sich vervielfacht und wieder drittelt, ist das ein echter Vorteil.",
+    knn: true,
+  },
+];
+
+/* ==========================================================
+   8 · Rechenlauf (stückweise, damit die Oberfläche atmet)
+   ========================================================== */
+function idle() { return new Promise((r) => setTimeout(r, 0)); }
+
+async function runAll(onProgress) {
+  const c = state.series.map((r) => r.c), n = c.length;
+  const { X, rsi } = buildFeatures(c);
+  const y = state.labels;
+  const P = readParams();
+  const ctx = { X, rsi, n, c };
+
+  const minTrain = Math.min(P.minTrain, Math.max(60, n - 40));
+  const from = Math.max(minTrain, 60);
+  const to = n;
+  state.oosStart = from;
+  if (to - from < 20) throw new Error("Zu wenig Bewertungsfenster übrig — Anlernfenster verkleinern oder längere Reihe laden.");
+
+  const out = [];
+  for (let a = 0; a < ALGOS.length; a++) {
+    const A = ALGOS[a];
+    onProgress(`${A.name} …`, a / ALGOS.length);
+    await idle();
+
+    let pr, pb;
+    if (A.run) {
+      ({ pr, pb } = A.run(ctx));
+    } else {
+      pr = new Int8Array(n); pb = new Int8Array(n);
+      const sR = new Float64Array(n).fill(NaN), sB = new Float64Array(n).fill(NaN);
+      for (let t = from; t < to; t += P.refit) {
+        const trainEnd = t - P.embargo;
+        if (trainEnd < 60) continue;
+        // Trainingsfenster teilen: auf den ersten 80 % wird angepasst, auf dem
+        // zurückgehaltenen Rest die Schwelle gesucht. Auf denselben Bars zu
+        // fitten und zu schwellen belohnt sonst das überangepasste Modell.
+        const cut = 60 + Math.floor(0.8 * (trainEnd - 60));
+        const fitIdx = [], valIdx = [];
+        for (let i = 60; i < trainEnd; i++) (i < cut ? fitIdx : valIdx).push(i);
+        if (fitIdx.length < 40) continue;
+        const thrIdx = valIdx.length >= 30 ? valIdx : fitIdx;
+
+        const mR = A.knn ? makeKnn(c, fitIdx, y.red, 20, 25)  : A.learner(ctx, fitIdx, y.red);
+        const mB = A.knn ? makeKnn(c, fitIdx, y.blue, 20, 25) : A.learner(ctx, fitIdx, y.blue);
+        const inR = new Float64Array(n), inB = new Float64Array(n);
+        for (const i of thrIdx) { inR[i] = A.knn ? mR(i) : mR(X[i]); inB[i] = A.knn ? mB(i) : mB(X[i]); }
+        const thR = bestThreshold(inR, thrIdx, y.red), thB = bestThreshold(inB, thrIdx, y.blue);
+
+        const stop = Math.min(t + P.refit, to);
+        for (let u = t; u < stop; u++) {
+          sR[u] = A.knn ? mR(u) : mR(X[u]);
+          sB[u] = A.knn ? mB(u) : mB(X[u]);
+          if (sR[u] >= thR) pr[u] = 1;
+          if (sB[u] >= thB) pb[u] = 1;
+        }
+        await idle();
+      }
+    }
+    for (let i = 0; i < n; i++) if (pr[i] && pb[i]) pb[i] = 0;   // widersprüchliche Signale: Kauf gewinnt
+
+    const mR = scoreClass(pr, y.red, from, to);
+    const mB = scoreClass(pb, y.blue, from, to);
+    const sim = simulate(c, pr, pb, from, to, P.cost);
+    out.push({
+      ...A, mR, mB,
+      f1: (mR.f1 + mB.f1) / 2,
+      mcc: (mR.mcc + mB.mcc) / 2,
+      timing: timingError(pr, y.red, from, to),
+      sim, pr, pb,
+    });
+  }
+
+  // Vergleichsmaßstab: Kaufen und Halten über dasselbe Fenster
+  let bh = 1, peak = 1, bhmdd = 0; const bhCurve = [];
+  for (let i = from; i < to; i++) { bh *= c[i] / c[i - 1]; peak = Math.max(peak, bh); bhmdd = Math.min(bhmdd, bh / peak - 1); bhCurve.push(bh); }
+  state.bh = { ret: bh - 1, mdd: bhmdd, curve: bhCurve };
+  return out;
+}
+
+function readParams() {
+  return {
+    theta:    +$("#p-theta").value / 100,
+    minMove:  +$("#p-move").value / 100,
+    tol:      +$("#p-tol").value / 100,
+    half:     +$("#p-half").value,
+    embargo:  +$("#p-embargo").value,
+    minTrain: +$("#p-mintrain").value,
+    refit:    +$("#p-refit").value,
+    cost:     +$("#p-cost").value / 10000,
+  };
+}
+
+/* ==========================================================
+   9 · Chart
+   ========================================================== */
+const CH = { h: 400, ml: 22, mr: 54, mt: 14, mb: 26 };
+
+function renderChart() {
+  const svg = $("#chart");
+  const W = svg.clientWidth || svg.parentNode.clientWidth || 900;
+  const H = CH.h;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+
+  const s = state.series, n = s.length;
+  if (!n) { svg.innerHTML = ""; return; }
+  const c = s.map((r) => r.c);
+
+  const x0 = CH.ml, x1 = W - CH.mr, y0 = CH.mt, y1 = H - CH.mb;
+  const px = (i) => x0 + (i / Math.max(1, n - 1)) * (x1 - x0);
+
+  let lo = Math.min(...c), hi = Math.max(...c);
+  const padF = state.logScale ? 1.06 : 0;
+  if (state.logScale) { lo /= padF; hi *= padF; } else { const p = (hi - lo) * 0.07; lo -= p; hi += p; }
+  lo = Math.max(lo, 1e-6);
+  const tf = state.logScale ? Math.log : (v) => v;
+  const py = (v) => y1 - ((tf(Math.max(v, 1e-6)) - tf(lo)) / (tf(hi) - tf(lo) || 1)) * (y1 - y0);
+
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const P = [];
+
+  // Anlernfenster
+  if (state.oosStart > 0 && state.results) {
+    P.push(`<rect x="${x0}" y="${y0}" width="${px(state.oosStart) - x0}" height="${y1 - y0}" fill="var(--grid)"/>`);
+    P.push(`<line x1="${px(state.oosStart)}" y1="${y0}" x2="${px(state.oosStart)}" y2="${y1}" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 3"/>`);
+    P.push(`<text x="${px(state.oosStart) - 6}" y="${y0 + 11}" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--muted)">Bewertung ab hier &#8594;</text>`);
+  }
+
+  // Preisraster
+  const ticks = [];
+  if (state.logScale) {
+    const a = Math.log10(lo), b = Math.log10(hi);
+    for (let e = Math.floor(a); e <= Math.ceil(b); e++)
+      for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) ticks.push(v); }
+  } else {
+    const step = Math.pow(10, Math.floor(Math.log10((hi - lo) / 5)));
+    const st = [1, 2, 2.5, 5, 10].map((k) => k * step).find((k) => (hi - lo) / k <= 7) || step;
+    for (let v = Math.ceil(lo / st) * st; v <= hi; v += st) ticks.push(v);
+  }
+  for (const v of ticks) {
+    const yy = py(v);
+    P.push(`<line class="grid-line" x1="${x0}" y1="${yy.toFixed(1)}" x2="${x1}" y2="${yy.toFixed(1)}"/>`);
+    P.push(`<text x="${x1 + 7}" y="${(yy + 3.5).toFixed(1)}" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--muted)">${f0.format(v)}</text>`);
+  }
+
+  // Zeitachse: Monatsanfänge
+  let lastM = -1, lastX = -99;
+  for (let i = 0; i < n; i++) {
+    const m = s[i].d.getUTCMonth();
+    if (m === lastM) continue;
+    lastM = m;
+    const step = n > 400 ? 3 : n > 180 ? 2 : 1;
+    if (m % step !== 0) continue;
+    const xx = px(i);
+    if (xx - lastX < 46 || xx < x0 + 16 || xx > x1 - 16) continue;
+    lastX = xx;
+    P.push(`<line class="grid-line" x1="${xx.toFixed(1)}" y1="${y0}" x2="${xx.toFixed(1)}" y2="${y1}"/>`);
+    P.push(`<text x="${xx.toFixed(1)}" y="${H - 8}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--muted)">${MONTHS[m]} ${String(s[i].d.getUTCFullYear()).slice(2)}</text>`);
+  }
+
+  // Boxen — unter der Kurve, damit die Kurve lesbar bleibt.
+  // Auf der Log-Achse über 25 Kursvielfache wäre ein 5-%-Band nur wenige Pixel
+  // hoch; deshalb eine Mindestgröße, symmetrisch um den Wendepunkt aufgezogen.
+  const MIN_H = 18, MIN_W = 7;
+  const drawBox = (b, stroke, fill) => {
+    let bx = px(b.i0), bw = px(b.i1) - bx;
+    if (bw < MIN_W) { bx -= (MIN_W - bw) / 2; bw = MIN_W; }
+    let by = py(b.hi), bh = py(b.lo) - by;
+    if (bh < MIN_H) { by -= (MIN_H - bh) / 2; bh = MIN_H; }
+    P.push(`<rect x="${(bx - 2).toFixed(1)}" y="${by.toFixed(1)}" width="${(bw + 4).toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1.8"/>`);
+  };
+  for (const b of state.boxes.red)  drawBox(b, "var(--buy)", "var(--buy-fill)");
+  for (const b of state.boxes.blue) drawBox(b, "var(--sell)", "var(--sell-fill)");
+
+  // Kurve
+  let d = "", fill = `M ${px(0).toFixed(1)} ${y1} `;
+  for (let i = 0; i < n; i++) {
+    const X = px(i).toFixed(1), Y = py(c[i]).toFixed(1);
+    d += (i ? "L" : "M") + X + " " + Y + " ";
+    fill += `L${X} ${Y} `;
+  }
+  fill += `L ${px(n - 1).toFixed(1)} ${y1} Z`;
+  P.push(`<path d="${fill}" fill="var(--price-fill)"/>`);
+  P.push(`<path d="${d}" fill="none" stroke="var(--price)" stroke-width="1.6" stroke-linejoin="round"/>`);
+
+  // Signale des gewählten Algorithmus
+  const sel = state.selected;
+  if (sel >= 0 && state.results && state.results[sel]) {
+    const R = state.results[sel];
+    for (let i = state.oosStart; i < n; i++) {
+      if (R.pr[i]) P.push(`<circle cx="${px(i).toFixed(1)}" cy="${(y1 - 5).toFixed(1)}" r="2.5" fill="var(--buy)" opacity="0.85"/>`);
+      if (R.pb[i]) P.push(`<circle cx="${px(i).toFixed(1)}" cy="${(y0 + 5).toFixed(1)}" r="2.5" fill="var(--sell)" opacity="0.85"/>`);
+    }
+  }
+
+  P.push(`<g id="cross" opacity="0"><line y1="${y0}" y2="${y1}" stroke="var(--line-strong)" stroke-width="1"/><circle r="3.5" fill="var(--price)" stroke="var(--panel)" stroke-width="1.5"/></g>`);
+  P.push(`<rect id="hit" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="transparent"/>`);
+
+  svg.innerHTML = P.join("");
+  attachHover(svg, px, py, c, n, x0, x1);
+}
+
+function attachHover(svg, px, py, c, n, x0, x1) {
+  const tip = $("#tip"), cross = svg.querySelector("#cross"), hit = svg.querySelector("#hit");
+  const line = cross.querySelector("line"), dot = cross.querySelector("circle");
+  const box = svg.getBoundingClientRect();
+  const scale = box.width / (svg.viewBox.baseVal.width || box.width);
+
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) / (r.width / svg.viewBox.baseVal.width);
+    const i = Math.max(0, Math.min(n - 1, Math.round(((sx - x0) / (x1 - x0)) * (n - 1))));
+    const X = px(i), Y = py(c[i]);
+    line.setAttribute("x1", X); line.setAttribute("x2", X);
+    dot.setAttribute("cx", X); dot.setAttribute("cy", Y);
+    cross.setAttribute("opacity", "1");
+
+    const inRed = state.labels && state.labels.red[i], inBlue = state.labels && state.labels.blue[i];
+    let rows = "";
+    if (inRed)  rows += `<div class="t-row"><span class="swatch" style="background:var(--buy)"></span>in einer Kaufbox</div>`;
+    if (inBlue) rows += `<div class="t-row"><span class="swatch" style="background:var(--sell)"></span>in einer Verkaufsbox</div>`;
+    if (!inRed && !inBlue) rows += `<div class="t-row" style="color:var(--muted)">keine Box</div>`;
+    const R = state.selected >= 0 && state.results ? state.results[state.selected] : null;
+    if (R && i >= state.oosStart) {
+      if (R.pr[i]) rows += `<div class="t-row"><span class="swatch" style="background:var(--buy);border-radius:50%"></span>${R.name}: Kaufsignal</div>`;
+      else if (R.pb[i]) rows += `<div class="t-row"><span class="swatch" style="background:var(--sell);border-radius:50%"></span>${R.name}: Verkaufssignal</div>`;
+    }
+    const dd = state.series[i].d;
+    tip.innerHTML = `<div class="t-date">${String(dd.getUTCDate()).padStart(2,"0")}.${String(dd.getUTCMonth()+1).padStart(2,"0")}.${dd.getUTCFullYear()}</div>
+                     <div class="t-px">${f2.format(c[i])}</div>${rows}`;
+    tip.style.opacity = "1";
+    const rr = svg.getBoundingClientRect(), sc = rr.width / svg.viewBox.baseVal.width;
+    tip.style.left = Math.max(84, Math.min(rr.width - 84, X * sc)) + "px";
+    tip.style.top = (Y * sc - 12) + "px";
+  };
+  hit.addEventListener("mousemove", move);
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("opacity", "0"); tip.style.opacity = "0"; });
+  hit.addEventListener("touchmove", (e) => { if (e.touches[0]) move(e.touches[0]); }, { passive: true });
+}
+
+/* ==========================================================
+   10 · Ausgabe
+   ========================================================== */
+function renderBoxStats() {
+  const n = state.series.length;
+  let rb = 0, bb = 0;
+  for (let i = 0; i < n; i++) { rb += state.labels.red[i]; bb += state.labels.blue[i]; }
+  const avgR = state.boxes.red.length  ? state.boxes.red.reduce((a, b) => a + b.move, 0)  / state.boxes.red.length  : 0;
+  const avgB = state.boxes.blue.length ? state.boxes.blue.reduce((a, b) => a + b.move, 0) / state.boxes.blue.length : 0;
+  const c = state.series.map((r) => r.c);
+  const dd = Math.min(...c.map((v, i) => v / Math.max(...c.slice(0, i + 1)) - 1));
+
+  $("#box-stats").innerHTML = [
+    ["Handelstage", f0.format(n)],
+    ["Kaufboxen", `<span class="buy">${state.boxes.red.length}</span>`],
+    ["Verkaufsboxen", `<span class="sell">${state.boxes.blue.length}</span>`],
+    ["Box-Tage", pct((rb + bb) / n, 1)],
+    ["Ø Folgewelle rot", pct(avgR, 0)],
+    ["Ø Folgewelle blau", pct(-avgB, 0)],
+    ["Max. Rückgang", pct(dd, 0)],
+  ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+}
+
+function spark(curve, bhCurve, color) {
+  const W = 92, H = 26;
+  if (!curve || curve.length < 2) return "";
+  const all = curve.concat(bhCurve || []);
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const sx = (i, L) => (i / (L - 1)) * W;
+  const sy = (v) => H - 2 - ((v - lo) / (hi - lo || 1)) * (H - 4);
+  const path = (arr) => arr.map((v, i) => (i ? "L" : "M") + sx(i, arr.length).toFixed(1) + " " + sy(v).toFixed(1)).join(" ");
+  const base = sy(1);
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Verlauf der Strategie gegen Kaufen und Halten">
+    <line x1="0" y1="${base.toFixed(1)}" x2="${W}" y2="${base.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>
+    ${bhCurve ? `<path d="${path(bhCurve)}" fill="none" stroke="var(--line-strong)" stroke-width="1.2"/>` : ""}
+    <path d="${path(curve)}" fill="none" stroke="var(${color})" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="${W}" cy="${sy(curve[curve.length - 1]).toFixed(1)}" r="2.4" fill="var(${color})"/>
+  </svg>`;
+}
+
+function renderBoard() {
+  const R = state.results;
+  if (!R) return;
+  const bestF1 = Math.max(...R.map((r) => r.f1));
+  const bar = (v, color) => {
+    const w = Math.max(0, Math.min(1, v || 0)) * 100;
+    return `<span class="bar-cell"><span class="num">${v == null ? "–" : f2.format(v)}</span><span class="bar-track"><span class="bar-fill" style="width:${w}%;background:var(${color})"></span></span></span>`;
+  };
+  $("#board-body").innerHTML = R.map((r, i) => `
+    <tr data-i="${i}" class="${i === state.selected ? "sel" : ""}" tabindex="0">
+      <td>
+        <span class="algo-name">
+          <span class="swatch" style="background:var(${r.color})"></span>
+          <span><strong>${r.name}</strong>${r.f1 === bestF1 ? '<span class="best"></span>' : ""}
+          <span class="sub">${r.kind} · ${r.sub}</span></span>
+        </span>
+      </td>
+      <td class="num" style="color:var(--buy)">${r.mR.prec == null ? "–" : pct(r.mR.prec, 0)}</td>
+      <td class="num" style="color:var(--buy)">${r.mR.rec == null ? "–" : pct(r.mR.rec, 0)}</td>
+      <td class="num" style="color:var(--sell)">${r.mB.prec == null ? "–" : pct(r.mB.prec, 0)}</td>
+      <td class="num" style="color:var(--sell)">${r.mB.rec == null ? "–" : pct(r.mB.rec, 0)}</td>
+      <td>${bar(r.f1, r.color)}</td>
+      <td class="num">${f2.format(r.mcc)}</td>
+      <td class="num">${r.timing == null ? "–" : r.timing + " T"}</td>
+      <td class="num" style="color:${r.sim.ret >= 0 ? "var(--good)" : "var(--crit)"}">${pct(r.sim.ret, 0)}</td>
+    </tr>`).join("") + `
+    <tr style="background:var(--panel-2);cursor:default">
+      <td><span class="algo-name"><span class="swatch" style="background:var(--line-strong)"></span>
+        <span><strong>Kaufen und halten</strong><span class="sub">Vergleichsmaßstab · dasselbe Fenster</span></span></span></td>
+      <td colspan="6" class="num" style="color:var(--muted);text-align:right">max. Rückgang ${pct(state.bh.mdd, 0)}</td>
+      <td class="num">–</td>
+      <td class="num" style="color:${state.bh.ret >= 0 ? "var(--good)" : "var(--crit)"}">${pct(state.bh.ret, 0)}</td>
+    </tr>`;
+
+  $("#board-body").querySelectorAll("tr[data-i]").forEach((tr) => {
+    const pick = () => { state.selected = +tr.dataset.i; $("#p-algo").value = String(state.selected); renderBoard(); renderDetail(); renderChart(); };
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+  });
+}
+
+function renderDetail() {
+  const box = $("#detail");
+  if (state.selected < 0 || !state.results) { box.hidden = true; return; }
+  const r = state.results[state.selected];
+  const cm = (m, label, color) => `
+    <div class="mini">
+      <h3 style="color:var(${color})">${label}</h3>
+      <div class="cm">
+        <div class="hd rh">&nbsp;</div><div class="hd">wirklich Box</div><div class="hd">keine Box</div>
+        <div class="hd rh">Signal</div><div>${m.tp}</div><div>${m.fp}</div>
+        <div class="hd rh">kein Signal</div><div>${m.fn}</div><div>${m.tn}</div>
+      </div>
+      <p class="hint" style="margin-top:9px">Präzision ${m.prec == null ? "–" : pct(m.prec, 0)} · Trefferquote ${m.rec == null ? "–" : pct(m.rec, 0)} · F1 ${f2.format(m.f1)}</p>
+    </div>`;
+  box.hidden = false;
+  box.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+      <span class="swatch" style="width:11px;height:11px;border-radius:2px;background:var(${r.color});display:inline-block"></span>
+      <h3 style="font-size:16px">${r.name}</h3>
+      <span class="eyebrow">${r.kind}</span>
+    </div>
+    <p style="color:var(--ink-2);max-width:70ch;margin:2px 0 16px">${r.note}</p>
+    <div class="detail-grid">
+      <div>
+        <p class="eyebrow" style="margin-bottom:6px">Entscheidungsregel</p>
+        <pre class="formula">${r.formula}</pre>
+        <div class="mini" style="margin-top:14px">
+          <h3>Handelssimulation im Bewertungsfenster</h3>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            ${spark(r.sim.curve, state.bh.curve, r.color)}
+            <div style="font-size:13px">
+              <div class="mono" style="font-size:19px;font-weight:700;color:${r.sim.ret >= 0 ? "var(--good)" : "var(--crit)"}">${pct(r.sim.ret, 1)}</div>
+              <div style="color:var(--muted)">${r.sim.trades} Trades · Trefferquote ${r.sim.hit == null ? "–" : pct(r.sim.hit, 0)} · max. Rückgang ${pct(r.sim.mdd, 0)}</div>
+              <div style="color:var(--muted)">graue Linie: kaufen und halten (${pct(state.bh.ret, 0)})</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;gap:14px;align-content:start">
+        ${cm(r.mR, "Kaufboxen (rot)", "--buy")}
+        ${cm(r.mB, "Verkaufsboxen (blau)", "--sell")}
+      </div>
+    </div>`;
+}
+
+/* ==========================================================
+   11 · Steuerung
+   ========================================================== */
+function relabel() {
+  const c = state.series.map((r) => r.c);
+  const P = readParams();
+  state.boxes = buildBoxes(c, P);
+  state.labels = boxLabels(c.length, state.boxes);
+  state.results = null;
+  state.selected = -1;
+  state.oosStart = 0;
+  $("#board-body").innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:26px">Boxen geändert — neu rechnen.</td></tr>`;
+  $("#detail").hidden = true;
+  fillAlgoSelect();
+  renderBoxStats();
+  renderChart();
+}
+
+function fillAlgoSelect() {
+  const sel = $("#p-algo");
+  sel.innerHTML = `<option value="-1">keine</option>` +
+    (state.results ? ALGOS.map((a, i) => `<option value="${i}">${a.name}</option>`).join("") : "");
+  sel.value = String(state.selected);
+  $("#legend-sig").hidden = state.selected < 0;
+}
+
+function setSeries(rows, isDemo) {
+  state.series = rows;
+  state.isDemo = isDemo;
+  $("#src-chip").className = "chip " + (isDemo ? "demo" : "live");
+  $("#src-label").textContent = isDemo ? "Demo-Reihe" : `${rows.length} Kurstage geladen`;
+  $("#demo-notice").hidden = !isDemo;
+  const a = rows[0].d, b = rows[rows.length - 1].d;
+  const fmt = (d) => `${String(d.getUTCDate()).padStart(2,"0")}.${String(d.getUTCMonth()+1).padStart(2,"0")}.${d.getUTCFullYear()}`;
+  $("#data-status").className = "status-line";
+  $("#data-status").innerHTML = `<span class="chip ${isDemo ? "demo" : "live"}"><span class="dot"></span>${isDemo ? "synthetisch" : "eigene Daten"}</span>
+    <span class="mono">${rows.length} Bars · ${fmt(a)} – ${fmt(b)} · ${f2.format(rows[0].c)} → ${f2.format(rows[rows.length-1].c)}</span>`;
+  relabel();
+}
+
+function loadText(txt) {
+  try {
+    const rows = parseCSV(txt);
+    setSeries(rows, false);
+  } catch (e) {
+    $("#data-status").className = "status-line err";
+    $("#data-status").textContent = e.message;
+  }
+}
+
+// Parameter-Anzeigen
+const SHOW = {
+  "p-theta":   (v) => f0.format(v) + " %",
+  "p-move":    (v) => f0.format(v) + " %",
+  "p-tol":     (v) => f0.format(v) + " %",
+  "p-half":    (v) => f0.format(v) + " T",
+  "p-embargo": (v) => f0.format(v) + " T",
+  "p-mintrain":(v) => f0.format(v) + " Bars",
+  "p-refit":   (v) => "alle " + f0.format(v) + " T",
+  "p-cost":    (v) => f1.format(v / 100) + " %",
+};
+for (const id in SHOW) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  const out = document.getElementById("v-" + id.slice(2));
+  const upd = () => { if (out) out.textContent = SHOW[id](+el.value); };
+  upd();
+  el.addEventListener("input", upd);
+}
+
+let relabelTimer;
+["p-theta", "p-move", "p-tol", "p-half"].forEach((id) =>
+  document.getElementById(id).addEventListener("input", () => {
+    clearTimeout(relabelTimer);
+    relabelTimer = setTimeout(relabel, 90);
+  })
+);
+
+$("#p-log").addEventListener("click", (e) => {
+  state.logScale = !state.logScale;
+  e.currentTarget.setAttribute("aria-pressed", String(state.logScale));
+  e.currentTarget.textContent = state.logScale ? "logarithmisch" : "linear";
+  renderChart();
+});
+
+$("#p-algo").addEventListener("change", (e) => {
+  state.selected = +e.target.value;
+  $("#legend-sig").hidden = state.selected < 0;
+  renderBoard(); renderDetail(); renderChart();
+});
+
+$("#theme-btn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  requestAnimationFrame(renderChart);
+});
+
+$("#run").addEventListener("click", async () => {
+  const btn = $("#run"), note = $("#run-note");
+  btn.disabled = true;
+  note.innerHTML = `<span class="busy"><span class="spin"></span>rechnet …</span>`;
+  try {
+    const res = await runAll((msg) => { note.innerHTML = `<span class="busy"><span class="spin"></span>${msg}</span>`; });
+    state.results = res;
+    state.selected = res.reduce((b, r, i, a) => (r.f1 > a[b].f1 ? i : b), 0);
+    fillAlgoSelect();
+    renderBoard(); renderDetail(); renderChart();
+    note.textContent = `${res.length} Algorithmen · ${state.series.length - state.oosStart} bewertete Tage`;
+  } catch (e) {
+    note.innerHTML = `<span style="color:var(--crit);font-weight:600">${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Datei / Einfügen
+const drop = $("#drop"), file = $("#file");
+drop.addEventListener("click", () => file.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); file.click(); } });
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) f.text().then(loadText);
+});
+file.addEventListener("change", () => { if (file.files[0]) file.files[0].text().then(loadText); });
+$("#load-paste").addEventListener("click", () => {
+  const t = $("#paste").value.trim();
+  if (!t) { $("#data-status").className = "status-line err"; $("#data-status").textContent = "Nichts eingefügt."; return; }
+  loadText(t);
+});
+$("#reset-demo").addEventListener("click", () => setSeries(demoSeries(), true));
+
+let rt;
+new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(renderChart, 80); }).observe($("#chart").parentNode);
+
+// Start
+setSeries(demoSeries(), true);
+})();
+</script>
